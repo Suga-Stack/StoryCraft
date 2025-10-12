@@ -76,8 +76,16 @@ WSGI_APPLICATION = 'myproject.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'djongo',
+        'NAME': 'your_db_name',  # MongoDB数据库的名字
+        'ENFORCE_SCHEMA': True,  # 启用模式强制（可选）
+        'CLIENT': {
+            'host': 'mongodb://localhost:27017',  # MongoDB服务器的地址
+            'username': 'your_username',  # MongoDB的用户名（如果需要）
+            'password': 'your_password',  # MongoDB的密码（如果需要）
+            'authSource': 'admin',  # 认证数据库（如果需要）
+            'authMechanism': 'SCRAM-SHA-1',  # 认证机制（可根据需要更改）
+        },
     }
 }
 
