@@ -37,7 +37,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'app',
+    'users',  # 用户
+    'gamework',  # 游戏作品
+    'tags', # 标签
 ]
 
 MIDDLEWARE = [
@@ -130,3 +132,6 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# 指定用户模型
+AUTH_USER_MODEL = 'users.User'
