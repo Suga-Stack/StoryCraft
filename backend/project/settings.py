@@ -78,18 +78,19 @@ WSGI_APPLICATION = 'myproject.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'djongo',
-        'NAME': 'your_db_name',  # MongoDB数据库的名字
-        'ENFORCE_SCHEMA': True,  # 启用模式强制（可选）
-        'CLIENT': {
-            'host': 'mongodb://localhost:27017',  # MongoDB服务器的地址
-            'username': 'your_username',  # MongoDB的用户名（如果需要）
-            'password': 'your_password',  # MongoDB的密码（如果需要）
-            'authSource': 'admin',  # 认证数据库（如果需要）
-            'authMechanism': 'SCRAM-SHA-1',  # 认证机制（可根据需要更改）
+        'ENGINE': 'django.db.backends.mysql',  # MySQL 数据库引擎
+        'NAME': 'your_database_name',          # 数据库名
+        'USER': 'your_username',               # 数据库用户名
+        'PASSWORD': 'your_password',           # 数据库密码
+        'HOST': 'localhost',                   # 数据库主机，默认本地 localhost
+        'PORT': '3306',                        # MySQL 默认端口
+        'OPTIONS': {                           # 可选配置
+            'charset': 'utf8mb4',              # 字符集
+            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
         },
     }
 }
+
 
 
 # Password validation
