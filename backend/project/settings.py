@@ -38,8 +38,9 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'users',  # 用户
-    'gamework',  # 游戏作品
-    'tags', # 标签
+    'gameworks',  # 游戏作品
+    'tags',  # 标签
+    'interactions',  # 收藏/评分/评论
 ]
 
 MIDDLEWARE = [
