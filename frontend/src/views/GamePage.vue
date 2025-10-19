@@ -1,0 +1,1361 @@
+<script setup>
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import './GamePage.css'
+import { useRouter, useRoute } from 'vue-router'
+import { ScreenOrientation } from '@capacitor/screen-orientation'
+
+// ---- 保存/读档后端集成配置 ----
+// 开启后优先尝试调用后端 API 保存/读取；若后端不可用则回退到 localStorage。
+// 若后端尚未就绪，可开启 USE_MOCK_SAVE 在前端模拟一个持久化层（基于 localStorage）。
+const USE_BACKEND_SAVE = true
+const USE_MOCK_SAVE = true
+// 是否启用故事内容的本地 mock（后端暂未就绪时）
+const USE_MOCK_STORY = true
+
+// 默认场景描写背景（当单句未提供 backgroundImage 且文本包含“场景描写”时使用）
+const DEFAULT_SCENE_DESC_BG = 'https://picsum.photos/1920/1080?blur=2&random=7000'
+// 关键词占位背景集合
+const PLACEHOLDER_BACKGROUNDS = {
+  night: 'https://picsum.photos/1920/1080?blur=2&random=8001',
+  snow: 'https://picsum.photos/1920/1080?blur=2&random=8002',
+  lake: 'https://picsum.photos/1920/1080?blur=2&random=8003',
+  palace: 'https://picsum.photos/1920/1080?blur=2&random=8004'
+}
+// 关键词映射（按优先级由上至下匹配）
+const PLACEHOLDER_KEYWORDS = [
+  { type: 'night', keys: ['夜', '夜色', '夜晚', '月', '星', '月光', '灯', '烛', '烛光', '灯火'] },
+  { type: 'snow',  keys: ['雪', '霜', '寒', '冬', '冰', '雾'] },
+  { type: 'lake',  keys: ['湖', '湖面', '湖水', '桥', '九曲桥', '锦鲤', '水', '涟漪'] },
+  { type: 'palace',keys: ['宫', '宫殿', '殿', '殿内', '正殿', '偏殿', '檐', '丹墀', '御座', '帷', '宫灯', '屏风', '龙涎香', '金砖'] }
+]
+
+const choosePlaceholderBackground = (text) => {
+  if (!text || typeof text !== 'string') return null
+  for (const group of PLACEHOLDER_KEYWORDS) {
+    for (const k of group.keys) {
+      if (text.includes(k)) return PLACEHOLDER_BACKGROUNDS[group.type]
+    }
+  }
+  return null
+}
+
+// 获取当前用户 ID 的策略：
+// 1. 首选 window.__STORYCRAFT_USER__?.id（由后端渲染或认证层注入）
+// 2. 其次使用 window.__STORYCRAFT_AUTH_TOKEN__ 解码（如果你有 JWT，可从中解析 sub）——这里不实现 JWT 解码。
+// 3. 最后回退到本地生成并保存的匿名 user id（仅用于本地测试，不适合生产跨设备共享）。
+const getCurrentUserId = () => {
+  try {
+    if (window.__STORYCRAFT_USER__ && window.__STORYCRAFT_USER__.id) return window.__STORYCRAFT_USER__.id
+  } catch (e) {}
+  // 如果页面里注入了 auth token（例如：window.__STORYCRAFT_AUTH_TOKEN__），建议后端在服务端返回 userId 给前端
+  const key = 'storycraft_user_id'
+  let id = localStorage.getItem(key)
+  if (!id) {
+    id = 'anon-' + generateUUID()
+    localStorage.setItem(key, id)
+  }
+  return id
+}
+
+const generateUUID = () => {
+  // 简单的 UUID v4 生成器（适合前端唯一标识）
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
+
+// 后端接口约定（前端将按下列约定调用）：
+// 保存（PUT）：/api/users/{userId}/saves/{workId}/{slot}
+//   Body: { workId, slot, data: {...payload...} }
+//   Response: 200 OK 或 201 Created
+// 读取（GET）：/api/users/{userId}/saves/{workId}/{slot}
+//   Response: { data: {...payload...}, timestamp }
+// 如果你的后端使用不同路径或认证，请参考下方 README 配置并告知后端。
+
+const backendSave = async (userId, workId, slot, data) => {
+  if (USE_MOCK_SAVE) return mockBackendSave(userId, workId, slot, data)
+  const url = `/api/users/${encodeURIComponent(userId)}/saves/${encodeURIComponent(workId)}/${encodeURIComponent(slot)}`
+  const body = { workId, slot, data }
+  const headers = { 'Content-Type': 'application/json' }
+  // 如果页面注入了 token，请添加 Authorization
+  if (window.__STORYCRAFT_AUTH_TOKEN__) headers['Authorization'] = `Bearer ${window.__STORYCRAFT_AUTH_TOKEN__}`
+  const res = await fetch(url, { method: 'PUT', headers, body: JSON.stringify(body) })
+  if (!res.ok) {
+    const txt = await res.text()
+    throw new Error(txt || res.statusText)
+  }
+  return res.json().catch(() => ({}))
+}
+
+const backendLoad = async (userId, workId, slot) => {
+  if (USE_MOCK_SAVE) return mockBackendLoad(userId, workId, slot)
+  const url = `/api/users/${encodeURIComponent(userId)}/saves/${encodeURIComponent(workId)}/${encodeURIComponent(slot)}`
+  const headers = {}
+  if (window.__STORYCRAFT_AUTH_TOKEN__) headers['Authorization'] = `Bearer ${window.__STORYCRAFT_AUTH_TOKEN__}`
+  const res = await fetch(url, { method: 'GET', headers })
+  if (res.status === 404) return null
+  if (!res.ok) {
+    const txt = await res.text()
+    throw new Error(txt || res.statusText)
+  }
+  const obj = await res.json()
+  // 兼容返回格式 { data: {...}, timestamp }
+  return obj && obj.data ? obj.data : obj
+}
+
+// 简单的 mock 实现（基于 localStorage），用于后端尚未就绪时的本地联调
+const mockBackendKey = (userId) => `storycraft_mock_saves_${userId}`
+const mockBackendSave = async (userId, workId, slot, data) => {
+  const mapRaw = localStorage.getItem(mockBackendKey(userId)) || '{}'
+  const map = JSON.parse(mapRaw)
+  map[`${workId}::${slot}`] = { data, timestamp: Date.now() }
+  localStorage.setItem(mockBackendKey(userId), JSON.stringify(map))
+  // 模拟网络延迟
+  await new Promise(r => setTimeout(r, 120))
+  return { ok: true }
+}
+const mockBackendLoad = async (userId, workId, slot) => {
+  const mapRaw = localStorage.getItem(mockBackendKey(userId)) || '{}'
+  const map = JSON.parse(mapRaw)
+  const entry = map[`${workId}::${slot}`]
+  await new Promise(r => setTimeout(r, 120))
+  return entry ? entry.data : null
+}
+
+const router = useRouter()
+const route = useRoute()
+
+// 加载状态
+const isLoading = ref(true)
+const loadingProgress = ref(0)
+// 后续剧情生成/获取状态
+const isFetchingNext = ref(false)
+const storyEndSignaled = ref(false)
+// 横屏准备状态
+const isLandscapeReady = ref(false)
+// 检测是否在 Capacitor 环境中
+const isNativeApp = computed(() => {
+  return window.Capacitor !== undefined
+})
+
+// 作品信息（从路由 state 获取，或从后端获取）
+const work = ref({
+  id: route.params.id || 1,
+  title: history.state?.title || '锦瑟深宫',
+  coverUrl: history.state?.coverUrl || 'https://via.placeholder.com/400x600/8B7355/FFFFFF?text=%E9%94%A6%E7%91%9F%E6%B7%B1%E5%AE%AB',
+  authorId: 'author_001'
+})
+
+// 故事场景数据（后端提供：背景图 + 对应的文字段落）
+const storyScenes = ref([
+  // 第一章·初入宫闱（引子与场景描写）
+  {
+    sceneId: 101,
+    backgroundImage: 'https://picsum.photos/1920/1080?random=101',
+    dialogues: [
+      '————《锦瑟深宫》第一章·初入宫闱————',
+      '建昭三年冬，新晋宫嫔入宫。你抱着鎏铜手炉坐在青帷小轿里，听见轿外老太监絮叨：“长春宫到了，西偏殿已备好银丝炭。”',
+      { text: '（场景描写）', backgroundImage: 'https://picsum.photos/1920/1080?blur=2&random=7101' },
+      '积雪压着琉璃蹲兽，廊下鹦鹉突然尖声学舌：“贵人万福——”你抬头看见正殿檐角断裂的铃铛在风里哑晃。领路宫女突然拽住你避开积水，她袖口露出的淤痕恰似梅枝投在纸窗上的影。'
+    ]
+  },
+  // 固定剧情（德妃奉茶）+ 选项
+  {
+    sceneId: 102,
+    backgroundImage: 'https://picsum.photos/1920/1080?random=102',
+    dialogues: [
+      '【固定剧情】',
+      '三日后晨省，你跪在德妃的牡丹团垫上奉茶。釉里红盏沿突然烫手，德妃染着蔻丹的指尖在接过时微微一顿。',
+      '“林选侍倒是生得雪做肌骨。”她吹开茶沫时，鎏金护甲掠过你托举的腕子，“可惜这贡茶需九十度滚水方能出香。”',
+      '茶盏坠地声惊起梁间燕子。一片碎瓷溅到你裙裾时，德妃含笑拭去你衣上水渍：“无妨，本宫库里有先帝赏的月白釉。”'
+    ],
+    // 在最后一句后展示选项
+    choiceTriggerIndex: 3,
+    choices: [
+      {
+        id: 'opt_A',
+        text: 'A. 立即叩首：“是嫔妾手笨”',
+        attributesDelta: { '心计': 5, '德妃好感': -3 },
+        statusesDelta: { '谨小慎微': '3日内行动成功率提升' },
+        nextScenes: [
+          {
+            sceneId: 1101,
+            backgroundImage: 'https://picsum.photos/1920/1080?random=1101',
+            dialogues: [
+              '【选项A后续】',
+              '你叩首时额角触及冰凉的青砖，德妃轻笑命人拾起碎瓷。当夜你在灯下抄录《女戒》，发现宣纸遇墨即晕。',
+              '次日借请安之机，你将浸染墨团的纸页呈给德妃过目。德妃指尖掠过晕染的墨痕，忽将整叠宣纸掷进炭盆。',
+              '蓝焰窜起时，她替你扶正鬓边玉簪：“内务府这般怠慢，该敲打。”三日后，送纸太监因私换贡品被杖责，你收到一匣光洁如玉的澄心堂纸。'
+            ]
+          },
+          {
+            sceneId: 1201,
+            backgroundImage: 'https://picsum.photos/1920/1080?random=1201',
+            dialogues: [
+              '————《锦瑟深宫》第二章·御园惊波————',
+              '霜降这日，众妃往御花园赏金桂。德妃扶着你的手走过九曲桥，忽指向湖心：“林选侍可见过红白锦鲤同游？”',
+              '你尚未应答，桥板突然断裂——',
+              { text: '（场景描写）', backgroundImage: 'https://picsum.photos/1920/1080?blur=2&random=7201' },
+              '冰冷湖水裹着残荷淹没口鼻，浮沉间看见德妃绣金凤纹的袖口在栏杆处纹丝不动。对岸贤妃的惊呼被风撕碎，你挣扎时抓住一截枯枝，却见明黄仪仗转过假山。',
+              '无数侍卫跃入水花的巨响中，有人托起你的后颈，龙涎香混着水汽钻进鼻腔。',
+              '【当前危机·A线】德妃俯身时鎏金护甲划过你湿透衣领：“可怜见的，连桥匠都敢怠慢妹妹。”'
+            ]
+          }
+        ]
+      },
+      {
+        id: 'opt_B',
+        text: 'B. 保持举盘姿势：“愿为娘娘重沏”',
+        attributesDelta: { '才情': 8, '健康': -5, '坚韧': 10 },
+        nextScenes: [
+          {
+            sceneId: 1102,
+            backgroundImage: 'https://picsum.photos/1920/1080?random=1102',
+            dialogues: [
+              '【选项B后续】',
+              '你举着茶盘的手纹丝不动，德妃命人续上滚水。第七日清晨你端茶时衣袖滑落，腕间水泡令贤妃惊呼。',
+              '当夜太医送来的药膏带着薄荷凉意，瓷瓶底刻着“景阳宫”小字。',
+              '月光浸透窗棂时，你发现药膏里埋着金疮药药方。院判每月初五会经过御花园采露，而贤妃的堂兄正掌管太医院文书。',
+              '檐下铁马突然叮当作响，你将药方藏进妆匣夹层。'
+            ]
+          },
+          {
+            sceneId: 1202,
+            backgroundImage: 'https://picsum.photos/1920/1080?random=1202',
+            dialogues: [
+              '————《锦瑟深宫》第二章·御园惊波————',
+              '霜降这日，众妃往御花园赏金桂。德妃扶着你的手走过九曲桥，忽指向湖心：“林选侍可见过红白锦鲤同游？”',
+              '你尚未应答，桥板突然断裂——',
+              { text: '（场景描写）', backgroundImage: 'https://picsum.photos/1920/1080?blur=2&random=7202' },
+              '冰冷湖水裹着残荷淹没口鼻，浮沉间看见德妃绣金凤纹的袖口在栏杆处纹丝不动。对岸贤妃的惊呼被风撕碎，你挣扎时抓住一截枯枝，却见明黄仪仗转过假山。',
+              '无数侍卫跃入水花的巨响中，有人托起你的后颈，龙涎香混着水汽钻进鼻腔。',
+              '【当前危机·B线】贤妃递来的姜汤飘着当归气：“本宫瞧着，那桥桩断口倒是齐整。”'
+            ]
+          }
+        ]
+      },
+      {
+        id: 'opt_C',
+        text: 'C. 抬眼直视德妃：“娘娘教诲如醍醐灌顶”',
+        attributesDelta: { '心计': 15, '声望': 10, '德妃好感': -10 },
+        statusesDelta: { '锋芒初露': '易被高位妃嫔注意' },
+        nextScenes: [
+          {
+            sceneId: 1103,
+            backgroundImage: 'https://picsum.photos/1920/1080?random=1103',
+            dialogues: [
+              '【选项C后续】',
+              '你抬眼时恰有晨光映在德妃的九翟冠上，她赏的雨过天青茶具当夜便被收进库房。',
+              '三日后太后召见，你跪在慈宁宫金砖上听见佛珠碰撞声。',
+              '缠枝莲香炉飘出的檀香与德妃宫中的龙涎香截然不同。太后腕间沉香木念珠垂落的流穗轻晃，突然问及江南旧事——那是你父亲曾任通判的地方。',
+              '你抬头看见屏风后露出半幅明黄衣角。'
+            ]
+          },
+          {
+            sceneId: 1203,
+            backgroundImage: 'https://picsum.photos/1920/1080?random=1203',
+            dialogues: [
+              '————《锦瑟深宫》第二章·御园惊波————',
+              '霜降这日，众妃往御花园赏金桂。德妃扶着你的手走过九曲桥，忽指向湖心：“林选侍可见过红白锦鲤同游？”',
+              '你尚未应答，桥板突然断裂——',
+              { text: '（场景描写）', backgroundImage: 'https://picsum.photos/1920/1080?blur=2&random=7203' },
+              '冰冷湖水裹着残荷淹没口鼻，浮沉间看见德妃绣金凤纹的袖口在栏杆处纹丝不动。对岸贤妃的惊呼被风撕碎，你挣扎时抓住一截枯枝，却见明黄仪仗转过假山。',
+              '无数侍卫跃入水花的巨响中，有人托起你的后颈，龙涎香混着水汽钻进鼻腔。',
+              '【当前危机·C线】太后掌事宫女塞来暖玉：“皇上方才问起，会凫水的侍卫是哪宫安排的。”'
+            ]
+          }
+        ]
+      }
+    ]
+  }
+])
+
+// 当前场景索引
+const currentSceneIndex = ref(0)
+// 当前对话索引
+const currentDialogueIndex = ref(0)
+// 是否显示菜单
+const showMenu = ref(false)
+// 是否显示文字（用于淡入效果）
+const showText = ref(false)
+
+// 获取当前场景
+const currentScene = computed(() => {
+  return storyScenes.value[currentSceneIndex.value] || null
+})
+
+// 对话项可能是字符串或对象：{ text, backgroundImage }
+const getDialogueItem = (scene, idx) => {
+  if (!scene) return null
+  const item = scene.dialogues?.[idx]
+  if (item == null) return null
+  if (typeof item === 'string') return { text: item }
+  if (typeof item === 'object') return { text: item.text ?? '', backgroundImage: item.backgroundImage }
+  return null
+}
+
+// 获取当前对话文字
+const currentDialogue = computed(() => {
+  const scene = currentScene.value
+  const item = getDialogueItem(scene, currentDialogueIndex.value)
+  return item?.text || ''
+})
+
+// 获取当前背景图：若当前对话项提供了 backgroundImage，则优先展示该图，否则回退到场景背景
+const currentBackground = computed(() => {
+  const scene = currentScene.value
+  const item = getDialogueItem(scene, currentDialogueIndex.value)
+  if (item?.backgroundImage) return item.backgroundImage
+  // 自动占位策略：场景描写标记
+  if (item?.text && /（\s*场景描写\s*）/.test(item.text)) {
+    // 先尝试关键词占位，再退回默认
+    return choosePlaceholderBackground(item.text) || DEFAULT_SCENE_DESC_BG
+  }
+  // 关键词占位：若文本包含特定意象则给出更贴切的占位图
+  if (item?.text) {
+    const byKeyword = choosePlaceholderBackground(item.text)
+    if (byKeyword) return byKeyword
+  }
+  return scene?.backgroundImage || ''
+})
+
+// 计算阅读进度
+const readingProgress = computed(() => {
+  let totalDialogues = 0
+  let currentDialogues = 0
+  
+  storyScenes.value.forEach((scene, index) => {
+    totalDialogues += scene.dialogues.length
+    if (index < currentSceneIndex.value) {
+      currentDialogues += scene.dialogues.length
+    } else if (index === currentSceneIndex.value) {
+      currentDialogues += currentDialogueIndex.value + 1
+    }
+  })
+  
+  return (currentDialogues / totalDialogues) * 100
+})
+
+// 是否是最后一句对话
+const isLastDialogue = computed(() => {
+  return currentSceneIndex.value === storyScenes.value.length - 1 &&
+         currentDialogueIndex.value === currentScene.value.dialogues.length - 1
+})
+
+// 点击屏幕进入下一段对话
+const nextDialogue = () => {
+  console.log('nextDialogue called, showMenu:', showMenu.value)
+  
+  if (showMenu.value) {
+    // 如果菜单显示，点击不做任何事
+    return
+  }
+  
+  const scene = currentScene.value
+  console.log('Current scene:', scene, 'dialogue index:', currentDialogueIndex.value)
+  
+  // 如果当前场景还有下一段对话
+  if (currentDialogueIndex.value < scene.dialogues.length - 1) {
+    showText.value = false
+    setTimeout(() => {
+      currentDialogueIndex.value++
+      showText.value = true
+      console.log('Next dialogue:', currentDialogueIndex.value)
+    }, 200)
+  } else {
+    // 当前场景对话结束，切换到下一个场景
+    if (currentSceneIndex.value < storyScenes.value.length - 1) {
+      showText.value = false
+      setTimeout(() => {
+        // 切换场景时重置选项显示
+        choicesVisible.value = false
+        currentSceneIndex.value++
+        currentDialogueIndex.value = 0
+        showText.value = true
+        console.log('Next scene:', currentSceneIndex.value)
+      }, 300)
+    } else {
+      // 已到当前已加载内容的末尾
+      if (storyEndSignaled.value) {
+        console.log('故事结束')
+        alert('故事结束，感谢阅读！')
+        return
+      }
+      // 尚未收到结束信号，则尝试拉取下一段剧情
+      ensureNextContentAndAdvance()
+    }
+  }
+}
+
+// 切换菜单显示
+const toggleMenu = () => {
+  showMenu.value = !showMenu.value
+}
+
+// 返回作品介绍页
+const goBack = async () => {
+  try {
+    // 退出前自动存档到六号位
+    await autoSaveToSlot(AUTO_SAVE_SLOT)
+    // 退出横屏，恢复竖屏
+    if (isNativeApp.value) {
+      console.log('恢复竖屏')
+      await ScreenOrientation.unlock()
+    } else {
+      // 浏览器环境：退出全屏
+      if (document.exitFullscreen) {
+        await document.exitFullscreen()
+      } else if (document.mozCancelFullScreen) {
+        document.mozCancelFullScreen()
+      } else if (document.webkitExitFullscreen) {
+        document.webkitExitFullscreen()
+      } else if (document.msExitFullscreen) {
+        document.msExitFullscreen()
+      }
+      
+      if (screen.orientation && screen.orientation.unlock) {
+        screen.orientation.unlock()
+      }
+    }
+  } catch (err) {
+    console.log('退出横屏失败:', err)
+  }
+  
+  router.push('/works')
+}
+
+// 尝试从后端拉取下一段剧情并在成功后自动推进
+const ensureNextContentAndAdvance = async () => {
+  if (isFetchingNext.value) return
+  isFetchingNext.value = true
+  try {
+    const lastScene = storyScenes.value[storyScenes.value.length - 1]
+    const afterSceneId = lastScene?.sceneId
+    const data = await fetchNextContent(work.value.id, afterSceneId)
+    if (!data) throw new Error('无返回')
+    if (data.end === true || (Array.isArray(data.nextScenes) && data.nextScenes.length === 0)) {
+      storyEndSignaled.value = true
+      // 小延迟后提示结束
+      setTimeout(() => {
+        alert('故事结束，感谢阅读！')
+      }, 100)
+      return
+    }
+    if (Array.isArray(data.nextScenes) && data.nextScenes.length > 0) {
+      const startIdx = storyScenes.value.length
+      storyScenes.value.push(...data.nextScenes)
+      // 自动前进到新插入的第一幕
+      showText.value = false
+      setTimeout(() => {
+        choicesVisible.value = false
+        currentSceneIndex.value = startIdx
+        currentDialogueIndex.value = 0
+        showText.value = true
+      }, 150)
+    }
+  } catch (e) {
+    console.warn('获取后续剧情失败：', e)
+    alert('后续剧情生成中，请稍后再试…')
+  } finally {
+    isFetchingNext.value = false
+  }
+}
+
+// 后端：获取下一段剧情（按需加载）
+const fetchNextContent = async (workId, afterSceneId) => {
+  if (USE_MOCK_STORY) return mockFetchNextContent(workId, afterSceneId)
+  const url = `/api/story/${encodeURIComponent(workId)}/next?after=${encodeURIComponent(afterSceneId ?? '')}`
+  const res = await fetch(url, { method: 'GET' })
+  if (!res.ok) throw new Error(await res.text() || res.statusText)
+  return res.json()
+}
+
+// Mock：根据当前最后一个 sceneId 简单返回一段占位剧情，或模拟结束
+const mockFetchNextContent = async (workId, afterSceneId) => {
+  await new Promise(r => setTimeout(r, 1200))
+  // 简单规则：到了 1203 后不再生成（视为结束）
+  if (afterSceneId >= 1203) {
+    return { end: true, nextScenes: [] }
+  }
+  const nextId = (afterSceneId || 1000) + 10
+  return {
+    end: false,
+    nextScenes: [
+      {
+        sceneId: nextId,
+        backgroundImage: 'https://picsum.photos/1920/1080?random=' + (nextId % 9999),
+        dialogues: [
+          '（场景描写）',
+          '后续剧情占位段落：系统正在为您生成更精彩的内容…',
+          '请继续点击屏幕，稍后将进入新的篇章。'
+        ]
+      }
+    ]
+  }
+}
+
+// 存档 / 读档 / 属性 模态与逻辑
+const showAttributesModal = ref(false)
+const saveToast = ref('')
+const loadToast = ref('')
+const lastSaveInfo = ref(null)
+// 新增：存/读档弹窗及槽位信息
+const showSaveModal = ref(false)
+const showLoadModal = ref(false)
+const SLOTS = ['slot1', 'slot2', 'slot3', 'slot4', 'slot5', 'slot6']
+const slotInfos = ref({ slot1: null, slot2: null, slot3: null, slot4: null, slot5: null, slot6: null })
+
+// 玩家属性与“特殊状态”（由 AI/后端生成并随剧情变化）
+// 属性示例：好感度、善良值等；特殊状态示例：『顾景琛的怀疑』『负伤』等
+const attributes = ref(history.state?.attributes || {
+  '心计': 30,
+  '才情': 60,
+  '声望': 10,
+  '圣宠': 0,
+  '健康': 100
+})
+const statuses = ref(history.state?.statuses || {
+  '姓名': '林微月',
+  '位份': '从七品选侍',
+  '年龄': 16,
+  '阵营': '无',
+  '明眸善睐': '眼波流转间易获好感',
+  '暗香盈袖': '体带天然冷梅香'
+})
+
+// 选项交互状态
+const isFetchingChoice = ref(false)
+
+
+// 本地回退存档 key（包含 userId，避免不同用户冲突）
+const localSaveKey = (userId, workId, slot = 'default') => `storycraft_save_${userId}_${workId}_${slot}`
+
+// 简单深拷贝（避免引用被后续修改影响到存档/展示）
+const deepClone = (obj) => JSON.parse(JSON.stringify(obj))
+
+// 自动存档槽位（退出时写入）
+const AUTO_SAVE_SLOT = 'slot6'
+
+// 构建当前存档快照
+const buildSavePayload = () => ({
+  work: work.value,
+  currentSceneIndex: currentSceneIndex.value,
+  currentDialogueIndex: currentDialogueIndex.value,
+  attributes: deepClone(attributes.value),
+  statuses: deepClone(statuses.value),
+  storyScenes: deepClone(storyScenes.value),
+  timestamp: Date.now()
+})
+
+const saveGame = async (slot = 'default') => {
+  const payload = buildSavePayload()
+
+  const userId = getCurrentUserId()
+  const workId = work.value.id
+
+  // 优先使用后端存储（如果开启）
+  if (USE_BACKEND_SAVE) {
+    try {
+      await backendSave(userId, workId, slot, payload)
+  lastSaveInfo.value = deepClone(payload)
+      saveToast.value = `已上传存档（${new Date(payload.timestamp).toLocaleString()}）`
+      setTimeout(() => (saveToast.value = ''), 2000)
+      console.log('saved to backend', { userId, workId, slot, payload })
+      return
+    } catch (err) {
+      console.warn('后端存档失败，回退到 localStorage：', err)
+      // fallthrough to localStorage save
+    }
+  }
+
+  // fallback: localStorage（包含 userId 以避免不同用户冲突）
+  try {
+    const key = localSaveKey(userId, workId, slot)
+    localStorage.setItem(key, JSON.stringify(payload))
+  lastSaveInfo.value = deepClone(payload)
+    saveToast.value = `已本地存档（${new Date(payload.timestamp).toLocaleString()}）`
+    setTimeout(() => (saveToast.value = ''), 2000)
+    console.log('saved to localStorage', key, payload)
+  } catch (err) {
+    console.error('保存失败', err)
+    alert('保存失败：' + err.message)
+  }
+}
+
+// 静默自动存档（退出时使用，不弹 toast）
+const autoSaveToSlot = async (slot = AUTO_SAVE_SLOT) => {
+  try {
+    const payload = buildSavePayload()
+    const userId = getCurrentUserId()
+    const workId = work.value.id
+    if (USE_BACKEND_SAVE) {
+      try {
+        await backendSave(userId, workId, slot, payload)
+        return
+      } catch (e) {
+        // 忽略错误，回落到本地
+      }
+    }
+    const key = localSaveKey(userId, workId, slot)
+    localStorage.setItem(key, JSON.stringify(payload))
+  } catch (e) {
+    // 保底失败忽略
+  }
+}
+
+// 快速本地存档（用于 beforeunload 场景，不进行网络请求）
+const quickLocalAutoSave = (slot = AUTO_SAVE_SLOT) => {
+  try {
+    const payload = buildSavePayload()
+    const userId = getCurrentUserId()
+    const workId = work.value.id
+    const key = localSaveKey(userId, workId, slot)
+    localStorage.setItem(key, JSON.stringify(payload))
+  } catch (e) {}
+}
+
+const loadGame = async (slot = 'default') => {
+  const userId = getCurrentUserId()
+  const workId = work.value.id
+
+  // 尝试后端读取
+  if (USE_BACKEND_SAVE) {
+    try {
+      const remote = await backendLoad(userId, workId, slot)
+      if (remote) {
+        // 恢复 storyScenes（若存在），确保读档回到保存时的剧情内容
+        if (remote.storyScenes && Array.isArray(remote.storyScenes)) {
+          storyScenes.value = deepClone(remote.storyScenes)
+        }
+        // remote 应该包含 currentSceneIndex/currentDialogueIndex/attributes 等
+        if (typeof remote.currentSceneIndex === 'number') currentSceneIndex.value = remote.currentSceneIndex
+        if (typeof remote.currentDialogueIndex === 'number') currentDialogueIndex.value = remote.currentDialogueIndex
+        // attributes/statuses 使用存档快照完整覆盖，缺省则置空，避免选项后的变化残留
+        attributes.value = deepClone(remote.attributes || {})
+        statuses.value = deepClone(remote.statuses || {})
+        // 恢复文字显示状态，并让选项由 watch 重新判断
+        showText.value = true
+        choicesVisible.value = false
+        lastSaveInfo.value = deepClone(remote)
+        loadToast.value = `已从服务器读档（${new Date(remote.timestamp || Date.now()).toLocaleString()}）`
+        setTimeout(() => (loadToast.value = ''), 2000)
+        console.log('loaded from backend', { userId, workId, slot, remote })
+        // 读档成功后自动关闭读档弹窗
+        showLoadModal.value = false
+        return
+      }
+      // 如果后端返回 null/404，则回退到本地
+    } catch (err) {
+      console.warn('后端读档失败，回退到 localStorage：', err)
+      // fallback to localStorage below
+    }
+  }
+
+  // fallback: localStorage（包含 userId 以避免不同用户冲突）
+  try {
+    const key = localSaveKey(userId, workId, slot)
+    const raw = localStorage.getItem(key)
+    if (!raw) {
+      loadToast.value = '未找到本地存档'
+      setTimeout(() => (loadToast.value = ''), 1500)
+      return
+    }
+    const payload = JSON.parse(raw)
+    if (payload.storyScenes && Array.isArray(payload.storyScenes)) {
+      storyScenes.value = deepClone(payload.storyScenes)
+    }
+    if (typeof payload.currentSceneIndex === 'number') currentSceneIndex.value = payload.currentSceneIndex
+    if (typeof payload.currentDialogueIndex === 'number') currentDialogueIndex.value = payload.currentDialogueIndex
+    // attributes/statuses 使用存档快照完整覆盖，缺省则置空
+    attributes.value = deepClone(payload.attributes || {})
+    statuses.value = deepClone(payload.statuses || {})
+    showText.value = true
+    choicesVisible.value = false
+    lastSaveInfo.value = deepClone(payload)
+    loadToast.value = `本地读档成功（${new Date(payload.timestamp).toLocaleString()}）`
+    setTimeout(() => (loadToast.value = ''), 2000)
+    console.log('loaded from localStorage', key, payload)
+    // 读档成功后自动关闭读档弹窗
+    showLoadModal.value = false
+  } catch (err) {
+    console.error('读档失败', err)
+    alert('读档失败：' + err.message)
+  }
+}
+
+// 如果选项对象本身包含分支数据（后端已经把每个选项的后续剧情一并返回）
+const applyChoiceBranch = (choiceObj) => {
+  try {
+    if (!choiceObj) return
+  // 属性变更
+  if (choiceObj.attributesDelta) applyAttributesDelta(choiceObj.attributesDelta)
+  // 特殊状态变更
+  if (choiceObj.statusesDelta) applyStatusesDelta(choiceObj.statusesDelta)
+  if (choiceObj.statuses) applyStatusesDelta(choiceObj.statuses)
+
+    if (choiceObj.nextScene) {
+      storyScenes.value.push(choiceObj.nextScene)
+      currentSceneIndex.value = storyScenes.value.length - 1
+      currentDialogueIndex.value = 0
+      showText.value = true
+      return
+    }
+
+    if (choiceObj.nextScenes && Array.isArray(choiceObj.nextScenes)) {
+      const startIdx = storyScenes.value.length
+      storyScenes.value.push(...choiceObj.nextScenes)
+      currentSceneIndex.value = startIdx
+      currentDialogueIndex.value = 0
+      showText.value = true
+      return
+    }
+
+    if (choiceObj.dialogues) {
+      const idx = currentSceneIndex.value
+      const newScene = Object.assign({}, storyScenes.value[idx], {
+        backgroundImage: choiceObj.backgroundImage || storyScenes.value[idx].backgroundImage,
+        dialogues: choiceObj.dialogues
+      })
+      storyScenes.value.splice(idx, 1, newScene)
+      currentDialogueIndex.value = 0
+      showText.value = true
+      return
+    }
+  } catch (err) {
+    console.error('applyChoiceBranch 失败', err)
+  }
+}
+
+// 控制选项展示（在某句阅读结束后出现）
+const choicesVisible = ref(false)
+
+// 当场景或对话索引变动，检查是否应该显示选项
+watch([currentSceneIndex, currentDialogueIndex], () => {
+  const scene = currentScene.value
+  if (!scene) return
+  // 如果场景有 choices 且指定了触发句索引
+  if (Array.isArray(scene.choices) && typeof scene.choiceTriggerIndex === 'number') {
+    // 当阅读到触发句的索引（即等于或超过）时显示选项
+    if (currentDialogueIndex.value >= scene.choiceTriggerIndex && showText.value) {
+      choicesVisible.value = true
+    }
+  }
+})
+
+const openAttributes = () => {
+  showAttributesModal.value = true
+}
+
+const closeAttributes = () => {
+  showAttributesModal.value = false
+}
+
+// 打开存档弹窗 / 读档弹窗，并刷新槽位信息
+const openSaveModal = async () => {
+  showSaveModal.value = true
+  await refreshSlotInfos()
+}
+const openLoadModal = async () => {
+  showLoadModal.value = true
+  await refreshSlotInfos()
+}
+const closeSaveModal = () => { showSaveModal.value = false }
+const closeLoadModal = () => { showLoadModal.value = false }
+
+const refreshSlotInfos = async () => {
+  try {
+    const userId = getCurrentUserId()
+    const workId = work.value.id
+    const results = await Promise.all(SLOTS.map(async (slot) => {
+      // 优先尝试后端或 mock 后端
+      if (USE_BACKEND_SAVE) {
+        try {
+          const data = await backendLoad(userId, workId, slot)
+          if (data) return { slot, data: deepClone(data) }
+        } catch (e) {
+          // 忽略错误，回退到本地
+        }
+      }
+      // 回退到本地
+      const key = localSaveKey(userId, workId, slot)
+      const raw = localStorage.getItem(key)
+      if (raw) {
+  const data = JSON.parse(raw)
+  return { slot, data: deepClone(data) }
+      }
+      return { slot, data: null }
+    }))
+  const info = {}
+  SLOTS.forEach(s => (info[s] = null))
+  results.forEach(r => { if (r && r.slot) info[r.slot] = r.data })
+    slotInfos.value = info
+  } catch (e) {
+    console.warn('刷新槽位信息失败：', e)
+  }
+}
+
+// 请求横屏
+const requestLandscape = async () => {
+  const element = document.documentElement
+  
+  // 横屏准备完成，开始加载（先显示，再尝试全屏）
+  isLandscapeReady.value = true
+  startLoading()
+  
+  try {
+    // 在原生 APP 中，使用 Capacitor 插件锁定横屏
+    if (isNativeApp.value) {
+      console.log('检测到 APP 环境，使用 ScreenOrientation 插件')
+      // 使用 Capacitor 插件锁定为横屏
+      await ScreenOrientation.lock({ orientation: 'landscape' })
+      console.log('✅ 成功锁定为横屏')
+      
+      // APP 中也尝试全屏（提供更沉浸的体验）
+      if (element.requestFullscreen) {
+        await element.requestFullscreen().catch(err => {
+          console.log('全屏请求失败（APP 中可选）:', err)
+        })
+      }
+    } else {
+      console.log('检测到浏览器环境，使用标准 API')
+      // 在浏览器中，先请求全屏再锁定方向
+      if (element.requestFullscreen) {
+        await element.requestFullscreen()
+      } else if (element.mozRequestFullScreen) {
+        await element.mozRequestFullScreen()
+      } else if (element.webkitRequestFullscreen) {
+        await element.webkitRequestFullscreen()
+      } else if (element.msRequestFullscreen) {
+        await element.msRequestFullscreen()
+      }
+      
+      // 锁定屏幕方向为横屏
+      if (screen.orientation && screen.orientation.lock) {
+        await screen.orientation.lock('landscape').catch(err => {
+          console.log('屏幕方向锁定失败:', err)
+        })
+      }
+    }
+  } catch (err) {
+    console.log('进入横屏失败:', err)
+    // 开发环境降级处理：依赖 CSS 媒体查询实现横屏布局
+  }
+}
+
+const applyAttributesDelta = (delta) => {
+  if (!delta) return
+  Object.keys(delta).forEach(k => {
+    const v = delta[k]
+    if (typeof v === 'number') {
+      attributes.value[k] = (attributes.value[k] || 0) + v
+    } else {
+      // 非数值类型直接覆盖
+      attributes.value[k] = v
+    }
+  })
+}
+
+// 应用“特殊状态”变化
+// 规则：
+// - 数值：累加（用于『怀疑 +10』）
+// - null/false：移除该状态
+// - 其他类型（字符串/对象/布尔）：覆盖
+const applyStatusesDelta = (delta) => {
+  if (!delta) return
+  const target = statuses.value
+  if (Array.isArray(delta)) {
+    delta.forEach(entry => {
+      if (!entry) return
+      const key = entry.name || entry.key
+      if (!key) return
+      const v = entry.value ?? entry.level ?? entry.state ?? entry.description ?? entry
+      if (v === null || v === false || entry.remove === true) {
+        delete target[key]
+      } else if (typeof v === 'number') {
+        const cur = target[key]
+        const curNum = typeof cur === 'number' ? cur : (cur?.value ?? cur?.level ?? 0)
+        target[key] = (curNum || 0) + v
+      } else {
+        target[key] = v
+      }
+    })
+    return
+  }
+  if (typeof delta === 'object') {
+    Object.keys(delta).forEach(key => {
+      const v = delta[key]
+      if (v === null || v === false) {
+        delete target[key]
+      } else if (typeof v === 'number') {
+        const cur = target[key]
+        const curNum = typeof cur === 'number' ? cur : (cur?.value ?? cur?.level ?? 0)
+        target[key] = (curNum || 0) + v
+      } else {
+        target[key] = v
+      }
+    })
+  }
+}
+
+// 处理选项点击：向后端请求选项后续剧情并应用返回结果
+const chooseOption = async (choiceId) => {
+  if (isFetchingChoice.value) return
+  // 用户点击选项后立即隐藏选项，直到后端返回或 mock 完成
+  choicesVisible.value = false
+  isFetchingChoice.value = true
+  try {
+    // 先检查当前场景中该选项是否自带后续分支（后端已预打包）
+    const scene = currentScene.value
+    const localChoice = scene?.choices?.find(c => c.id === choiceId)
+    if (localChoice && (localChoice.nextScene || localChoice.nextScenes || localChoice.dialogues || localChoice.attributesDelta)) {
+      applyChoiceBranch(localChoice)
+      return
+    }
+    const payload = { sceneId: currentScene.value?.sceneId, choiceId }
+    const res = await fetch(`/api/story/${work.value.id}/choice`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    if (!res.ok) {
+      const txt = await res.text()
+      throw new Error(txt || res.statusText)
+    }
+    const data = await res.json()
+
+  // 后端可能返回 attributesDelta/statusesDelta, nextScene / nextScenes / dialogues
+  if (data.attributesDelta) applyAttributesDelta(data.attributesDelta)
+  if (data.statusesDelta) applyStatusesDelta(data.statusesDelta)
+  if (data.statuses) applyStatusesDelta(data.statuses)
+
+    if (data.nextScene) {
+      storyScenes.value.push(data.nextScene)
+      currentSceneIndex.value = storyScenes.value.length - 1
+      currentDialogueIndex.value = 0
+      showText.value = true
+    } else if (data.nextScenes && Array.isArray(data.nextScenes)) {
+      const startIdx = storyScenes.value.length
+      storyScenes.value.push(...data.nextScenes)
+      currentSceneIndex.value = startIdx
+      currentDialogueIndex.value = 0
+      showText.value = true
+    } else if (data.dialogues) {
+      // 替换当前场景的对话（不改变场景索引）
+      const idx = currentSceneIndex.value
+      const newScene = Object.assign({}, storyScenes.value[idx], {
+        backgroundImage: data.backgroundImage || storyScenes.value[idx].backgroundImage,
+        dialogues: data.dialogues
+      })
+      storyScenes.value.splice(idx, 1, newScene)
+      currentDialogueIndex.value = 0
+      showText.value = true
+    } else {
+      // 如果后端没有直接返回剧情，尝试简单推进到下一个场景（如果存在）
+      if (currentSceneIndex.value < storyScenes.value.length - 1) {
+        currentSceneIndex.value++
+        currentDialogueIndex.value = 0
+        showText.value = true
+      }
+    }
+  } catch (err) {
+    console.error('选择处理失败', err)
+    // 回退：使用内置 mock 数据以便离线测试
+    const mockResponses = {
+      'c_investigate': {
+        attributesDelta: { hp: 0 },
+        dialogues: [
+          '你仔细检查房间，发现一张折叠的小纸条：上面写着“离开此地”。',
+          '这条信息让你心头一震。'
+        ]
+      },
+      'c_playdead': {
+        attributesDelta: { hp: 0 },
+        nextScene: {
+          sceneId: 999,
+          backgroundImage: 'https://picsum.photos/1920/1080?random=20',
+          dialogues: ['你佯装昏迷，侍女以为你睡着了，离开了房间。']
+        }
+      },
+      'c_scream': {
+        attributesDelta: { hp: -5 },
+        dialogues: ['你大声尖叫，侍卫冲进来把你带走，情况急转直下。']
+      }
+    }
+
+    const mock = mockResponses[choiceId]
+    if (mock) {
+      if (mock.attributesDelta) applyAttributesDelta(mock.attributesDelta)
+      if (mock.nextScene) {
+        storyScenes.value.push(mock.nextScene)
+        currentSceneIndex.value = storyScenes.value.length - 1
+        currentDialogueIndex.value = 0
+        showText.value = true
+      } else if (mock.dialogues) {
+        const idx = currentSceneIndex.value
+        const newScene = Object.assign({}, storyScenes.value[idx], {
+          backgroundImage: mock.backgroundImage || storyScenes.value[idx].backgroundImage,
+          dialogues: mock.dialogues
+        })
+        storyScenes.value.splice(idx, 1, newScene)
+        currentDialogueIndex.value = 0
+        showText.value = true
+      }
+    } else {
+      alert('获取选项后续剧情失败：' + err.message)
+    }
+  } finally {
+    isFetchingChoice.value = false
+  }
+}
+
+// 模拟加载过程
+const startLoading = () => {
+  isLoading.value = true
+  loadingProgress.value = 0
+  
+  // 模拟加载进度
+  const loadingInterval = setInterval(() => {
+    loadingProgress.value += Math.random() * 15
+    
+    if (loadingProgress.value >= 100) {
+      loadingProgress.value = 100
+      clearInterval(loadingInterval)
+      
+      // 加载完成后延迟一点再显示内容
+      setTimeout(() => {
+        isLoading.value = false
+        showText.value = true
+      }, 500)
+    }
+  }, 200)
+}
+
+// 页面加载时请求横屏并开始加载
+onMounted(() => {
+  if (isNativeApp.value) {
+    // APP 环境：直接进入横屏
+    isLandscapeReady.value = true
+    requestLandscape()
+  } else {
+    // 浏览器环境：在开发模式下自动进入阅读以便测试选项；生产模式仍显示进入阅读按钮
+    try {
+      if (import.meta.env && import.meta.env.DEV) {
+        isLandscapeReady.value = true
+        startLoading()
+      } else {
+        // 生产/正式环境：显示进入阅读按钮
+      }
+    } catch (e) {
+      // 某些构建环境可能不支持 import.meta.env，这里保守处理
+    }
+  }
+  // 页面可见性变化时：隐藏→尝试自动存档
+  const onVisibility = () => {
+    if (document.hidden) autoSaveToSlot(AUTO_SAVE_SLOT)
+  }
+  document.addEventListener('visibilitychange', onVisibility)
+  // 卸载/刷新前的本地快速存档
+  const onBeforeUnload = () => {
+    quickLocalAutoSave(AUTO_SAVE_SLOT)
+  }
+  window.addEventListener('beforeunload', onBeforeUnload)
+  // 存储清理函数到实例上，便于卸载时移除
+  ;(onMounted._cleanup = () => {
+    document.removeEventListener('visibilitychange', onVisibility)
+    window.removeEventListener('beforeunload', onBeforeUnload)
+  })
+})
+
+// 页面卸载时解锁屏幕方向
+onUnmounted(async () => {
+  try {
+    // 卸载前自动存档
+    await autoSaveToSlot(AUTO_SAVE_SLOT)
+    if (isNativeApp.value) {
+      await ScreenOrientation.unlock()
+      console.log('组件卸载，已解锁屏幕方向')
+    } else if (screen.orientation && screen.orientation.unlock) {
+      screen.orientation.unlock()
+    }
+  } catch (err) {
+    console.log('解锁屏幕方向失败:', err)
+  }
+  // 清理挂载时添加的侦听
+  if (onMounted._cleanup) try { onMounted._cleanup() } catch {}
+})
+</script>
+
+<template>
+  <div class="game-page">
+    <!-- 横屏准备界面 -->
+    <div v-if="!isLandscapeReady" class="landscape-prompt">
+      <div class="prompt-content">
+        <h2 class="prompt-title">{{ work.title }}</h2>
+        <p class="prompt-text">即将进入横屏阅读模式</p>
+        <p class="prompt-hint">为获得最佳阅读体验，请横置您的设备</p>
+        <button class="enter-button" @click="requestLandscape">
+          <span>进入阅读</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 加载界面 -->
+    <transition name="fade">
+      <div v-if="isLandscapeReady && isLoading" class="loading-screen">
+        <!-- 封面背景图 -->
+        <div class="loading-cover-bg" :style="{ backgroundImage: `url(${work.coverUrl})` }"></div>
+        
+        <div class="loading-content">
+          <!-- 游戏标题（使用作品名） -->
+          <h1 class="game-title">{{ work.title }}</h1>
+          
+          <!-- 毛笔动画 -->
+          <div class="brush-container">
+            <svg class="brush-icon" viewBox="0 0 64 64" fill="none">
+              <!-- 毛笔笔杆 -->
+              <path 
+                d="M32 8 L32 40" 
+                stroke="#8B4513" 
+                stroke-width="3" 
+                stroke-linecap="round"
+              />
+              <!-- 毛笔笔头 -->
+              <path 
+                d="M32 40 L28 52 L32 56 L36 52 Z" 
+                fill="#2C2C2C"
+                stroke="#1C1C1C"
+                stroke-width="1"
+              />
+              <!-- 毛笔尖 -->
+              <path 
+                d="M32 56 L30 60 L32 62 L34 60 Z" 
+                fill="#1C1C1C"
+              />
+              <!-- 笔杆装饰 -->
+              <circle cx="32" cy="12" r="2" fill="#D4A574"/>
+              <circle cx="32" cy="20" r="2" fill="#D4A574"/>
+              <circle cx="32" cy="28" r="2" fill="#D4A574"/>
+            </svg>
+          </div>
+          
+          <!-- 进度条容器 -->
+          <div class="loading-progress-container">
+            <div class="loading-progress-bg">
+              <div class="loading-progress-fill" :style="{ width: loadingProgress + '%' }">
+                <div class="progress-shine"></div>
+              </div>
+            </div>
+            <div class="loading-text">{{ Math.floor(loadingProgress) }}%</div>
+          </div>
+          
+          <!-- 加载提示 -->
+          <div class="loading-tips">
+            <p class="tip-text">正在准备故事...</p>
+          </div>
+        </div>
+        
+        <!-- 背景装饰 -->
+        <div class="bg-decoration">
+          <div class="decoration-circle"></div>
+          <div class="decoration-circle"></div>
+          <div class="decoration-circle"></div>
+        </div>
+      </div>
+    </transition>
+    
+    <!-- 游戏内容（橙光风格） -->
+    <div v-show="isLandscapeReady && !isLoading" class="game-content">
+      <!-- 中心加载指示：获取后续剧情时显示（非阻塞） -->
+      <div v-if="isFetchingNext" class="center-loading" aria-live="polite" aria-label="后续剧情生成中">
+        <div class="center-spinner"></div>
+      </div>
+
+      <!-- 背景图层 -->
+      <div class="background-layer" :style="{ backgroundImage: `url(${currentBackground})` }"></div>
+      
+      <!-- 遮罩层（让文字更清晰） -->
+      <div class="overlay-layer"></div>
+      
+      <!-- 点击区域（点击进入下一句） -->
+      <div class="click-area" @click="nextDialogue"></div>
+
+      <!-- 选项区域（如果当前场景包含 choices） - 放在 text-box 之外，避免被裁剪 -->
+      <div v-if="currentScene && currentScene.choices && choicesVisible" class="choices-container" @click.stop>
+        <div class="choice" v-for="choice in currentScene.choices" :key="choice.id">
+          <button class="choice-btn" :disabled="isFetchingChoice" @click="chooseOption(choice.id)">{{ choice.text }}</button>
+        </div>
+      </div>
+      
+      <!-- 文字栏 -->
+      <div class="text-box" @click="nextDialogue">
+        <transition name="text-fade">
+          <p v-if="showText" class="dialogue-text">{{ currentDialogue }}</p>
+        </transition>
+        
+        <!-- 继续提示箭头 -->
+        <div v-if="showText && !isLastDialogue" class="continue-hint">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
+          </svg>
+        </div>
+      </div>
+      
+      <!-- 顶部进度条 -->
+      <div class="progress-bar">
+        <div class="progress-fill" :style="{ width: readingProgress + '%' }"></div>
+      </div>
+      
+      <!-- 菜单按钮 -->
+      <button class="menu-button" @click.stop="toggleMenu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <line x1="3" y1="12" x2="21" y2="12" stroke-width="2"/>
+          <line x1="3" y1="6" x2="21" y2="6" stroke-width="2"/>
+          <line x1="3" y1="18" x2="21" y2="18" stroke-width="2"/>
+        </svg>
+      </button>
+
+      <!-- 右上角快速操作：存档 / 读档 / 属性 -->
+      <div class="quick-ops">
+        <button class="quick-btn" @click.stop="openSaveModal()" title="存档">存档</button>
+        <button class="quick-btn" @click.stop="openLoadModal()" title="读档">读档</button>
+        <button class="quick-btn" @click.stop="openAttributes()" title="属性">属性</button>
+      </div>
+      
+      <!-- 菜单面板 -->
+      <transition name="slide-down">
+        <div v-if="showMenu" class="menu-panel" @click.stop>
+          <button class="menu-item" @click="goBack">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M19 12H5M12 19l-7-7 7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>返回作品页</span>
+          </button>
+          
+          <button class="menu-item" @click="toggleMenu">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M18 6L6 18M6 6l12 12" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>继续阅读</span>
+          </button>
+          
+          <div class="menu-progress">
+            <span>阅读进度：{{ Math.floor(readingProgress) }}%</span>
+            <span>场景 {{ currentSceneIndex + 1 }} / {{ storyScenes.length }}</span>
+          </div>
+        </div>
+      </transition>
+    </div>
+
+    <!-- 存档弹窗（3个槽位） -->
+    <div v-if="showSaveModal" class="modal-backdrop" @click.self="closeSaveModal">
+      <div class="modal-panel save-load-modal">
+        <div class="modal-header">
+          <h3>选择存档槽位</h3>
+          <button class="modal-close" @click="closeSaveModal">×</button>
+        </div>
+        <div class="slot-list">
+          <div v-for="slot in SLOTS" :key="slot" class="slot-card">
+            <div class="slot-title">{{ slot.toUpperCase() }}</div>
+            <div class="slot-meta" v-if="slotInfos[slot]">
+              <div>时间：{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}</div>
+              <div>场景：{{ (slotInfos[slot].currentSceneIndex ?? 0) + 1 }}</div>
+              <div>对话：{{ (slotInfos[slot].currentDialogueIndex ?? 0) + 1 }}</div>
+            </div>
+            <div class="slot-meta empty" v-else>空槽位</div>
+            <div class="slot-actions">
+              <button @click="saveGame(slot).then(() => refreshSlotInfos())">保存到 {{ slot.toUpperCase() }}</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button @click="closeSaveModal">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 读档弹窗（3个槽位） -->
+    <div v-if="showLoadModal" class="modal-backdrop" @click.self="closeLoadModal">
+      <div class="modal-panel save-load-modal">
+        <div class="modal-header">
+          <h3>选择读档槽位</h3>
+          <button class="modal-close" @click="closeLoadModal">×</button>
+        </div>
+        <div class="slot-list">
+          <div v-for="slot in SLOTS" :key="slot" class="slot-card">
+            <div class="slot-title">{{ slot.toUpperCase() }}</div>
+            <div class="slot-meta" v-if="slotInfos[slot]">
+              <div>时间：{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}</div>
+              <div>场景：{{ (slotInfos[slot].currentSceneIndex ?? 0) + 1 }}</div>
+              <div>对话：{{ (slotInfos[slot].currentDialogueIndex ?? 0) + 1 }}</div>
+            </div>
+            <div class="slot-meta empty" v-else>空槽位</div>
+            <div class="slot-actions">
+              <button :disabled="!slotInfos[slot]" @click="loadGame(slot)">读取 {{ slot.toUpperCase() }}</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button @click="closeLoadModal">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 属性模态：左（属性）右（特殊状态） -->
+    <div v-if="showAttributesModal" class="modal-backdrop" @click.self="closeAttributes">
+      <div class="modal-panel attributes-panel">
+  <h3>角色信息</h3>
+
+        <div class="attr-status-grid">
+          <!-- 左：属性 -->
+          <div class="attr-col">
+            <div class="section-title">属性</div>
+            <div v-if="Object.keys(attributes).length === 0" class="empty-text">暂无属性</div>
+            <ul v-else class="kv-list">
+              <li v-for="(val, key) in attributes" :key="key">
+                <span class="kv-key">{{ key }}</span>
+                <span class="kv-sep">：</span>
+                <span class="kv-val">{{ val }}</span>
+              </li>
+            </ul>
+          </div>
+          <!-- 右：特殊状态 -->
+          <div class="status-col">
+            <div class="section-title">特殊状态</div>
+            <div v-if="Object.keys(statuses).length === 0" class="empty-text">暂无特殊状态</div>
+            <ul v-else class="kv-list">
+              <li v-for="(val, key) in statuses" :key="key">
+                <span class="kv-key">{{ key }}</span>
+                <span class="kv-sep">：</span>
+                <span class="kv-val">{{ typeof val === 'object' ? (val.value ?? val.level ?? val.state ?? JSON.stringify(val)) : val }}</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- 预留空白区（用于后续“角色信息变更为：...”等动态指令显示/扩展），按设计需要可调高 -->
+        <div class="attr-blank-space"></div>
+
+        <!-- 底部区：将按钮与元信息一起固定在面板底部，元信息保持为最后一行 -->
+        <div class="attributes-bottom">
+          <div class="modal-row" v-if="isFetchingChoice"><em>正在获取选项后续剧情...</em></div>
+          <div class="modal-actions">
+            <button @click="saveGame('slot1')">存档到槽1</button>
+            <button @click="loadGame('slot1')">从槽1读档</button>
+            <button @click="closeAttributes">关闭</button>
+          </div>
+          <div class="attributes-meta">
+            <div class="modal-row meta-small"><strong>作品：</strong> {{ work.title }}</div>
+            <div class="modal-row meta-small"><strong>作者ID：</strong> {{ work.authorId }}</div>
+            <div class="modal-row meta-small" v-if="lastSaveInfo"><strong>最后存档：</strong> {{ new Date(lastSaveInfo.timestamp).toLocaleString() }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 临时提示（存档/读档） -->
+    <div class="toast save-toast" v-if="saveToast">{{ saveToast }}</div>
+    <div class="toast load-toast" v-if="loadToast">{{ loadToast }}</div>
+  </div>
+</template>
