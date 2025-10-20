@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework_simplejwt', 
+    'drf_yasg',
     'users',  # 用户
     'gameworks',  # 游戏作品
     'tags',  # 标签
@@ -150,3 +151,13 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,
 }
+
+# 邮箱发送验证码服务
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.163.com'
+EMAIL_PORT = 465
+EMAIL_USE_SSL = True
+EMAIL_USE_TLS = False
+EMAIL_HOST_USER = 'storycraft@163.com'
+EMAIL_HOST_PASSWORD = 'HAmTfHTsQqPbHY5U'
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
