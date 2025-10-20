@@ -1,30 +1,27 @@
-<script setup>
-import HelloWorld from './components/HelloWorld.vue'
-</script>
-
 <template>
-  <div>
-    <a href="https://vite.dev" target="_blank">
-      <img src="/vite.svg" class="logo" alt="Vite logo" />
-    </a>
-    <a href="https://vuejs.org/" target="_blank">
-      <img src="./assets/vue.svg" class="logo vue" alt="Vue logo" />
-    </a>
-  </div>
-  <HelloWorld msg="Vite + Vue" />
+  <!-- 路由出口：所有页面都会在这里渲染 -->
+  <router-view />
 </template>
 
-<style scoped>
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
+<style>
+/* 全局基础样式，作用于整个应用 */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box; /* 确保padding和border不影响元素总宽度 */
 }
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: #f5f5f5; /* 全局背景色，避免页面切换时出现白屏 */
+  color: #333; /* 默认文字颜色 */
+  -webkit-tap-highlight-color: transparent; /* 去除移动端点击元素时的默认高亮 */
 }
-.logo.vue:hover {
-  filter: drop-shadow(0 0 2em #42b883aa);
+
+/* 解决页面内容被底部导航栏遮挡的问题 */
+#app {
+  min-height: 100vh;
+  padding-bottom: env(safe-area-inset-bottom); /* 适配移动端安全区域 */
 }
 </style>
+    
