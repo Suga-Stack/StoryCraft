@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'rest_framwork',
     'users',  # 用户
     'gameworks',  # 游戏作品
     'tags',  # 标签
