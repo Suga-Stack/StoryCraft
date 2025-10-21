@@ -1,5 +1,5 @@
 from django.apps import AppConfig
 
 
-class FavoritesConfig(AppConfig):
-    name = 'favorites'
+class InteractionsConfig(AppConfig):
+    name = 'interactions'
