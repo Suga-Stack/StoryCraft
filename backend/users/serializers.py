@@ -5,6 +5,8 @@ from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.mail import send_mail
+from tags.models import Tag
+from tags.serializers import TagSerializer
 
 User = get_user_model()
 
@@ -115,3 +117,28 @@ class LogoutSerializer(serializers.Serializer):
             token.blacklist()  # 加入黑名单
         except TokenError:
             raise ValidationError({'message': '无效的token'})
+
+class UserPreferenceSerializer(serializers.ModelSerializer):
+    # liked_tags_detail = TagSerializer(source='liked_tags', many=True, read_only=True)
+    liked_tags = serializers.ListField(
+        child=serializers.CharField(),
+        allow_empty=True
+    )
+
+    class Meta:
+        model = User
+        fields = ['gender', 'liked_tags']
+
+    def update(self, instance, validated_data):
+        """覆盖原有偏好"""
+        tag_names = validated_data.pop('liked_tags', None)
+        gender = validated_data.get('gender', None)
+
+        if tag_names is not None:
+            tags_qs = Tag.objects.filter(name__in=tag_names)
+            instance.liked_tags.set(tags_qs)
+        if gender is not None:
+            instance.gender = gender
+
+        instance.save()
+        return instance

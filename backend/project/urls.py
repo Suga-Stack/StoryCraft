@@ -25,6 +25,7 @@ schema_view = get_schema_view(
 urlpatterns = [
     path('admin/', admin.site.urls),
     # path('api/', include('users.urls')),
+    path('api/users/', include('users.urls')),
     path('api/auth/', include('users.register_urls')),  # 注册、登录、登出接口统一入口
     path('api/gameworks/', include('gameworks.urls')),  # 作品模块
     path('api/tags/', include('tags.urls')),  # 标签模块

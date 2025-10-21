@@ -1,4 +1,4 @@
-from rest_framework import status, permissions
+from rest_framework import generics, status, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.contrib.auth import get_user_model
@@ -7,7 +7,7 @@ from drf_yasg import openapi
 from django.core.mail import send_mail
 from django.core.cache import cache
 from django.utils.crypto import get_random_string
-from .serializers import RegisterSerializer, LoginSerializer, LogoutSerializer
+from .serializers import RegisterSerializer, LoginSerializer, LogoutSerializer, UserPreferenceSerializer
 
 User = get_user_model()
 
@@ -137,3 +137,11 @@ class CurrentUserView(APIView):
         data = UserSerializer(request.user).data
         return Response({'code': 200, 'data': {'user': data}})
 '''
+
+class UserPreferenceView(generics.RetrieveUpdateAPIView):
+    serializer_class = UserPreferenceSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        # 只允许操作自己的数据
+        return self.request.user
