@@ -135,6 +135,10 @@ const isFetchingNext = ref(false)
 const storyEndSignaled = ref(false)
 // 横屏准备状态
 const isLandscapeReady = ref(false)
+// 结算页面生成状态
+const isGeneratingSettlement = ref(false)
+// 用户选择历史，用于生成分支探索图
+const choiceHistory = ref([])
 // 检测是否在 Capacitor 环境中
 const isNativeApp = computed(() => {
   return window.Capacitor !== undefined
@@ -143,8 +147,9 @@ const isNativeApp = computed(() => {
 // 作品信息（从路由 state 获取，或从后端获取）
 const work = ref({
   id: route.params.id || 1,
-  title: history.state?.title || '锦瑟深宫',
-  coverUrl: history.state?.coverUrl || 'https://via.placeholder.com/400x600/8B7355/FFFFFF?text=%E9%94%A6%E7%91%9F%E6%B7%B1%E5%AE%AB',
+  title: history.state?.title || (() => { try { return JSON.parse(sessionStorage.getItem('lastWorkMeta'))?.title } catch { return null } })() || '锦瑟深宫',
+  // 封面图仅使用作品页传入或上次缓存，不再回退到网络站点占位图
+  coverUrl: history.state?.coverUrl || (() => { try { return JSON.parse(sessionStorage.getItem('lastWorkMeta'))?.coverUrl } catch { return null } })() || '',
   authorId: 'author_001'
 })
 
@@ -168,8 +173,8 @@ const storyScenes = ref([
     dialogues: [
       '【固定剧情】',
       '三日后晨省，你跪在德妃的牡丹团垫上奉茶。釉里红盏沿突然烫手，德妃染着蔻丹的指尖在接过时微微一顿。',
-      '“林选侍倒是生得雪做肌骨。”她吹开茶沫时，鎏金护甲掠过你托举的腕子，“可惜这贡茶需九十度滚水方能出香。”',
-      '茶盏坠地声惊起梁间燕子。一片碎瓷溅到你裙裾时，德妃含笑拭去你衣上水渍：“无妨，本宫库里有先帝赏的月白釉。”'
+      { text: '“林选侍倒是生得雪做肌骨。”她吹开茶沫时，鎏金护甲掠过你托举的腕子，“可惜这贡茶需九十度滚水方能出香。”', speaker: '德妃' },
+      { text: '茶盏坠地声惊起梁间燕子。一片碎瓷溅到你裙裾时，德妃含笑拭去你衣上水渍：“无妨，本宫库里有先帝赏的月白釉。”', speaker: '德妃' }
     ],
     // 在最后一句后展示选项
     choiceTriggerIndex: 3,
@@ -231,7 +236,7 @@ const storyScenes = ref([
               { text: '（场景描写）', backgroundImage: 'https://picsum.photos/1920/1080?blur=2&random=7202' },
               '冰冷湖水裹着残荷淹没口鼻，浮沉间看见德妃绣金凤纹的袖口在栏杆处纹丝不动。对岸贤妃的惊呼被风撕碎，你挣扎时抓住一截枯枝，却见明黄仪仗转过假山。',
               '无数侍卫跃入水花的巨响中，有人托起你的后颈，龙涎香混着水汽钻进鼻腔。',
-              '【当前危机·B线】贤妃递来的姜汤飘着当归气：“本宫瞧着，那桥桩断口倒是齐整。”'
+              { text: '【当前危机·B线】贤妃递来的姜汤飘着当归气：“本宫瞧着，那桥桩断口倒是齐整。”', speaker: '贤妃' }
             ]
           }
         ]
@@ -263,7 +268,7 @@ const storyScenes = ref([
               { text: '（场景描写）', backgroundImage: 'https://picsum.photos/1920/1080?blur=2&random=7203' },
               '冰冷湖水裹着残荷淹没口鼻，浮沉间看见德妃绣金凤纹的袖口在栏杆处纹丝不动。对岸贤妃的惊呼被风撕碎，你挣扎时抓住一截枯枝，却见明黄仪仗转过假山。',
               '无数侍卫跃入水花的巨响中，有人托起你的后颈，龙涎香混着水汽钻进鼻腔。',
-              '【当前危机·C线】太后掌事宫女塞来暖玉：“皇上方才问起，会凫水的侍卫是哪宫安排的。”'
+              { text: '【当前危机·C线】太后掌事宫女塞来暖玉：“皇上方才问起，会凫水的侍卫是哪宫安排的。”', speaker: '掌事宫女' }
             ]
           }
         ]
@@ -271,6 +276,156 @@ const storyScenes = ref([
     ]
   }
 ])
+
+// 统一主线剧情（在任一分支后都会拼接该主线场景）
+const MAINLINE_SCENE = {
+  sceneId: 2000,
+  isMainline: true,
+  title: '当前抉择',
+  backgroundImage: 'https://picsum.photos/1920/1080?random=2000',
+  dialogues: [
+    '【主线】',
+    '你先前的抉择如同在水面投下一粒石子，涟漪终归于平。',
+    '夜漏将尽，永巷尽头传来更鼓声。你披衣而起，窗纸上檐兽的影子缓缓挪动。',
+    '一张未封的黄绫诏帖被人塞入门缝，烛火映出上头的朱印。新的风向，正在形成。'
+  ],
+  // 在主线末尾出现新一轮选择
+  choiceTriggerIndex: 3,
+  choices: [
+    {
+      id: 'main_A',
+      text: 'A. 焚毁所有邀帖称病不出',
+      attributesDelta: { '健康': -10, '心计': 15 },
+      statusesDelta: { '闭门谢客': '称病谢客', '事件:雪地密报': '已触发' },
+      nextScenes: [
+        {
+          sceneId: 2101,
+          backgroundImage: 'https://picsum.photos/1920/1080?random=2101',
+          dialogues: [
+            '【选项A后续】',
+            '当夜忽降大雪，您咳着煎药时，窗缝塞进沾血的字条："桥桩乃桐油所蚀"。',
+            '次日太医请脉时，德妃竟亲自带着血燕来访，她指尖抚过您枕边《孙子兵法》的书页，笑问妹妹病的可巧？'
+          ]
+        }
+      ]
+    },
+    {
+      id: 'main_B',
+      text: 'B. 赴德妃宴席并献上家传调香术',
+      attributesDelta: { '圣宠': 20, '才情': 10, '贤妃好感': -30 },
+      statusesDelta: { '焚香之契': '与德妃香契', '事件:香料危机': '进行中' },
+      nextScenes: [
+        {
+          sceneId: 2201,
+          backgroundImage: 'https://picsum.photos/1920/1080?random=2201',
+          dialogues: [
+            '【选项B后续】',
+            '您在菊园调制"雪中春信"时，皇帝的目光越过众妃落在您腕间香珠。',
+            '当夜司寝太监来记档，德妃却派人送来掺着麝香的胭脂。',
+            '更鼓声里，您盯着妆台上并排的香珠与胭脂，听见贤妃宫中传来摔瓷声。'
+          ]
+        }
+      ]
+    },
+    {
+      id: 'main_C',
+      text: 'C. 往太后佛堂供经时提及侍卫冤情',
+      attributesDelta: { '声望': 25, '德妃阵营': -50 },
+      statusesDelta: { '佛前青眼': '太后青眼相加', '事件:经书疑云': '进行中' },
+      nextScenes: [
+        {
+          sceneId: 2301,
+          backgroundImage: 'https://picsum.photos/1920/1080?random=2301',
+          dialogues: [
+            '【选项C后续】',
+            '您抄录的《心经》被太后供在佛前，第三日却发现菩提子经匣夹层藏着巫蛊人偶。',
+            '掌事宫女突然推门而入，窗外闪过德妃心腹太监的藏蓝衣角。',
+            '您捏着人偶的手微微发抖，发现背面绣着太后的生辰八字。'
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+// 尝试在当前剧情队列末尾拼接主线（若尚未拼接）
+const appendMainlineIfNeeded = () => {
+  try {
+    const exists = storyScenes.value.some(s => s.isMainline || s.sceneId === MAINLINE_SCENE.sceneId)
+    if (!exists) {
+      storyScenes.value.push(MAINLINE_SCENE)
+    }
+  } catch (e) {
+    console.warn('appendMainlineIfNeeded failed:', e)
+  }
+}
+// ============ 自动播放 ============
+const showSettingsModal = ref(false)
+const autoPlayEnabled = ref(false)
+const autoPlayIntervalMs = ref(2000) // 默认2秒一段（范围：2s~10s）
+let autoPlayTimer = null
+
+const canAutoAdvance = computed(() => {
+  return autoPlayEnabled.value &&
+    isLandscapeReady.value &&
+    !isLoading.value &&
+    !isFetchingNext.value &&
+    !isGeneratingSettlement.value &&
+    !showMenu.value &&
+    showText.value &&
+    !choicesVisible.value
+})
+
+const tickAutoPlay = () => {
+  if (canAutoAdvance.value) {
+    try { nextDialogue() } catch (e) { console.warn('auto-play next failed', e) }
+  }
+}
+
+const clampInterval = (ms) => {
+  const val = Number(ms) || 2000
+  return Math.min(10000, Math.max(2000, val))
+}
+
+const startAutoPlayTimer = () => {
+  stopAutoPlayTimer()
+  autoPlayTimer = setInterval(tickAutoPlay, clampInterval(autoPlayIntervalMs.value))
+}
+
+const stopAutoPlayTimer = () => {
+  if (autoPlayTimer) {
+    clearInterval(autoPlayTimer)
+    autoPlayTimer = null
+  }
+}
+
+const saveAutoPlayPrefs = () => {
+  try {
+    localStorage.setItem('autoPlayEnabled', JSON.stringify(!!autoPlayEnabled.value))
+    localStorage.setItem('autoPlayIntervalMs', JSON.stringify(clampInterval(autoPlayIntervalMs.value)))
+  } catch {}
+}
+
+const loadAutoPlayPrefs = () => {
+  try {
+    const en = JSON.parse(localStorage.getItem('autoPlayEnabled'))
+    const ms = JSON.parse(localStorage.getItem('autoPlayIntervalMs'))
+    if (typeof en === 'boolean') autoPlayEnabled.value = en
+    if (typeof ms === 'number' && !Number.isNaN(ms)) autoPlayIntervalMs.value = clampInterval(ms)
+  } catch {}
+}
+
+// 设置变化时，动态启停计时器
+watch([autoPlayEnabled, autoPlayIntervalMs], () => {
+  saveAutoPlayPrefs()
+  if (autoPlayEnabled.value) {
+    startAutoPlayTimer()
+  } else {
+    stopAutoPlayTimer()
+  }
+})
+// 打开菜单时暂停自动播放；关闭菜单后若开启则恢复
+// 注意：需要在 showMenu 定义之后再注册（见下方）
 
 // 当前场景索引
 const currentSceneIndex = ref(0)
@@ -281,18 +436,29 @@ const showMenu = ref(false)
 // 是否显示文字（用于淡入效果）
 const showText = ref(false)
 
+// 打开菜单时暂停自动播放；关闭菜单后若开启则恢复
+watch(showMenu, (open) => {
+  if (open) {
+    stopAutoPlayTimer()
+  } else if (autoPlayEnabled.value) {
+    startAutoPlayTimer()
+  }
+})
+
+// 注意：其它弹窗的监听需放在相关 ref 定义之后（见下文）
+
 // 获取当前场景
 const currentScene = computed(() => {
   return storyScenes.value[currentSceneIndex.value] || null
 })
 
-// 对话项可能是字符串或对象：{ text, backgroundImage }
+// 对话项可能是字符串或对象：{ text, backgroundImage, speaker }
 const getDialogueItem = (scene, idx) => {
   if (!scene) return null
   const item = scene.dialogues?.[idx]
   if (item == null) return null
   if (typeof item === 'string') return { text: item }
-  if (typeof item === 'object') return { text: item.text ?? '', backgroundImage: item.backgroundImage }
+  if (typeof item === 'object') return { text: item.text ?? '', backgroundImage: item.backgroundImage, speaker: item.speaker }
   return null
 }
 
@@ -319,6 +485,13 @@ const currentBackground = computed(() => {
     if (byKeyword) return byKeyword
   }
   return scene?.backgroundImage || ''
+})
+
+// 当前说话人（仅当对白带有 speaker 时显示；叙述性文字不显示）
+const currentSpeaker = computed(() => {
+  const scene = currentScene.value
+  const item = getDialogueItem(scene, currentDialogueIndex.value)
+  return (item && typeof item.speaker === 'string' && item.speaker.trim()) ? item.speaker.trim() : ''
 })
 
 // 计算阅读进度
@@ -352,6 +525,12 @@ const nextDialogue = () => {
     // 如果菜单显示，点击不做任何事
     return
   }
+
+  // 如果当前显示选项，必须选择后才能继续
+  if (choicesVisible.value) {
+    console.log('Choices are visible, must select an option to continue')
+    return
+  }
   
   const scene = currentScene.value
   console.log('Current scene:', scene, 'dialogue index:', currentDialogueIndex.value)
@@ -380,7 +559,8 @@ const nextDialogue = () => {
       // 已到当前已加载内容的末尾
       if (storyEndSignaled.value) {
         console.log('故事结束')
-        alert('故事结束，感谢阅读！')
+        // 开始生成结算页面，而不是直接弹出结束提示
+        handleGameEnd()
         return
       }
       // 尚未收到结束信号，则尝试拉取下一段剧情
@@ -424,6 +604,39 @@ const goBack = async () => {
   }
   
   router.push('/works')
+}
+
+// 处理游戏结束，生成结算页面
+const handleGameEnd = async () => {
+  isGeneratingSettlement.value = true
+  isLoading.value = true
+  loadingProgress.value = 0
+  
+  // 模拟结算页面生成过程
+  const generateSettlement = async () => {
+    for (let i = 0; i <= 100; i += 5) {
+      loadingProgress.value = i
+      await new Promise(resolve => setTimeout(resolve, 50))
+    }
+    
+    // 生成完成后跳转到结算页面
+    // 由于Vue Router不支持state参数，我们将数据存储到sessionStorage中
+    const settlementData = {
+      work: work.value,
+      choiceHistory: choiceHistory.value,
+      finalAttributes: attributes.value,
+      finalStatuses: statuses.value,
+      storyScenes: storyScenes.value,
+      currentSceneIndex: currentSceneIndex.value,
+      currentDialogueIndex: currentDialogueIndex.value
+    }
+    
+    sessionStorage.setItem('settlementData', JSON.stringify(settlementData))
+    
+    router.push('/settlement')
+  }
+  
+  generateSettlement()
 }
 
 // 尝试从后端拉取下一段剧情并在成功后自动推进
@@ -538,6 +751,23 @@ const deepClone = (obj) => JSON.parse(JSON.stringify(obj))
 // 自动存档槽位（退出时写入）
 const AUTO_SAVE_SLOT = 'slot6'
 
+// 其它弹窗（存档/读档/属性/设置）打开时同样应暂停自动播放
+const anyOverlayOpen = computed(() =>
+  showMenu.value ||
+  showSaveModal.value ||
+  showLoadModal.value ||
+  showAttributesModal.value ||
+  showSettingsModal.value
+)
+
+watch(anyOverlayOpen, (open) => {
+  if (open) {
+    stopAutoPlayTimer()
+  } else if (autoPlayEnabled.value) {
+    startAutoPlayTimer()
+  }
+})
+
 // 构建当前存档快照
 const buildSavePayload = () => ({
   work: work.value,
@@ -546,6 +776,7 @@ const buildSavePayload = () => ({
   attributes: deepClone(attributes.value),
   statuses: deepClone(statuses.value),
   storyScenes: deepClone(storyScenes.value),
+  choiceHistory: deepClone(choiceHistory.value),
   timestamp: Date.now()
 })
 
@@ -635,6 +866,8 @@ const loadGame = async (slot = 'default') => {
         // attributes/statuses 使用存档快照完整覆盖，缺省则置空，避免选项后的变化残留
         attributes.value = deepClone(remote.attributes || {})
         statuses.value = deepClone(remote.statuses || {})
+        // 恢复选择历史
+        choiceHistory.value = deepClone(remote.choiceHistory || [])
         // 恢复文字显示状态，并让选项由 watch 重新判断
         showText.value = true
         choicesVisible.value = false
@@ -671,6 +904,8 @@ const loadGame = async (slot = 'default') => {
     // attributes/statuses 使用存档快照完整覆盖，缺省则置空
     attributes.value = deepClone(payload.attributes || {})
     statuses.value = deepClone(payload.statuses || {})
+    // 恢复选择历史
+    choiceHistory.value = deepClone(payload.choiceHistory || [])
     showText.value = true
     choicesVisible.value = false
     lastSaveInfo.value = deepClone(payload)
@@ -697,18 +932,24 @@ const applyChoiceBranch = (choiceObj) => {
 
     if (choiceObj.nextScene) {
       storyScenes.value.push(choiceObj.nextScene)
+      // 分支后拼接主线
+      appendMainlineIfNeeded()
       currentSceneIndex.value = storyScenes.value.length - 1
       currentDialogueIndex.value = 0
       showText.value = true
+      if (autoPlayEnabled.value) startAutoPlayTimer()
       return
     }
 
     if (choiceObj.nextScenes && Array.isArray(choiceObj.nextScenes)) {
       const startIdx = storyScenes.value.length
       storyScenes.value.push(...choiceObj.nextScenes)
+      // 分支后拼接主线
+      appendMainlineIfNeeded()
       currentSceneIndex.value = startIdx
       currentDialogueIndex.value = 0
       showText.value = true
+      if (autoPlayEnabled.value) startAutoPlayTimer()
       return
     }
 
@@ -721,6 +962,7 @@ const applyChoiceBranch = (choiceObj) => {
       storyScenes.value.splice(idx, 1, newScene)
       currentDialogueIndex.value = 0
       showText.value = true
+      if (autoPlayEnabled.value) startAutoPlayTimer()
       return
     }
   } catch (err) {
@@ -740,6 +982,8 @@ watch([currentSceneIndex, currentDialogueIndex], () => {
     // 当阅读到触发句的索引（即等于或超过）时显示选项
     if (currentDialogueIndex.value >= scene.choiceTriggerIndex && showText.value) {
       choicesVisible.value = true
+      // 自动播放遇到选项时暂停
+      stopAutoPlayTimer()
     }
   }
 })
@@ -902,6 +1146,22 @@ const applyStatusesDelta = (delta) => {
 // 处理选项点击：向后端请求选项后续剧情并应用返回结果
 const chooseOption = async (choiceId) => {
   if (isFetchingChoice.value) return
+  
+  // 记录用户选择历史
+  const scene = currentScene.value
+  const choiceObj = scene?.choices?.find(c => c.id === choiceId)
+  if (choiceObj) {
+    choiceHistory.value.push({
+      sceneId: scene.id || scene.sceneId,
+      sceneTitle: scene.title || `场景 ${currentSceneIndex.value + 1}`,
+      choiceId: choiceId,
+      choiceText: choiceObj.text,
+      timestamp: Date.now(),
+      sceneIndex: currentSceneIndex.value,
+      dialogueIndex: currentDialogueIndex.value
+    })
+  }
+  
   // 用户点击选项后立即隐藏选项，直到后端返回或 mock 完成
   choicesVisible.value = false
   isFetchingChoice.value = true
@@ -932,15 +1192,21 @@ const chooseOption = async (choiceId) => {
 
     if (data.nextScene) {
       storyScenes.value.push(data.nextScene)
+      // 分支后拼接主线
+      appendMainlineIfNeeded()
       currentSceneIndex.value = storyScenes.value.length - 1
       currentDialogueIndex.value = 0
       showText.value = true
+      if (autoPlayEnabled.value) startAutoPlayTimer()
     } else if (data.nextScenes && Array.isArray(data.nextScenes)) {
       const startIdx = storyScenes.value.length
       storyScenes.value.push(...data.nextScenes)
+      // 分支后拼接主线
+      appendMainlineIfNeeded()
       currentSceneIndex.value = startIdx
       currentDialogueIndex.value = 0
       showText.value = true
+      if (autoPlayEnabled.value) startAutoPlayTimer()
     } else if (data.dialogues) {
       // 替换当前场景的对话（不改变场景索引）
       const idx = currentSceneIndex.value
@@ -951,6 +1217,7 @@ const chooseOption = async (choiceId) => {
       storyScenes.value.splice(idx, 1, newScene)
       currentDialogueIndex.value = 0
       showText.value = true
+      if (autoPlayEnabled.value) startAutoPlayTimer()
     } else {
       // 如果后端没有直接返回剧情，尝试简单推进到下一个场景（如果存在）
       if (currentSceneIndex.value < storyScenes.value.length - 1) {
@@ -961,79 +1228,76 @@ const chooseOption = async (choiceId) => {
     }
   } catch (err) {
     console.error('选择处理失败', err)
-    // 回退：使用内置 mock 数据以便离线测试
-    const mockResponses = {
-      'c_investigate': {
-        attributesDelta: { hp: 0 },
-        dialogues: [
-          '你仔细检查房间，发现一张折叠的小纸条：上面写着“离开此地”。',
-          '这条信息让你心头一震。'
-        ]
-      },
-      'c_playdead': {
-        attributesDelta: { hp: 0 },
-        nextScene: {
-          sceneId: 999,
-          backgroundImage: 'https://picsum.photos/1920/1080?random=20',
-          dialogues: ['你佯装昏迷，侍女以为你睡着了，离开了房间。']
-        }
-      },
-      'c_scream': {
-        attributesDelta: { hp: -5 },
-        dialogues: ['你大声尖叫，侍卫冲进来把你带走，情况急转直下。']
-      }
-    }
-
-    const mock = mockResponses[choiceId]
-    if (mock) {
-      if (mock.attributesDelta) applyAttributesDelta(mock.attributesDelta)
-      if (mock.nextScene) {
-        storyScenes.value.push(mock.nextScene)
-        currentSceneIndex.value = storyScenes.value.length - 1
-        currentDialogueIndex.value = 0
-        showText.value = true
-      } else if (mock.dialogues) {
-        const idx = currentSceneIndex.value
-        const newScene = Object.assign({}, storyScenes.value[idx], {
-          backgroundImage: mock.backgroundImage || storyScenes.value[idx].backgroundImage,
-          dialogues: mock.dialogues
-        })
-        storyScenes.value.splice(idx, 1, newScene)
-        currentDialogueIndex.value = 0
-        showText.value = true
-      }
-    } else {
-      alert('获取选项后续剧情失败：' + err.message)
-    }
+    // 为保持“锦瑟深宫”剧情纯净，移除与主题无关的离线回退
+    alert('获取选项后续剧情失败：' + (err?.message || '网络异常'))
   } finally {
     isFetchingChoice.value = false
   }
 }
 
-// 模拟加载过程
+// 加载过程：加载页背景直接使用封面；进度条缓慢推进，便于可视化
 const startLoading = () => {
   isLoading.value = true
   loadingProgress.value = 0
-  
-  // 模拟加载进度
+
+  if (work.value.coverUrl) {
+    // 使用时间插值让进度在 ~2.5s 内平滑推进到 100%
+    const duration = 2500
+    const startAt = performance.now()
+    const animate = (now) => {
+      const elapsed = now - startAt
+      const percent = Math.min(100, Math.round((elapsed / duration) * 100))
+      loadingProgress.value = percent
+      if (percent >= 100) {
+        isLoading.value = false
+        showText.value = true
+      } else {
+        requestAnimationFrame(animate)
+      }
+    }
+    requestAnimationFrame(animate)
+    return
+  }
+
+  // 极端情况下没有封面：短暂的回退加载动画
   const loadingInterval = setInterval(() => {
-    loadingProgress.value += Math.random() * 15
-    
+    loadingProgress.value += 50
     if (loadingProgress.value >= 100) {
       loadingProgress.value = 100
       clearInterval(loadingInterval)
-      
-      // 加载完成后延迟一点再显示内容
       setTimeout(() => {
         isLoading.value = false
         showText.value = true
-      }, 500)
+      }, 200)
     }
-  }, 200)
+  }, 120)
 }
 
 // 页面加载时请求横屏并开始加载
 onMounted(() => {
+  // 加载自动播放偏好并按需启动
+  loadAutoPlayPrefs()
+  if (autoPlayEnabled.value) startAutoPlayTimer()
+  // 检查是否从结算页面跳回来并携带了加载数据
+  if (history.state?.loadedData) {
+    const loadedData = history.state.loadedData
+    // 恢复游戏状态
+    if (loadedData.storyScenes && Array.isArray(loadedData.storyScenes)) {
+      storyScenes.value = loadedData.storyScenes
+    }
+    if (typeof loadedData.currentSceneIndex === 'number') currentSceneIndex.value = loadedData.currentSceneIndex
+    if (typeof loadedData.currentDialogueIndex === 'number') currentDialogueIndex.value = loadedData.currentDialogueIndex
+    attributes.value = loadedData.attributes || {}
+    statuses.value = loadedData.statuses || {}
+    choiceHistory.value = loadedData.choiceHistory || []
+    
+    // 直接进入游戏
+    isLandscapeReady.value = true
+    isLoading.value = false
+    showText.value = true
+    return
+  }
+
   if (isNativeApp.value) {
     // APP 环境：直接进入横屏
     isLandscapeReady.value = true
@@ -1051,9 +1315,16 @@ onMounted(() => {
       // 某些构建环境可能不支持 import.meta.env，这里保守处理
     }
   }
-  // 页面可见性变化时：隐藏→尝试自动存档
+  // 页面可见性变化：隐藏→暂停自动播放并尝试自动存档；可见→如开启自动播放则恢复
   const onVisibility = () => {
-    if (document.hidden) autoSaveToSlot(AUTO_SAVE_SLOT)
+    if (document.hidden) {
+      // 后台：暂停自动播放，避免后台计时推进
+      stopAutoPlayTimer()
+      autoSaveToSlot(AUTO_SAVE_SLOT)
+    } else {
+      // 回到前台：如当前设置开启自动播放，则恢复计时器
+      if (autoPlayEnabled.value) startAutoPlayTimer()
+    }
   }
   document.addEventListener('visibilitychange', onVisibility)
   // 卸载/刷新前的本地快速存档
@@ -1070,6 +1341,8 @@ onMounted(() => {
 
 // 页面卸载时解锁屏幕方向
 onUnmounted(async () => {
+  // 停止自动播放计时器
+  stopAutoPlayTimer()
   try {
     // 卸载前自动存档
     await autoSaveToSlot(AUTO_SAVE_SLOT)
@@ -1152,7 +1425,7 @@ onUnmounted(async () => {
           
           <!-- 加载提示 -->
           <div class="loading-tips">
-            <p class="tip-text">正在准备故事...</p>
+            <p class="tip-text">{{ isGeneratingSettlement ? '结算页面生成中...' : '正在准备故事...' }}</p>
           </div>
         </div>
         
@@ -1182,14 +1455,25 @@ onUnmounted(async () => {
       <div class="click-area" @click="nextDialogue"></div>
 
       <!-- 选项区域（如果当前场景包含 choices） - 放在 text-box 之外，避免被裁剪 -->
-      <div v-if="currentScene && currentScene.choices && choicesVisible" class="choices-container" @click.stop>
+      <div 
+        v-if="currentScene && currentScene.choices && choicesVisible" 
+        class="choices-container" 
+        :class="{ disabled: showMenu }"
+        @click.stop>
         <div class="choice" v-for="choice in currentScene.choices" :key="choice.id">
-          <button class="choice-btn" :disabled="isFetchingChoice" @click="chooseOption(choice.id)">{{ choice.text }}</button>
+          <button 
+            class="choice-btn" 
+            :disabled="isFetchingChoice || showMenu" 
+            @click="chooseOption(choice.id)">
+            {{ choice.text }}
+          </button>
         </div>
       </div>
       
       <!-- 文字栏 -->
       <div class="text-box" @click="nextDialogue">
+        <!-- 说话人标签（可选） -->
+        <div v-if="currentSpeaker" class="speaker-badge">{{ currentSpeaker }}</div>
         <transition name="text-fade">
           <p v-if="showText" class="dialogue-text">{{ currentDialogue }}</p>
         </transition>
@@ -1216,12 +1500,7 @@ onUnmounted(async () => {
         </svg>
       </button>
 
-      <!-- 右上角快速操作：存档 / 读档 / 属性 -->
-      <div class="quick-ops">
-        <button class="quick-btn" @click.stop="openSaveModal()" title="存档">存档</button>
-        <button class="quick-btn" @click.stop="openLoadModal()" title="读档">读档</button>
-        <button class="quick-btn" @click.stop="openAttributes()" title="属性">属性</button>
-      </div>
+      <!-- 顶部不再显示快速操作，相关功能移动到菜单中 -->
       
       <!-- 菜单面板 -->
       <transition name="slide-down">
@@ -1239,6 +1518,36 @@ onUnmounted(async () => {
             </svg>
             <span>继续阅读</span>
           </button>
+
+          <!-- 整合功能入口：存档 / 读档 / 属性 / 设置（并列网格） -->
+          <div class="menu-grid">
+            <button class="menu-item" @click="showMenu = false; openSaveModal()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M5 20h14a1 1 0 0 0 1-1V7l-4-4H6a1 1 0 0 0-1 1v16zM8 8h8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span>存档</span>
+            </button>
+            <button class="menu-item" @click="showMenu = false; openLoadModal()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M7 9l5 5 5-5M12 14V3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span>读档</span>
+            </button>
+            <button class="menu-item" @click="showMenu = false; openAttributes()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <circle cx="12" cy="12" r="3" stroke-width="2"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V22a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H2a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0A1.65 1.65 0 0 0 9 2.09V2a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0A1.65 1.65 0 0 0 21.91 11H22a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span>属性</span>
+            </button>
+            <button class="menu-item" @click="showMenu = false; showSettingsModal = true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" stroke-width="2"/>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.27.27a2 2 0 1 1-2.83 2.83l-.27-.27a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V22a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.27.27a2 2 0 1 1-2.83-2.83l.27-.27a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H2a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.27-.27a2 2 0 1 1 2.83-2.83l.27.27a1.65 1.65 0 0 0 1.82.33h0A1.65 1.65 0 0 0 9 2.09V2a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.27-.27a2 2 0 1 1 2.83 2.83l-.27.27a1.65 1.65 0 0 0-.33 1.82v0A1.65 1.65 0 0 0 21.91 11H22a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span>设置</span>
+            </button>
+          </div>
           
           <div class="menu-progress">
             <span>阅读进度：{{ Math.floor(readingProgress) }}%</span>
@@ -1271,6 +1580,30 @@ onUnmounted(async () => {
         </div>
         <div class="modal-actions">
           <button @click="closeSaveModal">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 设置弹窗：自动播放 -->
+    <div v-if="showSettingsModal" class="modal-backdrop" @click.self="showSettingsModal = false">
+      <div class="modal-panel settings-modal">
+        <div class="modal-header">
+          <h3>设置</h3>
+          <button class="modal-close" @click="showSettingsModal = false">×</button>
+        </div>
+        <div class="settings-body">
+          <label class="row">
+            <input type="checkbox" v-model="autoPlayEnabled" />
+            <span>自动播放（遇到选项自动暂停）</span>
+          </label>
+          <label class="row">
+            <span>每段间隔（毫秒）：</span>
+            <input type="number" min="2000" max="10000" step="500" v-model.number="autoPlayIntervalMs" style="width:140px" />
+          </label>
+          <p class="hint">范围 2000ms–10000ms（即 2–10 秒）；开启后系统将按间隔自动播放，遇到选项暂停，选择后继续。</p>
+        </div>
+        <div class="modal-actions">
+          <button @click="showSettingsModal = false">关闭</button>
         </div>
       </div>
     </div>

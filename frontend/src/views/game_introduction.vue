@@ -14,7 +14,7 @@ const work = ref({
   title: '锦瑟深宫', // 后端提供：AI生成的作品名
   coverUrl: 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=800&h=500&fit=crop', // 后端提供：AI生成的封面URL
   authorId: 'user_12345', // 作者ID
-  tags: ['科幻', '冒险', '太空', '未来'], // 后端提供：作品标签
+  tags: ['宫斗', '冒险', '太空', '未来'], // 后端提供：作品标签
   description: `柳晚晚穿越成后宫小透明，她把宫斗当成终身职业来经营。
 不争宠不夺权，只求平安活到退休。
 
@@ -178,6 +178,13 @@ const closeModal = () => {
 // 开始阅读
 const startReading = () => {
   // 跳转到阅读页面，通过路由 state 传递作品信息
+  try {
+    // 同步缓存，确保 GamePage 与加载页统一使用本次选择的封面/标题
+    sessionStorage.setItem('lastWorkMeta', JSON.stringify({
+      title: work.value.title,
+      coverUrl: work.value.coverUrl
+    }))
+  } catch {}
   router.push({
     path: `/game/${work.value.id}`,
     state: {
