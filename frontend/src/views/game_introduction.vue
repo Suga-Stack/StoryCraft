@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -9,12 +10,20 @@ const goBack = () => {
 }
 
 // 单个作品数据（从后端获取）
+const route = useRoute()
+const state = history.state || {}
+const incomingTags = (state.selectedTags && Array.isArray(state.selectedTags))
+  ? state.selectedTags
+  : (() => { try { return JSON.parse(sessionStorage.getItem('createRequest'))?.tags } catch { return null } })()
+const backendWork = state.backendWork || null
+
 const work = ref({
-  id: 1,
-  title: '锦瑟深宫', // 后端提供：AI生成的作品名
-  coverUrl: 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=800&h=500&fit=crop', // 后端提供：AI生成的封面URL
-  authorId: 'user_12345', // 作者ID
-  tags: ['宫斗', '冒险', '太空', '未来'], // 后端提供：作品标签
+  id: backendWork?.id || 1,
+  title: backendWork?.title || '锦瑟深宫', // 后端提供：AI生成的作品名
+  coverUrl: backendWork?.coverUrl || 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=800&h=500&fit=crop', // 后端提供：AI生成的封面URL
+  authorId: backendWork?.authorId || 'user_12345', // 作者ID
+  // 标签以用户选择为准，确保一致；若无选择再回退
+  tags: incomingTags || backendWork?.tags || ['科幻', '冒险', '太空', '未来'],
   description: `柳晚晚穿越成后宫小透明，她把宫斗当成终身职业来经营。
 不争宠不夺权，只求平安活到退休。
 

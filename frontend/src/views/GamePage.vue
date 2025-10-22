@@ -158,11 +158,13 @@ const storyScenes = ref([
   // 第一章·初入宫闱（引子与场景描写）
   {
     sceneId: 101,
-    backgroundImage: 'https://picsum.photos/1920/1080?random=101',
+    // 使用项目 public 目录下的本地图片作为首张场景图
+    backgroundImage: '/images/scene1.jpg',
     dialogues: [
       '————《锦瑟深宫》第一章·初入宫闱————',
       '建昭三年冬，新晋宫嫔入宫。你抱着鎏铜手炉坐在青帷小轿里，听见轿外老太监絮叨：“长春宫到了，西偏殿已备好银丝炭。”',
-      { text: '（场景描写）', backgroundImage: 'https://picsum.photos/1920/1080?blur=2&random=7101' },
+      // 场景描写段也沿用同一底图（需要可在后续支持滤镜）
+      { text: '（场景描写）', backgroundImage: '/images/scene1.jpg' },
       '积雪压着琉璃蹲兽，廊下鹦鹉突然尖声学舌：“贵人万福——”你抬头看见正殿檐角断裂的铃铛在风里哑晃。领路宫女突然拽住你避开积水，她袖口露出的淤痕恰似梅枝投在纸窗上的影。'
     ]
   },

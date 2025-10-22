@@ -368,18 +368,22 @@
   left: 0;
   right: 0;
   height: 30vh; /* 固定高度为视口高度的20% */
+  /* 浅色半透明面板：去除黑色感，仍保留背景可见性并提高可读性 */
   background: linear-gradient(to bottom,
-    rgba(250, 248, 243, 0.75),
-    rgba(240, 235, 227, 0.75));
-  backdrop-filter: blur(10px);
+    rgba(255, 255, 255, 0.50),
+    rgba(250, 245, 240, 0.34));
+  /* 轻微模糊以减少背景细节对文字的干扰 */
+  backdrop-filter: blur(4px) saturate(1.02);
   padding: 1.5rem 2rem; /* 减少左右内边距 */
   z-index: 4;
   display: flex;
   align-items: center;
   justify-content: flex-start; /* 改为左对齐 */
-  border-top: 2px solid rgba(212, 165, 165, 0.35);
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
   cursor: pointer;
   overflow: hidden; /* 防止文字超出 */
+  /* 轻微内发光与分离效果，帮助文字从背景中区分 */
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.25), 0 -8px 30px rgba(0,0,0,0.25);
 }
 
 /* 说话人姓名标签 */
@@ -388,7 +392,7 @@
   top: 0.6rem;
   left: 1rem;
   transform: translateY(-30%);
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.96);
   color: #8B7355;
   border: 1.5px solid rgba(212, 165, 165, 0.45);
   padding: 0.35rem 0.9rem;
@@ -401,16 +405,20 @@
 }
 
 .dialogue-text {
-  font-size: 1rem; /* 从 1.2rem 进一步减小到 1rem */
-  color: #2c1810;
-  line-height: 1.6; /* 从 1.8 减小到 1.6 */
+  font-size: 1rem; /* 便于在横屏/手机上都有良好阅读距离 */
+  color: #2c1810; /* 深色文字，配合浅色背景以保证对比 */
+  line-height: 1.6;
   text-align: justify; /* 两端对齐 */
   text-indent: 2em; /* 首行缩进2个字符 */
-  text-shadow: none;
-  letter-spacing: 0.05em;
-  width: 100%; /* 改为100%宽度 */
+  letter-spacing: 0.02em;
+  width: 100%;
   overflow-y: auto; /* 如果文字太多，允许滚动 */
-  max-height: 100%; /* 限制最大高度 */
+  max-height: 100%;
+  /* 在浅色面板上使用细微深色阴影以增强可读性 */
+  text-shadow: 0 1px 2px rgba(0,0,0,0.35);
+  -webkit-text-stroke: 0px transparent; /* 移除描边效果 */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* 继续提示箭头 */

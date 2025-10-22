@@ -3,6 +3,7 @@ import HomePage from '../views/HomePage.vue'
 import GameIntroduction from '../views/game_introduction.vue'
 import GamePage from '../views/GamePage.vue'
 import SettlementPage from '../views/SettlementPage.vue'
+import CreateWork from '../views/CreateWork.vue'
 
 const routes = [
   {
@@ -14,6 +15,11 @@ const routes = [
     path: '/works',
     name: 'Works',
     component: GameIntroduction
+  },
+  {
+    path: '/create',
+    name: 'Create',
+    component: CreateWork
   },
   {
     path: '/game/:id?',
