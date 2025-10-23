@@ -11,12 +11,6 @@ class GameworkSerializer(serializers.ModelSerializer):
         model = Gamework
         fields = ('gamework_id', 'author', 'title', 'description', 'tags', 'image_url', 'created_at', 'updated_at')
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # 延迟导入 queryset 避免循环导入
-        from tags.models import Tag
-        self.fields['tags'].queryset = Tag.objects.all()
-
     def create(self, validated_data):
         tags = validated_data.pop('tags', [])
         game = Gamework.objects.create(**validated_data)

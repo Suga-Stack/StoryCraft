@@ -9,12 +9,12 @@ class Favorite(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='Created at')
 
     class Meta:
-        unique_together = ('user', 'gamework')
+        unique_together = ('user', 'gamework')  # 不能重复收藏
         verbose_name = 'Favorite'
         verbose_name_plural = 'Favorites'
 
     def __str__(self):
-        return f"{self.user} 收藏了 {self.gamework}"
+        return f"{self.user.user_name} favorited {self.gamework.title}"
 
 
 class Comment(models.Model):
