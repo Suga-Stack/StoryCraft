@@ -247,7 +247,9 @@ const generateBranchingGraph = () => {
       const choiceY = currentY + 120
 
       // 判断是否是用户实际选择的选项
-      const isUserChoice = choice.id === userChoice.choiceId
+      // 优先使用历史记录中的 choiceId，只有当历史里没有 choiceId 时才回退到 scene.chosenChoiceId
+      const selectedChoiceId = userChoice && userChoice.choiceId ? userChoice.choiceId : (scene && scene.chosenChoiceId ? scene.chosenChoiceId : null)
+      const isUserChoice = selectedChoiceId != null && choice.id === selectedChoiceId
 
       // 选项节点
       const choiceNodeId = nodeId++

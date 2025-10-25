@@ -1,6 +1,12 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import * as createWorkService from '../service/createWork.js'
+
+// 在本地测试时可开启 create mock（当后端不可用时）
+const USE_MOCK_CREATE = true
+// 本地可替换的函数引用
+let createWorkOnBackend = createWorkService.createWorkOnBackend
 
 const router = useRouter()
 
@@ -64,39 +70,52 @@ const isLoading = ref(false)
 const progress = ref(0)
 const backendWork = ref(null)
 
-// 提交到后端生成作品（容错：失败则继续本地流程）
+// 提交到后端生成作品（使用 service）
 const submitToBackend = async () => {
+  const payload = {
+    tags: selectedTags.value,
+    idea: idea.value?.trim() || '',
+    length: lengthType.value
+  }
   try {
-    const payload = {
-      tags: selectedTags.value,
-      idea: idea.value?.trim() || '',
-      length: lengthType.value
-    }
-    const controller = new AbortController()
-    const id = setTimeout(() => controller.abort(), 8000)
-    const res = await fetch('/api/create-work', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    })
-    clearTimeout(id)
-    if (res.ok) {
-      const data = await res.json()
-      backendWork.value = data?.work || null
-      // 缓存封面/标题/标签，供加载页与介绍页使用
-      if (backendWork.value) {
-        try {
-          sessionStorage.setItem('lastWorkMeta', JSON.stringify({
-            title: backendWork.value.title || 'AI 生成作品',
-            coverUrl: backendWork.value.coverUrl || '',
-            tags: selectedTags.value
-          }))
-        } catch {}
+    const res = await createWorkOnBackend(payload)
+    backendWork.value = res?.backendWork || null
+    // 若服务返回了 initialAttributes/initialStatuses，将其附加到 backendWork 以便其他页面读取
+    try {
+      if (res?.initialAttributes) {
+        backendWork.value = backendWork.value || {}
+        backendWork.value.initialAttributes = res.initialAttributes
       }
+      if (res?.initialStatuses) {
+        backendWork.value = backendWork.value || {}
+        backendWork.value.initialStatuses = res.initialStatuses
+      }
+    } catch (e) { console.warn('attach initial attrs failed', e) }
+    // 缓存封面/标题/标签，供加载页与介绍页使用
+    if (backendWork.value) {
+      try {
+        sessionStorage.setItem('lastWorkMeta', JSON.stringify({
+          title: backendWork.value.title || 'AI 生成作品',
+          coverUrl: backendWork.value.coverUrl || '',
+          tags: selectedTags.value
+        }))
+      } catch {}
     }
+    // 将后端返回的关键生成结果保存到 createResult，便于作品介绍页和游戏页使用
+    try {
+      const createResult = {
+        selectedTags: selectedTags.value,
+        fromCreate: true,
+        backendWork: backendWork.value || null,
+        initialAttributes: res?.initialAttributes || {},
+        initialStatuses: res?.initialStatuses || {}
+      }
+      sessionStorage.setItem('createResult', JSON.stringify(createResult))
+      return createResult
+    } catch (e) { /* ignore storage errors */ return { backendWork: backendWork.value || null } }
   } catch (e) {
-    console.warn('create-work 后端调用失败（将使用本地流程）:', e?.message || e)
+    console.warn('create-work service 调用失败（将使用本地流程）:', e?.message || e)
+    throw e
   }
 }
 
@@ -111,33 +130,61 @@ const startCreate = async () => {
     }))
   } catch {}
 
-  // 同步调用后端创建（并行，不阻塞动画）
-  submitToBackend()
-
-  // 显示创建加载流程
-  isLoading.value = true
-  progress.value = 0
-  const duration = 2500
-  const startAt = performance.now()
-  const animate = (now) => {
-    const elapsed = now - startAt
-    const percent = Math.min(100, Math.round((elapsed / duration) * 100))
-    progress.value = percent
-    if (percent >= 100) {
-      // 跳转前把必要数据放入 sessionStorage，避免通过 history.state 传递复杂/不可克隆对象
-      try {
-        sessionStorage.setItem('createResult', JSON.stringify({
-          selectedTags: selectedTags.value,
-          fromCreate: true,
-          backendWork: backendWork.value || null
-        }))
-      } catch (e) { /* ignore storage errors */ }
-      router.push('/works')
-    } else {
-      requestAnimationFrame(animate)
+  // 如果启用了 mock，则按需动态加载 mock 实现以覆盖 createWorkOnBackend
+  if (USE_MOCK_CREATE) {
+    try {
+      const mock = await import('../service/createWork.mock.js')
+      createWorkOnBackend = mock.createWorkOnBackend || createWorkOnBackend
+    } catch (e) {
+      console.warn('加载 createWork.mock.js 失败，继续使用真实 service：', e)
     }
   }
-  requestAnimationFrame(animate)
+
+  // 显示创建加载流程，直到后端完全生成首章并返回；在 submitToBackend 完成并写入 createResult 后再跳转
+  isLoading.value = true
+  progress.value = 0
+  // 启动一个进度计时器，在等待后端返回时平滑推进到 75~85% 区间
+  let progressTimer = null
+  const startFakeProgress = () => {
+    if (progressTimer) return
+    progressTimer = setInterval(() => {
+      // 逐步推进，越接近 80% 增幅越小
+      const target = 80
+      const delta = Math.max(0.2, (target - progress.value) * 0.06)
+      progress.value = Math.min(target, +(progress.value + delta).toFixed(2))
+    }, 250)
+  }
+  const stopFakeProgress = () => {
+    if (progressTimer) {
+      clearInterval(progressTimer)
+      progressTimer = null
+    }
+  }
+
+  try {
+    startFakeProgress()
+    const result = await submitToBackend()
+    // 服务返回后，把进度推进到 100%
+    stopFakeProgress()
+    progress.value = 100
+    // 给用户一个短暂的完成感（200-400ms）再跳转到作品介绍页
+    await new Promise(r => setTimeout(r, 300))
+    // 跳转到作品介绍页，让用户查看作品详情并决定是否开始游戏
+    router.push('/works')
+  } catch (e) {
+    stopFakeProgress()
+    console.warn('提交生成失败，回退到本地流程或允许用户重试：', e)
+    alert('后端生成失败或超时，已使用本地占位内容。可重试或稍后再试。')
+    // 出错时也短暂显示 100% 以给用户反馈，然后跳转到作品介绍页
+    try { progress.value = 100 } catch (_) {}
+    await new Promise(r => setTimeout(r, 300))
+    router.push('/works')
+  } finally {
+    stopFakeProgress()
+    // 重置加载状态（导航后页面会卸载，这里作为防御性恢复）
+    isLoading.value = false
+    progress.value = 0
+  }
 }
 </script>
 
@@ -186,14 +233,14 @@ const startCreate = async () => {
       </div>
     </div>
 
-    <div class="section">
+    <div class="section idea-section">
       <div class="section-title">你的构思（可选）</div>
-      <textarea class="idea-input" v-model="idea" rows="4" placeholder="一句话概述/开头设定/人物关系等...（可留空）"></textarea>
-    </div>
-
-    <!-- 固定底部的大按钮 -->
-    <div class="actions actions-fixed">
-      <button class="create-btn create-btn-full" :disabled="!canCreate || isLoading" @click="startCreate">一键生成</button>
+      <div class="idea-wrap">
+        <textarea class="idea-input" v-model="idea" rows="4" placeholder="一句话概述/开头设定/人物关系等...（可留空）"></textarea>
+      </div>
+      <div class="idea-actions">
+        <button class="create-btn create-btn-small" :disabled="!canCreate || isLoading" @click="startCreate">一键生成</button>
+      </div>
     </div>
 
     <!-- 加载覆盖层 -->
@@ -240,10 +287,17 @@ const startCreate = async () => {
 .idea-input { width:100%; border-radius:8px; border:1px solid rgba(212,165,165,0.35); padding:0.6rem 0.75rem; font-size:0.95rem; outline:none; }
 .idea-input:focus { border-color:#d4a5a5; box-shadow: 0 0 0 3px rgba(212,165,165,0.2); }
 
+/* idea-section: 包含 textarea 与右下的小按钮 */
+.idea-section { position: relative; }
+.idea-wrap { position: relative; }
+.idea-actions { display:flex; justify-content:flex-end; margin-top: 0.5rem; }
+.create-btn-small { position: static; padding: 0.48rem 1rem; font-size: 0.92rem; border-radius: 8px; width: auto; min-width: 120px; max-width: 520px; text-align: center; }
+.create-btn-small:disabled { filter: grayscale(8%); }
+
 .actions { max-width:960px; margin: 1rem auto; display:flex; justify-content:flex-end; }
-.actions-fixed { position: fixed; left: 0; right: 0; bottom: 0; padding: 0.4rem 0.5rem; background: linear-gradient(180deg, rgba(250,248,243,0.0), rgba(250,248,243,0.02)); box-shadow: 0 -6px 20px rgba(0,0,0,0.06); z-index: 12000; }
-.create-btn { padding:0.8rem 1.4rem; border-radius:10px; border:1px solid rgba(212,165,165,0.5); background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%); color:#fff; font-weight:700; cursor:pointer; box-shadow:0 6px 18px rgba(0,0,0,0.12); }
-.create-btn-full { width: 100%; padding: 1rem 1.2rem; font-size: 1.1rem; border-radius: 12px; }
+.actions-inline { max-width:960px; margin: 1rem auto; display:flex; justify-content:center; }
+.create-btn { padding:0.5rem 1.2rem; border-radius:10px; border:1px solid rgba(212,165,165,0.5); background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%); color:#fff; font-weight:700; cursor:pointer; box-shadow:0 6px 18px rgba(0,0,0,0.12); }
+.create-btn-full { width: 100%; max-width: 480px; padding: 0.44rem 0.9rem; font-size: 0.98rem; border-radius: 10px; }
 .create-btn:disabled { opacity: 1; cursor:not-allowed; filter: grayscale(8%); }
 
 .loading-overlay { position:fixed; inset:0; background: rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; z-index: 10000; }
@@ -255,9 +309,11 @@ const startCreate = async () => {
 
 @media (max-width: 720px) {
   .tags-grid { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); }
-  .create-btn-full { font-size: 1rem; padding: 0.95rem 1rem; }
+  .create-btn-full { width: 100%; font-size: 1rem; padding: 0.8rem 1rem; }
+  /* 小屏幕上让按钮恢复为普通流布局，避免遮挡文本 */
+  .create-btn-small { display: block; width: 100%; margin-top: 0.75rem; }
 }
-/* 给页面底部内容留出空间，避免被固定按钮遮挡 */
-.create-page { padding-bottom: 64px; }
+/* 取消为固定底部按钮预留的底部空间 */
+.create-page { padding-bottom: 16px; }
 /* 保持原有样式结尾 */
 </style>

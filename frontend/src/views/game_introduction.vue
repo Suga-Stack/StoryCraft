@@ -12,19 +12,21 @@ const goBack = () => {
 // 单个作品数据（从后端获取）
 const route = useRoute()
 const state = history.state || {}
+// 若存在 createResult，则优先使用 sessionStorage.createResult 中的 backendWork
+let sessionCreate = null
+try { sessionCreate = JSON.parse(sessionStorage.getItem('createResult')) } catch (e) { sessionCreate = null }
 const incomingTags = (state.selectedTags && Array.isArray(state.selectedTags))
   ? state.selectedTags
   : (() => { try { return JSON.parse(sessionStorage.getItem('createRequest'))?.tags } catch { return null } })()
-const backendWork = state.backendWork || null
+const backendWork = state.backendWork || sessionCreate?.backendWork || null
 
 const work = ref({
   id: backendWork?.id || 1,
-  title: backendWork?.title || '锦瑟深宫', // 后端提供：AI生成的作品名
-  coverUrl: backendWork?.coverUrl || 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=800&h=500&fit=crop', // 后端提供：AI生成的封面URL
-  authorId: backendWork?.authorId || 'user_12345', // 作者ID
-  // 标签以用户选择为准，确保一致；若无选择再回退
+  title: backendWork?.title || '锦瑟深宫',
+  coverUrl: backendWork?.coverUrl || 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=800&h=500&fit=crop',
+  authorId: backendWork?.authorId || 'user_12345',
   tags: incomingTags || backendWork?.tags || ['科幻', '冒险', '太空', '未来'],
-  description: `柳晚晚穿越成后宫小透明，她把宫斗当成终身职业来经营。
+  description: backendWork?.description || `柳晚晚穿越成后宫小透明，她把宫斗当成终身职业来经营。
 不争宠不夺权，只求平安活到退休。
 
 别人算计位份，她研究菜谱
@@ -38,7 +40,7 @@ const work = ref({
 至于恩宠？那是什么，能吃吗？"
 
 在这吃人的后宫，不想争宠的干饭人，
-正在悄悄苟成最后赢家。`, // 后端提供：AI生成的作品简介
+正在悄悄苟成最后赢家。`,
   isFavorite: false
 })
 
@@ -130,8 +132,17 @@ const sortedComments = computed(() => {
 const submitComment = () => {
   if (newComment.value.trim()) {
     if (replyingTo.value) {
-      // 回复评论
-      const parentComment = comments.value.find(c => c.id === replyingTo.value)
+      // 回复评论（支持回复顶层评论或回复下的回复）
+      let parentComment = comments.value.find(c => c.id === replyingTo.value)
+      if (!parentComment) {
+        // 在每个 comment.replies 中查找 id，找到所属的顶层 parent
+        for (const c of comments.value) {
+          if (Array.isArray(c.replies) && c.replies.some(r => r.id === replyingTo.value)) {
+            parentComment = c
+            break
+          }
+        }
+      }
       if (parentComment) {
         parentComment.replies.push({
           id: Date.now(),
@@ -186,21 +197,41 @@ const closeModal = () => {
 
 // 开始阅读
 const startReading = () => {
-  // 跳转到阅读页面，通过路由 state 传递作品信息
+  // 跳转到阅读页面，通过路由 state 传递作品信息和初始属性
   try {
+    // 从 createResult 中获取初始属性和状态
+    const createResult = JSON.parse(sessionStorage.getItem('createResult') || '{}')
+    const initialAttributes = createResult?.initialAttributes || {}
+    const initialStatuses = createResult?.initialStatuses || {}
+    
     // 同步缓存，确保 GamePage 与加载页统一使用本次选择的封面/标题
     sessionStorage.setItem('lastWorkMeta', JSON.stringify({
       title: work.value.title,
       coverUrl: work.value.coverUrl
     }))
-  } catch {}
-  router.push({
-    path: `/game/${work.value.id}`,
-    state: {
-      title: work.value.title,
-      coverUrl: work.value.coverUrl
-    }
-  })
+    
+    router.push({
+      path: `/game/${work.value.id}`,
+      state: {
+        title: work.value.title,
+        coverUrl: work.value.coverUrl,
+        attributes: initialAttributes,
+        statuses: initialStatuses,
+        workId: work.value.id
+      }
+    })
+  } catch (e) {
+    console.error('Failed to read createResult:', e)
+    // 降级处理，使用默认值
+    router.push({
+      path: `/game/${work.value.id}`,
+      state: {
+        title: work.value.title,
+        coverUrl: work.value.coverUrl,
+        workId: work.value.id
+      }
+    })
+  }
 }
 </script>
 
@@ -373,6 +404,12 @@ const startReading = () => {
                         </svg>
                         <span>{{ reply.likes }}</span>
                       </button>
+                          <button class="action-btn reply-btn" @click="startReply(reply.id, reply.author)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                            <span>回复</span>
+                          </button>
                     </div>
                   </div>
                 </div>
@@ -514,20 +551,20 @@ const startReading = () => {
 }
 
 .favorite-btn:hover {
-  background-color: rgba(102, 126, 234, 0.15);
+  background-color:rgba(218, 217, 217, 0.5);
   transform: scale(1.1);
 }
 
 .favorite-btn:hover svg {
-  color: #667eea;
+  color: rgba(15, 15, 15, 0.15);
 }
 
 .favorite-btn.active {
-  background-color: rgba(255, 215, 0, 0.2);
+  background-color: rgba(255, 217, 0, 0.123);
 }
 
 .favorite-btn.active svg {
-  color: #ffd700;
+  color: #ffd900e7;
 }
 
 /* 标签容器 */
@@ -1010,6 +1047,8 @@ const startReading = () => {
   padding: 1.5rem;
   margin-bottom: 2rem;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
 }
 
 .comment-input {
@@ -1036,15 +1075,16 @@ const startReading = () => {
 
 .submit-comment-btn {
   margin-top: 1rem;
-  padding: 0.75rem 2rem;
+  padding: 0.6rem 1.4rem;
   background: #d4a5a5; /* 肉粉色 */
   color: white;
   border: none;
   border-radius: 8px;
-  font-size: 1rem;
+  font-size: 0.95rem;
   cursor: pointer;
   transition: all 0.3s ease;
   font-weight: 500;
+  align-self: flex-end; /* 靠右 */
 }
 
 .submit-comment-btn:hover {
@@ -1153,8 +1193,8 @@ const startReading = () => {
 }
 
 .action-btn:hover {
-  border-color: #d4a5a5;
-  color: #d4a5a5;
+  border-color: #e0e0e0;
+  color: #666;
   background: rgba(212, 165, 165, 0.05);
 }
 
