@@ -5,7 +5,9 @@ from interactions.permissions import IsOwnerOrReadOnly
 from rest_framework.response import Response
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-from django.db.models import Q
+from django.db.models import Count, Q
+
+from tags.models import Tag
 
 class GameworkViewSet(viewsets.ModelViewSet):
     queryset = Gamework.objects.all()
@@ -92,3 +94,51 @@ class GameworkSearchView(generics.ListAPIView):
             queryset = queryset.filter(Q(tags__id__iexact=tag) | Q(tags__name__icontains=tag))
 
         return queryset.distinct()
+
+class RecommendView(generics.ListAPIView):
+    """基于用户喜欢标签的作品推荐接口"""
+    serializer_class = GameworkSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    # pagination_class = None  # 禁用分页，返回完整结果
+
+    @swagger_auto_schema(
+        operation_summary="推荐作品",
+        operation_description=(
+            "根据当前用户喜欢的标签推荐作品。\n\n"
+            "推荐依据：用户的 liked_tags 与作品的 tags 标签匹配数量。\n"
+            "不推荐用户自己创作的作品。"
+        ),
+        responses={
+            200: openapi.Response("推荐结果", GameworkSerializer(many=True)),
+            404: "用户未设置喜欢的标签"
+        }
+    )
+    def get(self, request, *args, **kwargs):
+        user = request.user
+        liked_tags = user.liked_tags.all()
+
+        # 若用户未设置喜欢的标签
+        if not liked_tags.exists():
+            return Response({
+                "code": 404,
+                "message": "用户未设置喜欢的标签",
+                "data": []
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # 按标签重叠度计算推荐得分
+        queryset = (
+            Gamework.objects.filter(tags__in=liked_tags)
+            .exclude(author=user)  # 不推荐自己创作的作品
+            .annotate(
+                match_count=Count("tags", filter=Q(tags__in=liked_tags), distinct=True)
+            )
+            .order_by("-match_count", "-id")  # 标签重叠越多，越靠前
+            .distinct()
+        )
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({
+            "code": 200,
+            "message": "推荐成功",
+            "data": serializer.data
+        }, status=status.HTTP_200_OK)

@@ -22,6 +22,17 @@ schema_view = get_schema_view(
     permission_classes=[permissions.AllowAny],
 )
 
+swagger_settings = {
+    'SECURITY_DEFINITIONS': {
+        'Bearer': {
+            'type': 'apiKey',
+            'name': 'Authorization',
+            'in': 'header',
+            'description': '在这里输入 JWT token，如：Bearer <token>'
+        }
+    }
+}
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     # path('api/', include('users.urls')),
