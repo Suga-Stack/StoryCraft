@@ -42,6 +42,8 @@ urlpatterns = [
     path('api/tags/', include('tags.urls')),  # 标签模块
     path('api/interactions/', include('interactions.urls')),  # 收藏/评论/评分模块
 
+    path('api/game/',include('game.urls')),
+
     # JWT token
     # POST /api/auth/token/  获取 token
     # POST /api/auth/token/refresh/  刷新 token

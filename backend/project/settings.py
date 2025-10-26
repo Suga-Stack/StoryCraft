@@ -47,6 +47,8 @@ INSTALLED_APPS = [
     'gameworks',  # 游戏作品
     'tags',  # 标签
     'interactions',  # 收藏/评分/评论
+    'game',
+    'stories',
 ]
 
 MIDDLEWARE = [
@@ -82,7 +84,7 @@ WSGI_APPLICATION = 'project.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
-
+"""
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',  # MySQL 数据库引擎
@@ -97,7 +99,13 @@ DATABASES = {
         },
     }
 }
-
+"""
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
+}
 
 
 # Password validation

@@ -34,11 +34,9 @@ class StoryChapter(models.Model):
     """
     story = models.ForeignKey(Story, on_delete=models.CASCADE, related_name='chapters', help_text="关联的故事")
     chapter_index = models.PositiveIntegerField(help_text="章节序号 (从1开始)")
-    title = models.CharField(max_length=200, blank=True, help_text="章节标题")
-    
-    # 存储整个章节的结构化数据，包括所有场景、选项和分支
+
+    # 存储整个章节的结构化数据，包括序号，标题，所有场景、选项和分支
     content = models.JSONField(help_text="章节内容的JSON结构")
-    
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -47,4 +45,3 @@ class StoryChapter(models.Model):
 
     def __str__(self):
         return f"{self.story.gamework.title} - Chapter {self.chapter_index}"
-

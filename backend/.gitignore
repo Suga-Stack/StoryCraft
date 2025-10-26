@@ -1,6 +1,7 @@
 docs/
 game/test.py
-
+game/text.json
+db.sqlite3
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
