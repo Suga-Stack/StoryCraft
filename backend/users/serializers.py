@@ -119,11 +119,7 @@ class LogoutSerializer(serializers.Serializer):
             raise ValidationError({'message': '无效的token'})
 
 class UserPreferenceSerializer(serializers.ModelSerializer):
-    # liked_tags_detail = TagSerializer(source='liked_tags', many=True, read_only=True)
-    liked_tags = serializers.ListField(
-        child=serializers.CharField(),
-        allow_empty=True
-    )
+    liked_tags = serializers.PrimaryKeyRelatedField(queryset=Tag.objects.all(), many=True)
 
     class Meta:
         model = User

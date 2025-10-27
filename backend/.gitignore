@@ -65,3 +65,9 @@ venv.bak/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# 忽略所有应用中的迁移文件夹
+*/migrations/*
+
+# 忽略数据库文件（如果是SQLite）
+db.sqlite3
