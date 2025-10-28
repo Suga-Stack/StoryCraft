@@ -9,7 +9,7 @@ class GameSave(models.Model):
     
     name = models.CharField(max_length=100, help_text="存档名称, 如 '自动存档 2024-05-21'")
     
-    # 游戏状态快照 (核心), 存储了玩家在游戏中的所有动态数据
+    # 游戏状态快照,存储了玩家在游戏中的所有动态数据
     game_state = models.JSONField(help_text="游戏状态的JSON快照")
     
     thumbnail = models.URLField(max_length=500, blank=True, null=True, help_text="存档时场景的截图URL")
@@ -30,10 +30,6 @@ class GameReport(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="game_reports")
     gamework = models.ForeignKey(Gamework, on_delete=models.CASCADE, related_name="game_reports")
     
-    # 关联的最终存档, SET_NULL表示如果存档被删除, 报告依然保留
-    final_save = models.OneToOneField(GameSave, on_delete=models.SET_NULL, null=True, blank=True)
-    
-    # 报告内容, e.g., {"ending_title": "孤独的守望者", "exploration_rate": "60%"}
     content = models.JSONField(help_text="游戏总结报告的内容 (JSON格式)")
     
     generated_at = models.DateTimeField(auto_now_add=True)

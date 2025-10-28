@@ -87,9 +87,9 @@ class GameworkCreateResponseSerializer(serializers.Serializer):
         child=serializers.IntegerField(), 
         help_text="初始属性值，例如: {'力量': 10, '敏捷': 8}"
     )
-    statuses = serializers.DictField(
-        child=serializers.DictField(child=serializers.IntegerField()), 
-        help_text="全部状态标签及其属性阈值，例如: {'初出茅庐': {'人气': 120, '灵石': 1200}}"
+    initialStatuses = serializers.DictField(
+        child=serializers.CharField(), 
+        help_text="初始状态，例如: {'修为': '炼气期三层', '线人网络': True}"
     )
 
 class GameChapterRequestSerializer(serializers.Serializer):
@@ -105,9 +105,15 @@ class GameChapterRequestSerializer(serializers.Serializer):
     )
 
 class GameChapterChoiceSerializer(serializers.Serializer):
+    id = serializers.CharField()
     text = serializers.CharField()
     attributesDelta = serializers.DictField(
         child=serializers.IntegerField(),
+        required=False,
+        default=dict
+    )
+    statusesDelta = serializers.DictField(
+        child=serializers.CharField(),
         required=False,
         default=dict
     )
@@ -134,3 +140,36 @@ class GameChapterResponseSerializer(serializers.Serializer):
     title = serializers.CharField()
     scenes = GameChapterSceneSerializer(many=True)
     isGameEnding = serializers.BooleanField(required=False)
+
+class SettlementReportContentSerializer(serializers.Serializer):
+    title = serializers.CharField()
+    content = serializers.CharField()
+    traits = serializers.ListField(child=serializers.CharField(), required=False)
+    scores = serializers.DictField(child=serializers.IntegerField(), required=False)
+
+class SettlementVariantSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    title = serializers.CharField()
+    summary = serializers.CharField()
+    minAttributes = serializers.DictField(child=serializers.IntegerField(), required=False)
+    requiredStatuses = serializers.ListField(child=serializers.CharField(), required=False)
+    report = SettlementReportContentSerializer()
+
+class SettlementRequestSerializer(serializers.Serializer):
+    attributes = serializers.DictField(
+        child=serializers.IntegerField(),
+        required=False,
+        default=dict,
+        help_text="属性字典，键为属性名，值为数值"
+    )
+    statuses = serializers.DictField(
+        child=serializers.JSONField(),
+        required=False,
+        default=dict,
+        help_text="状态字典，键为状态名，值可以是字符串/布尔/数值"
+    )
+
+class SettlementResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField()
+    reports = SettlementVariantSerializer(many=True)
+    debug = serializers.DictField(required=False)

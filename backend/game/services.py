@@ -1,17 +1,18 @@
 import os
 import json
 import random
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 from pydantic import BaseModel, Field
 from volcenginesdkarkruntime import Ark
 from stories.models import Story, StoryChapter
 from gameworks.models import Gamework
-from tags.models import Tag
 
 class Choice(BaseModel):
     """选项及属性值变化"""
+    id: str
     text: str
     attributesDelta: Optional[Dict[str, int]] = Field(default_factory=dict)
+    statusesDelta: Optional[Dict[str,Union[str, bool, int]]] = Field(default_factory=dict)
     subsequentDialogues: List[str]
 
 class DialogueItem(BaseModel):
@@ -37,7 +38,7 @@ class GameworkDetails(BaseModel):
     title: str = Field(description="生成的作品标题")
     description: str = Field(description="生成的作品简介")
     initialAttributes: Dict[str, int] = Field(description="初始属性值")
-    statuses: Dict[str, Dict[str, int]] = Field(description="全部状态标签及其属性阈值")
+    initialStatuses: Dict[str, Union[str, bool, int]] = Field(description="当前状态集合，键为状态名，值为状态值")
 
 client = Ark(
     api_key="3f00ab95-6096-4639-a8b0-09c711a63d9c",
@@ -147,11 +148,11 @@ def _generate_gamework_details_with_ai(tags: List[str], idea: str, length: str) 
 1.  一个吸引人的游戏标题 (title)。
 2.  一段引人入胜的游戏简介 (description)，大约100-150字。
 3.  一套初始玩家属性 (initialAttributes)，包含2-4个核心数值属性，并设定初始值。
-4.  一套玩家状态等级 (statuses)，定义几个关键的成长状态以及达到该状态所需的属性阈值。
+4.  一套初始玩家状态等级 (initialStatuses)，定义主角的初始成长状态。
 
 # 数据格式要求
 请严格按照指定的JSON格式输出，不要添加任何额外解释。
-
+""" + """
 # 示例
 {
   "title":"xxxx",
@@ -160,14 +161,10 @@ def _generate_gamework_details_with_ai(tags: List[str], idea: str, length: str) 
     "人气":100,
     "灵石":1000,
   },
-  "statuses":{
-    "初出茅庐":{
-      "人气":120,
-      "灵石":1200
-    },
-    "小有名气":{
-      "人气":200
-    }
+  "initialStatuses":{
+    "修为": "炼气期三层",
+    "线人网络": true,
+    "美食家称号": "新晋美食家"
   }
 }
 """
@@ -190,11 +187,13 @@ def _generate_gamework_details_with_ai(tags: List[str], idea: str, length: str) 
             title="AI生成失败的模拟作品",
             description="这是一个在AI生成失败时返回的模拟作品简介。",
             initialAttributes={"灵石": 100, "声望": 0},
-            statuses={"初出茅庐": {"声望": 10}, "小有名气": {"声望": 100}}
+            initialStatuses={"修为": "炼气期三层","线人网络": True,"美食家称号": "新晋美食家"}
         )
 
 def _generate_cover_image_with_ai(tags: List[str], idea: str) -> str:
     """使用AI生成封面图片URL"""
+    
+    return "https://ark-project.tos-cn-beijing.volces.com/doc_image/seedream4_imageToimage.png"
 
     prompt = f"一部关于“{', '.join(tags)}”的文字冒险游戏的游戏封面, 主题：{idea if idea else '无特定主题，请根据标签自由发挥'}；二次元动漫风格, 色彩鲜艳"
     try:
@@ -206,14 +205,13 @@ def _generate_cover_image_with_ai(tags: List[str], idea: str) -> str:
             watermark=True
         )
         if response.data:
-            print(response.data[0].url)
             return response.data[0].url
         return "" 
     except Exception as e:
         print(f"AI生成封面图片错误: {e}")
         return "https://ark-project.tos-cn-beijing.volces.com/doc_image/seedream4_imageToimage.png" 
 
-def _resolve_total_chapters(length: Optional[str]) -> int:
+def _resolve_total_chapters(length: str) -> int:
     """根据篇幅映射章节数量"""
     ranges = {
         "short": (3, 5),
@@ -250,6 +248,8 @@ def create_gamework(user, tags: List[str], idea: str, length: str) -> dict:
     )
 
     # 关联标签
+    from tags.models import Tag
+
     tag_objects = []
     for tag_name in tags:
         tag, _ = Tag.objects.get_or_create(name=tag_name)
@@ -263,7 +263,7 @@ def create_gamework(user, tags: List[str], idea: str, length: str) -> dict:
         "coverUrl": cover_url,
         "description": details.description,
         "initialAttributes": details.initialAttributes,
-        "statuses": details.statuses
+        "initialStatuses": details.initialStatuses
     }
 
 def get_or_generate_chapter(gamework: Gamework, chapter_index: int) -> dict:
@@ -273,7 +273,7 @@ def get_or_generate_chapter(gamework: Gamework, chapter_index: int) -> dict:
     """
     story, created = Story.objects.get_or_create(
         gamework=gamework,
-        defaults={'total_chapters': _resolve_total_chapters(None)}
+        defaults={'total_chapters': _resolve_total_chapters("")}
     )
 
     total_chapters = story.total_chapters
@@ -289,3 +289,87 @@ def get_or_generate_chapter(gamework: Gamework, chapter_index: int) -> dict:
 
     generated_chapter = _generate_chapter(gamework, chapter_index)
     return generated_chapter.content
+
+def get_or_generate_report(gamework: Gamework) -> dict:
+    """
+    获取或生成游戏总结报告。
+    如果报告已存在，直接从数据库返回;否则，调用AI生成。
+    """
+    from .models import GameReport
+
+    try:
+        report = GameReport.objects.get(gamework=gamework)
+        return report.content
+    except GameReport.DoesNotExist:
+        pass
+
+    return report.content
+
+def build_settlement_variants(attributes: Dict[str, int], statuses: Dict[str, Any]) -> dict:
+    """
+    构造结算报告候选 variants，并返回 debug 检查信息。
+    前端将根据自身策略选择最终展示的 variant。
+    """
+    variants = [
+        {
+            "id": "v_royalist_mastermind",
+            "title": "深宫谋士",
+            "summary": "善于谋略与人际运作",
+            "minAttributes": {"心计": 40},
+            "requiredStatuses": ["线人网络"],
+            "report": {
+                "title": "深宫谋士",
+                "content": "你行事缜密，擅长通过蛛丝马迹改变局势...",
+                "traits": ["善于谋划", "察言观色"],
+                "scores": {"智谋": 92}
+            }
+        },
+        {
+            "id": "v_merchant_entrepreneur",
+            "title": "商海奇才",
+            "summary": "擅长经商与资源运作",
+            "minAttributes": {"灵石": 100, "商业头脑": 15},
+            "requiredStatuses": [],
+            "report": {
+                "title": "商海奇才",
+                "content": "你在利益面前如鱼得水...",
+                "traits": ["经商天赋"],
+                "scores": {"财富": 88}
+            }
+        },
+        {
+            "id": "v_default",
+            "title": "平凡之路",
+            "summary": "通用回退报告",
+            "report": {"title": "平凡之路", "content": "你的结局平静而踏实..."}
+        }
+    ]
+
+    checked = []
+    for v in variants:
+        reasons = []
+        ok = True
+
+        # 校验 minAttributes
+        min_attr = v.get("minAttributes") or {}
+        for k, req in min_attr.items():
+            val = attributes.get(k, None)
+            if val is None or val < req:
+                ok = False
+                reasons.append(f"{k}({val}) < {req}")
+
+        # 校验 requiredStatuses
+        req_stats = v.get("requiredStatuses") or []
+        for s in req_stats:
+            val = statuses.get(s, None)
+            if not val:
+                ok = False
+                reasons.append(f"缺少状态 {s}")
+
+        checked.append({"id": v["id"], "matched": ok, "reason": "; ".join(reasons) if reasons else ""})
+
+    return {
+        "success": True,
+        "reports": variants,
+        "debug": {"checked": checked}
+    }
