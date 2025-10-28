@@ -85,13 +85,31 @@ const backendLoad = async (userId, workId, slot) => {
 
 // 存档API
 export const saveGameData = async (gameData, slot = 'default') => {
+  // 新的存档结构：保存章节索引、场景 id 与对话索引，便于跨章节/不同场景序号复用
+  // 优先使用传入的明确字段，否则从 storyScenes + 索引推导
+    const deriveChapterIndex = () => {
+      if (gameData.chapterIndex != null) return gameData.chapterIndex
+      if (gameData.currentChapterIndex != null) return gameData.currentChapterIndex
+      return (gameData.currentChapterIndex || 1)
+    }
+
+    const deriveSceneId = () => {
+      if (gameData.sceneId != null) return gameData.sceneId
+      if (gameData.currentSceneId != null) return gameData.currentSceneId
+      // 不再从 gameData.storyScenes 回退（该字段已从存档 payload 中移除）
+      return null
+    }
+
   const payload = {
     work: gameData.work,
-    currentSceneIndex: gameData.currentSceneIndex,
-    currentDialogueIndex: gameData.currentDialogueIndex,
+    // 新字段：chapterIndex, sceneId, dialogueIndex
+    chapterIndex: deriveChapterIndex(),
+    sceneId: deriveSceneId(),
+    dialogueIndex: (gameData.currentDialogueIndex != null) ? gameData.currentDialogueIndex : (gameData.dialogueIndex || 0),
     attributes: deepClone(gameData.attributes),
     statuses: deepClone(gameData.statuses),
-    storyScenes: deepClone(gameData.storyScenes),
+    // NOTE: 不再保存 `storyScenes` 到存档中（后端与前端都不应依赖此字段）
+    // storyScenes: deepClone(gameData.storyScenes),
     choiceHistory: deepClone(gameData.choiceHistory),
     timestamp: Date.now()
   }
@@ -158,12 +176,21 @@ export const refreshSlotInfos = async (workId, slots = ['slot1', 'slot2', 'slot3
     try {
       const result = await loadGameData(workId, slot)
       if (result.success) {
+        const d = result.data
         results[slot] = {
           slot,
-          data: deepClone(result.data),
-          timestamp: result.data.timestamp || Date.now(),
-          sceneTitle: `场景 ${(result.data.currentSceneIndex || 0) + 1}`,
-          dialogueIndex: result.data.currentDialogueIndex || 0
+          data: deepClone(d),
+          timestamp: d.timestamp || Date.now(),
+          // 显示友好字段：章节 / 场景 id / 对话索引
+          chapterIndex: d.chapterIndex != null ? d.chapterIndex : (d.currentChapterIndex != null ? d.currentChapterIndex : null),
+          // sceneId 以字符串形式返回（例如 "1000"）以便统一展示与比较
+          sceneId: d.sceneId != null ? String(d.sceneId) : (d.currentSceneIndex != null ? String(d.currentSceneIndex) : null),
+          dialogueIndex: d.dialogueIndex != null ? d.dialogueIndex : (d.currentDialogueIndex != null ? d.currentDialogueIndex : 0),
+          // 兼容旧字段：某些代码仍会读取 currentSceneIndex/currentDialogueIndex
+          currentSceneIndex: (typeof d.currentSceneIndex === 'number') ? d.currentSceneIndex : null,
+          currentDialogueIndex: (typeof d.currentDialogueIndex === 'number') ? d.currentDialogueIndex : (d.dialogueIndex != null ? d.dialogueIndex : 0),
+          // 不再包含 sceneTitle（因存档不再携带 storyScenes）
+          sceneTitle: null
         }
       } else {
         results[slot] = null

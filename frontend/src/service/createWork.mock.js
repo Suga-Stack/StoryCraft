@@ -32,24 +32,19 @@ export async function createWorkOnBackend(payload = {}) {
   
   // 根据构思和标签生成简介
   let generatedDescription = '现代理财师魂穿仙侠世界，成了个小宗门弟子。没有逆天资质，却有个需要氪金才能变强的奇怪系统。为了"充值"，她在仙门开创了一系列"商业项目"。从此，整个宗门的风气开始跑偏……'
-  if (idea) {
-    generatedDescription = idea + '。' + generatedDescription
-  }
+  // 不再将用户填写的“一句话构思/概述”直接拼接到自动生成的简介中。
+  // 用户的构思保留在 payload.idea 中，如果需要展示，应在 UI 的其他位置单独呈现。
   
-  const backendWork = {
-    id,
+  // 按照 game-api.md 的返回格式组织 mock 返回
+  return {
+    gameworkId: id,
     title: payload.title || generatedTitle,
     coverUrl: payload.coverUrl || '/images/仙界封面.jpg',
     description: payload.description || generatedDescription,
-    authorId: 'mock-user',
-    tags: tags,
-    length: length
-  }
-
-  return {
-    backendWork,
+    // 初始属性（与后端约定的字段名一致）
     initialAttributes: payload.initialAttributes || { '灵石': 50, '道心': 5, '人气': 5, '商业头脑': 10 },
-    initialStatuses: payload.initialStatuses || { '修为': '炼气期三层' }
+    // statuses 字段（game-api.md 中使用 statuses 作为可选的状态集合）
+    statuses: payload.initialStatuses || { '修为': '炼气期三层' }
   }
 }
 

@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { saveGameData, loadGameData, refreshSlotInfos, SLOTS } from '../utils/saveLoad.js'
+import { fetchPersonalityReportVariants } from '../service/personality.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -78,6 +79,41 @@ const dragNode = ref(null)
 const NODE_W = 120
 const NODE_H = 60
 const NODE_MARGIN = 16
+
+// 文本拆行辅助：将长字符串按固定宽度切分为多行（用于 SVG <tspan> 渲染）
+const splitLines = (text = '', chunk = 12) => {
+  if (!text) return []
+  const s = String(text)
+  const lines = []
+  for (let i = 0; i < s.length; i += chunk) {
+    lines.push(s.substring(i, i + chunk))
+  }
+  return lines
+}
+
+// 去掉装饰性破折号等前后缀，提取实际标题
+const stripDecorative = (s = '') => {
+  if (!s) return ''
+  return String(s).replace(/^[\-—_\s]+|[\-—_\s]+$/g, '').trim()
+}
+
+// 计算节点尺寸和描述行：基于字符宽度估算，使节点宽度/高度自适应文本
+const computeNodeLayout = (title = '', description = '', opts = {}) => {
+  const CHAR_PX = opts.charPx || 8
+  const PAD_X = opts.padX || 12
+  const PAD_Y = opts.padY || 10
+  const TITLE_H = opts.titleH || 18
+  const LINE_H = opts.lineH || 14
+  const MIN_W = opts.minW || 80
+  const MAX_W = opts.maxW || 360
+  const MAX_CHARS = Math.max(6, Math.floor((MAX_W - PAD_X * 2) / CHAR_PX))
+
+  const descLines = splitLines(stripDecorative(description || ''), Math.max(6, Math.min(MAX_CHARS, opts.chunk || 18)))
+  const maxLineLen = Math.max(String(title || '').length, ...descLines.map(l => l.length || 0))
+  const width = Math.min(MAX_W, Math.max(MIN_W, maxLineLen * CHAR_PX + PAD_X * 2))
+  const height = PAD_Y * 2 + TITLE_H + (descLines.length > 0 ? descLines.length * LINE_H : 0)
+  return { width, height, descLines }
+}
 
 // 根据节点动态计算画布尺寸，确保可以滚动查看全部内容
 const graphHeight = computed(() => {
@@ -195,15 +231,40 @@ const generateBranchingGraph = () => {
   const edges = []
   let nodeId = 0
 
-  // 起始节点
-  nodes.push({
-    id: nodeId++,
-    title: '初入深宫',
-    type: 'start',
-    x: 400,
-    y: 50,
-    description: '故事开始，初入宫闱'
-  })
+  // 起始节点：优先使用后端传来的第一章标题作为起始节点名称（例如“第一章 标题”），
+  // 如果没有可用章节数据则回退到默认标题
+  const firstChapter = (gameData.value.storyScenes && gameData.value.storyScenes.length > 0) ? gameData.value.storyScenes[0] : null
+  let startTitle = '初入深宫'
+  let startDescription = '故事开始，初入宫闱'
+  if (firstChapter) {
+    const idx = firstChapter.chapterIndex || 1
+    const chapterLabel = idx === 1 ? '第一章' : `第${idx}章`
+    startTitle = `${chapterLabel} ${firstChapter.title || ''}`.trim()
+    // 优先使用 chapterTitle/title 字段；若缺失则尝试从第一个 dialogue 的文本中提取（去掉装饰性破折号）
+    startDescription = firstChapter.title || ''
+    if (!startDescription && Array.isArray(firstChapter.dialogues) && firstChapter.dialogues.length > 0) {
+      const raw = firstChapter.dialogues[0]
+      const txt = raw && (raw.text ?? raw.narration ?? '')
+      startDescription = stripDecorative(txt)
+    }
+  }
+
+  // 起始节点的粗体标题只显示章节编号（例如：第1章），完整章节名放在 description 中
+  const startShortTitle = firstChapter && (firstChapter.chapterIndex || firstChapter.chapterIndex === 0) ? `第${firstChapter.chapterIndex}章` : '第1章'
+  {
+    const layout = computeNodeLayout(startShortTitle, startDescription)
+    nodes.push({
+      id: nodeId++,
+      title: startShortTitle,
+      type: 'start',
+      x: 400,
+      y: 50,
+      description: startDescription,
+      width: layout.width,
+      height: layout.height,
+      descLines: layout.descLines
+    })
+  }
 
   let currentY = 150
   let lastNodeId = 0
@@ -220,15 +281,46 @@ const generateBranchingGraph = () => {
 
     // 场景节点（选择发生的地方）
     const sceneNodeId = nodeId++
-    const sceneTitle = (userChoice.sceneTitle || scene.title || `第${historyIndex + 1}章`).toString()
-    nodes.push({
-      id: sceneNodeId,
-      title: sceneTitle.substring(0, 6),
-      type: 'scene',
-      x: 400,
-      y: currentY,
-      description: sceneTitle
-    })
+    // 场景节点：粗体（title）只显示章节编号，如 "第1章"；浅色描述（description）显示完整章节标题
+    let chapterIdx = null
+    let chapterTitle = ''
+    if (scene && (scene.chapterIndex || scene.chapterIndex === 0)) {
+      chapterIdx = scene.chapterIndex
+    } else if (userChoice && userChoice.chapterIndex) {
+      chapterIdx = userChoice.chapterIndex
+    }
+    if (scene && (scene.chapterTitle || scene.title)) {
+      chapterTitle = scene.chapterTitle || scene.title || ''
+    } else if (userChoice && userChoice.sceneTitle) {
+      chapterTitle = userChoice.sceneTitle
+    }
+
+    const fallbackIdx = historyIndex + 1
+    const displayIdx = chapterIdx != null ? chapterIdx : fallbackIdx
+    const sceneShortTitle = `第${displayIdx}章`
+    // 若没有显式的 chapterTitle，则尝试从场景第一个 dialogue 提取（例如 '———— 第一章：破产的修仙生涯 ————'）
+    let sceneFullTitle = chapterTitle || `第${displayIdx}章`
+    if ((!chapterTitle || chapterTitle === '') && Array.isArray(scene.dialogues) && scene.dialogues.length > 0) {
+      const raw = scene.dialogues[0]
+      const txt = raw && (raw.text ?? raw.narration ?? '')
+      const stripped = stripDecorative(txt)
+      if (stripped) sceneFullTitle = stripped
+    }
+
+    {
+      const layout = computeNodeLayout(sceneShortTitle, sceneFullTitle)
+      nodes.push({
+        id: sceneNodeId,
+        title: sceneShortTitle,
+        type: 'scene',
+        x: 400,
+        y: currentY,
+        description: sceneFullTitle,
+        width: layout.width,
+        height: layout.height,
+        descLines: layout.descLines
+      })
+    }
 
     // 连接上一个节点到当前场景
     edges.push({
@@ -251,18 +343,25 @@ const generateBranchingGraph = () => {
       const selectedChoiceId = userChoice && userChoice.choiceId ? userChoice.choiceId : (scene && scene.chosenChoiceId ? scene.chosenChoiceId : null)
       const isUserChoice = selectedChoiceId != null && choice.id === selectedChoiceId
 
-      // 选项节点
+      // 选项节点：粗体显示为“选项A/选项B”，浅色描述显示完整选项文本（用于多行展示）
       const choiceNodeId = nodeId++
-      const choiceText = (choice.text || '').toString().substring(0, 6)
-      nodes.push({
-        id: choiceNodeId,
-        title: choiceText,
-        type: isUserChoice ? 'choice-selected' : 'choice-unselected',
-        x: choiceX,
-        y: choiceY,
-        description: choice.text,
-        isSelected: isUserChoice
-      })
+      const optLetter = String.fromCharCode(65 + choiceIndex) // A, B, C...
+      const choiceShortTitle = `选项${optLetter}`
+      {
+        const layout = computeNodeLayout(choiceShortTitle, (choice.text || '').toString())
+        nodes.push({
+          id: choiceNodeId,
+          title: choiceShortTitle,
+          type: isUserChoice ? 'choice-selected' : 'choice-unselected',
+          x: choiceX,
+          y: choiceY,
+          description: (choice.text || '').toString(),
+          width: layout.width,
+          height: layout.height,
+          descLines: layout.descLines,
+          isSelected: isUserChoice
+        })
+      }
 
       // 连接场景到选项
       edges.push({
@@ -275,13 +374,18 @@ const generateBranchingGraph = () => {
       if (isUserChoice) {
         // 只为用户实际选择的选项创建主线继续节点
         const mainlineNodeId = nodeId++
+        const mainDesc = `选择"${(choice.text || '').toString()}"后接入主线`
+        const layoutMain = computeNodeLayout('主线', mainDesc)
         nodes.push({
           id: mainlineNodeId,
-          title: '主线继续',
+          title: '主线',
           type: 'result',
           x: choiceX,
           y: choiceY + 100,
-          description: `选择"${(choice.text || '').toString().substring(0, 10)}"后接入主线`
+          description: mainDesc,
+          width: layoutMain.width,
+          height: layoutMain.height,
+          descLines: layoutMain.descLines
         })
 
         edges.push({
@@ -296,13 +400,17 @@ const generateBranchingGraph = () => {
       } else {
         // 为未选择的选项创建问号终点
         const questionNodeId = nodeId++
+        const layoutQ = computeNodeLayout('?', '未探索的分支')
         nodes.push({
           id: questionNodeId,
           title: '?',
           type: 'question',
           x: choiceX,
           y: choiceY + 80,
-          description: '未探索的分支'
+          description: '未探索的分支',
+          width: layoutQ.width,
+          height: layoutQ.height,
+          descLines: layoutQ.descLines
         })
 
         edges.push({
@@ -341,16 +449,44 @@ const generateBranchingGraph = () => {
   resolveNodeOverlaps()
 }
 
-// 生成个性报告
-const generatePersonalityReport = () => {
-  const attrs = gameData.value.finalAttributes
-  
-  // 寻找匹配的模板
-  const matchedTemplate = personalityTemplates.find(template => 
-    template.condition(attrs)
-  )
-  
-  personalityReport.value = matchedTemplate || defaultPersonalityReport
+// 生成个性报告（调用 service 层；service 会尝试后端，失败时回退到前端 mock）
+// 辅助：判断变体是否满足当前属性/状态
+const variantMatches = (variant, attrs = {}, stats = {}) => {
+  const min = variant.minAttributes || {}
+  for (const k of Object.keys(min)) {
+    if ((attrs[k] || 0) < (min[k] || 0)) return false
+  }
+  const req = variant.requiredStatuses || {}
+  for (const sk of Object.keys(req)) {
+    const want = req[sk]
+    if (want === true) {
+      if (!stats || stats[sk] !== true) return false
+    } else {
+      if (!stats || stats[sk] !== want) return false
+    }
+  }
+  return true
+}
+
+const generatePersonalityReport = async () => {
+  try {
+    const attrs = gameData.value.finalAttributes || {}
+    const statuses = gameData.value.finalStatuses || {}
+    console.log('Fetching personality report variants... attrs/statuses:', attrs, statuses)
+    const variants = await fetchPersonalityReportVariants('all')
+    console.log('Variants received:', variants)
+
+    const matched = (Array.isArray(variants) ? variants.find(v => variantMatches(v, attrs, statuses)) : null)
+    if (matched && matched.report) {
+      personalityReport.value = matched.report
+    } else {
+      personalityReport.value = defaultPersonalityReport
+    }
+    console.log('Selected personality report:', personalityReport.value)
+  } catch (err) {
+    console.warn('generatePersonalityReport failed, using default:', err)
+    personalityReport.value = defaultPersonalityReport
+  }
 }
 
 // 拖拽相关函数
@@ -480,12 +616,12 @@ const continueGame = () => {
   })
 }
 
-onMounted(() => {
+onMounted(async () => {
   console.log('SettlementPage mounted with data:', gameData.value)
   console.log('Final Attributes:', gameData.value.finalAttributes)
   console.log('Final Statuses:', gameData.value.finalStatuses)
   generateBranchingGraph()
-  generatePersonalityReport()
+  await generatePersonalityReport()
   refreshSlotInfosData()
   
   // 清理sessionStorage中的临时数据
@@ -592,29 +728,38 @@ onMounted(() => {
               <g
                 v-for="node in branchingGraph.nodes"
                 :key="node.id"
-                :transform="`translate(${node.x - 60}, ${node.y - 30})`"
+                :transform="`translate(${(node.x || 0) - (node.width || 120) / 2}, ${(node.y || 0) - (node.height || 60) / 2})`"
                 class="node-group"
                 :class="[`node-${node.type}`]"
                 @mousedown="startDrag($event, node)"
               >
                 <rect
-                  width="120"
-                  height="60"
+                  :width="node.width || 120"
+                  :height="node.height || 60"
                   rx="8"
                   class="node-rect"
                 />
                 <text
-                  x="60"
-                  y="25"
+                  :x="(node.width || 120) / 2"
+                  :y="18"
                   text-anchor="middle"
                   class="node-title"
                 >{{ node.title }}</text>
                 <text
-                  x="60"
-                  y="40"
+                  :x="(node.width || 120) / 2"
+                  :y="36"
                   text-anchor="middle"
                   class="node-desc"
-                >{{ node.description?.substring(0, 10) }}...</text>
+                >
+                  <tspan
+                    v-for="(line, idx) in (node.descLines || splitLines(node.description || '', Math.floor(((node.width || 120) - 24) / 8)))"
+                    :key="idx"
+                    :x="(node.width || 120) / 2"
+                    :dy="idx === 0 ? 0 : 14"
+                  >
+                    {{ line }}
+                  </tspan>
+                </text>
               </g>
             </g>
           </svg>

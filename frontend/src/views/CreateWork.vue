@@ -1,5 +1,6 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ScreenOrientation } from '@capacitor/screen-orientation'
 import { useRouter } from 'vue-router'
 import * as createWorkService from '../service/createWork.js'
 
@@ -44,6 +45,20 @@ const lengthOptions = [
 const collapsed = ref([])
 onMounted(() => {
   collapsed.value = tagGroups.map(() => true)
+  // 尝试锁定竖屏（Capacitor plugin / 浏览器 API）
+  try {
+    // Capacitor 插件优先
+    ScreenOrientation.lock({ type: 'portrait' }).catch(() => {})
+  } catch (e) {
+    try {
+      if (screen && screen.orientation && screen.orientation.lock) screen.orientation.lock('portrait').catch(() => {})
+    } catch (e) {}
+  }
+})
+
+onBeforeUnmount(() => {
+  try { ScreenOrientation.unlock && ScreenOrientation.unlock().catch(() => {}) } catch (e) {}
+  try { if (screen && screen.orientation && screen.orientation.unlock) screen.orientation.unlock().catch(() => {}) } catch (e) {}
 })
 
 const toggleGroup = (idx) => {
@@ -79,18 +94,29 @@ const submitToBackend = async () => {
   }
   try {
     const res = await createWorkOnBackend(payload)
-    backendWork.value = res?.backendWork || null
-    // 若服务返回了 initialAttributes/initialStatuses，将其附加到 backendWork 以便其他页面读取
-    try {
-      if (res?.initialAttributes) {
-        backendWork.value = backendWork.value || {}
-        backendWork.value.initialAttributes = res.initialAttributes
+
+    // 支持两种返回：新格式（game-api.md）和老格式（backendWork）以兼容历史 mock
+    if (res) {
+      if (res.gameworkId) {
+        backendWork.value = {
+          id: res.gameworkId,
+          title: res.title || '',
+          coverUrl: res.coverUrl || '',
+          description: res.description || '',
+          initialAttributes: res.initialAttributes || {},
+          initialStatuses: res.statuses || {}
+        }
+      } else if (res.backendWork) {
+        backendWork.value = res.backendWork
+        // attach legacy fields if present
+        if (res.initialAttributes) backendWork.value.initialAttributes = res.initialAttributes
+        if (res.initialStatuses) backendWork.value.initialStatuses = res.initialStatuses
+      } else {
+        // 防御性回退：整个响应可能就是 backendWork
+        backendWork.value = res
       }
-      if (res?.initialStatuses) {
-        backendWork.value = backendWork.value || {}
-        backendWork.value.initialStatuses = res.initialStatuses
-      }
-    } catch (e) { console.warn('attach initial attrs failed', e) }
+    }
+
     // 缓存封面/标题/标签，供加载页与介绍页使用
     if (backendWork.value) {
       try {
@@ -106,9 +132,7 @@ const submitToBackend = async () => {
       const createResult = {
         selectedTags: selectedTags.value,
         fromCreate: true,
-        backendWork: backendWork.value || null,
-        initialAttributes: res?.initialAttributes || {},
-        initialStatuses: res?.initialStatuses || {}
+        backendWork: backendWork.value || null
       }
       sessionStorage.setItem('createResult', JSON.stringify(createResult))
       return createResult
@@ -173,7 +197,6 @@ const startCreate = async () => {
     router.push('/works')
   } catch (e) {
     stopFakeProgress()
-    console.warn('提交生成失败，回退到本地流程或允许用户重试：', e)
     alert('后端生成失败或超时，已使用本地占位内容。可重试或稍后再试。')
     // 出错时也短暂显示 100% 以给用户反馈，然后跳转到作品介绍页
     try { progress.value = 100 } catch (_) {}
@@ -191,8 +214,8 @@ const startCreate = async () => {
 <template>
   <div class="create-page">
     <div class="header">
-      <h1>创建你的作品偏好</h1>
-        <p class="hint">请选择 3-6 个标签，并选择大概的篇幅；可选地填写你的构思。</p>
+      <h1>创建你的作品</h1>
+        <p class="hint">请选择 3-6 个标签，并选择大概的篇幅；也可以填写你的构思哦~</p>
     </div>
 
     <div class="section">
@@ -234,9 +257,9 @@ const startCreate = async () => {
     </div>
 
     <div class="section idea-section">
-      <div class="section-title">你的构思（可选）</div>
+      <div class="section-title">你的构思</div>
       <div class="idea-wrap">
-        <textarea class="idea-input" v-model="idea" rows="4" placeholder="一句话概述/开头设定/人物关系等...（可留空）"></textarea>
+        <textarea class="idea-input" v-model="idea" rows="4" placeholder="概述你的灵感或者想看的作者文风吧~"></textarea>
       </div>
       <div class="idea-actions">
         <button class="create-btn create-btn-small" :disabled="!canCreate || isLoading" @click="startCreate">一键生成</button>

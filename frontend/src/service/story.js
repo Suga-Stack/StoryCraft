@@ -8,7 +8,7 @@ import { http, getUserId } from './http.js'
 /**
  * 获取指定章节的剧情场景
  * @param {string|number} workId - 作品 ID
- * @param {number} chapterIndex - 章节索引（0-based，0表示第一章）
+ * @param {number} chapterIndex - 章节索引（1-based，1表示第一章）
  * @returns {Promise<{generating: boolean, end: boolean, scenes: Array}>}
  * 
  * 场景对象结构：
@@ -24,19 +24,19 @@ import { http, getUserId } from './http.js'
  * 当场景标记了 chapterEnd: true 时，表示该场景是本章最后一个场景，
  * 播放完该场景后，前端应增加 currentChapterIndex 并请求下一章内容。
  */
-export async function getScenes(workId, chapterIndex = 0) {
+export async function getScenes(workId, chapterIndex = 1) {
+  // 与后端约定：chapterIndex 为 1-based（1 表示第一章）
   try {
-    const params = { chapter: chapterIndex }
-    const res = await http.get(`/api/story/${workId}/scenes`, params)
-    const data = res || {}
-    // 兼容返回字段：scenes | nextScenes | insertScenes | array
-    const scenes = data.scenes || data.nextScenes || data.insertScenes || (Array.isArray(data) ? data : [])
-    const end = typeof data.end === 'boolean' ? data.end : (Array.isArray(scenes) && scenes.length === 0)
-    return { generating: false, end, scenes }
+    const body = { gameworkId: workId, chapterIndex }
+    // 严格按 game-api.md：POST /api/game/chapter/ 请求体使用 gameworkId 与 chapterIndex
+    const data = await http.post('/api/game/chapter/', body)
+
+    // 返回后端原始结构：{ chapterIndex, title, scenes, isGameEnding }
+    return Object.assign({}, data || {})
   } catch (error) {
     const status = error && error.status ? error.status : (error && error.response && error.response.status)
     if (status === 202 || status === 204) {
-      return { generating: true, end: false, scenes: [] }
+      return { generating: true }
     }
     throw error
   }
@@ -65,34 +65,7 @@ export async function getScenes(workId, chapterIndex = 0) {
  * 例如：第一章选项返回的最后场景标记 chapterEnd: true，
  * 播放完后前端会自动增加章节索引并请求第二章内容。
  */
-export async function submitChoice(workId, choiceId, context = {}) {
-  const userId = getUserId()
-  const requestBody = {
-    choiceId,
-    context: {
-      userId,
-      workId,
-      ...context
-    }
-  }
-  try {
-    const res = await http.post(`/api/story/${workId}/choice`, requestBody)
-    const data = res || {}
-    // 兼容后端返回字段：insertScenes | nextScenes | scenes | dialogues
-    const nextScenes = data.insertScenes || data.nextScenes || data.scenes || (data.dialogues ? [{ dialogues: data.dialogues }] : [])
-    const attributesDelta = data.attributesDelta || data.attributes || {}
-    const statusesDelta = data.statusesDelta || data.statuses || {}
-    const end = !!data.end
-    return { attributesDelta, statusesDelta, nextScenes, end }
-  } catch (err) {
-    // 将 202/204 映射为生成中状态（前端可以根据此判断延迟）
-    const status = err && err.status ? err.status : (err && err.response && err.response.status)
-    if (status === 202 || status === 204) {
-      return { attributesDelta: {}, statusesDelta: {}, nextScenes: [], end: false, generating: true }
-    }
-    throw err
-  }
-}
+// NOTE: submitChoice removed — front-end now expects choices to include subsequentDialogues/nextScenes
 
 /**
  * 获取作品信息
@@ -155,16 +128,16 @@ export async function deleteWork(workId) {
  * @param {string|number} workId - 作品 ID
  * @returns {Promise<Array>}
  */
-// 兼容旧接口：保留导出名以便其他模块临时依赖（会调用 getScenes(workId, 0)）
+// 兼容旧接口：保留导出名以便其他模块临时依赖（内部现在调用 getScenes(workId, 1)）
 export async function getInitialScenes(workId) {
-  const res = await getScenes(workId, 0)
+  // 兼容旧名称：首次章节请求（使用 1 作为首章索引）
+  const res = await getScenes(workId, 1)
   return res.scenes || []
 }
 
 // 导出所有 API
 export default {
   getScenes,
-  submitChoice,
   getWorkInfo,
   getWorkList,
   createWork,

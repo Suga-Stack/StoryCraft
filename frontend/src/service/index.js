@@ -20,8 +20,7 @@ export {
 
 // 故事相关服务
 export {
-  getNextScenes,
-  submitChoice,
+  getScenes,
   getWorkInfo,
   getWorkList,
   createWork,

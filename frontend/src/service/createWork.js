@@ -20,43 +20,15 @@ import { http, getUserId } from './http.js'
  */
 export async function createWorkOnBackend(payload = {}) {
   const userId = getUserId()
+  // 按 game-api.md 要求：POST /api/game/create
   const body = {
-    // 用户输入的核心参数
     tags: payload.tags || [],
     idea: payload.idea || '',
-    length: payload.length || 'medium',
-    // 可选的作品元信息
-    title: payload.title || '',
-    description: payload.description || '',
-    coverUrl: payload.coverUrl || '',
-    // 初始游戏属性
-    initialAttributes: payload.initialAttributes || {},
-    initialStatuses: payload.initialStatuses || {},
-    // 元信息
-    meta: {
-      createdBy: userId,
-      clientTimestamp: Date.now()
-    }
+    length: payload.length || 'medium'
   }
-
-  // POST /api/works 创建作品并返回作品信息（不包含首章内容）
-  const res = await http.post('/api/works', body)
-
-  // 期望后端返回结构：{ id, title, coverUrl, description, initialAttributes, initialStatuses }
-  const backendWork = {
-    id: res.id || res._id || res.workId,
-    title: res.title || body.title || 'AI生成作品',
-    coverUrl: res.coverUrl || body.coverUrl,
-    description: res.description || body.description,
-    authorId: res.authorId || userId,
-    tags: body.tags
-  }
-
-  return {
-    backendWork,
-    initialAttributes: res.initialAttributes || body.initialAttributes || {},
-    initialStatuses: res.initialStatuses || body.initialStatuses || {}
-  }
+  // 直接按 game-api.md：返回后端原始响应，字段名保持一致（gameworkId, title, coverUrl, description, initialAttributes, statuses）
+  const res = await http.post('/api/game/create', body)
+  return Object.assign({}, res || {})
 }
 
 export default {

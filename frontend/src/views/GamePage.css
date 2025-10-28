@@ -191,7 +191,6 @@
   );
   animation: shine 2s infinite;
 }
-
 @keyframes shine {
   0% { left: -100%; }
   100% { left: 200%; }
@@ -472,7 +471,8 @@
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #d4a5a5, #f5e6d3);
+  /* 灰白渐变 */
+  background: linear-gradient(90deg, #e6e6e6 0%, #ffffff 100%);
   transition: width 0.3s ease;
 }
 

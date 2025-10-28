@@ -16,7 +16,6 @@ import * as storyService from '../service/story.js'
 
 // 本地引用，允许在运行时替换为 mock 实现
 let getScenes = storyService.getScenes
-let submitChoice = storyService.submitChoice
 
 // 在支持 top-level await 的环境下（Vite/ESM），若开启 mock，优先加载本地 mock 模块
 // （注意）mock 模块的按需加载会在组件挂载时异步执行，避免在 script setup 顶层使用 await 导致 async setup
@@ -123,6 +122,8 @@ const isLandscapeReady = ref(false)
 const isGeneratingSettlement = ref(false)
 // 用户选择历史，用于生成分支探索图
 const choiceHistory = ref([])
+// 防止选项在刚点击后立即被 watch 重新展示的时间戳（ms）
+const lastChoiceTimestamp = ref(0)
 // 检测是否在 Capacitor 环境中
 const isNativeApp = computed(() => {
   return window.Capacitor !== undefined
@@ -268,23 +269,85 @@ const storyScenes = ref([
 ])
 
 // 将后端 scene 对象（或 firstChapter）加入本地 storyScenes（保持顺序）
+// 本函数会把 game-api.md 的 scene 格式（id, backgroundImage, dialogues[{narration, playerChoices}])
+// 适配为前端当前使用的内部结构（保留兼容性）：
+// - 为旧代码提供 .sceneId 字段
+// - 将在 dialogue 内出现的 playerChoices 抽取并放到 scene.choices + scene.choiceTriggerIndex（便于现有渲染逻辑复用）
 const pushSceneFromServer = (sceneObj) => {
   try {
-    // 标准化：如果 sceneObj 有 .scene 字段（来自 mainline 包装），解包
-    const s = sceneObj.scene ? sceneObj.scene : sceneObj
-    // 防止重复
-    // 规范化 choices（若存在）——按 id 去重，确保前端渲染不会重复显示相同选项
-    if (s && Array.isArray(s.choices)) {
-      const seen = new Set()
-      s.choices = s.choices.filter(c => {
-        const id = c?.id ?? JSON.stringify(c)
-        if (seen.has(id)) return false
-        seen.add(id)
-        return true
-      })
+    const raw = sceneObj.scene ? sceneObj.scene : sceneObj
+    if (!raw) return
+
+    // 标准化 id 字段（支持旧的 sceneId 和新的 id）
+    const id = raw.id ?? raw.sceneId ?? (raw.seq ? `seq-${raw.seq}` : Math.floor(Math.random() * 1000000))
+
+    // 背景图
+    const backgroundImage = raw.backgroundImage || raw.bg || ''
+
+    // 转换 dialogues：支持三种输入形式：
+    // 1) 字符串数组（旧） -> { text }
+    // 2) 对象数组且带有 narration/playerChoices（game-api.md）
+    // 3) 对象数组且带有 text/speaker（旧增强形式）
+    const dialogues = []
+    let extractedChoices = null
+    for (let i = 0; i < (raw.dialogues || []).length; i++) {
+      const d = raw.dialogues[i]
+      if (typeof d === 'string') {
+        dialogues.push(d)
+      } else if (d && typeof d === 'object') {
+        // prefer narration (game-api.md), fall back to text
+        const narration = d.narration ?? d.text ?? ''
+        // store as object for UI code paths that support object dialogues
+        const item = { text: narration }
+        if (d.backgroundImage) item.backgroundImage = d.backgroundImage
+        if (d.speaker) item.speaker = d.speaker
+        // if this dialogue has playerChoices (game-api.md), extract them
+        if (Array.isArray(d.playerChoices) && d.playerChoices.length > 0) {
+          // map playerChoices to frontend-friendly structure and keep original ids if provided
+          const pcs = d.playerChoices.map((c, idx) => ({
+            id: c.id ?? `${id}-${i}-${idx}`,
+            text: c.text ?? '',
+            attributesDelta: c.attributesDelta ?? {},
+            statusesDelta: c.statusesDelta ?? {},
+            statuses: c.statuses ?? {},
+            subsequentDialogues: c.subsequentDialogues ?? []
+          }))
+          extractedChoices = { index: dialogues.length, choices: pcs }
+        }
+        dialogues.push(item)
+      } else {
+        dialogues.push(String(d))
+      }
     }
-    const exists = storyScenes.value.some(x => x.sceneId === s.sceneId)
-    if (!exists) storyScenes.value.push(s)
+
+    // assemble normalized scene object for frontend
+    const scene = {
+      id: id,
+      sceneId: id, // 保留旧字段名以兼容旧代码
+      backgroundImage,
+      dialogues: dialogues,
+      isChapterEnding: raw.isChapterEnding ?? raw.chapterEnd ?? false
+    }
+
+    // 如果上层响应提供了章节信息，则保留在 scene 上，便于结算页/分支图使用
+    if (raw.chapterIndex || raw.chapterIndex === 0) scene.chapterIndex = raw.chapterIndex
+    if (raw.chapterTitle || raw.title) scene.chapterTitle = raw.chapterTitle ?? raw.title
+
+    // 如果在 dialogue 中发现了 playerChoices，则将其提升为 scene.choices（旧代码所需）
+    if (extractedChoices) {
+      scene.choiceTriggerIndex = extractedChoices.index
+      scene.choices = extractedChoices.choices
+    }
+
+    // 如果后端直接在 scene 层提供 choices（旧 mock 风格），也兼容
+    if (Array.isArray(raw.choices) && raw.choices.length > 0) {
+      scene.choices = raw.choices.map((c, idx) => ({ id: c.id ?? `${id}-c-${idx}`, text: c.text ?? '', attributesDelta: c.attributesDelta ?? {}, statusesDelta: c.statusesDelta ?? {}, subsequentDialogues: c.subsequentDialogues ?? [] }))
+      scene.choiceTriggerIndex = typeof raw.choiceTriggerIndex === 'number' ? raw.choiceTriggerIndex : (scene.dialogues.length - 1)
+    }
+
+    // 防止重复（以 sceneId 为唯一键）
+    const exists = storyScenes.value.some(x => (x.sceneId ?? x.id) === scene.sceneId)
+    if (!exists) storyScenes.value.push(scene)
   } catch (e) { console.warn('pushSceneFromServer failed', e) }
 }
 
@@ -300,14 +363,19 @@ const initFromCreateResult = async () => {
       work.value.title = obj.backendWork.title || work.value.title
       work.value.coverUrl = obj.backendWork.coverUrl || work.value.coverUrl
     }
-    // 从 createResult 或 history.state 获取初始属性和状态
-    if (obj.initialAttributes) attributes.value = obj.initialAttributes
-    if (obj.initialStatuses) statuses.value = obj.initialStatuses
+  // 从 createResult 或 history.state 获取初始属性和状态
+  // 兼容两种写法：createResult 可能直接包含 initialAttributes/initialStatuses，
+  // 也可能只包含 backendWork（其中包含 initialAttributes/statuses 字段）
+  if (obj.initialAttributes) attributes.value = obj.initialAttributes
+  else if (obj.backendWork && obj.backendWork.initialAttributes) attributes.value = obj.backendWork.initialAttributes
+
+  if (obj.initialStatuses) statuses.value = obj.initialStatuses
+  else if (obj.backendWork && obj.backendWork.initialStatuses) statuses.value = obj.backendWork.initialStatuses
     
-    // 从后端获取首章内容（chapterIndex = 0）
+    // 从后端获取首章内容（chapterIndex = 1，后端为 1-based）
     try {
       const workId = work.value.id
-      const result = await getScenes(workId, 0)
+      const result = await getScenes(workId, 1)
       if (result && result.scenes && result.scenes.length > 0) {
         storyScenes.value = []
         for (const sc of result.scenes) {
@@ -321,8 +389,8 @@ const initFromCreateResult = async () => {
         // 重置播放索引，确保从首条对话开始
         currentSceneIndex.value = 0
         currentDialogueIndex.value = 0
-        // 明确设置当前章节为首章（0-based）
-        currentChapterIndex.value = 0
+        // 明确设置当前章节为首章（1-based）
+        currentChapterIndex.value = 1
       }
     } catch (e) { 
       console.warn('Failed to fetch first chapter from backend:', e)
@@ -424,8 +492,7 @@ const requestNextIfNeeded = async () => {
   try {
     // 如果已由 SSE 推送，则不需要额外请求
     if (eventSource) return
-    // 避免过早预取第 2 章及之后，确保先完整加载第 1 章
-    if (USE_MOCK_STORY && currentChapterIndex.value >= 1) return
+  // 不再阻止 mock 情况下的预取 — 允许按需加载下一章
     // 向后端请求 next
     // 当使用本地 story mock 时，fetchNextContent 会调用运行时的 getNextScenes 并以 sceneId 为 after 参数
     if (USE_MOCK_STORY) {
@@ -583,8 +650,7 @@ onMounted(async () => {
   if (USE_MOCK_STORY) {
     try {
       const mock = await import('../service/story.mock.js')
-      getScenes = mock.getScenes
-      submitChoice = mock.submitChoice
+  getScenes = mock.getScenes
       try { window.__USE_MOCK_STORY__ = true } catch (e) {}
     } catch (e) {
       console.warn('加载 story.mock.js 失败，将回退到真实 service：', e)
@@ -598,7 +664,7 @@ onMounted(async () => {
       // 2) 否则回退到请求后端的 fetchNextChapter
       if (USE_MOCK_STORY && typeof getScenes === 'function') {
         try {
-          const resp = await getScenes(work.value.id, 0)
+          const resp = await getScenes(work.value.id, 1)
           const initial = (resp && resp.scenes) ? resp.scenes : (Array.isArray(resp) ? resp : [])
           if (Array.isArray(initial) && initial.length > 0) {
               storyScenes.value = []
@@ -619,8 +685,8 @@ onMounted(async () => {
               try { window.__STORY_DEBUG__ = { storyScenes, currentSceneIndex, currentDialogueIndex } } catch (e) {}
             currentSceneIndex.value = 0
             currentDialogueIndex.value = 0
-            // 首章对应的章节索引为 0
-            currentChapterIndex.value = 0
+            // 首章对应的章节索引为 1（后端 1-based）
+            currentChapterIndex.value = 1
           } else {
             // mock 未返回初始场景，回退到后端请求
             await fetchNextChapter(work.value.id, 0)
@@ -683,8 +749,8 @@ watch([autoPlayEnabled, autoPlayIntervalMs], () => {
 const currentSceneIndex = ref(0)
 // 当前对话索引
 const currentDialogueIndex = ref(0)
-// 当前章节索引（0-based），用于调用统一的 getScenes(workId, chapterIndex)
-const currentChapterIndex = ref(0)
+  // 当前章节索引（1-based），用于调用统一的 getScenes(workId, chapterIndex)
+const currentChapterIndex = ref(1)
 // 是否显示菜单
 const showMenu = ref(false)
 // 是否显示文字（用于淡入效果）
@@ -790,7 +856,7 @@ const nextDialogue = async () => {
     }, 200)
     } else {
       // 当前场景对话结束，检查是否是章节结束
-      const isChapterEnd = scene?.chapterEnd === true
+  const isChapterEnd = (scene?.isChapterEnding === true) || (scene?.chapterEnd === true)
       
       // 切换到下一个场景
       if (currentSceneIndex.value < storyScenes.value.length - 1) {
@@ -951,7 +1017,7 @@ const ensureNextContentAndAdvance = async () => {
     const afterSceneId = lastScene?.sceneId
     const data = await fetchNextContent(work.value.id, afterSceneId)
     if (!data) throw new Error('无返回')
-    if (data.end === true || (Array.isArray(data.nextScenes) && data.nextScenes.length === 0)) {
+    if (data.end === true || (Array.isArray(data.scenes) && data.scenes.length === 0)) {
       storyEndSignaled.value = true
       // 小延迟后提示结束
       setTimeout(() => {
@@ -959,9 +1025,9 @@ const ensureNextContentAndAdvance = async () => {
       }, 100)
       return
     }
-    if (Array.isArray(data.nextScenes) && data.nextScenes.length > 0) {
+    if (Array.isArray(data.scenes) && data.scenes.length > 0) {
       const startIdx = storyScenes.value.length
-      storyScenes.value.push(...data.nextScenes)
+      storyScenes.value.push(...data.scenes)
       // 自动前进到新插入的第一幕
       showText.value = false
       setTimeout(() => {
@@ -986,18 +1052,27 @@ const fetchNextContent = async (workId, chapterIndex) => {
     const resp = await getScenes(workId, chapterIndex)
     if (!resp) return null
     if (resp.generating) return { generating: true, end: false, scenes: [] }
-    if (resp.end === true) return resp
+    // 兼容 mock 与后端字段：后端可能使用 `end` 或 `isGameEnding` 标记章节/作品结束
+    const isEnd = (resp.end === true) || (resp.isGameEnding === true) || (resp.isGameEnd === true)
 
     const scenes = Array.isArray(resp.scenes) ? resp.scenes : (Array.isArray(resp) ? resp : [])
     if (scenes.length > 0) {
       const startIdx = storyScenes.value.length
-      storyScenes.value.push(...scenes)
+      // 逐条规范化并插入，确保 dialogue.narration 被转换为 item.text
+      for (const sc of scenes) {
+        try {
+          // 把章节信息传给每个 scene（resp 由 getScenes 返回，包含 chapterIndex/title）
+          if (resp.chapterIndex || resp.chapterIndex === 0) sc.chapterIndex = resp.chapterIndex
+          if (resp.title) sc.chapterTitle = resp.title
+          pushSceneFromServer(sc)
+        } catch (e) { console.warn('pushSceneFromServer failed while fetching next content', e) }
+      }
       // 注意：此处仅追加已加载的场景，不更新 currentChapterIndex，
       // 避免预取下一章时把“当前阅读章节”错误地提前到下一章。
       if (resp.lastSeq) lastSeq.value = Math.max(lastSeq.value, resp.lastSeq)
     }
 
-    return { generating: false, end: !!resp.end, scenes }
+    return { generating: false, end: !!isEnd, scenes }
   } catch (err) {
     console.warn('fetchNextContent error', err)
     return { generating: false, end: false, scenes: [] }
@@ -1087,14 +1162,15 @@ watch(anyOverlayOpen, (open) => {
   }
 })
 
-// 构建当前存档快照
+// 构建当前存档快照（不再在 payload 中包含完整的 storyScenes）
 const buildSavePayload = () => ({
   work: work.value,
-  currentSceneIndex: currentSceneIndex.value,
-  currentDialogueIndex: currentDialogueIndex.value,
+  // 明确传递定位信息（后端/存档使用这三项来定位进度）
+  chapterIndex: currentChapterIndex.value,
+  sceneId: (currentScene.value && (currentScene.value.id || currentScene.value.sceneId)) ? String(currentScene.value.id ?? currentScene.value.sceneId) : String(currentSceneIndex.value),
+  dialogueIndex: currentDialogueIndex.value,
   attributes: deepClone(attributes.value),
   statuses: deepClone(statuses.value),
-  storyScenes: deepClone(storyScenes.value),
   choiceHistory: deepClone(choiceHistory.value),
   timestamp: Date.now()
 })
@@ -1175,18 +1251,62 @@ const loadGame = async (slot = 'default') => {
     try {
       const remote = await backendLoad(userId, workId, slot)
       if (remote) {
-        // 恢复 storyScenes（若存在），确保读档回到保存时的剧情内容
-        if (remote.storyScenes && Array.isArray(remote.storyScenes)) {
-          storyScenes.value = deepClone(remote.storyScenes)
+        // Note: 存档 payload 不再包含完整的 storyScenes。若后端仍返回 scenes，可在后端和前端协商后再恢复。
+        // 支持新存档格式：chapterIndex / sceneId / dialogueIndex
+        const deriveIndexFromPayload = (p) => {
+          try {
+            if (!p) return null
+            // 优先使用 sceneId 来定位
+            if (p.sceneId != null && Array.isArray(storyScenes.value)) {
+              // 强制字符串比较，避免后端/前端存储的 id 类型（number/string）不一致导致匹配失败
+              const pid = String(p.sceneId)
+              const idx = storyScenes.value.findIndex(s => s && (String(s.id) === pid || String(s.sceneId) === pid))
+              if (idx >= 0) return idx
+              // 如果没有在当前已加载的 storyScenes 中找到对应 sceneId，回退到起始场景（0）
+              return 0
+            }
+            // 兼容老字段 currentSceneIndex
+            if (typeof p.currentSceneIndex === 'number') return p.currentSceneIndex
+            if (typeof p.chapterIndex === 'number') {
+              // 尝试使用 chapterIndex 映射到第一条该章节的场景
+              const idx = storyScenes.value.findIndex(s => s && (s.chapterIndex === p.chapterIndex || s.chapter === p.chapterIndex))
+              if (idx >= 0) return idx
+            }
+          } catch (e) {}
+          return null
         }
-        // remote 应该包含 currentSceneIndex/currentDialogueIndex/attributes 等
-        if (typeof remote.currentSceneIndex === 'number') currentSceneIndex.value = remote.currentSceneIndex
+
+        let derived = deriveIndexFromPayload(remote)
+        if (derived != null) {
+          currentSceneIndex.value = derived
+        } else if (remote.sceneId != null && typeof remote.chapterIndex === 'number') {
+          // 若当前 storyScenes 中没有该 sceneId，则尝试按 chapterIndex 拉取该章节的场景并拼接，再定位
+          try {
+            const fetched = await fetchNextContent(workId, remote.chapterIndex)
+            if (fetched && Array.isArray(fetched.scenes) && fetched.scenes.length > 0) {
+              // 将获取到的 scenes 推入本地队列（使用 pushSceneFromServer 以保留兼容处理）
+              for (const s of fetched.scenes) {
+                try { pushSceneFromServer(s) } catch (e) { console.warn('pushSceneFromServer failed when restoring chapter', e) }
+              }
+              // 重新尝试定位
+              derived = deriveIndexFromPayload(remote)
+              if (derived != null) currentSceneIndex.value = derived
+            }
+          } catch (e) { console.warn('fetchNextContent failed while restoring saved chapter:', e) }
+        }
+        if (typeof currentSceneIndex.value !== 'number') {
+          if (typeof remote.currentSceneIndex === 'number') currentSceneIndex.value = remote.currentSceneIndex
+          else currentSceneIndex.value = 0
+        }
         if (typeof remote.currentDialogueIndex === 'number') currentDialogueIndex.value = remote.currentDialogueIndex
+        else if (remote.dialogueIndex != null) currentDialogueIndex.value = remote.dialogueIndex
         // attributes/statuses 使用存档快照完整覆盖，缺省则置空，避免选项后的变化残留
         attributes.value = deepClone(remote.attributes || {})
         statuses.value = deepClone(remote.statuses || {})
-        // 恢复选择历史
-        choiceHistory.value = deepClone(remote.choiceHistory || [])
+  // 恢复选择历史
+  choiceHistory.value = deepClone(remote.choiceHistory || [])
+  // 根据选择历史恢复场景的已选标记与解锁后续选项
+  try { restoreChoiceFlagsFromHistory() } catch (e) { console.warn('restoreChoiceFlagsFromHistory error (remote):', e) }
         // 恢复文字显示状态，并让选项由 watch 重新判断
         showText.value = true
         choicesVisible.value = false
@@ -1215,16 +1335,52 @@ const loadGame = async (slot = 'default') => {
       return
     }
     const payload = JSON.parse(raw)
-    if (payload.storyScenes && Array.isArray(payload.storyScenes)) {
-      storyScenes.value = deepClone(payload.storyScenes)
+    // 存档不再包含 storyScenes；若本地存档含 scenes，可按需手动恢复（默认这里忽略）
+    // 支持新的保存字段 sceneId / chapterIndex / dialogueIndex，同时兼容旧字段 currentSceneIndex
+    const deriveIndexFromPayloadLocal = (p) => {
+      try {
+        if (!p) return null
+        if (p.sceneId != null && Array.isArray(storyScenes.value)) {
+              const pid = String(p.sceneId)
+              const idx = storyScenes.value.findIndex(s => s && (String(s.id) === pid || String(s.sceneId) === pid))
+              if (idx >= 0) return idx
+              return 0
+            }
+        if (typeof p.currentSceneIndex === 'number') return p.currentSceneIndex
+        if (typeof p.chapterIndex === 'number') {
+          const idx = storyScenes.value.findIndex(s => s && (s.chapterIndex === p.chapterIndex || s.chapter === p.chapterIndex))
+          if (idx >= 0) return idx
+        }
+      } catch (e) {}
+      return null
     }
-    if (typeof payload.currentSceneIndex === 'number') currentSceneIndex.value = payload.currentSceneIndex
+    let derivedLocal = deriveIndexFromPayloadLocal(payload)
+    if (derivedLocal != null) {
+      currentSceneIndex.value = derivedLocal
+    } else if (payload.sceneId != null && typeof payload.chapterIndex === 'number') {
+      try {
+        const fetched = await fetchNextContent(workId, payload.chapterIndex)
+        if (fetched && Array.isArray(fetched.scenes) && fetched.scenes.length > 0) {
+          for (const s of fetched.scenes) {
+            try { pushSceneFromServer(s) } catch (e) { console.warn('pushSceneFromServer failed when restoring chapter (local):', e) }
+          }
+          derivedLocal = deriveIndexFromPayloadLocal(payload)
+          if (derivedLocal != null) currentSceneIndex.value = derivedLocal
+        }
+      } catch (e) { console.warn('fetchNextContent failed while restoring saved chapter (local):', e) }
+    }
+    if (typeof currentSceneIndex.value !== 'number') {
+      currentSceneIndex.value = 0
+    }
     if (typeof payload.currentDialogueIndex === 'number') currentDialogueIndex.value = payload.currentDialogueIndex
+    else if (payload.dialogueIndex != null) currentDialogueIndex.value = payload.dialogueIndex
     // attributes/statuses 使用存档快照完整覆盖，缺省则置空
     attributes.value = deepClone(payload.attributes || {})
     statuses.value = deepClone(payload.statuses || {})
-    // 恢复选择历史
-    choiceHistory.value = deepClone(payload.choiceHistory || [])
+  // 恢复选择历史
+  choiceHistory.value = deepClone(payload.choiceHistory || [])
+  // 根据选择历史恢复场景的已选标记与解锁后续选项
+  try { restoreChoiceFlagsFromHistory() } catch (e) { console.warn('restoreChoiceFlagsFromHistory error (local):', e) }
     showText.value = true
     choicesVisible.value = false
     lastSaveInfo.value = deepClone(payload)
@@ -1294,7 +1450,13 @@ const choicesVisible = ref(false)
 
 // 当场景或对话索引变动，检查是否应该显示选项
 watch([currentSceneIndex, currentDialogueIndex], () => {
+  // 如果刚刚处理过一次选项，短时间内不要重新显示选项（防止选项被重复展示）
+  try {
+    if (Date.now() - (lastChoiceTimestamp.value || 0) < 600) return
+  } catch (e) {}
   const scene = currentScene.value
+  // 如果该场景的选项已被消费过（用户已经选择过），不要再次显示
+  try { if (scene && scene.choiceConsumed) return } catch (e) {}
   if (!scene) return
   // 如果场景有 choices 且指定了触发句索引
   if (Array.isArray(scene.choices) && typeof scene.choiceTriggerIndex === 'number') {
@@ -1468,6 +1630,44 @@ const applyStatusesDelta = (delta) => {
   }
 }
 
+// 根据已保存的 choiceHistory 恢复场景的已选标记，并解锁后续场景的选项
+const restoreChoiceFlagsFromHistory = () => {
+  try {
+    // 先重置所有场景的标记
+    if (Array.isArray(storyScenes.value)) {
+      storyScenes.value.forEach(s => {
+        try { if (s) { s.choiceConsumed = false; s.chosenChoiceId = null } } catch (e) {}
+      })
+    }
+    // 根据历史还原已选择的项（标记为已消耗）
+    if (Array.isArray(choiceHistory.value)) {
+      choiceHistory.value.forEach(h => {
+        try {
+          const sid = h.sceneId || h.sceneId
+          const psid = String(sid)
+          const idx = Array.isArray(storyScenes.value) ? storyScenes.value.findIndex(s => s && (String(s.id) === psid || String(s.sceneId) === psid)) : -1
+          if (idx >= 0 && storyScenes.value[idx]) {
+            try { storyScenes.value[idx].chosenChoiceId = h.choiceId || h.choiceId } catch (e) {}
+            try { storyScenes.value[idx].choiceConsumed = true } catch (e) {}
+          }
+        } catch (e) {}
+      })
+    }
+    // 确保当前场景（如果在可选择位置）不要被错误地标记为已消费，允许用户继续选择后续选项
+    try {
+      const cur = storyScenes.value && storyScenes.value[currentSceneIndex.value]
+      if (cur && cur.choiceConsumed && typeof cur.choiceTriggerIndex === 'number') {
+        // 如果当前对话尚未到触发选项的索引，则允许显示选项（取消已消费标记）
+        if (typeof currentDialogueIndex.value === 'number' && currentDialogueIndex.value < cur.choiceTriggerIndex) {
+          try { cur.choiceConsumed = false; cur.chosenChoiceId = null } catch (e) {}
+        }
+      }
+    } catch (e) {}
+  } catch (e) {
+    console.warn('restoreChoiceFlagsFromHistory failed', e)
+  }
+}
+
 // 处理选项点击：向后端请求选项后续剧情并应用返回结果
 const chooseOption = async (choiceId) => {
   if (isFetchingChoice.value) return
@@ -1489,70 +1689,90 @@ const chooseOption = async (choiceId) => {
   
   // 用户点击选项后立即隐藏选项，直到后端返回或 mock 完成
   choicesVisible.value = false
+  // 记录点击时间，短时间内抑制选项重新弹出
+  try { lastChoiceTimestamp.value = Date.now() } catch (e) {}
   isFetchingChoice.value = true
   try {
-    // 先检查当前场景中该选项是否自带完整后续分支（后端已预打包）
     const scene = currentScene.value
     const localChoice = scene?.choices?.find(c => c.id === choiceId)
-    // 只有当本地选项包含 nextScene/nextScenes/dialogues 才认为是完整的分支并直接应用
-    if (localChoice && (localChoice.nextScene || localChoice.nextScenes || localChoice.dialogues)) {
-      applyChoiceBranch(localChoice)
-      return
-    }
-    // 使用 story service 提交选项，service 会处理 userId/context 等
-    const context = {
-      currentSceneId: currentScene.value?.sceneId,
-      currentDialogueIndex: currentDialogueIndex.value,
-      attributes: deepClone(attributes.value),
-      statuses: deepClone(statuses.value)
-    }
-    const data = await submitChoice(work.value.id, choiceId, context)
 
-  // 后端可能返回 attributesDelta/statusesDelta, nextScene / nextScenes / dialogues
-  if (data.attributesDelta) applyAttributesDelta(data.attributesDelta)
-  if (data.statusesDelta) applyStatusesDelta(data.statusesDelta)
-  if (data.statuses) applyStatusesDelta(data.statuses)
+    // 优先使用本地选项自带的后续剧情（subsequentDialogues / nextScenes / nextScene）
+    if (localChoice) {
+      // 属性/状态变化直接应用
+      if (localChoice.attributesDelta) applyAttributesDelta(localChoice.attributesDelta)
+      if (localChoice.statusesDelta) applyStatusesDelta(localChoice.statusesDelta)
+      if (localChoice.statuses) applyStatusesDelta(localChoice.statuses)
 
-    if (data && data.nextScene) {
-      // 插入后续场景（由后端/Mock 返回），但不要自动拼接默认主线，
-      // 以免在后端会推送主线或测试中重复出现默认剧情。
-      storyScenes.value.push(data.nextScene)
-      currentSceneIndex.value = storyScenes.value.length - 1
-      currentDialogueIndex.value = 0
-      showText.value = true
-  // 标记上一个场景的已选选项（保留 choices 数据供分支图使用）
-  try { const prev = storyScenes.value[currentSceneIndex.value - 1]; if (prev) prev.chosenChoiceId = choiceId } catch (e) {}
-      // 请求后端（若存在）以获取可能的主线后续（非阻塞）
-      try { requestNextIfNeeded() } catch (e) { console.warn('requestNextIfNeeded failed after submitChoice', e) }
-      if (autoPlayEnabled.value) startAutoPlayTimer()
-    } else if (data && data.nextScenes && Array.isArray(data.nextScenes)) {
-      const startIdx = storyScenes.value.length
-      storyScenes.value.push(...data.nextScenes)
-      currentSceneIndex.value = startIdx
-      currentDialogueIndex.value = 0
-      showText.value = true
-  // 标记上一个场景的已选选项（保留 choices 数据供分支图使用）
-  try { const prev = storyScenes.value[startIdx - 1]; if (prev) prev.chosenChoiceId = choiceId } catch (e) {}
-      try { requestNextIfNeeded() } catch (e) { console.warn('requestNextIfNeeded failed after submitChoice', e) }
-      if (autoPlayEnabled.value) startAutoPlayTimer()
-    } else if (data && data.dialogues) {
-      // 替换当前场景的对话（不改变场景索引）
-      const idx = currentSceneIndex.value
-      const newScene = Object.assign({}, storyScenes.value[idx], {
-        backgroundImage: data.backgroundImage || storyScenes.value[idx].backgroundImage,
-        dialogues: data.dialogues
-      })
-      storyScenes.value.splice(idx, 1, newScene)
-      currentDialogueIndex.value = 0
-      showText.value = true
-      if (autoPlayEnabled.value) startAutoPlayTimer()
-    } else {
-      // 如果后端没有直接返回剧情，尝试简单推进到下一个场景（如果存在）
+      // 若选项自带 subsequentDialogues（插入到当前场景）
+      if (Array.isArray(localChoice.subsequentDialogues) && localChoice.subsequentDialogues.length > 0) {
+        const idx = currentSceneIndex.value
+        // 标记当前场景选项已被消费，防止后续重复弹出
+        try { storyScenes.value[idx].choiceConsumed = true } catch (e) {}
+        const insertAt = currentDialogueIndex.value + 1
+        // 规范化为前端对话项（字符串或对象）
+        const toInsert = localChoice.subsequentDialogues.map(d => (typeof d === 'string') ? d : (d.narration ?? d.text ?? String(d)))
+        const currentDialogues = Array.isArray(storyScenes.value[idx].dialogues) ? storyScenes.value[idx].dialogues.slice() : []
+        currentDialogues.splice(insertAt, 0, ...toInsert)
+        storyScenes.value.splice(idx, 1, Object.assign({}, storyScenes.value[idx], { dialogues: currentDialogues }))
+        // 移动到第一条插入的对话
+        currentDialogueIndex.value = insertAt
+        showText.value = true
+        try { const prev = storyScenes.value[idx]; if (prev) prev.chosenChoiceId = choiceId } catch (e) {}
+        if (autoPlayEnabled.value) startAutoPlayTimer()
+        return
+      }
+
+      // 若选项自带 nextScenes（跳转到新场景序列）
+      if (Array.isArray(localChoice.nextScenes) && localChoice.nextScenes.length > 0) {
+        const startIdx = storyScenes.value.length
+        for (const sc of localChoice.nextScenes) {
+          try { pushSceneFromServer(sc) } catch (e) { console.warn('pushSceneFromServer failed for choice nextScenes entry', e) }
+        }
+        // 标记上一个场景选项已被消费（避免回到上一场景时再次弹出）
+        try { const prev = storyScenes.value[startIdx - 1]; if (prev) prev.choiceConsumed = true } catch (e) {}
+        currentSceneIndex.value = startIdx
+        currentDialogueIndex.value = 0
+        showText.value = true
+        try { const prev = storyScenes.value[startIdx - 1]; if (prev) prev.chosenChoiceId = choiceId } catch (e) {}
+        if (autoPlayEnabled.value) startAutoPlayTimer()
+        return
+      }
+
+      // 若选项携带单条 nextScene
+      if (localChoice.nextScene) {
+        const startIdx = storyScenes.value.length
+        try { pushSceneFromServer(localChoice.nextScene) } catch (e) { console.warn('pushSceneFromServer failed for choice nextScene', e) }
+        // 标记上一个场景选项已被消费
+        try { const prev = storyScenes.value[startIdx - 1]; if (prev) prev.choiceConsumed = true } catch (e) {}
+        currentSceneIndex.value = startIdx
+        currentDialogueIndex.value = 0
+        showText.value = true
+        try { const prev = storyScenes.value[startIdx - 1]; if (prev) prev.chosenChoiceId = choiceId } catch (e) {}
+        if (autoPlayEnabled.value) startAutoPlayTimer()
+        return
+      }
+
+      // 如果本地选项没有后续剧情，只标记选择并尝试推进到下一个场景
+      try { const prev = storyScenes.value[currentSceneIndex.value]; if (prev) prev.chosenChoiceId = choiceId } catch (e) {}
       if (currentSceneIndex.value < storyScenes.value.length - 1) {
+        // 标记当前场景选项已被消费（用户已选择，即使没有插入后续剧情）
+        try { const prev = storyScenes.value[currentSceneIndex.value]; if (prev) prev.choiceConsumed = true } catch (e) {}
         currentSceneIndex.value++
         currentDialogueIndex.value = 0
         showText.value = true
+      } else {
+        try { requestNextIfNeeded() } catch (e) { console.warn('requestNextIfNeeded failed after localChoice', e) }
       }
+      return
+    }
+
+    // 没有本地选项数据的情况：尝试推进到下一个已有场景或触发预取下一章
+    if (currentSceneIndex.value < storyScenes.value.length - 1) {
+      currentSceneIndex.value++
+      currentDialogueIndex.value = 0
+      showText.value = true
+    } else {
+      try { await requestNextIfNeeded() } catch (e) { console.warn('requestNextIfNeeded failed', e) }
     }
   } catch (err) {
     console.error('选择处理失败', err)
@@ -1599,22 +1819,48 @@ const stopLoading = async (opts = { delay: 200 }) => {
 
 
 // 页面加载时请求横屏并开始加载
-onMounted(() => {
+onMounted(async () => {
   // 加载自动播放偏好并按需启动
   loadAutoPlayPrefs()
   if (autoPlayEnabled.value) startAutoPlayTimer()
   // 检查是否从结算页面跳回来并携带了加载数据
   if (history.state?.loadedData) {
     const loadedData = history.state.loadedData
-    // 恢复游戏状态
-    if (loadedData.storyScenes && Array.isArray(loadedData.storyScenes)) {
-      storyScenes.value = loadedData.storyScenes
-    }
-    if (typeof loadedData.currentSceneIndex === 'number') currentSceneIndex.value = loadedData.currentSceneIndex
-    if (typeof loadedData.currentDialogueIndex === 'number') currentDialogueIndex.value = loadedData.currentDialogueIndex
-    attributes.value = loadedData.attributes || {}
-    statuses.value = loadedData.statuses || {}
-    choiceHistory.value = loadedData.choiceHistory || []
+    // 恢复游戏状态（注意：loadedData 可能不包含完整的 storyScenes）
+    // 优先尝试根据 sceneId 定位到已加载的 storyScenes，否则回退到首个场景
+      try {
+      if (loadedData.sceneId != null && Array.isArray(storyScenes.value)) {
+        // 使用字符串比较以兼容 number/string id 的差异
+        const lsid = String(loadedData.sceneId)
+        let idx = storyScenes.value.findIndex(s => s && (String(s.id) === lsid || String(s.sceneId) === lsid))
+        // 如果没有找到，但提供了 chapterIndex，则尝试拉取该章节以恢复场景列表
+        if (idx < 0 && typeof loadedData.chapterIndex === 'number') {
+          try {
+            const fetched = await fetchNextContent(work.value.id, loadedData.chapterIndex)
+            if (fetched && Array.isArray(fetched.scenes) && fetched.scenes.length > 0) {
+              for (const s of fetched.scenes) {
+                try { pushSceneFromServer(s) } catch (e) { console.warn('pushSceneFromServer failed when restoring chapter (mounted):', e) }
+              }
+              idx = storyScenes.value.findIndex(s => s && (String(s.id) === lsid || String(s.sceneId) === lsid))
+            }
+          } catch (e) { console.warn('fetchNextContent failed while restoring loadedData chapter:', e) }
+        }
+        currentSceneIndex.value = (idx >= 0) ? idx : 0
+      } else if (typeof loadedData.currentSceneIndex === 'number') {
+        currentSceneIndex.value = loadedData.currentSceneIndex
+      } else if (typeof loadedData.chapterIndex === 'number' && Array.isArray(storyScenes.value)) {
+        const idx = storyScenes.value.findIndex(s => s && (s.chapterIndex === loadedData.chapterIndex || s.chapter === loadedData.chapterIndex))
+        currentSceneIndex.value = (idx >= 0) ? idx : 0
+      } else {
+        currentSceneIndex.value = 0
+      }
+      if (typeof loadedData.currentDialogueIndex === 'number') currentDialogueIndex.value = loadedData.currentDialogueIndex
+      else if (loadedData.dialogueIndex != null) currentDialogueIndex.value = loadedData.dialogueIndex
+    } catch (e) { /* ignore */ }
+  attributes.value = loadedData.attributes || {}
+  statuses.value = loadedData.statuses || {}
+  choiceHistory.value = loadedData.choiceHistory || []
+  try { restoreChoiceFlagsFromHistory() } catch (e) { console.warn('restoreChoiceFlagsFromHistory error (loadedData):', e) }
     
     // 直接进入游戏
     isLandscapeReady.value = true
@@ -1898,8 +2144,8 @@ onUnmounted(async () => {
             <div class="slot-title">{{ slot.toUpperCase() }}</div>
             <div class="slot-meta" v-if="slotInfos[slot]">
               <div>时间：{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}</div>
-              <div>场景：{{ (slotInfos[slot].currentSceneIndex ?? 0) + 1 }}</div>
-              <div>对话：{{ (slotInfos[slot].currentDialogueIndex ?? 0) + 1 }}</div>
+              <div>场景：{{ slotInfos[slot].sceneTitle ? slotInfos[slot].sceneTitle : (slotInfos[slot].sceneId ? ('id:' + slotInfos[slot].sceneId) : ((slotInfos[slot].currentSceneIndex ?? 0) + 1)) }}</div>
+              <div>对话：{{ (slotInfos[slot].dialogueIndex ?? slotInfos[slot].currentDialogueIndex ?? 0) + 1 }}</div>
             </div>
             <div class="slot-meta empty" v-else>空槽位</div>
             <div class="slot-actions">
@@ -1949,8 +2195,8 @@ onUnmounted(async () => {
             <div class="slot-title">{{ slot.toUpperCase() }}</div>
             <div class="slot-meta" v-if="slotInfos[slot]">
               <div>时间：{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}</div>
-              <div>场景：{{ (slotInfos[slot].currentSceneIndex ?? 0) + 1 }}</div>
-              <div>对话：{{ (slotInfos[slot].currentDialogueIndex ?? 0) + 1 }}</div>
+              <div>场景：{{ slotInfos[slot].sceneTitle ? slotInfos[slot].sceneTitle : (slotInfos[slot].sceneId ? ('id:' + slotInfos[slot].sceneId) : ((slotInfos[slot].currentSceneIndex ?? 0) + 1)) }}</div>
+              <div>对话：{{ (slotInfos[slot].dialogueIndex ?? slotInfos[slot].currentDialogueIndex ?? 0) + 1 }}</div>
             </div>
             <div class="slot-meta empty" v-else>空槽位</div>
             <div class="slot-actions">
