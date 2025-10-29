@@ -56,8 +56,9 @@ const mockBackendLoad = async (userId, workId, slot) => {
 // 后端存档
 const backendSave = async (userId, workId, slot, data) => {
   if (USE_MOCK_SAVE) return mockBackendSave(userId, workId, slot, data)
-  const url = `/api/users/${encodeURIComponent(userId)}/saves/${encodeURIComponent(workId)}/${encodeURIComponent(slot)}`
-  const body = { workId, slot, data }
+  const numWorkId = Number(workId)
+  const url = `/api/users/${encodeURIComponent(userId)}/saves/${encodeURIComponent(numWorkId)}/${encodeURIComponent(slot)}`
+  const body = { workId: numWorkId, slot, data }
   const headers = { 'Content-Type': 'application/json' }
   if (window.__STORYCRAFT_AUTH_TOKEN__) headers['Authorization'] = `Bearer ${window.__STORYCRAFT_AUTH_TOKEN__}`
   const res = await fetch(url, { method: 'PUT', headers, body: JSON.stringify(body) })
@@ -70,7 +71,8 @@ const backendSave = async (userId, workId, slot, data) => {
 
 const backendLoad = async (userId, workId, slot) => {
   if (USE_MOCK_SAVE) return mockBackendLoad(userId, workId, slot)
-  const url = `/api/users/${encodeURIComponent(userId)}/saves/${encodeURIComponent(workId)}/${encodeURIComponent(slot)}`
+  const numWorkId = Number(workId)
+  const url = `/api/users/${encodeURIComponent(userId)}/saves/${encodeURIComponent(numWorkId)}/${encodeURIComponent(slot)}`
   const headers = {}
   if (window.__STORYCRAFT_AUTH_TOKEN__) headers['Authorization'] = `Bearer ${window.__STORYCRAFT_AUTH_TOKEN__}`
   const res = await fetch(url, { method: 'GET', headers })

@@ -23,7 +23,8 @@ export async function saveGame(workId, slot, saveData) {
   const userId = getUserId()
   
   const requestBody = {
-    workId,
+    // ensure workId numeric per API contract
+    workId: Number(workId),
     slot,
     data: {
       ...saveData,
@@ -32,7 +33,7 @@ export async function saveGame(workId, slot, saveData) {
   }
   
   try {
-    const result = await http.put(`/api/users/${userId}/saves/${workId}/${slot}`, requestBody)
+    const result = await http.put(`/api/users/${userId}/saves/${Number(workId)}/${slot}`, requestBody)
     return result || { ok: true }
   } catch (error) {
     console.error('Save game failed:', error)
@@ -50,7 +51,7 @@ export async function loadGame(workId, slot) {
   const userId = getUserId()
   
   try {
-    return await http.get(`/api/users/${userId}/saves/${workId}/${slot}`)
+    return await http.get(`/api/users/${userId}/saves/${Number(workId)}/${slot}`)
   } catch (error) {
     // 404 表示该槽位无存档
     if (error.status === 404) {
@@ -70,7 +71,7 @@ export async function getSavesList(workId) {
   const userId = getUserId()
   
   try {
-    const result = await http.get(`/api/users/${userId}/saves/${workId}`)
+    const result = await http.get(`/api/users/${userId}/saves/${Number(workId)}`)
     return result.saves || []
   } catch (error) {
     // 如果后端不支持批量获取,则返回空数组
@@ -93,7 +94,7 @@ export async function deleteSave(workId, slot) {
   const userId = getUserId()
   
   try {
-    const result = await http.delete(`/api/users/${userId}/saves/${workId}/${slot}`)
+    const result = await http.delete(`/api/users/${userId}/saves/${Number(workId)}/${slot}`)
     return result || { ok: true }
   } catch (error) {
     console.error('Delete save failed:', error)
