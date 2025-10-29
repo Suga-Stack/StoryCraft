@@ -1,0 +1,277 @@
+from rest_framework import generics, status, permissions
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from django.contrib.auth import get_user_model
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+from django.core.mail import send_mail
+from django.core.cache import cache
+from django.utils.crypto import get_random_string
+from django.shortcuts import get_object_or_404
+from game.models import GameSave
+from gameworks.models import Gamework
+from .serializers import RegisterSerializer, LoginSerializer, LogoutSerializer, UserPreferenceSerializer
+
+User = get_user_model()
+
+'''
+class UserViewSet(viewsets.ModelViewSet):
+    """
+    用户管理接口：
+    支持查看用户列表、详情、更新、删除。
+    """
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    lookup_field = 'user_id'
+
+    def get_queryset(self):
+        """
+        普通用户仅能查看自己，管理员可查看所有
+        """
+        user = self.request.user
+        if user.is_staff:
+            return User.objects.all()
+        return User.objects.filter(user_id=user.user_id)
+
+    def update(self, request, *args, **kwargs):
+        """
+        禁止用户修改他人资料
+        """
+        instance = self.get_object()
+        if instance != request.user and not request.user.is_staff:
+            return Response({"detail": "You do not have permission to edit this user."}, status=status.HTTP_403_FORBIDDEN)
+        return super().update(request, *args, **kwargs)
+'''
+
+class SendEmailCodeView(APIView):
+    """发送邮箱验证码"""
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    @swagger_auto_schema(
+        operation_description="发送邮箱验证码",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'email': openapi.Schema(type=openapi.TYPE_STRING, description='邮箱地址'),
+            },
+            required=['email']
+        ),
+        responses={200: "验证码已发送"}
+    )
+
+    def post(self, request):
+        email = request.data.get('email')
+        if not email:
+            return Response({'code': 400, 'message': '邮箱不能为空'}, status=status.HTTP_400_BAD_REQUEST)
+
+        code = get_random_string(length=6, allowed_chars='0123456789')
+        cache.set(f'verify_code_{email}', code, timeout=300)  # 验证码有效期5分钟
+
+        try:
+            send_mail(
+                subject="您的注册验证码",
+                message=f"您的验证码是 {code}，5分钟内有效。",
+                from_email="storycraft@163.com",
+                recipient_list=[email],
+                fail_silently=False,
+            )
+        except Exception as e:
+            return Response({'code': 500, 'message': f'邮件发送失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({'code': 200, 'message': '验证码已发送'}, status=status.HTTP_200_OK)
+        
+
+class RegisterView(APIView):
+    """注册接口"""
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    @swagger_auto_schema(
+        request_body=RegisterSerializer,
+        responses={200: "注册成功"}
+    )
+    def post(self, request):
+        serializer = RegisterSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({'code': 200, 'message': '注册成功'}, status=status.HTTP_201_CREATED)
+        return Response({'code': 400, 'message': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class LoginView(APIView):
+    """登录接口"""
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    @swagger_auto_schema(
+        request_body=LoginSerializer,
+        responses={200: "登录成功"}
+    )
+    def post(self, request):
+        serializer = LoginSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.validated_data['user']
+            tokens = serializer.get_tokens_for_user(user)
+            return Response({'code': 200, 'message': '登录成功', 'tokens': tokens}, status=status.HTTP_200_OK)
+        return Response({'code': 400, 'message': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class LogoutView(APIView):
+    """登出接口"""
+    @swagger_auto_schema(
+        request_body=LogoutSerializer,
+        responses={200: "登出成功"}
+    )
+    def post(self, request):
+        serializer = LogoutSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({'code': 200, 'message': '登出成功'}, status=status.HTTP_200_OK)
+        return Response({'code': 400, 'message': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+
+'''
+class CurrentUserView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        data = UserSerializer(request.user).data
+        return Response({'code': 200, 'data': {'user': data}})
+'''
+
+class UserPreferenceView(generics.RetrieveUpdateAPIView):
+    serializer_class = UserPreferenceSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        # 只允许操作自己的数据
+        return self.request.user
+
+
+class SaveDetailView(APIView):
+    """
+    存档详情：PUT 保存/更新；GET 读取；DELETE 删除
+    路径：
+      - PUT    /api/users/:userId/saves/:workId/:slot
+      - GET    /api/users/:userId/saves/:workId/:slot
+      - DELETE /api/users/:userId/saves/:workId/:slot
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _ensure_permission(self, request, userId: int):
+        if (request.user.id != userId) and (not request.user.is_staff):
+            return Response({'detail': '无权限操作该用户的存档'}, status=status.HTTP_403_FORBIDDEN)
+
+    def _get_target(self, userId: int, workId: int):
+        User = get_user_model()
+        target_user = get_object_or_404(User, pk=userId)
+        gamework = get_object_or_404(Gamework, pk=workId)
+        return target_user, gamework
+
+    @swagger_auto_schema(
+        operation_summary="保存或更新存档",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'data': openapi.Schema(type=openapi.TYPE_OBJECT, description='需持久化的完整存档对象'),
+            },
+            required=['data']
+        ),
+        responses={200: openapi.Response(description="{\"ok\": true}")}
+    )
+    def put(self, request, userId: int, workId: int, slot: str):
+        perm = self._ensure_permission(request, userId)
+        if perm: return perm
+
+        payload = request.data or {}
+        data = payload.get('data')
+        if not isinstance(data, dict):
+            return Response({'detail': 'data 字段必须为对象'}, status=status.HTTP_400_BAD_REQUEST)
+
+        target_user, gamework = self._get_target(userId, workId)
+
+        # 兼容从 data.work.coverUrl 中抽取缩略图
+        thumbnail = None
+        work_info = data.get('work')
+        if isinstance(work_info, dict):
+            thumbnail = work_info.get('coverUrl')
+
+        obj, _ = GameSave.objects.update_or_create(
+            user=target_user,
+            gamework=gamework,
+            name=slot,
+            defaults={
+                'game_state': data,
+                'thumbnail': thumbnail
+            }
+        )
+        return Response({"ok": True}, status=status.HTTP_200_OK)
+
+    @swagger_auto_schema(
+        operation_summary="读取存档",
+        responses={
+            200: openapi.Response(description='{"data": {...}}'),
+            404: openapi.Response(description='未找到')
+        }
+    )
+    def get(self, request, userId: int, workId: int, slot: str):
+        perm = self._ensure_permission(request, userId)
+        if perm: return perm
+
+        target_user, gamework = self._get_target(userId, workId)
+        try:
+            save = GameSave.objects.get(user=target_user, gamework=gamework, name=slot)
+        except GameSave.DoesNotExist:
+            return Response({'detail': '存档不存在'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"data": save.game_state}, status=status.HTTP_200_OK)
+
+    @swagger_auto_schema(
+        operation_summary="删除存档",
+        responses={200: openapi.Response(description='{"ok": true}')}
+    )
+    def delete(self, request, userId: int, workId: int, slot: str):
+        perm = self._ensure_permission(request, userId)
+        if perm: return perm
+
+        target_user, gamework = self._get_target(userId, workId)
+        GameSave.objects.filter(user=target_user, gamework=gamework, name=slot).delete()
+        return Response({"ok": True}, status=status.HTTP_200_OK)
+
+
+class SaveListView(APIView):
+    """
+    列出某作品所有槽位摘要
+    路径：GET /api/users/:userId/saves/:workId
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="列出作品下全部存档摘要",
+        responses={200: openapi.Response(description='{"saves": [...]}')}
+    )
+    def get(self, request, userId: int, workId: int):
+        if (request.user.id != userId) and (not request.user.is_staff):
+            return Response({'detail': '无权限操作该用户的存档'}, status=status.HTTP_403_FORBIDDEN)
+
+        User = get_user_model()
+        target_user = get_object_or_404(User, pk=userId)
+        gamework = get_object_or_404(Gamework, pk=workId)
+
+        saves = GameSave.objects.filter(user=target_user, gamework=gamework).order_by('-updated_at')
+        items = []
+        for s in saves:
+            state = s.game_state or {}
+            ts = state.get('timestamp')
+            if not ts:
+                # 使用后端更新时间作为兜底，转毫秒时间戳
+                ts = int(s.updated_at.timestamp() * 1000)
+            items.append({
+                "slot": s.name,
+                "timestamp": ts,
+                "chapterIndex": state.get("chapterIndex"),
+                "sceneId": state.get("sceneId"),
+                "dialogueIndex": state.get("dialogueIndex"),
+            })
+        return Response({"saves": items}, status=status.HTTP_200_OK)
