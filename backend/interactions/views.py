@@ -114,25 +114,32 @@ class CommentViewSet(viewsets.ModelViewSet):
 class RatingViewSet(viewsets.ModelViewSet):
     queryset = Rating.objects.all()
     serializer_class = RatingSerializer
-    permission_classes = (permissions.IsAuthenticated,)
+    permission_classes = [permissions.IsAuthenticated]
 
     def perform_create(self, serializer):
-        # 如果用户已评分则更新而不是创建（保持 unique_together）
+        # 如果用户已评分则更新，否则创建
         user = self.request.user
         gamework = serializer.validated_data['gamework']
-        obj, created = Rating.objects.update_or_create(user=user, gamework=gamework, defaults={'score': serializer.validated_data['score']})
-        self._created = created
-        self._obj = obj
+        rating, created = Rating.objects.update_or_create(
+            user=user, gamework=gamework,
+            defaults={'score': serializer.validated_data['score']}
+        )
+        return rating 
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        # 返回当前作品的平均评分（示例）
-        obj = self._obj
-        headers = self.get_success_headers(serializer.data)
-        return Response(RatingSerializer(obj).data, status=status.HTTP_200_OK, headers=headers)
+        rating = self.perform_create(serializer)
+        
+        # 获取作品的平均评分
+        average_score = Rating.objects.filter(gamework=rating.gamework).aggregate(models.Avg('score'))['score__avg']
 
+        return Response({
+            'message': '评分成功',
+            'average_score': average_score,  # 返回平均评分
+            'rating': RatingSerializer(rating).data  # 返回评分对象
+        }, status=status.HTTP_200_OK)
+    
     def get_queryset(self):
         qs = Rating.objects.all()
         gamework_id = self.request.query_params.get('gamework')
