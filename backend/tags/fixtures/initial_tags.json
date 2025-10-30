@@ -1,0 +1,31 @@
+[
+    {
+      "model": "tags.tag",
+      "pk": 1,
+      "fields": {
+        "name": "Adventure"
+      }
+    },
+    {
+      "model": "tags.tag",
+      "pk": 2,
+      "fields": {
+        "name": "Mystery"
+      }
+    },
+    {
+      "model": "tags.tag",
+      "pk": 3,
+      "fields": {
+        "name": "Romance"
+      }
+    },
+    {
+        "model": "tags.tag",
+        "pk": 4,
+        "fields": {
+            "name": "Fantasy"
+        }
+    }
+  ]
+  
