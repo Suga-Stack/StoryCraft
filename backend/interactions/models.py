@@ -53,5 +53,5 @@ class Rating(models.Model):
     def clean(self):
         """限制评分范围在1~5"""
         from django.core.exceptions import ValidationError
-        if not (1 <= self.score <= 5):
-            raise ValidationError("评分必须在1到5之间！")
+        if not (2 <= self.score <= 10):
+            raise ValidationError("评分必须在1到5颗星之间！")
