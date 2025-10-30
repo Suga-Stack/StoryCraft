@@ -3,15 +3,16 @@ import LoginPage from '../views/LoginPage.vue'
 import RegisterPage from '../views/RegisterPage.vue'
 import PreferencesPage from '../views/PreferencesPage.vue'
 import BookshelfPage from '../views/BookshelfPage.vue'
-//import SearchPage from '../views/SearchPage.vue'
+import SearchPage from '../views/SearchPage.vue'
 import BookstorePage from '../views/BookstorePage.vue'
 //import CreatePage from '../views/CreatePage.vue'
 import ProfilePage from '../views/ProfilePage.vue'
-//import MyCreationsPage from '../views/MyCreationsPage.vue'
+import MyCreationsPage from '../views/MyCreationsPage.vue'
+import ReadingHistoryPage from '../views/ReadinghistoryPage.vue'
 
 const routes = [
   {
-    path: '/',
+    path: '/login',
     name: 'login',
     component: LoginPage
   },
@@ -31,7 +32,7 @@ const routes = [
     component: BookshelfPage
   },
   {
-    path: '/bookstore', 
+    path: '/', 
     name: 'bookstore',
     component: BookstorePage
   },
@@ -39,6 +40,21 @@ const routes = [
     path: '/profile',
     name: 'profile',
     component: ProfilePage
+  },
+  {
+    path: '/mycreations',
+    name: 'mycreations',
+    component: MyCreationsPage  
+  },
+  {
+    path: '/readinghistory',
+    name: 'readinghistory',
+    component: ReadingHistoryPage  
+  },
+  {
+    path: '/search',
+    name: 'search',
+    component: SearchPage
   }
 ]
 
