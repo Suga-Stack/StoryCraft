@@ -122,7 +122,7 @@ const allTags = ref([
 // 初始化：获取已保存的偏好
 onMounted(async () => {
   try {
-    const res = await http.get('/user/preferences');
+    const res = await http.get('/users/preferences/');
     if (res.code === 200 && res.data?.preferences) {
       const { gender, favoriteTags } = res.data.preferences;
       selectedGender.value = gender || '';
@@ -196,7 +196,7 @@ const handleSubmit = async () => {
   try {
     isSubmitting.value = true;
     
-    const response = await http.put('/users/preferences', {
+    const response = await http.put('/users/preferences/', {
       gender: selectedGender.value,
       liked_tags: selectedTags.value
     });

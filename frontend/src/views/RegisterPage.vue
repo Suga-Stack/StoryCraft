@@ -135,6 +135,7 @@ const errors = ref({
 // 状态控制
 const isSubmitting = ref(false);
 const router = useRouter();
+const isVerifying = ref(false); 
 
 // 表单验证
 const validateUsername = () => {
@@ -212,7 +213,7 @@ const handleVerify = async () => {
     isVerifying.value = true;
     
     // 调用发送验证码接口
-    const response = await http.post('/api/auth/send-email-code', {
+    const response = await http.post('/auth/send-email-code/', {
       email: formData.value.email
     });
 
@@ -250,15 +251,12 @@ const handleRegister = async () => {
 
   try {
     isSubmitting.value = true;
-    
-    const encryptedPassword = btoa(formData.value.password); 
-    const encryptedConfirm = btoa(formData.value.confirm_password);
 
     // 调用注册接口
-    const response = await request.post('/api/auth/register', {
+    const response = await request.post('/auth/register/', {
       username: formData.value.username,
-      password: encryptedPassword,
-      confirm_password: encryptedConfirm,
+      password: formData.value.password,
+      confirm_password: formData.value.confirm_password,
       email: formData.value.email,
       email_code: formData.value.email_code
     });

@@ -1,9 +1,9 @@
 import axios from 'axios';
-import { Toast } from 'vant';
+import { showToast } from 'vant';
 
 // 创建Axios实例
 const http = axios.create({
-  baseURL: '/api', 
+  baseURL: '/api', // 基础URL，所有请求都会加上这个前缀
   timeout: 10000 // 超时时间10秒
 });
 
@@ -33,12 +33,12 @@ http.interceptors.response.use(
   (error) => {
     // 处理401错误（Token无效或未登录）
     if (error.response?.status === 401) {
-      Toast('请先登录');
+      showToast('请先登录');
       localStorage.removeItem('token'); // 清除无效Token
       router.push('/login'); // 跳回登录页
     } else {
       // 其他错误提示
-      Toast(error.response?.data?.message || '网络错误，请重试');
+      showToast(error.response?.data?.message || '网络错误，请重试');
     }
     return Promise.reject(error);
   }

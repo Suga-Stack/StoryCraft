@@ -64,7 +64,7 @@ const handleLogin = async () => {
     showLoadingToast('登录中...');
 
     try {
-        const res = await http.post('/api/login', {
+        const res = await http.post('auth/login/', {
                     username: username.value,
                     password: password.value
                 });
@@ -88,7 +88,7 @@ const handleLogin = async () => {
 
         showSuccessToast('登录成功');
 
-        const preData = await http.get('/api/preferences');
+        const preData = await http.get('users/preferences/');
         const haspreferences = !!preData.value;
         if (haspreferences) {
             router.push('/bookstore');
