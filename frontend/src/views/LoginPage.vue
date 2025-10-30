@@ -2,7 +2,7 @@
     <div class="login-container">
         <div class="login-card">
             <div class="login-header">
-                <h1>欢迎回来</h1>
+                <h1>StoreCraft</h1>
                 <p>请登录您的账号继续使用</p>
             </div>
             
@@ -32,18 +32,6 @@
                 </div>
                 
                 <button type="submit" class="btn primary-btn">登录</button>
-                
-                <div class="divider">
-                    <span class="divider-text">其他登录方式</span>
-                </div>
-                
-                <button 
-                    type="button" 
-                    class="btn wechat-btn"
-                    @click="handleWeChatLogin"
-                >
-                    微信登录
-                </button>
                 
                 <div class="register-link">
                     还没有账号？
@@ -112,11 +100,6 @@ const handleLogin = async () => {
     }
 }
 
-const handleWeChatLogin = () => {
-    // 微信登录逻辑
-    showLoadingToast('微信登录暂未实现');
-};
-
 const goToRegister = () => {
     router.push('/register');
     console.log('跳转到注册页');
@@ -127,7 +110,7 @@ const goToRegister = () => {
 <style scoped>
 .login-container {
     min-height: 100vh;
-    background: #f5f7fa;
+    background: #faf8f3;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -137,10 +120,11 @@ const goToRegister = () => {
 .login-card {
     width: 100%;
     max-width: 400px;
-    background: #fff;
+    background: #ffffff;
     border-radius: 12px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
     padding: 30px;
+    border-radius: 30px;
 }
 
 .login-header {
@@ -149,14 +133,28 @@ const goToRegister = () => {
 }
 
 .login-header h1 {
-    font-size: 24px;
-    color: #333;
-    margin-bottom: 8px;
+  font-family: 'Comic Neue', 'Brush Script MT', cursive;
+  
+  font-size: 3rem;
+  line-height: 1.0;
+ 
+  font-weight: 400; 
+  font-style: italic; 
+  
+  color: #3d3d3d;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.08);
+  
+  letter-spacing: 0.03em;
+  word-spacing: 0.05em;
+  
+  transform: rotate(-1deg);
+  transition: transform 0.3s ease;
 }
 
 .login-header p {
     color: #666;
-    font-size: 14px;
+    margin-top: 15px;
+    font-size: 12px;
 }
 
 .login-form {
@@ -187,7 +185,7 @@ const goToRegister = () => {
 
 .form-input:focus {
     outline: none;
-    border-color: #4096ff;
+    border-color: #a86464;
 }
 
 .btn {
@@ -201,25 +199,11 @@ const goToRegister = () => {
 }
 
 .primary-btn {
-    background: #4096ff;
-    color: white;
-}
-
-.primary-btn:hover {
-    background: #3688e6;
-}
-
-.wechat-btn {
-    background: #07c160;
-    color: white;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-}
-
-.wechat-btn:hover {
-    background: #06b356;
+  color: white;
+  font-size: 16px;
+  width: 100%;
+  background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
+  border: none;
 }
 
 .divider {
@@ -250,7 +234,7 @@ const goToRegister = () => {
 }
 
 .link {
-    color: #4096ff;
+    color: #a86464;
     cursor: pointer;
     margin-left: 4px;
 }

@@ -39,7 +39,7 @@
             type="password"
             id="confirmPassword"
             v-model="formData.confirmPassword"
-            @blur="validateEmail"
+            @blur="validateConfirmPassword"
             placeholder="请再次输入密码"
             required
           >
@@ -53,7 +53,7 @@
             type="email"
             id="email"
             v-model="formData.email"
-            @blur="validateConfirmPassword"
+            @blur="validateEmail"
             placeholder="请输入邮箱"
             required
           >
@@ -65,7 +65,7 @@
         <div class="form-group">
           <label for="verifyingCode">验证码</label>
           <input
-            type="verifyingCode"
+            type="text"
             id="verifyingCode"
             v-model="formData.verifyingCode"
             @blur="validateConfirmVerifyingCode"
@@ -77,13 +77,14 @@
 
         <!-- 发送验证码按钮 -->
         <button 
-          type="verify" 
+          type="button" 
           class="verify-btn"
-          :disabled="isVerifying"
+          :disabled="isVerifying || countDown > 0"  
           @click="handleVerify"
         >
-          <span v-if="!isVerifying">发送验证码</span>
+          <span v-if="!isVerifying && countDown === 0">发送验证码</span>
           <span v-if="isVerifying">验证中...</span>
+          <span v-if="countDown > 0">{{ countDown }}秒后重新发送</span>  
         </button>
 
         <!-- 注册按钮 -->
@@ -106,22 +107,29 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import http from '../utils/http'; 
+
+const countDown = ref(0);
+const timer = ref(null);
 
 // 表单数据
 const formData = ref({
   username: '',
   password: '',
-  confirmPassword: ''
+  confirm_password: '',
+  email: '',
+  email_code: ''
 });
 
 // 错误信息
 const errors = ref({
   username: '',
   password: '',
-  confirmPassword: ''
+  confirm_password: '',
+  confirmEmail: '',
+  confirmVerifyCode: ''
 });
 
 // 状态控制
@@ -156,11 +164,11 @@ const validatePassword = () => {
 };
 
 const validateConfirmPassword = () => {
-  if (formData.value.confirmPassword !== formData.value.password) {
-    errors.value.confirmPassword = '两次输入的密码不一致';
+  if (formData.value.confirm_password !== formData.value.password) {
+    errors.value.confirm_password = '两次输入的密码不一致';
     return false;
   }
-  errors.value.confirmPassword = '';
+  errors.value.confirm_password = '';
   return true;
 };
 
@@ -175,7 +183,7 @@ const validateEmail = () => {
 };
 
 const validateConfirmVerifyingCode = () => {
-  if (!formData.value.verifyingCode) {
+  if (!formData.value.email_code) {
     errors.value.confirmVerifyCode = '验证码不能为空';
     return false;
   }
@@ -193,6 +201,49 @@ const validateForm = () => {
   return isUsernameValid && isPasswordValid && isConfirmValid && isEmailValid && isVerifyCodeValid;
 };
 
+// 处理发送验证码
+const handleVerify = async () => {
+  // 先验证邮箱格式
+  if (!validateEmail()) {
+    return;
+  }
+
+  try {
+    isVerifying.value = true;
+    
+    // 调用发送验证码接口
+    const response = await http.post('/api/auth/send-email-code', {
+      email: formData.value.email
+    });
+
+    if (response.code === 200) {
+      alert('验证码已发送，请查收');
+      // 开始倒计时
+      countDown.value = 60;
+      timer.value = setInterval(() => {
+        countDown.value--;
+        if (countDown.value <= 0) {
+          clearInterval(timer.value);
+        }
+      }, 1000);
+    } else {
+      alert(response.message || '发送验证码失败');
+    }
+  } catch (error) {
+    console.error('发送验证码失败:', error);
+    alert('发送验证码失败，请稍后重试');
+  } finally {
+    isVerifying.value = false;
+  }
+};
+
+// 组件卸载时清除定时器
+onUnmounted(() => {
+  if (timer.value) {
+    clearInterval(timer.value);
+  }
+});
+
 // 处理注册
 const handleRegister = async () => {
   if (!validateForm()) return;
@@ -200,17 +251,16 @@ const handleRegister = async () => {
   try {
     isSubmitting.value = true;
     
-    // 密码加密处理（实际项目中建议在前端进行简单加密，后端再进行二次加密）
-    const encryptedPassword = btoa(formData.value.password); // 示例：Base64加密
-    const encryptedConfirm = btoa(formData.value.confirmPassword);
+    const encryptedPassword = btoa(formData.value.password); 
+    const encryptedConfirm = btoa(formData.value.confirm_password);
 
     // 调用注册接口
     const response = await request.post('/api/auth/register', {
       username: formData.value.username,
       password: encryptedPassword,
-      confirmPassword: encryptedConfirm,
+      confirm_password: encryptedConfirm,
       email: formData.value.email,
-      verifyingCode: formData.value.verifyingCode
+      email_code: formData.value.email_code
     });
 
     if (response.code === 200) {
@@ -219,7 +269,7 @@ const handleRegister = async () => {
       localStorage.setItem('userInfo', JSON.stringify(response.data.user));
       
       // 提示成功并跳转首页或用户中心
-      alert('注册成功！即将跳转到首页');
+      alert('注册成功！即将跳转到书城页');
       router.push('/');
     } else {
       alert(response.message || '注册失败，请稍后重试');
@@ -253,7 +303,7 @@ const handleRegister = async () => {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background-color: #f5f5f5;
+  background-color: #faf8f3;
   padding: 20px;
 }
 
@@ -262,7 +312,7 @@ const handleRegister = async () => {
   max-width: 400px;
   background: white;
   padding: 30px;
-  border-radius: 8px;
+  border-radius: 30px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
 }
 
@@ -293,8 +343,7 @@ input {
 
 input:focus {
   outline: none;
-  border-color: #42b983;
-  box-shadow: 0 0 0 2px rgba(66, 185, 131, 0.2);
+  border-color: #a86464;
 }
 
 .error-message {
@@ -307,45 +356,30 @@ input:focus {
 .verify-btn {
   width: 100%;
   padding: 12px;
-  background-color: #42b983;
-  color: white;
-  border: none;
   border-radius: 4px;
   font-size: 16px;
   cursor: pointer;
   transition: background-color 0.3s;
   margin-bottom: 15px;
+  color: white;
+  background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
+  border: none;
 }
 
-.verify-btn:disabled {
-  background-color: #a0d995;
-  cursor: not-allowed;
-}
-
-.verify-btn:not(:disabled):hover {
-  background-color: #359e75;
-}
 
 .register-btn {
   width: 100%;
   padding: 12px;
-  background-color: #42b983;
-  color: white;
-  border: none;
   border-radius: 4px;
-  font-size: 16px;
   cursor: pointer;
   transition: background-color 0.3s;
+   color: white;
+  font-size: 16px;
+  width: 100%;
+  background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
+  border: none;
 }
 
-.register-btn:disabled {
-  background-color: #a0d995;
-  cursor: not-allowed;
-}
-
-.register-btn:not(:disabled):hover {
-  background-color: #359e75;
-}
 
 .link-to-login {
   text-align: center;
@@ -355,7 +389,7 @@ input:focus {
 }
 
 .link-to-login a {
-  color: #42b983;
+  color: #a86464;
   text-decoration: none;
 }
 

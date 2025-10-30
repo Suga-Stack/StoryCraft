@@ -25,6 +25,7 @@
               round 
               block 
               @click="goToNextStep"
+              class=" next-btn"
             >
               下一步
             </van-button>
@@ -38,14 +39,18 @@
           <h3 class="section-title">选择感兴趣的标签（至少选1个）</h3>
           <div class="tags-container">
             <van-tag 
-              v-for="tag in allTags" 
+              v-for="(tag, index) in allTags"  
               :key="tag.id"
               :name="tag.id"
               :checked="selectedTags.includes(tag.id)"
               @click="toggleTag(tag.id)"
               type="primary"
-              :color="selectedTags.includes(tag.id) ? '#36d399' : '#646cff'"
-              mode="checkable"
+              class="custom-tag"
+              :style="{
+              backgroundColor: selectedTags.includes(tag.id) ? '#e5b7b7' : '#fff',
+              color: selectedTags.includes(tag.id) ? '#fff' : '#c78c8c',
+              borderColor: '#c78c8c'
+            }" 
             >
               {{ tag.name }}
             </van-tag>
@@ -102,16 +107,16 @@ const errors = ref({
 
 // 所有可选标签
 const allTags = ref([
-  { id: 1, name: '科幻' },
-  { id: 2, name: '悬疑' },
-  { id: 3, name: '爱情' },
-  { id: 4, name: '历史' },
-  { id: 5, name: '武侠' },
-  { id: 6, name: '都市' },
-  { id: 7, name: '奇幻' },
-  { id: 8, name: '推理' },
-  { id: 9, name: '青春' },
-  { id: 10, name: '军事' }
+  { id: '1', name: '科幻' },
+  { id: '2', name: '悬疑' },
+  { id: '3', name: '爱情' },
+  { id: '4', name: '历史' },
+  { id: '5', name: '武侠' },
+  { id: '6', name: '都市' },
+  { id: '7', name: '奇幻' },
+  { id: '8', name: '推理' },
+  { id: '9', name: '青春' },
+  { id: '10', name: '军事' }
 ]);
 
 // 初始化：获取已保存的偏好
@@ -122,6 +127,9 @@ onMounted(async () => {
       const { gender, favoriteTags } = res.data.preferences;
       selectedGender.value = gender || '';
       selectedTags.value = favoriteTags || [];
+    }
+    else {
+      console.log('未获取到偏好设置');
     }
   } catch (error) {
     console.error('获取偏好设置失败:', error);
@@ -188,15 +196,15 @@ const handleSubmit = async () => {
   try {
     isSubmitting.value = true;
     
-    const response = await http.put('/user/preferences', {
+    const response = await http.put('/users/preferences', {
       gender: selectedGender.value,
-      favoriteTags: selectedTags.value
+      liked_tags: selectedTags.value
     });
 
     if (response.code === 200) {
       userStore.setPreferences(response.data.preferences);
       showToast('偏好设置保存成功');
-      router.push('/bookstore');
+      router.push('/');
     } else {
       showToast(response.message || '保存失败，请重试');
     }
@@ -264,18 +272,42 @@ const handleSubmit = async () => {
   font-size: 16px;
 }
 
+::v-deep .van-radio__icon--checked .van-icon {
+  display: inline-block !important;
+}
+
 /* 标签选择样式 */
 .tags-container {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  margin: 0 auto;
+  width: 80%;
+  grid-template-columns: repeat(3, 1fr); /* 每3个标签一行 */
   gap: 12px;
-  margin-bottom: 40px;
+  padding: 0 8px;
+}
+
+::v-deep .custom-tag{
+  border-radius: 12px; 
+  padding: 14px 0; 
+  font-size: 17px; 
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 80px;
 }
 
 /* 按钮样式 */
 .next-btn-container {
   margin-top: auto;
   padding: 0 16px 30px;
+}
+
+.next-btn{
+  color: white;
+  font-size: 16px;
+  width: 100%;
+  background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
+  border: none;
 }
 
 .button-group {
@@ -286,7 +318,11 @@ const handleSubmit = async () => {
 }
 
 .prev-btn, .submit-btn {
-  flex: 1;
+  color: white;
+  font-size: 16px;
+  width: 100%;
+  background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
+  border: none;
 }
 
 .error-text {

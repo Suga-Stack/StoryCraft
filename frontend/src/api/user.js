@@ -6,37 +6,28 @@ export const login = (username, password) => {
 }
 
 // 注册接口
-export const register = (username, password, confirmPassword, email, verifyingCode) => {
-  return http.post('/auth/register', {username, password, confirmPassword, email, verifyingCode})
-}
-
-// 微信登陆接口
-export const wechatLogin = (code) => {
-  return http.post('/auth/login/wechat', {code})
+export const register = (username, password, confirm_password, email, email_code) => {
+  return http.post('/auth/register', {username, password, confirm_password, email, email_code})
 }
 
 // 退出登录接口
-export const logout = (token) => {
-  return http.post('/auth/logout', {token})
+export const logout = (refresh) => {
+  return http.post('/auth/logout', {refresh})
 }
 
-// 获取用户信息接口
-export const getUserInfo = (token) => {
-  return http.get('/auth/current-user', {token})
+// 发送邮箱验证码接口
+export const sendEmailCode = (email) => {
+  return http.post('/auth/send-email-code', {email})
 }
 
-// 更新用户信息接口
-export const updateUserInfo = (token, nickname, avatar) => {
-  return http.put('/user/profile', {token,nickname,avatar})
-}
 
 // 保存用户偏好
-export const savePreferences = (tokens, gender, favoriteTags) => {
-  return http.put('/user/preferences', {tokens, gender, favoriteTags}) 
+export const savePreferences = (gender, liked_tags) => {
+  return http.put('/users/preferences', {gender, liked_tags}) 
 }
 
 // 获取用户偏好
-export const getPreferences = (token) => {
-  return http.get('/user/preferences', {token})
+export const getPreferences = () => {
+  return http.get('/users/preferences')
 }
 
