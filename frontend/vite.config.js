@@ -2,11 +2,13 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
-  plugins: [vue()],
-  // 添加以下配置
-  base: './', // 使用相对路径，Capacitor 必需
+  plugins: [vue()], // 注册插件
   server: {
-    host: '0.0.0.0', // 允许局域网访问（调试时用）
-    port: 5173
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8000',  // 后端地址
+        changeOrigin: true
+      }
+    }
   }
-})
+});
