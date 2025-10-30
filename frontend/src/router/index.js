@@ -2,11 +2,11 @@ import { createRouter, createWebHistory } from 'vue-router'
 import LoginPage from '../views/LoginPage.vue'
 import RegisterPage from '../views/RegisterPage.vue'
 import PreferencesPage from '../views/PreferencesPage.vue'
-//import BookshelfPage from '../views/BookshelfPage.vue'
+import BookshelfPage from '../views/BookshelfPage.vue'
 //import SearchPage from '../views/SearchPage.vue'
-//import BookstorePage from '../views/BookstorePage.vue'
+import BookstorePage from '../views/BookstorePage.vue'
 //import CreatePage from '../views/CreatePage.vue'
-//import ProfilePage from '../views/ProfilePage.vue'
+import ProfilePage from '../views/ProfilePage.vue'
 //import MyCreationsPage from '../views/MyCreationsPage.vue'
 
 const routes = [
@@ -24,6 +24,21 @@ const routes = [
     path: '/preferences',
     name: 'preferences',
     component: PreferencesPage
+  },
+  {
+    path: '/bookshelf',
+    name: 'bookshelf',
+    component: BookshelfPage
+  },
+  {
+    path: '/bookstore', 
+    name: 'bookstore',
+    component: BookstorePage
+  },
+  {
+    path: '/profile',
+    name: 'profile',
+    component: ProfilePage
   }
 ]
 
