@@ -77,7 +77,7 @@ class GameworkCreateResponseSerializer(serializers.Serializer):
     title = serializers.CharField(
         help_text="AI生成的作品标题"
     )
-    coverUrl = serializers.URLField(
+    coverUrl = serializers.CharField(
         help_text="AI生成的封面图片URL"
     )
     description = serializers.CharField(
@@ -105,7 +105,6 @@ class GameChapterRequestSerializer(serializers.Serializer):
     )
 
 class GameChapterChoiceSerializer(serializers.Serializer):
-    id = serializers.CharField()
     text = serializers.CharField()
     attributesDelta = serializers.DictField(
         child=serializers.IntegerField(),
@@ -130,16 +129,13 @@ class GameChapterDialogueSerializer(serializers.Serializer):
     )
 
 class GameChapterSceneSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
     backgroundImage = serializers.CharField()
     dialogues = GameChapterDialogueSerializer(many=True)
-    isChapterEnding = serializers.BooleanField(required=False)
+    backgroundImageUrl = serializers.CharField()
 
 class GameChapterResponseSerializer(serializers.Serializer):
-    chapterIndex = serializers.IntegerField()
     title = serializers.CharField()
     scenes = GameChapterSceneSerializer(many=True)
-    isGameEnding = serializers.BooleanField(required=False)
 
 class SettlementReportContentSerializer(serializers.Serializer):
     title = serializers.CharField()

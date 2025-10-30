@@ -8,6 +8,8 @@ class Story(models.Model):
     """
     gamework = models.OneToOneField(Gamework, on_delete=models.CASCADE, related_name='story', help_text="关联的游戏作品")
     total_chapters = models.PositiveIntegerField(default=3, help_text="计划总章节数")
+    initial_attributes = models.JSONField(help_text="故事初始主角属性值")
+    initial_statuses = models.JSONField(help_text="主角初始状态")
     is_complete = models.BooleanField(default=False, help_text="故事是否已完成生成")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
