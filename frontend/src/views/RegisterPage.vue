@@ -38,7 +38,7 @@
           <input
             type="password"
             id="confirmPassword"
-            v-model="formData.confirmPassword"
+            v-model="formData.confirm_password"
             @blur="validateConfirmPassword"
             placeholder="请再次输入密码"
             required
@@ -67,7 +67,7 @@
           <input
             type="text"
             id="verifyingCode"
-            v-model="formData.verifyingCode"
+            v-model="formData.email_code"
             @blur="validateConfirmVerifyingCode"
             placeholder="请输入验证码"
             required
@@ -216,8 +216,7 @@ const handleVerify = async () => {
     const response = await http.post('/auth/send-email-code/', {
       email: formData.value.email
     });
-
-    if (response.code === 200) {
+    if (response.data.code === 200) {
       alert('验证码已发送，请查收');
       // 开始倒计时
       countDown.value = 60;
@@ -253,7 +252,7 @@ const handleRegister = async () => {
     isSubmitting.value = true;
 
     // 调用注册接口
-    const response = await request.post('/auth/register/', {
+    const response = await http.post('/auth/register/', {
       username: formData.value.username,
       password: formData.value.password,
       confirm_password: formData.value.confirm_password,
@@ -262,34 +261,62 @@ const handleRegister = async () => {
     });
 
     if (response.code === 200) {
-      // 保存token和用户信息
-      localStorage.setItem('token', response.data.token);
-      localStorage.setItem('userInfo', JSON.stringify(response.data.user));
-      
       // 提示成功并跳转首页或用户中心
       alert('注册成功！即将跳转到书城页');
       router.push('/');
     } else {
-      alert(response.message || '注册失败，请稍后重试');
+      // 处理正常响应中的错误信息
+      const errorMsg = Array.isArray(response.message) 
+        ? response.message.join('; ') 
+        : response.message || '注册失败，请稍后重试';
+      alert(errorMsg); 
     }
-  } catch (error) {
+  }// 处理注册
+  catch (error) {
+    console.error('注册错误详情:', {
+      status: error.response?.status,
+      data: error.response?.data, // 打印后端返回的错误信息（可能包含具体原因）
+      config: error.config // 打印请求配置（参数、URL等）
+    });
+    
     console.error('注册请求失败:', error);
     if (error.response) {
-      // 处理后端返回的错误信息
+      // 1. 提取嵌套的错误信息（核心修改）
+      const errorData = error.response.data;
+      // 后端错误信息可能在 errorData.message.message 中，且是数组
+      const rawMessages = errorData.message?.message || [];
+
+      // 2. 将数组转换为字符串（解决类型警告）
+      let errorMsg = '';
+      if (Array.isArray(rawMessages)) {
+        errorMsg = rawMessages.join('; '); // 用分号拼接数组元素
+      } else if (typeof rawMessages === 'string') {
+        errorMsg = rawMessages;
+      } else {
+        errorMsg = '参数错误，请检查输入'; // 默认提示
+      }
+
+      // 3. 根据状态码提示
       switch (error.response.status) {
         case 400:
-          alert(error.response.data.message || '参数错误，请检查输入');
+          alert(errorMsg); // 现在会正确显示"用户名已存在"
           break;
         case 409:
           alert('用户名已存在，请更换用户名');
           break;
+        case 500:
+          if (error.response.data.includes('UNIQUE constraint failed: users_user.email')) {
+            alert('该邮箱已被注册，请更换邮箱');
+          }
+          break;
+
         default:
           alert('服务器错误，请稍后重试');
       }
     } else {
       alert('网络错误，请检查网络连接');
     }
-  } finally {
+  }finally{
     isSubmitting.value = false;
   }
 };
