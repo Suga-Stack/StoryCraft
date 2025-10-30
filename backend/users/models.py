@@ -19,6 +19,7 @@ class User(AbstractUser):
         null=True
   )  # 性别字段，选择 Male、Female 或 Other
   liked_tags = models.ManyToManyField(Tag, blank=True)  # 用户喜欢的标签，可以为空
+  is_staff = models.BooleanField(default=False)  # 默认用户为非管理员
 
   def __str__(self):
     return self.user_name

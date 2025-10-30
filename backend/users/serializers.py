@@ -10,13 +10,13 @@ from tags.serializers import TagSerializer
 
 User = get_user_model()
 
-'''
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ( 'user_name', 'profile_picture', 'user_credits', 'gender', 'liked_tags')
-        read_only_fields = ('user_id', 'user_credits')
-'''
+        fields = ('id', 'user_name', 'profile_picture', 'user_credits', 'gender', 'liked_tags')
+        read_only_fields = ('user_credits', 'is_staff')
+
 
 class RegisterSerializer(serializers.ModelSerializer):
     username = serializers.CharField(max_length=255)
@@ -63,7 +63,8 @@ class RegisterSerializer(serializers.ModelSerializer):
         user = User.objects.create(
             user_name=validated_data['username'],
             email=email, 
-            password_hash=make_password(password)
+            password_hash=make_password(password),
+            is_staff=False
         )
         return user
 
