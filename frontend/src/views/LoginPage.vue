@@ -68,33 +68,46 @@ const handleLogin = async () => {
                     username: username.value,
                     password: password.value
                 });
-        const { code, message, data } = res;
-
-        // 判断状态码是否成功
-        if (code !== 200) {
-        showFailToast(message || '登录失败，请重试');
+        if (!res) {
+        showFailToast('登录失败，未收到响应');
         return;
         }
 
-        const { token, user} = data || {};
-        if (!token) {
-        showFailToast('登录失败，未获取到令牌');
+        if (res.status !== 200) {
+        showFailToast(`登录失败，HTTP状态码: ${res.status}`);
         return;
         }
 
-        // 存储token
-        localStorage.setItem('token', token);
-        localStorage.setItem('user', JSON.stringify(user));
+        const { code: businessCode, message: businessMsg, tokens = {} } = res.data || {};
 
-        showSuccessToast('登录成功');
+        if (typeof businessCode !== 'undefined' && businessCode !== 200) {
+        showFailToast(businessMsg || '登录失败，业务处理出错');
+        return;
+        }
+
+        // 5. 令牌检查更严谨，增加类型判断
+        if (typeof tokens !== 'object' || !tokens.access) {
+        showFailToast('登录失败，未获取到有效的访问令牌');
+        return;
+        }
+
+        localStorage.setItem('token', String(tokens.access));
+        if (tokens.refresh) {
+        localStorage.setItem('refreshToken', String(tokens.refresh));
+        }
+
+        showSuccessToast('登录成功，即将跳转...');
 
         const preData = await http.get('users/preferences/');
-        const haspreferences = !!preData.value;
+        // 检查是否存在有效的偏好设置
+        const haspreferences = preData.data && Array.isArray(preData.data.liked_tags) && preData.data.liked_tags.length > 0;
+
         if (haspreferences) {
             router.push('/bookstore');
         } else {
             router.push('/preferences');
         }
+
     } catch (error) {
         showFailToast('登录失败，请检查用户名和密码');
     }
