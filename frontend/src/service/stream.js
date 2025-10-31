@@ -27,7 +27,7 @@ export function createSSEConnection(workId, options = {}) {
 
   const userId = getUserId()
   const baseURL = import.meta.env.VITE_API_BASE_URL || 
-                  (import.meta.env.DEV ? 'http://localhost:3000' : '')
+                  (import.meta.env.DEV ? 'http://localhost:8000' : '')
   
   // 构建 SSE URL
   let url = `${baseURL}/api/story/${workId}/stream?userId=${userId}`
@@ -151,7 +151,7 @@ export function createWebSocketConnection(workId, options = {}) {
 
   const userId = getUserId()
   const baseURL = import.meta.env.VITE_WS_BASE_URL || 
-                  (import.meta.env.DEV ? 'ws://localhost:3000' : `ws://${window.location.host}`)
+                  (import.meta.env.DEV ? 'ws://localhost:8000' : `ws://${window.location.host}`)
   
   // 构建 WebSocket URL
   let url = `${baseURL}/api/story/${workId}/ws?userId=${userId}`

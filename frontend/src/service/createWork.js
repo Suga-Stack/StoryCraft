@@ -27,7 +27,7 @@ export async function createWorkOnBackend(payload = {}) {
     length: payload.length || 'medium'
   }
   // 直接按 game-api.md：返回后端原始响应，字段名保持一致（gameworkId, title, coverUrl, description, initialAttributes, statuses）
-  const res = await http.post('/api/game/create', body)
+  const res = await http.post('/api/game/create/', body)
   return Object.assign({}, res || {})
 }
 

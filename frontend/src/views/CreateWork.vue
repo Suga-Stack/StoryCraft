@@ -5,7 +5,8 @@ import { useRouter } from 'vue-router'
 import * as createWorkService from '../service/createWork.js'
 
 // 在本地测试时可开启 create mock（当后端不可用时）
-const USE_MOCK_CREATE = true
+// 关闭 mock 以便直接调用后端进行集成测试
+const USE_MOCK_CREATE = false
 // 本地可替换的函数引用
 let createWorkOnBackend = createWorkService.createWorkOnBackend
 
@@ -55,6 +56,15 @@ onMounted(() => {
     } catch (e) {}
   }
 })
+
+// 选择的标签分类索引（并列的四个按钮）
+const selectedCategory = ref(0)
+const selectCategory = (idx) => {
+  selectedCategory.value = idx
+}
+
+// 所选分类的所有标签（不分页，全部显示）
+const selectedGroupTags = computed(() => tagGroups[selectedCategory.value].tags)
 
 onBeforeUnmount(() => {
   try { ScreenOrientation.unlock && ScreenOrientation.unlock().catch(() => {}) } catch (e) {}
@@ -213,34 +223,39 @@ const startCreate = async () => {
 
 <template>
   <div class="create-page">
-    <div class="header">
+    <div class="header section">
       <h1>创建你的作品</h1>
-        <p class="hint">请选择 3-6 个标签，并选择大概的篇幅；也可以填写你的构思哦~</p>
+      <p class="hint">请选择 3-6 个标签，并选择大概的篇幅；也可以填写你的构思哦~</p>
     </div>
 
     <div class="section">
-  <div class="section-title">选择标签（3-6 个）</div>
-      <div class="tag-groups">
-        <div class="tag-group" v-for="(group, gi) in tagGroups" :key="group.title">
-          <div class="group-header" @click="toggleGroup(gi)">
-            <strong>{{ group.title }}</strong>
-            <span class="chev">{{ collapsed[gi] ? '▸' : '▾' }}</span>
-          </div>
-          <transition name="collapse">
-            <div v-show="!collapsed[gi]" class="tags-grid">
-              <button
-                v-for="tag in group.tags"
-                :key="tag"
-                class="tag-btn"
-                :class="{ selected: selectedTags.includes(tag), disabled: !selectedTags.includes(tag) && selectedTags.length >= 6 }"
-                @click="toggleTag(tag)"
-              >
-                <span class="check" v-if="selectedTags.includes(tag)">✓</span>{{ tag }}
-              </button>
-            </div>
-          </transition>
-        </div>
+      <div class="section-title">选择标签（3-6 个）</div>
+      <!-- 横向四个分类按钮 -->
+      <div class="category-tabs">
+        <button
+          v-for="(group, gi) in tagGroups"
+          :key="group.title"
+          class="category-tab"
+          :class="{ active: selectedCategory === gi }"
+          @click="selectCategory(gi)"
+        >
+          {{ group.title }}
+        </button>
       </div>
+
+      <!-- 当前分类的标签，分页展示 -->
+      <div class="tags-grid all-tags">
+        <button
+          v-for="tag in selectedGroupTags"
+          :key="tag"
+          class="tag-btn small"
+          :class="{ selected: selectedTags.includes(tag), disabled: !selectedTags.includes(tag) && selectedTags.length >= 6 }"
+          @click="toggleTag(tag)"
+        >
+          <span class="check" v-if="selectedTags.includes(tag)">✓</span>{{ tag }}
+        </button>
+      </div>
+
       <div class="counter" :class="{ invalid: selectedTags.length < 3 || selectedTags.length > 6 }">
         已选 {{ selectedTags.length }} / 6
       </div>
@@ -259,7 +274,9 @@ const startCreate = async () => {
     <div class="section idea-section">
       <div class="section-title">你的构思</div>
       <div class="idea-wrap">
-        <textarea class="idea-input" v-model="idea" rows="4" placeholder="概述你的灵感或者想看的作者文风吧~"></textarea>
+        <div class="idea-frame">
+          <textarea class="idea-input" v-model="idea" rows="4" placeholder="概述你的灵感或者想看的作者文风吧~"></textarea>
+        </div>
       </div>
       <div class="idea-actions">
         <button class="create-btn create-btn-small" :disabled="!canCreate || isLoading" @click="startCreate">一键生成</button>
@@ -281,6 +298,7 @@ const startCreate = async () => {
 
 <style scoped>
 .create-page { min-height: 100vh; background: #faf8f3; padding: 2rem 1rem; }
+.header { max-width: 960px; margin: -36px auto 1rem; }
 .header { max-width: 960px; margin: 0 auto 1rem; }
 .header h1 { color:#2c1810; margin:0 0 0.25rem; }
 .hint { color:#8B7355; margin:0; }
@@ -298,7 +316,7 @@ const startCreate = async () => {
 .collapse-enter-to, .collapse-leave-from { max-height: 1200px; opacity: 1; transform: translateY(0); }
 .tag-btn { padding:0.6rem 0.8rem; border-radius:999px; border:1px solid rgba(212,165,165,0.35); background:#fff; color:#2c1810; cursor:pointer; transition: all .2s ease; }
 .tag-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.08); }
-.tag-btn.selected { background: #f5e6d3; border-color:#d4a574; }
+.tag-btn.selected { background: #d4a5a5; color: #fff; border-color:#d4a574; }
 .tag-btn.disabled { opacity: 0.5; cursor: not-allowed; }
 .check { margin-right: 0.25rem; color:#8B7355; }
 .counter { margin-top:0.5rem; color:#8B7355; font-size:0.9rem; }
@@ -309,6 +327,58 @@ const startCreate = async () => {
 
 .idea-input { width:100%; border-radius:8px; border:1px solid rgba(212,165,165,0.35); padding:0.6rem 0.75rem; font-size:0.95rem; outline:none; }
 .idea-input:focus { border-color:#d4a5a5; box-shadow: 0 0 0 3px rgba(212,165,165,0.2); }
+
+/* 横向分类标签（四个按钮） */
+.category-tabs { display:flex; flex-wrap:wrap; gap:0.5rem; justify-content:flex-start; margin:0.5rem 0 1rem; }
+.category-tab { padding:0.48rem 0.9rem; border-radius:10px; border:1px solid transparent; background:#efefef; cursor:pointer; color:#6b6b6b; font-size:0.96rem; min-width:80px; text-align:center; box-shadow: none; transition: all .18s ease; }
+.category-tab.active { background: #fff; color:#2c1810; border-color: rgba(212,165,165,0.18); font-weight:700; box-shadow: none; }
+
+/* 分页控件 */
+.tag-pagination { display:flex; gap:0.4rem; align-items:center; justify-content:flex-start; margin-top:0.75rem; }
+.tags-grid.all-tags { margin-top: 0.6rem; }
+.page-btn, .page-num { padding:0.28rem 0.6rem; border-radius:6px; border:1px solid rgba(0,0,0,0.06); background:#fff; cursor:pointer; }
+.page-num.active { background:#d4a5a5; color:#fff; border-color:transparent; }
+.page-btn:disabled { opacity:0.5; cursor:not-allowed; }
+
+/* 区分大类按钮与小标签样式 */
+.tag-btn.small { padding:0.45rem 0.6rem; font-size:0.92rem; border-radius:10px; }
+.tag-btn { transition: all .18s ease; }
+
+/* 多层边框装饰：使用外层包裹和多重阴影/伪元素产生叠层效果 */
+.idea-wrap { display:flex; justify-content:center; }
+.idea-frame { position: relative; width:100%; max-width:960px; border-radius:12px; padding:10px; background: linear-gradient(180deg, #fff, #fff); }
+.idea-frame::before,
+.idea-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  pointer-events: none;
+}
+.idea-frame::before {
+  /* 外层淡色边框 */
+  box-shadow: 0 6px 18px rgba(0,0,0,0.06), 0 0 0 4px rgba(212,165,165,0.08);
+  transform: translateY(4px);
+  z-index: 0;
+}
+.idea-frame::after {
+  /* 第二层边框/描边 */
+  box-shadow: 0 0 0 2px rgba(212,165,165,0.14) inset, 0 0 0 8px rgba(245,230,211,0.25);
+  z-index: 1;
+}
+.idea-frame .idea-input {
+  position: relative;
+  z-index: 2;
+  background: transparent; /* 让外层颜色显现 */
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+@media (max-width: 720px) {
+  .idea-frame { padding: 8px; }
+  .idea-input { padding: 10px 12px; }
+  .header { margin: -18px auto 1rem; }
+}
 
 /* idea-section: 包含 textarea 与右下的小按钮 */
 .idea-section { position: relative; }

@@ -9,8 +9,8 @@ const getBaseURL = () => {
   if (import.meta.env.VITE_API_BASE_URL) {
     return import.meta.env.VITE_API_BASE_URL
   }
-  // 开发环境默认使用本地后端
-  return import.meta.env.DEV ? 'http://localhost:3000' : '/api'
+  // 开发环境默认使用本地后端（Django runserver 默认端口 8000）
+  return import.meta.env.DEV ? 'http://localhost:8000' : '/api'
 }
 
 const BASE_URL = getBaseURL()
@@ -25,6 +25,21 @@ function getAuthToken() {
   }
   // 其次从 localStorage 获取
   return localStorage.getItem('auth_token')
+}
+
+/**
+ * 从 cookie 中读取值
+ */
+function getCookie(name) {
+  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'))
+  return match ? decodeURIComponent(match[2]) : null
+}
+
+/**
+ * 获取 CSRF token（Django 默认 cookie 名称为 csrftoken）
+ */
+function getCSRFToken() {
+  return getCookie('csrftoken') || getCookie('CSRF-TOKEN') || null
 }
 
 /**
@@ -84,6 +99,15 @@ class HttpClient {
       headers['Authorization'] = `Bearer ${token}`
     }
 
+    // 如果没有提供 Authorization（例如使用 session auth），则尝试添加 CSRF token
+    // 这有助于通过 Django 的 SessionAuthentication 的 CSRF 校验（开发/本地测试场景）
+    if (!headers['Authorization']) {
+      const csrf = getCSRFToken()
+      if (csrf) {
+        headers['X-CSRFToken'] = csrf
+      }
+    }
+
     return headers
   }
 
@@ -128,6 +152,8 @@ class HttpClient {
       const response = await fetch(url, {
         method: 'GET',
         headers,
+        // 在本地开发或跨域代理场景下需要携带 cookie（session）以通过 CSRF 校验
+        credentials: 'include',
         ...options
       })
       return await this.handleResponse(response)
@@ -149,6 +175,7 @@ class HttpClient {
         method: 'POST',
         headers,
         body: JSON.stringify(data),
+        credentials: 'include',
         ...options
       })
       return await this.handleResponse(response)
@@ -170,6 +197,7 @@ class HttpClient {
         method: 'PUT',
         headers,
         body: JSON.stringify(data),
+        credentials: 'include',
         ...options
       })
       return await this.handleResponse(response)
@@ -190,6 +218,7 @@ class HttpClient {
       const response = await fetch(url, {
         method: 'DELETE',
         headers,
+        credentials: 'include',
         ...options
       })
       return await this.handleResponse(response)
@@ -211,6 +240,7 @@ class HttpClient {
         method: 'PATCH',
         headers,
         body: JSON.stringify(data),
+        credentials: 'include',
         ...options
       })
       return await this.handleResponse(response)

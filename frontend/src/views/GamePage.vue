@@ -6,7 +6,7 @@ import { ScreenOrientation } from '@capacitor/screen-orientation'
 
 // ---- 保存/读档后端集成配置 ----
 // 开启后优先尝试调用后端 API 保存/读取；若后端不可用则回退到 localStorage。
-// 若后端尚未就绪，可开启 USE_MOCK_SAVE 在前端模拟一个持久化层（基于 localStorage）。
+// 关闭 mock 后，前端将直接调用后端接口以进行集成测试。
 const USE_BACKEND_SAVE = true
 const USE_MOCK_SAVE = true
 // 是否启用故事内容的本地 mock（后端暂未就绪时）
@@ -16,6 +16,8 @@ import * as storyService from '../service/story.js'
 
 // 本地引用，允许在运行时替换为 mock 实现
 let getScenes = storyService.getScenes
+// 在 onMounted 流程中，如果我们使用本地 mock 获取到了初始场景，需要强制展示加载界面一段时间
+let didLoadInitialMock = false
 
 // 在支持 top-level await 的环境下（Vite/ESM），若开启 mock，优先加载本地 mock 模块
 // （注意）mock 模块的按需加载会在组件挂载时异步执行，避免在 script setup 顶层使用 await 导致 async setup
@@ -113,6 +115,45 @@ const route = useRoute()
 // 加载状态
 const isLoading = ref(true)
 const loadingProgress = ref(0)
+// 保证可控的从当前进度平滑到 100% 的视觉动画（用于内容已就绪但仍需展示加载动画的场景）
+const simulateLoadTo100 = async (duration = 900) => {
+  try {
+    // 停掉任何 startLoading 的定时器，交由本函数以匀速完成
+    try { if (startLoading._timer) { clearInterval(startLoading._timer); startLoading._timer = null } } catch (e) {}
+    isLoading.value = true
+    const start = Number(loadingProgress.value) || 0
+    const remain = Math.max(0, 100 - start)
+    if (remain <= 0) {
+      // 立即完成
+      loadingProgress.value = 100
+      await new Promise(r => setTimeout(r, 120))
+      isLoading.value = false
+      showText.value = true
+      setTimeout(() => { try { loadingProgress.value = 0 } catch (e) {} }, 120)
+      return
+    }
+    const stepMs = 30
+    const steps = Math.max(1, Math.ceil(duration / stepMs))
+    const per = remain / steps
+    return await new Promise(resolve => {
+      let cnt = 0
+      const t = setInterval(() => {
+        cnt++
+        loadingProgress.value = Math.min(100, +(start + per * cnt).toFixed(2))
+        if (cnt >= steps || loadingProgress.value >= 100) {
+          clearInterval(t)
+          setTimeout(() => {
+            try { loadingProgress.value = 100 } catch (e) {}
+            isLoading.value = false
+            showText.value = true
+            setTimeout(() => { try { loadingProgress.value = 0 } catch (e) {} }, 120)
+            resolve()
+          }, 120)
+        }
+      }, stepMs)
+    })
+  } catch (e) { console.warn('simulateLoadTo100 failed', e); isLoading.value = false }
+}
 // 后续剧情生成/获取状态
 const isFetchingNext = ref(false)
 const storyEndSignaled = ref(false)
@@ -656,8 +697,10 @@ onMounted(async () => {
       console.warn('加载 story.mock.js 失败，将回退到真实 service：', e)
     }
   }
+  let initOk = false
   try {
     const ok = await initFromCreateResult()
+    initOk = !!ok
     if (!ok) {
       // 没有来自创建页的首章：
       // 1) 若启用本地 mock，则优先调用 mock 的 getInitialScenes 以替换内置默认剧情；
@@ -681,6 +724,8 @@ onMounted(async () => {
                 }
                 storyScenes.value.push(s)
               }
+              // 标记我们是通过本地 mock 加载的初始场景，以便在结束时展示更长的加载动画
+              try { didLoadInitialMock = true } catch (e) {}
               // 暴露调试对象，便于在控制台检查当前 scenes / choices
               try { window.__STORY_DEBUG__ = { storyScenes, currentSceneIndex, currentDialogueIndex } } catch (e) {}
             currentSceneIndex.value = 0
@@ -704,7 +749,9 @@ onMounted(async () => {
   try {
     await ScreenOrientation.lock({ type: 'portrait' }).catch(() => {})
   } catch (e) {}
-  isLoading.value = false
+  // 不在此处展示加载动画（避免在横屏进入前就播放，后续由 requestLandscape 或恢复流程触发），
+  // 只在此确保不会永远保持 loading 状态。
+  try { isLoading.value = false } catch (e) {}
 })
 
 onUnmounted(() => {
@@ -913,27 +960,56 @@ const nextDialogue = async () => {
           handleGameEnd()
           return
         }
-        // 尚未收到结束信号，则尝试拉取下一段剧情（阻塞式）
-        try {
-          startLoading()
-          let data
-          if (USE_MOCK_STORY) {
-            // 如果刚刚标记了章节结束，请求新的章节；否则请求下一章
-            const nextChapter = isChapterEnd ? currentChapterIndex.value : (currentChapterIndex.value + 1)
-            data = await fetchNextContent(work.value.id, nextChapter)
-          } else {
-            data = await fetchNextChapter(work.value.id, lastSeq.value)
+          // 尚未收到结束信号，则尝试拉取下一段剧情（阻塞式），并在后端仍在生成时轮询等待
+          try {
+            startLoading()
+            let data
+            if (USE_MOCK_STORY) {
+              // 计算希望请求的章节索引
+              const nextChapter = isChapterEnd ? currentChapterIndex.value : (currentChapterIndex.value + 1)
+              // 首次请求，后端可能返回 { generating: true }
+              data = await fetchNextContent(work.value.id, nextChapter)
+              // 如果后端正在生成（或返回空场景但未标记结束），轮询等待生成完成
+              const maxWaitMs = 60 * 1000 // 最多等 60s
+              const pollInterval = 1000
+              let waited = 0
+              while (data && data.generating === true && waited < maxWaitMs) {
+                await new Promise(r => setTimeout(r, pollInterval))
+                waited += pollInterval
+                data = await fetchNextContent(work.value.id, nextChapter)
+              }
+            } else {
+              data = await fetchNextChapter(work.value.id, lastSeq.value)
+            }
+
+            await stopLoading()
+
+            // 如果后端最终标记结束，跳转结算
+            if (!data || data.end === true) {
+              storyEndSignaled.value = true
+              handleGameEnd()
+              return
+            }
+
+            // 如果后端返回了场景数组，插入并从第一个新场景开始阅读
+            if (data && Array.isArray(data.scenes) && data.scenes.length > 0) {
+              const startIdx = storyScenes.value.length
+              storyScenes.value.push(...data.scenes)
+              choicesVisible.value = false
+              // 切换到新插入的第一场景
+              currentSceneIndex.value = startIdx
+              currentDialogueIndex.value = 0
+              showText.value = true
+              return
+            }
+
+            // 没有拿到内容且未标记结束，提示等待
+            alert('后续剧情正在生成，请稍候再试')
+          } catch (e) {
+            console.warn('fetching next content failed', e)
+            await stopLoading()
+            alert('后续剧情正在生成，请稍候再试')
           }
-          await stopLoading()
-          if (!data || (data.end === true)) {
-            storyEndSignaled.value = true
-            handleGameEnd()
-          }
-        } catch (e) {
-          console.warn('fetching next content failed', e)
-          await stopLoading()
-          alert('后续剧情正在生成，请稍候再试')
-        }
       }
   }
 }
@@ -1018,11 +1094,10 @@ const ensureNextContentAndAdvance = async () => {
     const data = await fetchNextContent(work.value.id, afterSceneId)
     if (!data) throw new Error('无返回')
     if (data.end === true || (Array.isArray(data.scenes) && data.scenes.length === 0)) {
+      // 如果后端标记整部作品/章节结束，触发结算页面
       storyEndSignaled.value = true
-      // 小延迟后提示结束
-      setTimeout(() => {
-        alert('故事结束，感谢阅读！')
-      }, 100)
+      // 使用统一的结算生成流程
+      handleGameEnd()
       return
     }
     if (Array.isArray(data.scenes) && data.scenes.length > 0) {
@@ -1172,7 +1247,20 @@ const buildSavePayload = () => ({
   attributes: deepClone(attributes.value),
   statuses: deepClone(statuses.value),
   choiceHistory: deepClone(choiceHistory.value),
-  timestamp: Date.now()
+  timestamp: Date.now(),
+  // 兼容后端 GameStateSerializer
+  game_state: {
+    gameworkId: Number(work.value && work.value.id) || null,
+    userId: (typeof window !== 'undefined' && window.__STORYCRAFT_USER__ && Number(window.__STORYCRAFT_USER__.id)) ? Number(window.__STORYCRAFT_USER__.id) : null,
+    currentChapterIndex: currentChapterIndex.value,
+    currentSceneId: (currentScene.value && (currentScene.value.id || currentScene.value.sceneId)) ? String(currentScene.value.id ?? currentScene.value.sceneId) : null,
+    history: Array.isArray(choiceHistory.value) ? deepClone(choiceHistory.value) : [],
+    character: { attributes: deepClone(attributes.value) || {}, statuses: deepClone(statuses.value) || {} },
+    inventory: [],
+    relationships: {},
+    flags: {},
+    branch_exploration: { choiceHistory: deepClone(choiceHistory.value) || [] }
+  }
 })
 
 const saveGame = async (slot = 'default') => {
@@ -1184,7 +1272,7 @@ const saveGame = async (slot = 'default') => {
   // 优先使用后端存储（如果开启）
   if (USE_BACKEND_SAVE) {
     try {
-      await backendSave(userId, workId, slot, payload)
+  await backendSave(userId, workId, slot, payload.game_state ?? payload)
   lastSaveInfo.value = deepClone(payload)
       saveToast.value = `已上传存档（${new Date(payload.timestamp).toLocaleString()}）`
       setTimeout(() => (saveToast.value = ''), 2000)
@@ -1217,8 +1305,8 @@ const autoSaveToSlot = async (slot = AUTO_SAVE_SLOT) => {
     const userId = getCurrentUserId()
     const workId = work.value.id
     if (USE_BACKEND_SAVE) {
-      try {
-        await backendSave(userId, workId, slot, payload)
+        try {
+        await backendSave(userId, workId, slot, payload.game_state ?? payload)
         return
       } catch (e) {
         // 忽略错误，回落到本地
@@ -1533,7 +1621,8 @@ const requestLandscape = async () => {
   
   // 横屏准备完成，开始加载（先显示，再尝试全屏）
   isLandscapeReady.value = true
-  startLoading()
+  // 启动平滑加载动画；如果使用本地 mock 则展示更长时间（10s）。
+  try { const dur = (USE_MOCK_STORY || didLoadInitialMock) ? 10000 : 900; simulateLoadTo100(dur) } catch (e) {}
   
   try {
     // 在原生 APP 中，使用 Capacitor 插件锁定横屏
@@ -1864,7 +1953,13 @@ onMounted(async () => {
     
     // 直接进入游戏
     isLandscapeReady.value = true
-    isLoading.value = false
+    // 即便数据已恢复，为了视觉一致性仍然执行一次平滑加载到 100% 的动画
+    try {
+      const dur = USE_MOCK_STORY ? 10000 : 900
+      await simulateLoadTo100(dur)
+    } catch (e) {
+      isLoading.value = false
+    }
     showText.value = true
     return
   }
@@ -1878,7 +1973,7 @@ onMounted(async () => {
     try {
       if (import.meta.env && import.meta.env.DEV) {
         isLandscapeReady.value = true
-        startLoading()
+        try { const dur = USE_MOCK_STORY ? 10000 : 900; simulateLoadTo100(dur) } catch (e) {}
       } else {
         // 生产/正式环境：显示进入阅读按钮
       }
@@ -1959,37 +2054,37 @@ onUnmounted(async () => {
           <!-- 游戏标题（使用作品名） -->
           <h1 class="game-title">{{ work.title }}</h1>
           
-          <!-- 毛笔动画 -->
-          <div class="brush-container">
-            <svg class="brush-icon" viewBox="0 0 64 64" fill="none">
-              <!-- 毛笔笔杆 -->
-              <path 
-                d="M32 8 L32 40" 
-                stroke="#8B4513" 
-                stroke-width="3" 
-                stroke-linecap="round"
-              />
-              <!-- 毛笔笔头 -->
-              <path 
-                d="M32 40 L28 52 L32 56 L36 52 Z" 
-                fill="#2C2C2C"
-                stroke="#1C1C1C"
-                stroke-width="1"
-              />
-              <!-- 毛笔尖 -->
-              <path 
-                d="M32 56 L30 60 L32 62 L34 60 Z" 
-                fill="#1C1C1C"
-              />
-              <!-- 笔杆装饰 -->
-              <circle cx="32" cy="12" r="2" fill="#D4A574"/>
-              <circle cx="32" cy="20" r="2" fill="#D4A574"/>
-              <circle cx="32" cy="28" r="2" fill="#D4A574"/>
-            </svg>
-          </div>
-          
-          <!-- 进度条容器 -->
+          <!-- 进度条与毛笔（毛笔跟随进度条滑动） -->
           <div class="loading-progress-container">
+            <!-- 毛笔：使用 left 绑定使其跟随进度条的 thumb（通过 translateX(-50%) 居中） -->
+            <div class="brush-container" :style="{ left: loadingProgress + '%' }">
+              <svg class="brush-icon" viewBox="0 0 64 64" fill="none">
+                <!-- 毛笔笔杆 -->
+                <path 
+                  d="M32 8 L32 40" 
+                  stroke="#8B4513" 
+                  stroke-width="3" 
+                  stroke-linecap="round"
+                />
+                <!-- 毛笔笔头 -->
+                <path 
+                  d="M32 40 L28 52 L32 56 L36 52 Z" 
+                  fill="#2C2C2C"
+                  stroke="#1C1C1C"
+                  stroke-width="1"
+                />
+                <!-- 毛笔尖 -->
+                <path 
+                  d="M32 56 L30 60 L32 62 L34 60 Z" 
+                  fill="#1C1C1C"
+                />
+                <!-- 笔杆装饰 -->
+                <circle cx="32" cy="12" r="2" fill="#D4A574"/>
+                <circle cx="32" cy="20" r="2" fill="#D4A574"/>
+                <circle cx="32" cy="28" r="2" fill="#D4A574"/>
+              </svg>
+            </div>
+
             <div class="loading-progress-bg">
               <div class="loading-progress-fill" :style="{ width: loadingProgress + '%' }">
                 <div class="progress-shine"></div>

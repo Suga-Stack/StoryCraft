@@ -76,9 +76,13 @@ const loadToast = ref('')
 const branchingGraph = ref({ nodes: [], edges: [] })
 const isDragging = ref(false)
 const dragNode = ref(null)
-const NODE_W = 120
-const NODE_H = 60
-const NODE_MARGIN = 16
+// 节点与缩略图尺寸（统一缩略图用于节点顶部）
+const THUMB_W = 160
+const THUMB_H = 96
+const NODE_MARGIN = 20
+// 节点内边距（用于使图片与边框保持间距，产生“包裹/融合”感）
+const NODE_PAD_X = 12
+const NODE_PAD_Y = 10
 
 // 文本拆行辅助：将长字符串按固定宽度切分为多行（用于 SVG <tspan> 渲染）
 const splitLines = (text = '', chunk = 12) => {
@@ -99,9 +103,10 @@ const stripDecorative = (s = '') => {
 
 // 计算节点尺寸和描述行：基于字符宽度估算，使节点宽度/高度自适应文本
 const computeNodeLayout = (title = '', description = '', opts = {}) => {
+  // 支持图片尺寸的布局计算：如果提供 imageWidth/imageHeight，则节点宽度与图片宽一致
   const CHAR_PX = opts.charPx || 8
-  const PAD_X = opts.padX || 12
-  const PAD_Y = opts.padY || 10
+  const PAD_X = typeof opts.padX === 'number' ? opts.padX : NODE_PAD_X
+  const PAD_Y = typeof opts.padY === 'number' ? opts.padY : NODE_PAD_Y
   const TITLE_H = opts.titleH || 18
   const LINE_H = opts.lineH || 14
   const MIN_W = opts.minW || 80
@@ -110,31 +115,42 @@ const computeNodeLayout = (title = '', description = '', opts = {}) => {
 
   const descLines = splitLines(stripDecorative(description || ''), Math.max(6, Math.min(MAX_CHARS, opts.chunk || 18)))
   const maxLineLen = Math.max(String(title || '').length, ...descLines.map(l => l.length || 0))
-  const width = Math.min(MAX_W, Math.max(MIN_W, maxLineLen * CHAR_PX + PAD_X * 2))
-  const height = PAD_Y * 2 + TITLE_H + (descLines.length > 0 ? descLines.length * LINE_H : 0)
-  return { width, height, descLines }
+
+  // 图片优先决定宽度。为让边框包裹图片，节点宽度在图片宽度基础上增加左右内边距
+  const imageW = opts.imageW || null
+  const width = imageW ? (imageW + PAD_X * 2) : Math.min(MAX_W, Math.max(MIN_W, maxLineLen * CHAR_PX + PAD_X * 2))
+
+  // 高度：上下内边距 + 顶部图片高度 + 标题高度 + 描述行高度
+  const imageH = opts.imageH || 0
+  const height = PAD_Y * 2 + imageH + TITLE_H + (descLines.length > 0 ? descLines.length * LINE_H : 0)
+  return { width, height, descLines, imageW, imageH }
 }
 
 // 根据节点动态计算画布尺寸，确保可以滚动查看全部内容
 const graphHeight = computed(() => {
   const nodes = branchingGraph.value.nodes || []
-  const maxY = nodes.reduce((m, n) => Math.max(m, typeof n.y === 'number' ? n.y : 0), 0)
+  if (!nodes || nodes.length === 0) return 600
+  // 计算基于节点底部的高度，并添加上下留白
+  const bottoms = nodes.map(n => (n.y || 0) + (n.height || THUMB_H) / 2)
+  const tops = nodes.map(n => (n.y || 0) - (n.height || THUMB_H) / 2)
+  const maxBottom = Math.max(...bottoms)
+  const minTop = Math.min(...tops)
   const padding = 200
-  return Math.max(600, maxY + padding)
+  const h = (maxBottom - minTop) + padding
+  return Math.max(600, h)
 })
 
 const graphWidth = computed(() => {
   const nodes = branchingGraph.value.nodes || []
-  let minX = Infinity
-  let maxX = 0
-  nodes.forEach(n => {
-    const x = typeof n.x === 'number' ? n.x : 0
-    if (x < minX) minX = x
-    if (x > maxX) maxX = x
-  })
-  if (!isFinite(minX)) return 900
+  if (!nodes || nodes.length === 0) return 900
+  // 计算基于节点左右边界的画布宽度
+  const lefts = nodes.map(n => (n.x || 0) - (n.width || THUMB_W) / 2)
+  const rights = nodes.map(n => (n.x || 0) + (n.width || THUMB_W) / 2)
+  const minLeft = Math.min(...lefts)
+  const maxRight = Math.max(...rights)
   const padding = 300
-  return Math.max(900, (maxX - minX) + padding)
+  const w = (maxRight - minLeft) + padding
+  return Math.max(900, w)
 })
 
 // 简单的碰撞消解：多轮相互推开，减少重叠
@@ -142,26 +158,39 @@ const resolveNodeOverlaps = () => {
   const nodes = branchingGraph.value.nodes
   if (!nodes || nodes.length <= 1) return
   const maxIter = 10
+  // 基于每个节点的宽高做碰撞消解，支持节点尺寸不一（图片导致宽度不同）
   for (let iter = 0; iter < maxIter; iter++) {
     let moved = false
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
         const a = nodes[i]
         const b = nodes[j]
+        // 确保有坐标
+        if (typeof a.x !== 'number' || typeof a.y !== 'number' || typeof b.x !== 'number' || typeof b.y !== 'number') continue
+
         const dx = a.x - b.x
         const dy = a.y - b.y
-        const overlapX = (NODE_W + NODE_MARGIN) - Math.abs(dx)
-        const overlapY = (NODE_H + NODE_MARGIN) - Math.abs(dy)
+
+        const aHalfW = (a.width || THUMB_W) / 2
+        const bHalfW = (b.width || THUMB_W) / 2
+        const aHalfH = (a.height || THUMB_H) / 2
+        const bHalfH = (b.height || THUMB_H) / 2
+
+        const overlapX = (aHalfW + bHalfW + NODE_MARGIN) - Math.abs(dx)
+        const overlapY = (aHalfH + bHalfH + NODE_MARGIN) - Math.abs(dy)
+
         if (overlapX > 0 && overlapY > 0) {
-          // 选择重叠更严重的方向分离
+          // 优先沿着重合更严重的方向分离
           if (overlapX > overlapY) {
             const push = overlapX / 2
-            a.x += dx >= 0 ? push : -push
-            b.x -= dx >= 0 ? push : -push
+            const sign = dx >= 0 ? 1 : -1
+            a.x += sign * push
+            b.x -= sign * push
           } else {
             const push = overlapY / 2
-            a.y += dy >= 0 ? push : -push
-            b.y -= dy >= 0 ? push : -push
+            const sign = dy >= 0 ? 1 : -1
+            a.y += sign * push
+            b.y -= sign * push
           }
           moved = true
         }
@@ -252,7 +281,18 @@ const generateBranchingGraph = () => {
   // 起始节点的粗体标题只显示章节编号（例如：第1章），完整章节名放在 description 中
   const startShortTitle = firstChapter && (firstChapter.chapterIndex || firstChapter.chapterIndex === 0) ? `第${firstChapter.chapterIndex}章` : '第1章'
   {
-    const layout = computeNodeLayout(startShortTitle, startDescription)
+    // 优先使用第一章第一个场景的背景图作为起始缩略图；如果章节对象本身就是一个场景或含有 backgroundImage，则回退使用它
+    let startImage = null
+    if (firstChapter) {
+      if (Array.isArray(firstChapter.scenes) && firstChapter.scenes.length > 0) {
+        startImage = firstChapter.scenes[0].backgroundImage || null
+      } else if (firstChapter.backgroundImage) {
+        startImage = firstChapter.backgroundImage || null
+      } else if (firstChapter.scene && firstChapter.scene.backgroundImage) {
+        startImage = firstChapter.scene.backgroundImage || null
+      }
+    }
+    const layout = computeNodeLayout(startShortTitle, startDescription, { imageW: THUMB_W, imageH: THUMB_H })
     nodes.push({
       id: nodeId++,
       title: startShortTitle,
@@ -262,7 +302,10 @@ const generateBranchingGraph = () => {
       description: startDescription,
       width: layout.width,
       height: layout.height,
-      descLines: layout.descLines
+      descLines: layout.descLines,
+      image: startImage,
+      imageW: layout.imageW || 0,
+      imageH: layout.imageH || 0
     })
   }
 
@@ -279,7 +322,7 @@ const generateBranchingGraph = () => {
     
     if (!scene || !scene.choices) return
 
-    // 场景节点（选择发生的地方）
+  // 场景节点（选择发生的地方）
     const sceneNodeId = nodeId++
     // 场景节点：粗体（title）只显示章节编号，如 "第1章"；浅色描述（description）显示完整章节标题
     let chapterIdx = null
@@ -308,7 +351,8 @@ const generateBranchingGraph = () => {
     }
 
     {
-      const layout = computeNodeLayout(sceneShortTitle, sceneFullTitle)
+      const image = scene && scene.backgroundImage ? scene.backgroundImage : null
+      const layout = computeNodeLayout(sceneShortTitle, sceneFullTitle, { imageW: THUMB_W, imageH: THUMB_H })
       nodes.push({
         id: sceneNodeId,
         title: sceneShortTitle,
@@ -318,7 +362,10 @@ const generateBranchingGraph = () => {
         description: sceneFullTitle,
         width: layout.width,
         height: layout.height,
-        descLines: layout.descLines
+        descLines: layout.descLines,
+        image: image,
+        imageW: layout.imageW || 0,
+        imageH: layout.imageH || 0
       })
     }
 
@@ -331,7 +378,7 @@ const generateBranchingGraph = () => {
     })
 
     // 为这个场景的所有选项创建节点
-    const choiceSpacing = 180
+  const choiceSpacing = 240 // 增加水平间距以匹配缩略图宽度
     const startX = 400 - (scene.choices.length - 1) * choiceSpacing / 2
 
     scene.choices.forEach((choice, choiceIndex) => {
@@ -339,66 +386,59 @@ const generateBranchingGraph = () => {
       const choiceY = currentY + 120
 
       // 判断是否是用户实际选择的选项
-      // 优先使用历史记录中的 choiceId，只有当历史里没有 choiceId 时才回退到 scene.chosenChoiceId
       const selectedChoiceId = userChoice && userChoice.choiceId ? userChoice.choiceId : (scene && scene.chosenChoiceId ? scene.chosenChoiceId : null)
       const isUserChoice = selectedChoiceId != null && choice.id === selectedChoiceId
 
-      // 选项节点：粗体显示为“选项A/选项B”，浅色描述显示完整选项文本（用于多行展示）
-      const choiceNodeId = nodeId++
       const optLetter = String.fromCharCode(65 + choiceIndex) // A, B, C...
       const choiceShortTitle = `选项${optLetter}`
-      {
-        const layout = computeNodeLayout(choiceShortTitle, (choice.text || '').toString())
+
+      if (isUserChoice) {
+        // 显示带缩略图的用户选择节点
+        const choiceNodeId = nodeId++
+        const img = scene && scene.backgroundImage ? scene.backgroundImage : null
+        const layout = computeNodeLayout(choiceShortTitle, (choice.text || '').toString(), { imageW: THUMB_W, imageH: THUMB_H })
         nodes.push({
           id: choiceNodeId,
           title: choiceShortTitle,
-          type: isUserChoice ? 'choice-selected' : 'choice-unselected',
+          type: 'choice-selected',
           x: choiceX,
           y: choiceY,
           description: (choice.text || '').toString(),
           width: layout.width,
           height: layout.height,
           descLines: layout.descLines,
-          isSelected: isUserChoice
+          isSelected: true,
+          image: img,
+          imageW: layout.imageW || 0,
+          imageH: layout.imageH || 0
         })
-      }
 
-      // 连接场景到选项
-      edges.push({
-        from: sceneNodeId,
-        to: choiceNodeId,
-        label: '',
-        isSelected: isUserChoice
-      })
+        // 连接场景到选项
+        edges.push({ from: sceneNodeId, to: choiceNodeId, label: '', isSelected: true })
 
-      if (isUserChoice) {
-        // 只为用户实际选择的选项创建主线继续节点
+        // 为用户选择创建主线节点
         const mainlineNodeId = nodeId++
         const mainDesc = `选择"${(choice.text || '').toString()}"后接入主线`
-        const layoutMain = computeNodeLayout('主线', mainDesc)
+        const layoutMain = computeNodeLayout('主线', mainDesc, { imageW: THUMB_W, imageH: THUMB_H })
         nodes.push({
           id: mainlineNodeId,
           title: '主线',
           type: 'result',
           x: choiceX,
-          y: choiceY + 100,
+          y: choiceY + 120,
           description: mainDesc,
           width: layoutMain.width,
           height: layoutMain.height,
-          descLines: layoutMain.descLines
+          descLines: layoutMain.descLines,
+          image: scene && scene.backgroundImage ? scene.backgroundImage : null,
+          imageW: layoutMain.imageW || 0,
+          imageH: layoutMain.imageH || 0
         })
 
-        edges.push({
-          from: choiceNodeId,
-          to: mainlineNodeId,
-          label: '',
-          isSelected: true
-        })
-
-        // 为下一轮循环准备
+        edges.push({ from: choiceNodeId, to: mainlineNodeId, label: '', isSelected: true })
         lastNodeId = mainlineNodeId
       } else {
-        // 为未选择的选项创建问号终点
+        // 未选择的选项直接显示问号节点（不显示背景图）
         const questionNodeId = nodeId++
         const layoutQ = computeNodeLayout('?', '未探索的分支')
         nodes.push({
@@ -410,31 +450,35 @@ const generateBranchingGraph = () => {
           description: '未探索的分支',
           width: layoutQ.width,
           height: layoutQ.height,
-          descLines: layoutQ.descLines
+          descLines: layoutQ.descLines,
+          imageW: layoutQ.imageW || 0,
+          imageH: layoutQ.imageH || 0
         })
 
-        edges.push({
-          from: choiceNodeId,
-          to: questionNodeId,
-          label: '',
-          isSelected: false
-        })
+        // 场景直接连接到问号节点
+        edges.push({ from: sceneNodeId, to: questionNodeId, label: '', isSelected: false })
       }
     })
 
-    currentY += 250
+    currentY += 320 // 增加垂直间距以容纳缩略图与文字
   })
 
   // 结束节点
   if (gameData.value.choiceHistory.length > 0) {
     const endNodeId = nodeId++
+    const layoutEnd = computeNodeLayout('主线/完结', '分支收束于主线，完成一次旅程')
     nodes.push({
       id: endNodeId,
       title: '主线/完结',
       type: 'end',
       x: 400,
       y: currentY + 100,
-      description: '分支收束于主线，完成一次旅程'
+      description: '分支收束于主线，完成一次旅程',
+      width: layoutEnd.width,
+      height: layoutEnd.height,
+      descLines: layoutEnd.descLines,
+      imageW: layoutEnd.imageW || 0,
+      imageH: layoutEnd.imageH || 0
     })
 
     edges.push({
@@ -447,6 +491,22 @@ const generateBranchingGraph = () => {
   branchingGraph.value = { nodes, edges }
   // 生成后做一次碰撞消解，减少重合
   resolveNodeOverlaps()
+  // 归一化：确保最左/最上有足够留白，避免被 svg 裁剪
+  if (nodes.length > 0) {
+    const lefts = nodes.map(n => (n.x || 0) - (n.width || THUMB_W) / 2)
+    const tops = nodes.map(n => (n.y || 0) - (n.height || THUMB_H) / 2)
+    const minLeft = Math.min(...lefts)
+    const minTop = Math.min(...tops)
+    const PAD = 40
+    const offsetX = minLeft < PAD ? (PAD - minLeft) : 0
+    const offsetY = minTop < PAD ? (PAD - minTop) : 0
+    if (offsetX !== 0 || offsetY !== 0) {
+      nodes.forEach(n => {
+        n.x = (n.x || 0) + offsetX
+        n.y = (n.y || 0) + offsetY
+      })
+    }
+  }
 }
 
 // 生成个性报告（调用 service 层；service 会尝试后端，失败时回退到前端 mock）
@@ -472,8 +532,9 @@ const generatePersonalityReport = async () => {
   try {
     const attrs = gameData.value.finalAttributes || {}
     const statuses = gameData.value.finalStatuses || {}
-    console.log('Fetching personality report variants... attrs/statuses:', attrs, statuses)
-    const variants = await fetchPersonalityReportVariants('all')
+  console.log('Fetching personality report variants... attrs/statuses:', attrs, statuses)
+  const workId = gameData.value.work?.id || null
+  const variants = await fetchPersonalityReportVariants(workId, attrs, statuses)
     console.log('Variants received:', variants)
 
     const matched = (Array.isArray(variants) ? variants.find(v => variantMatches(v, attrs, statuses)) : null)
@@ -703,12 +764,7 @@ onMounted(async () => {
 
       <!-- 分支探索图 -->
       <div v-if="currentView === 'branching'" class="branching-content">
-        <div class="branching-header">
-          <h3>你的故事分支</h3>
-          <p>拖动节点查看你的选择路径</p>
-        </div>
-        
-        <div class="branching-graph">
+            <div class="branching-graph">
           <svg class="graph-svg" :width="graphWidth" :height="graphHeight">
             <!-- 边 -->
             <g class="edges">
@@ -739,15 +795,26 @@ onMounted(async () => {
                   rx="8"
                   class="node-rect"
                 />
+                <!-- 缩略图（位于节点顶部） -->
+                <image
+                  v-if="node.image"
+                  :href="node.image"
+                  :x="NODE_PAD_X"
+                  :y="NODE_PAD_Y"
+                  :width="(node.width || THUMB_W) - NODE_PAD_X * 2"
+                  :height="node.imageH || THUMB_H"
+                  preserveAspectRatio="xMidYMid slice"
+                  style="filter: drop-shadow(0 6px 12px rgba(0,0,0,0.12)); border-radius:4px;"
+                />
                 <text
                   :x="(node.width || 120) / 2"
-                  :y="18"
+                  :y="( (node.imageH || 0) ? (NODE_PAD_Y + (node.imageH || 0) + 18) : (NODE_PAD_Y + 16) )"
                   text-anchor="middle"
                   class="node-title"
                 >{{ node.title }}</text>
                 <text
                   :x="(node.width || 120) / 2"
-                  :y="36"
+                  :y="( (node.imageH || 0) ? (NODE_PAD_Y + (node.imageH || 0) + 36) : (NODE_PAD_Y + 34) )"
                   text-anchor="middle"
                   class="node-desc"
                 >
@@ -770,7 +837,6 @@ onMounted(async () => {
       <div v-if="currentView === 'personality'" class="personality-content">
         <div class="personality-header">
           <h2 class="personality-title">{{ personalityReport.title }}</h2>
-          <p class="personality-subtitle">基于你的选择生成的个性分析</p>
         </div>
         
         <div class="personality-body">
@@ -933,7 +999,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 1rem 2rem;
+  padding: 0.6rem 1rem; /* 压缩上下与左右空间，腾出内容区 */
   background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(212, 165, 165, 0.2);
@@ -963,7 +1029,7 @@ onMounted(async () => {
 }
 
 .page-title {
-  font-size: 1.5rem;
+  font-size: 1.15rem; /* 缩小以节省垂直空间 */
   color: #2c1810;
   margin: 0;
   font-weight: 600;
@@ -971,7 +1037,7 @@ onMounted(async () => {
 
 .quick-actions {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.35rem;
 }
 
 /* 视图切换标签 */
@@ -979,18 +1045,20 @@ onMounted(async () => {
   display: flex;
   background: white;
   border-bottom: 1px solid rgba(212, 165, 165, 0.2);
-  padding: 0 2rem;
+  padding: 0 1rem; /* 压缩左右内边距 */
+  height: 44px; /* 固定较小高度 */
+  align-items: center;
 }
 
 .tab-btn {
-  padding: 1rem 2rem;
+  padding: 0.55rem 1rem; /* 缩小垂直占用 */
   border: none;
   background: transparent;
   color: #8B7355;
-  font-size: 1rem;
+  font-size: 0.95rem;
   cursor: pointer;
   border-bottom: 3px solid transparent;
-  transition: all 0.3s ease;
+  transition: all 0.18s ease;
 }
 
 .tab-btn:hover {
@@ -1006,7 +1074,7 @@ onMounted(async () => {
 /* 内容区域 */
 .content-area {
   flex: 1;
-  padding: 2rem;
+  padding: 1rem; /* 减少整体内边距，让主要内容占更多可视高度 */
   overflow-y: auto;
 }
 
@@ -1084,22 +1152,24 @@ onMounted(async () => {
 }
 
 .edge-line {
-  stroke: #d4a5a5;
+  stroke: #f0cfcf; /* light base for unselected look, overridden by selected/unselected classes */
   stroke-width: 2;
-  opacity: 0.6;
+  opacity: 0.7;
 }
 
 .edge-selected {
-  stroke: #8b5a3c;
-  stroke-width: 3;
-  opacity: 0.9;
+  /* 更鲜艳的同色系高亮色（基于主题色 #d4a5a5） */
+  stroke: #e07a7a;
+  stroke-width: 3.5;
+  opacity: 0.98;
 }
 
 .edge-unselected {
-  stroke: #d4a5a5;
-  stroke-width: 1;
-  opacity: 0.3;
-  stroke-dasharray: 5,5;
+  /* 更清晰的未选中线条：浅粉色虚线，稍粗，明显但不抢眼 */
+  stroke: #f5dcdc;
+  stroke-width: 2;
+  opacity: 0.7;
+  stroke-dasharray: 6,4;
 }
 
 .node-group {
@@ -1107,19 +1177,21 @@ onMounted(async () => {
 }
 
 .node-rect {
-  fill: white;
+  fill: rgba(255,255,255,0.92);
   stroke: #d4a5a5;
   stroke-width: 2;
 }
 
 .node-start .node-rect {
-  fill: #e8f5e8;
-  stroke: #4caf50;
+  /* 使用粉色系主题的起始节点背景 */
+  fill: #fff2f2;
+  stroke: #e07a7a;
 }
 
 .node-scene .node-rect {
-  fill: #f3e5f5;
-  stroke: #9c27b0;
+  /* 场景节点使用柔和粉色底，与主题色系协调 */
+  fill: #fff5f5;
+  stroke: #d4a5a5;
 }
 
 .node-choice .node-rect {
@@ -1128,8 +1200,9 @@ onMounted(async () => {
 }
 
 .node-choice-selected .node-rect {
-  fill: #e8f5e8;
-  stroke: #4caf50;
+  /* 选中选择使用更鲜艳的粉色高亮 */
+  fill: #ffecec;
+  stroke: #e07a7a;
   stroke-width: 3;
 }
 
@@ -1140,8 +1213,9 @@ onMounted(async () => {
 }
 
 .node-result .node-rect {
-  fill: #e3f2fd;
-  stroke: #2196f3;
+  /* 主线/结果节点使用主题系的暖粉底 */
+  fill: #fff0f0;
+  stroke: #e07a7a;
 }
 
 .node-question .node-rect {

@@ -125,28 +125,30 @@
   50% { transform: translateY(-10px); }
 }
 
-/* 毛笔容器 */
+/* 毛笔容器：绝对定位在进度条上方，通过 left 动态绑定跟随进度 */
 .brush-container {
-  width: 100px;
-  height: 100px;
-  margin: 0 auto 2rem;
-  position: relative;
+  position: absolute;
+  top: -48px; /* 在进度条上方 */
+  left: 0; /* 由内联 style 覆盖为 loadingProgress% */
+  width: 40px;
+  height: 40px;
+  transform: translateX(-50%);
+  transition: left 0.12s linear;
+  pointer-events: none;
+  z-index: 3;
 }
 
 .brush-icon {
   width: 100%;
   height: 100%;
   filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
-  animation: brushDraw 2s ease-in-out infinite;
+  /* 仅在竖直方向做抬降与微旋转，水平由容器 left 控制，不被覆盖 */
+  animation: brushBob 2s ease-in-out infinite;
 }
 
-@keyframes brushDraw {
-  0%, 100% { 
-    transform: translateY(0) rotate(-5deg);
-  }
-  50% { 
-    transform: translateY(-15px) rotate(5deg);
-  }
+@keyframes brushBob {
+  0%, 100% { transform: translateY(0) rotate(-4deg); }
+  50% { transform: translateY(-10px) rotate(4deg); }
 }
 
 /* 进度条容器 */

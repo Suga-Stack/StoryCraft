@@ -2,7 +2,7 @@
 
 // ---- 配置项 ----
 const USE_BACKEND_SAVE = true
-const USE_MOCK_SAVE = true
+const USE_MOCK_SAVE = false
 
 // 获取当前用户 ID
 const getCurrentUserId = () => {
@@ -103,17 +103,32 @@ export const saveGameData = async (gameData, slot = 'default') => {
     }
 
   const payload = {
+    // 为后端兼容，构建符合后端 GameStateSerializer 的 game_state 对象
     work: gameData.work,
-    // 新字段：chapterIndex, sceneId, dialogueIndex
+    // 保留友好字段，便于前端显示与回退
     chapterIndex: deriveChapterIndex(),
     sceneId: deriveSceneId(),
     dialogueIndex: (gameData.currentDialogueIndex != null) ? gameData.currentDialogueIndex : (gameData.dialogueIndex || 0),
     attributes: deepClone(gameData.attributes),
     statuses: deepClone(gameData.statuses),
-    // NOTE: 不再保存 `storyScenes` 到存档中（后端与前端都不应依赖此字段）
-    // storyScenes: deepClone(gameData.storyScenes),
     choiceHistory: deepClone(gameData.choiceHistory),
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    // 兼容后端的 game_state 结构（GameStateSerializer）
+    game_state: {
+      gameworkId: Number(gameData.work && gameData.work.id) || null,
+      userId: (typeof window !== 'undefined' && window.__STORYCRAFT_USER__ && Number(window.__STORYCRAFT_USER__.id)) ? Number(window.__STORYCRAFT_USER__.id) : null,
+      currentChapterIndex: deriveChapterIndex(),
+      currentSceneId: deriveSceneId(),
+      history: Array.isArray(gameData.choiceHistory) ? deepClone(gameData.choiceHistory) : [],
+      character: {
+        attributes: deepClone(gameData.attributes) || {},
+        statuses: deepClone(gameData.statuses) || {}
+      },
+      inventory: Array.isArray(gameData.inventory) ? deepClone(gameData.inventory) : [],
+      relationships: deepClone(gameData.relationships) || {},
+      flags: deepClone(gameData.flags) || {},
+      branch_exploration: { choiceHistory: deepClone(gameData.choiceHistory) || [] }
+    }
   }
 
   const userId = getCurrentUserId()
@@ -122,7 +137,8 @@ export const saveGameData = async (gameData, slot = 'default') => {
   // 尝试后端存储
   if (USE_BACKEND_SAVE) {
     try {
-      await backendSave(userId, workId, slot, payload)
+  // 后端期望 body 中的 data 字段为 game_state 风格或兼容对象；我们传递 payload.game_state 以匹配后端序列化器
+  await backendSave(userId, workId, slot, payload.game_state ?? payload)
       return { success: true, message: `后端存档成功 (${slot})`, payload }
     } catch (err) {
       console.warn('后端存档失败，回退到本地:', err)
@@ -132,6 +148,7 @@ export const saveGameData = async (gameData, slot = 'default') => {
   // 本地存储回退
   try {
     const key = localSaveKey(userId, workId, slot)
+    // 本地保存整份 payload（包含友好字段与 game_state）以便 UI 读取
     localStorage.setItem(key, JSON.stringify(payload))
     return { success: true, message: `本地存档成功 (${slot})`, payload }
   } catch (err) {
