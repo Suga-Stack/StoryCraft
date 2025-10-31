@@ -15,7 +15,7 @@ class UserAdmin(admin.ModelAdmin):
             "fields": ('username', 'email', 'gender', 'profile_picture')
         }),
         ("Account", {
-            "fields": ('password_hash', 'user_credits', 'liked_tags', 'is_staff')
+            "fields": ('password', 'user_credits', 'liked_tags', 'is_staff')
         }),
         ("Timestamps", {
             "fields": ('created_at', 'updated_at')
