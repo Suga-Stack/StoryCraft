@@ -387,7 +387,8 @@ def create_gamework(user, tags: List[str], idea: str, length: str) -> dict:
         "coverUrl": cover_url,
         "description": details.description,
         "initialAttributes": details.initialAttributes,
-        "initialStatuses": details.initialStatuses
+        "initialStatuses": details.initialStatuses,
+        "total_chapters": total_chapters
     }
 
 def get_or_generate_chapter(gamework: Gamework, chapter_index: int) -> dict:

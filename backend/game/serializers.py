@@ -91,6 +91,9 @@ class GameworkCreateResponseSerializer(serializers.Serializer):
         child=serializers.CharField(), 
         help_text="初始状态，例如: {'修为': '炼气期三层', '线人网络': True}"
     )
+    total_chapters = serializers.IntegerField(
+        help_text="总章节数"
+    )
 
 class GameChapterRequestSerializer(serializers.Serializer):
     """获取游戏章节内容的请求序列化器"""
