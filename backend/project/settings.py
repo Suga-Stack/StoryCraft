@@ -9,7 +9,7 @@ https://docs.djangoproject.com/en/4.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
-
+import logging
 from pathlib import Path
 import os
 from dotenv import load_dotenv
@@ -131,6 +131,9 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
@@ -192,4 +195,66 @@ CACHES = {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
         }
     }
+}
+
+LOGS_DIR = BASE_DIR / 'logs'
+if not LOGS_DIR.exists():
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'filters': {
+        #'require_debug_false': {
+        #    '()': 'django.utils.log.RequireDebugFalse',
+        #},
+        'error_only': {
+            '()': 'django.utils.log.CallbackFilter',
+            'callback': lambda record: record.levelno == logging.ERROR,
+        },
+        'info_and_warning_only': {
+            '()': 'django.utils.log.CallbackFilter',
+            'callback': lambda record: record.levelno in (logging.INFO, logging.WARNING),
+        },
+    },
+    'handlers': {
+        'error_file': {
+            'level': 'ERROR',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs/django_errors.log'),
+            'formatter': 'verbose',
+            'filters': ['error_only'],
+            'encoding': 'utf-8',
+        },
+        'info_file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs/django_infos.log'),
+            'formatter': 'simple',
+            'filters': ['info_and_warning_only'],
+            'encoding': 'utf-8',
+        },
+        'console': {
+            'level': 'WARNING',
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['error_file', 'info_file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
 }
