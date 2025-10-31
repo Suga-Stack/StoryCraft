@@ -1,4 +1,4 @@
-from rest_framework import generics, status, permissions
+from rest_framework import generics, status, permissions, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.contrib.auth import get_user_model
@@ -10,20 +10,28 @@ from django.utils.crypto import get_random_string
 from django.shortcuts import get_object_or_404
 from game.models import GameSave
 from gameworks.models import Gamework
-from .serializers import RegisterSerializer, LoginSerializer, LogoutSerializer, UserPreferenceSerializer
+from .serializers import UserSerializer, RegisterSerializer, LoginSerializer, LogoutSerializer, UserPreferenceSerializer
 
 User = get_user_model()
 
-'''
+class IsAdminOrSelf(permissions.BasePermission):
+    """
+    只允许管理员或自己操作自己的资料
+    """
+    def has_object_permission(self, request, view, obj):
+        # 只有管理员或者自己才能访问自己的资料
+        return request.user == obj or request.user.is_staff
+
+
 class UserViewSet(viewsets.ModelViewSet):
     """
     用户管理接口：
-    支持查看用户列表、详情、更新、删除。
+    支持查看用户列表、更新、删除。
     """
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
-    lookup_field = 'user_id'
+    permission_classes = [IsAdminOrSelf]
+    lookup_field = 'id'
 
     def get_queryset(self):
         """
@@ -31,8 +39,26 @@ class UserViewSet(viewsets.ModelViewSet):
         """
         user = self.request.user
         if user.is_staff:
+            print("isstaff")
             return User.objects.all()
-        return User.objects.filter(user_id=user.user_id)
+        return User.objects.filter(id=user.id)
+    
+    def list(self, request, *args, **kwargs):
+        """
+        查看用户列表
+        普通用户只能看到自己，管理员可以看到所有用户
+        """
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        """
+        查看用户详情
+        普通用户只能查看自己的详情，管理员可以查看任何用户
+        """
+        instance = self.get_object()
+        if instance != request.user and not request.user.is_staff:
+            return Response({"detail": "您没有查看该用户资料的权限。"}, status=status.HTTP_403_FORBIDDEN)
+        return super().retrieve(request, *args, **kwargs)
 
     def update(self, request, *args, **kwargs):
         """
@@ -40,9 +66,33 @@ class UserViewSet(viewsets.ModelViewSet):
         """
         instance = self.get_object()
         if instance != request.user and not request.user.is_staff:
-            return Response({"detail": "You do not have permission to edit this user."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"detail": "您没有修改该用户资料的权限。"}, status=status.HTTP_403_FORBIDDEN)
         return super().update(request, *args, **kwargs)
-'''
+    
+    def partial_update(self, request, *args, **kwargs):
+        """
+        禁止用户部分修改他人资料
+        """
+        instance = self.get_object()
+        if instance != request.user and not request.user.is_staff:
+            return Response({"detail": "您没有修改该用户资料的权限。"}, status=status.HTTP_403_FORBIDDEN)
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        """
+        删除用户
+        普通用户只能删除自己，管理员可以删除任何用户
+        """
+        instance = self.get_object()
+        if instance != request.user and not request.user.is_staff:
+            return Response({"detail": "您没有删除该用户的权限。"}, status=status.HTTP_403_FORBIDDEN)        
+        return super().destroy(request, *args, **kwargs)
+    
+    def create(self, request, *args, **kwargs):
+        """
+        禁用 POST 请求，禁止通过 UserViewSet 创建用户
+        """
+        return Response({"detail": "用户注册只能通过注册接口进行！"}, status=status.HTTP_403_FORBIDDEN)
 
 class SendEmailCodeView(APIView):
     """发送邮箱验证码"""

@@ -14,6 +14,8 @@ class Gamework(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created at")  # 创建时间
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Updated at")  # 更新时间 
 
+    favorites = models.ManyToManyField(settings.AUTH_USER_MODEL, through='interactions.Favorite', related_name='favorite_games')
+
     class Meta:
         verbose_name = "Gamework"
         verbose_name_plural = "Gameworks"
