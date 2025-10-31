@@ -445,9 +445,6 @@ const formatNumber = (num) => {
 }
 
 /* 排行榜通用样式 */
-.rankings {
-  padding-bottom: 20px;
-}
 
 .ranking-section {
   background-color: #fff;
@@ -467,7 +464,7 @@ const formatNumber = (num) => {
 
 /* 可滚动的排行榜列表容器 */
 .ranking-list-wrapper {
-  max-height: 500px;
+  max-height: 610px;
   overflow-y: auto;
   margin-bottom: 16px;
   scrollbar-width: thin;
