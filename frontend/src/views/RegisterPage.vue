@@ -68,7 +68,6 @@
             type="text"
             id="verifyingCode"
             v-model="formData.email_code"
-            @blur="validateConfirmVerifyingCode"
             placeholder="请输入验证码"
             required
           >

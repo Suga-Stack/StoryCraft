@@ -103,7 +103,7 @@ const handleLogin = async () => {
         const haspreferences = preData.data && Array.isArray(preData.data.liked_tags) && preData.data.liked_tags.length > 0;
 
         if (haspreferences) {
-            router.push('/bookstore');
+            router.push('/');
         } else {
             router.push('/preferences');
         }
