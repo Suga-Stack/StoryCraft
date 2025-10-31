@@ -14,6 +14,15 @@ from .serializers import UserSerializer, RegisterSerializer, LoginSerializer, Lo
 
 User = get_user_model()
 
+class IsAdminOrSelf(permissions.BasePermission):
+    """
+    只允许管理员或自己操作自己的资料
+    """
+    def has_object_permission(self, request, view, obj):
+        # 只有管理员或者自己才能访问自己的资料
+        return request.user == obj or request.user.is_staff
+
+
 class UserViewSet(viewsets.ModelViewSet):
     """
     用户管理接口：
@@ -21,7 +30,7 @@ class UserViewSet(viewsets.ModelViewSet):
     """
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    permission_classes = [IsAdminOrSelf]
     lookup_field = 'id'
 
     def get_queryset(self):

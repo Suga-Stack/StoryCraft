@@ -88,7 +88,7 @@ class GameworkSearchView(generics.ListAPIView):
             queryset = queryset.filter(Q(title__icontains=q) | Q(description__icontains=q))
 
         if author:
-            queryset = queryset.filter(author__user_name__icontains=author)
+            queryset = queryset.filter(author__username__icontains=author)
 
         if tag:
             queryset = queryset.filter(Q(tags__id__iexact=tag) | Q(tags__name__icontains=tag))
