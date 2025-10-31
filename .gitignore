@@ -76,3 +76,52 @@ app/src/main/res/xml/config.xml
 *.bak
 *.swp
 .DS_Store
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+.coverage
+htmlcov/
+
+# 环境变量
+.env
+.env.local
+.env.*.local
+
+# 虚拟环境
+venv/
+env/
+ENV/
+*.venv
+
+# 编辑器/IDE 配置
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 依赖包
+dist/
+build/
+*.egg-info/
+*.egg
+
+# 测试相关
+.pytest_cache/
+.tox/
+
+# 其他临时文件
+tmp/
+temp/
+*.bak
