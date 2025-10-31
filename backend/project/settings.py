@@ -197,8 +197,6 @@ CACHES = {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
         }
     }
-<<<<<<< HEAD
-=======
 }
 
 LOGS_DIR = BASE_DIR / 'logs'
@@ -261,5 +259,4 @@ LOGGING = {
             'propagate': False,
         },
     },
->>>>>>> ssr/app-backend
 }
