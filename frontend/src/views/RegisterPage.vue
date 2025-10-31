@@ -259,10 +259,8 @@ const handleRegister = async () => {
       email_code: formData.value.email_code
     });
 
-    if (response.code === 200) {
-      // 提示成功并跳转首页或用户中心
-      alert('注册成功！即将跳转到书城页');
-      router.push('/');
+    if (response.status === 201) {
+      router.push('/preferences');
     } else {
       // 处理正常响应中的错误信息
       const errorMsg = Array.isArray(response.message) 
