@@ -10,13 +10,13 @@ from tags.serializers import TagSerializer
 
 User = get_user_model()
 
-'''
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ( 'user_name', 'profile_picture', 'user_credits', 'gender', 'liked_tags')
-        read_only_fields = ('user_id', 'user_credits')
-'''
+        fields = ('id', 'username', 'profile_picture', 'user_credits', 'gender', 'liked_tags')
+        read_only_fields = ('user_credits', 'is_staff')
+
 
 class RegisterSerializer(serializers.ModelSerializer):
     username = serializers.CharField(max_length=255)
@@ -40,7 +40,7 @@ class RegisterSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'message': '两次输入的密码不一致'})
 
         # 校验用户名是否已存在
-        if User.objects.filter(user_name=username).exists():
+        if User.objects.filter(username=username).exists():
             raise serializers.ValidationError({'message': '用户名已存在'})
 
         # 校验邮箱验证码（Redis 或缓存读取）
@@ -61,9 +61,10 @@ class RegisterSerializer(serializers.ModelSerializer):
         password = validated_data.pop('password')
 
         user = User.objects.create(
-            user_name=validated_data['username'],
+            username=validated_data['username'],
             email=email, 
-            password_hash=make_password(password)
+            password_hash=make_password(password),
+            is_staff=False
         )
         return user
 
@@ -80,7 +81,7 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError({'message': '请填写用户名和密码'})
 
         try:
-            user = User.objects.get(user_name=username)
+            user = User.objects.get(username=username)
         except User.DoesNotExist:
             raise serializers.ValidationError({'message': '用户不存在'})
 

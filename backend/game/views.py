@@ -1,10 +1,15 @@
+import logging
 from rest_framework import views, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from .serializers import GameCreateSerializer, GameworkCreateResponseSerializer, GameChapterRequestSerializer, GameChapterResponseSerializer
+from .serializers import GameCreateSerializer, GameworkCreateResponseSerializer, GameChapterRequestSerializer, GameChapterResponseSerializer, SettlementRequestSerializer, SettlementResponseSerializer
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from . import services
+from django.shortcuts import get_object_or_404
+from gameworks.models import Gamework
+
+logger = logging.getLogger('django')
 
 class GameCreateView(views.APIView):
     """创建新游戏作品"""
@@ -39,7 +44,7 @@ class GameCreateView(views.APIView):
             )
             return Response(result, status=status.HTTP_201_CREATED)
         except Exception as e:
-            print(f"创建游戏时发生错误: {e}")
+            logger.error("创建游戏时发生错误: %s", e)
             return Response({"error": "创建游戏失败，请稍后重试。"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class GameChapterView(views.APIView):
@@ -71,5 +76,31 @@ class GameChapterView(views.APIView):
         except ValueError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            print(f"获取或生成章节时发生错误: {e}")
-            return Response({"error": "获取章节内容失败，请稍后重试。"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error("获取或生成章节时发生错误: %s", e)
+            return Response({"error": "服务器出错，请稍后重试。"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class SettlementReportView(views.APIView):
+    """
+    结算报告候选生成
+    路径：POST /api/settlement/report/:workId
+    """
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="生成结算报告候选 variants",
+        operation_description="后端返回满足业务的所有候选报告，前端根据 attributes/statuses 自行匹配。",
+        request_body=SettlementRequestSerializer,
+        responses={status.HTTP_200_OK: SettlementResponseSerializer}
+    )
+    def post(self, request, workId: int, *args, **kwargs):
+        # 校验作品存在
+        _ = get_object_or_404(Gamework, pk=workId)
+
+        attrs = request.data.get("attributes", {}) or {}
+        stats = request.data.get("statuses", {}) or {}
+
+        if not isinstance(attrs, dict) or not isinstance(stats, dict):
+            return Response({"detail": "attributes/statuses 必须为对象"}, status=status.HTTP_400_BAD_REQUEST)
+
+        result = services.build_settlement_variants(attrs, stats)
+        return Response(result, status=status.HTTP_200_OK)

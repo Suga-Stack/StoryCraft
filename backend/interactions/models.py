@@ -14,7 +14,7 @@ class Favorite(models.Model):
         verbose_name_plural = 'Favorites'
 
     def __str__(self):
-        return f"{self.user.user_name} favorited {self.gamework.title}"
+        return f"{self.user.username} favorited {self.gamework.title}"
 
 
 class Comment(models.Model):

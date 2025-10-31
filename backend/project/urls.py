@@ -5,7 +5,9 @@ from rest_framework import permissions
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
-
+from game.views import SettlementReportView
+from django.conf import settings
+from django.conf.urls.static import static
 
 router = DefaultRouter()
 
@@ -35,6 +37,7 @@ swagger_settings = {
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api-auth/', include('rest_framework.urls', namespace='rest_framework')),
     # path('api/', include('users.urls')),
     path('api/users/', include('users.urls')),
     path('api/auth/', include('users.register_urls')),  # 注册、登录、登出接口统一入口
@@ -43,6 +46,7 @@ urlpatterns = [
     path('api/interactions/', include('interactions.urls')),  # 收藏/评论/评分模块
 
     path('api/game/',include('game.urls')),
+    path('api/settlement/report/<int:workId>/', SettlementReportView.as_view(), name='api-settlement-report'),
 
     # JWT token
     # POST /api/auth/token/  获取 token
@@ -53,3 +57,7 @@ urlpatterns = [
     re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
 ]
+
+# 开发环境下，配置媒体文件访问
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

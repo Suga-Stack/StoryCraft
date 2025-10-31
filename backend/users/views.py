@@ -1,4 +1,4 @@
-from rest_framework import generics, status, permissions
+from rest_framework import generics, status, permissions, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.contrib.auth import get_user_model
@@ -7,20 +7,31 @@ from drf_yasg import openapi
 from django.core.mail import send_mail
 from django.core.cache import cache
 from django.utils.crypto import get_random_string
-from .serializers import RegisterSerializer, LoginSerializer, LogoutSerializer, UserPreferenceSerializer
+from django.shortcuts import get_object_or_404
+from game.models import GameSave
+from gameworks.models import Gamework
+from .serializers import UserSerializer, RegisterSerializer, LoginSerializer, LogoutSerializer, UserPreferenceSerializer
 
 User = get_user_model()
 
-'''
+class IsAdminOrSelf(permissions.BasePermission):
+    """
+    只允许管理员或自己操作自己的资料
+    """
+    def has_object_permission(self, request, view, obj):
+        # 只有管理员或者自己才能访问自己的资料
+        return request.user == obj or request.user.is_staff
+
+
 class UserViewSet(viewsets.ModelViewSet):
     """
     用户管理接口：
-    支持查看用户列表、详情、更新、删除。
+    支持查看用户列表、更新、删除。
     """
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
-    lookup_field = 'user_id'
+    permission_classes = [IsAdminOrSelf]
+    lookup_field = 'id'
 
     def get_queryset(self):
         """
@@ -28,8 +39,26 @@ class UserViewSet(viewsets.ModelViewSet):
         """
         user = self.request.user
         if user.is_staff:
+            print("isstaff")
             return User.objects.all()
-        return User.objects.filter(user_id=user.user_id)
+        return User.objects.filter(id=user.id)
+    
+    def list(self, request, *args, **kwargs):
+        """
+        查看用户列表
+        普通用户只能看到自己，管理员可以看到所有用户
+        """
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        """
+        查看用户详情
+        普通用户只能查看自己的详情，管理员可以查看任何用户
+        """
+        instance = self.get_object()
+        if instance != request.user and not request.user.is_staff:
+            return Response({"detail": "您没有查看该用户资料的权限。"}, status=status.HTTP_403_FORBIDDEN)
+        return super().retrieve(request, *args, **kwargs)
 
     def update(self, request, *args, **kwargs):
         """
@@ -37,9 +66,33 @@ class UserViewSet(viewsets.ModelViewSet):
         """
         instance = self.get_object()
         if instance != request.user and not request.user.is_staff:
-            return Response({"detail": "You do not have permission to edit this user."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"detail": "您没有修改该用户资料的权限。"}, status=status.HTTP_403_FORBIDDEN)
         return super().update(request, *args, **kwargs)
-'''
+    
+    def partial_update(self, request, *args, **kwargs):
+        """
+        禁止用户部分修改他人资料
+        """
+        instance = self.get_object()
+        if instance != request.user and not request.user.is_staff:
+            return Response({"detail": "您没有修改该用户资料的权限。"}, status=status.HTTP_403_FORBIDDEN)
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        """
+        删除用户
+        普通用户只能删除自己，管理员可以删除任何用户
+        """
+        instance = self.get_object()
+        if instance != request.user and not request.user.is_staff:
+            return Response({"detail": "您没有删除该用户的权限。"}, status=status.HTTP_403_FORBIDDEN)        
+        return super().destroy(request, *args, **kwargs)
+    
+    def create(self, request, *args, **kwargs):
+        """
+        禁用 POST 请求，禁止通过 UserViewSet 创建用户
+        """
+        return Response({"detail": "用户注册只能通过注册接口进行！"}, status=status.HTTP_403_FORBIDDEN)
 
 class SendEmailCodeView(APIView):
     """发送邮箱验证码"""
@@ -145,3 +198,130 @@ class UserPreferenceView(generics.RetrieveUpdateAPIView):
     def get_object(self):
         # 只允许操作自己的数据
         return self.request.user
+
+
+class SaveDetailView(APIView):
+    """
+    存档详情：PUT 保存/更新；GET 读取；DELETE 删除
+    路径：
+      - PUT    /api/users/:userId/saves/:workId/:slot
+      - GET    /api/users/:userId/saves/:workId/:slot
+      - DELETE /api/users/:userId/saves/:workId/:slot
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def _ensure_permission(self, request, userId: int):
+        if (request.user.id != userId) and (not request.user.is_staff):
+            return Response({'detail': '无权限操作该用户的存档'}, status=status.HTTP_403_FORBIDDEN)
+
+    def _get_target(self, userId: int, workId: int):
+        User = get_user_model()
+        target_user = get_object_or_404(User, pk=userId)
+        gamework = get_object_or_404(Gamework, pk=workId)
+        return target_user, gamework
+
+    @swagger_auto_schema(
+        operation_summary="保存或更新存档",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'data': openapi.Schema(type=openapi.TYPE_OBJECT, description='需持久化的完整存档对象'),
+            },
+            required=['data']
+        ),
+        responses={200: openapi.Response(description="{\"ok\": true}")}
+    )
+    def put(self, request, userId: int, workId: int, slot: str):
+        perm = self._ensure_permission(request, userId)
+        if perm: return perm
+
+        payload = request.data or {}
+        data = payload.get('data')
+        if not isinstance(data, dict):
+            return Response({'detail': 'data 字段必须为对象'}, status=status.HTTP_400_BAD_REQUEST)
+
+        target_user, gamework = self._get_target(userId, workId)
+
+        # 兼容从 data.work.coverUrl 中抽取缩略图
+        thumbnail = None
+        work_info = data.get('work')
+        if isinstance(work_info, dict):
+            thumbnail = work_info.get('coverUrl')
+
+        obj, _ = GameSave.objects.update_or_create(
+            user=target_user,
+            gamework=gamework,
+            name=slot,
+            defaults={
+                'game_state': data,
+                'thumbnail': thumbnail
+            }
+        )
+        return Response({"ok": True}, status=status.HTTP_200_OK)
+
+    @swagger_auto_schema(
+        operation_summary="读取存档",
+        responses={
+            200: openapi.Response(description='{"data": {...}}'),
+            404: openapi.Response(description='未找到')
+        }
+    )
+    def get(self, request, userId: int, workId: int, slot: str):
+        perm = self._ensure_permission(request, userId)
+        if perm: return perm
+
+        target_user, gamework = self._get_target(userId, workId)
+        try:
+            save = GameSave.objects.get(user=target_user, gamework=gamework, name=slot)
+        except GameSave.DoesNotExist:
+            return Response({'detail': '存档不存在'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"data": save.game_state}, status=status.HTTP_200_OK)
+
+    @swagger_auto_schema(
+        operation_summary="删除存档",
+        responses={200: openapi.Response(description='{"ok": true}')}
+    )
+    def delete(self, request, userId: int, workId: int, slot: str):
+        perm = self._ensure_permission(request, userId)
+        if perm: return perm
+
+        target_user, gamework = self._get_target(userId, workId)
+        GameSave.objects.filter(user=target_user, gamework=gamework, name=slot).delete()
+        return Response({"ok": True}, status=status.HTTP_200_OK)
+
+
+class SaveListView(APIView):
+    """
+    列出某作品所有槽位摘要
+    路径：GET /api/users/:userId/saves/:workId
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="列出作品下全部存档摘要",
+        responses={200: openapi.Response(description='{"saves": [...]}')}
+    )
+    def get(self, request, userId: int, workId: int):
+        if (request.user.id != userId) and (not request.user.is_staff):
+            return Response({'detail': '无权限操作该用户的存档'}, status=status.HTTP_403_FORBIDDEN)
+
+        User = get_user_model()
+        target_user = get_object_or_404(User, pk=userId)
+        gamework = get_object_or_404(Gamework, pk=workId)
+
+        saves = GameSave.objects.filter(user=target_user, gamework=gamework).order_by('-updated_at')
+        items = []
+        for s in saves:
+            state = s.game_state or {}
+            ts = state.get('timestamp')
+            if not ts:
+                # 使用后端更新时间作为兜底，转毫秒时间戳
+                ts = int(s.updated_at.timestamp() * 1000)
+            items.append({
+                "slot": s.name,
+                "timestamp": ts,
+                "chapterIndex": state.get("chapterIndex"),
+                "sceneId": state.get("sceneId"),
+                "dialogueIndex": state.get("dialogueIndex"),
+            })
+        return Response({"saves": items}, status=status.HTTP_200_OK)
