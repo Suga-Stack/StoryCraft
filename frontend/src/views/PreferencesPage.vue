@@ -13,9 +13,9 @@
         <div class="section gender-section">
           <h3 class="section-title">请选择您的性别</h3>
           <van-radio-group v-model="selectedGender" class="gender-radio-group">
-            <van-radio name="male" class="gender-radio">男</van-radio>
-            <van-radio name="female" class="gender-radio">女</van-radio>
-            <van-radio name="other" class="gender-radio">其他</van-radio>
+            <van-radio name="Male" class="gender-radio">男</van-radio>
+            <van-radio name="Female" class="gender-radio">女</van-radio>
+            <van-radio name="Other" class="gender-radio">其他</van-radio>
           </van-radio-group>
           <p class="error-text" v-if="errors.gender">{{ errors.gender }}</p>
           
@@ -37,7 +37,12 @@
         <!-- 标签选择页面 -->
         <div class="section tags-section">
           <h3 class="section-title">选择感兴趣的标签（至少选1个）</h3>
-          <div class="tags-container">
+          
+          <!-- 加载状态 -->
+          <van-loading v-if="isLoadingTags" color="#c78c8c" size="24" class="loading-indicator" />
+          
+          <!-- 标签容器（加载完成且无错误时显示） -->
+          <div v-else-if="!tagsError" class="tags-container">
             <van-tag 
               v-for="(tag, index) in allTags"  
               :key="tag.id"
@@ -55,6 +60,9 @@
               {{ tag.name }}
             </van-tag>
           </div>
+          
+          <!-- 错误提示 -->
+          <p class="error-text" v-if="tagsError">{{ tagsError }}</p>
           <p class="error-text" v-if="errors.tags">{{ errors.tags }}</p>
           
           <div class="button-group">
@@ -72,6 +80,7 @@
               @click="handleSubmit"
               :loading="isSubmitting"
               class="submit-btn"
+              :disabled="isLoadingTags || !!tagsError"
             >
               保存偏好设置
             </van-button>
@@ -86,7 +95,7 @@
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useUserStore } from '../store';
-import { showToast } from 'vant';
+import { showToast, Loading } from 'vant';
 import http from '../utils/http';
 
 // 状态管理
@@ -105,39 +114,52 @@ const errors = ref({
   tags: ''
 });
 
-// 所有可选标签
-const allTags = ref([
-  { id: '1', name: '科幻' },
-  { id: '2', name: '悬疑' },
-  { id: '3', name: '爱情' },
-  { id: '4', name: '历史' },
-  { id: '5', name: '武侠' },
-  { id: '6', name: '都市' },
-  { id: '7', name: '奇幻' },
-  { id: '8', name: '推理' },
-  { id: '9', name: '青春' },
-  { id: '10', name: '军事' }
-]);
+// 标签相关状态
+const allTags = ref([]);
+const isLoadingTags = ref(false);
+const tagsError = ref('');
 
-// 初始化：获取已保存的偏好
-onMounted(async () => {
+// 整合标签初始化和获取的函数
+const FetchTags = async (page = 1) => {
   try {
+    isLoadingTags.value = true;
+    tagsError.value = '';
+
+    const newTagsRes = await http.get('/tags/', {
+      params: { page }
+    });
+    console.log('标签接口返回数据:', newTagsRes); 
+    allTags.value = newTagsRes.data?.results || [];
+    // 新增日志：打印赋值后的allTags
+    console.log('allTags赋值后:', allTags.value); 
+    } catch (error) {
+    console.error('标签初始化/获取失败:', error);
+    tagsError.value = error.response?.data?.message || '网络错误，无法获取标签';
+    showToast(tagsError.value);
+  } finally {
+    isLoadingTags.value = false;
+  }
+};
+
+
+// 初始化：获取已保存的偏好和标签列表
+onMounted(async () => {
+  // 并行请求：同时获取偏好设置和标签列表
+  try {
+    
+    await FetchTags();
+    // 再获取用户偏好
     const res = await http.get('/users/preferences/');
     if (res.code === 200 && res.data?.preferences) {
       const { gender, favoriteTags } = res.data.preferences;
       selectedGender.value = gender || '';
       selectedTags.value = favoriteTags || [];
     }
-    else {
-      console.log('未获取到偏好设置');
-    }
   } catch (error) {
-    console.error('获取偏好设置失败:', error);
-    if (error.response?.data?.message) {
-      showToast(error.response.data.message);
-    }
+    console.error('初始化数据失败:', error);
   }
 });
+
 
 // 切换标签选择状态
 const toggleTag = (tagId) => {
@@ -196,12 +218,14 @@ const handleSubmit = async () => {
   try {
     isSubmitting.value = true;
     
-    const response = await http.put('/users/preferences/', {
+    const submitData = {
       gender: selectedGender.value,
-      liked_tags: selectedTags.value
-    });
+      liked_tags: selectedTags.value.map(tagId => parseInt(tagId, 10)) // 转换为整数
+    };
 
-    if (response.code === 200) {
+    const response = await http.put('/users/preferences/', submitData);
+
+    if (response.status === 200) {
       userStore.setPreferences(response.data.preferences);
       showToast('偏好设置保存成功');
       router.push('/');
@@ -218,6 +242,13 @@ const handleSubmit = async () => {
 </script>
 
 <style scoped>
+/* 原有样式保持不变，增加加载指示器样式 */
+.loading-indicator {
+  text-align: center;
+  padding: 20px 0;
+}
+
+
 .preferences-container {
   background-color: #f5f5f5;
   min-height: 100vh;
