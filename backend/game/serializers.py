@@ -105,6 +105,7 @@ class GameChapterRequestSerializer(serializers.Serializer):
     )
 
 class GameChapterChoiceSerializer(serializers.Serializer):
+    choiceId = serializers.IntegerField()
     text = serializers.CharField()
     attributesDelta = serializers.DictField(
         child=serializers.IntegerField(),
@@ -112,7 +113,7 @@ class GameChapterChoiceSerializer(serializers.Serializer):
         default=dict
     )
     statusesDelta = serializers.DictField(
-        child=serializers.CharField(),
+        child=serializers.JSONField(),
         required=False,
         default=dict
     )
@@ -129,11 +130,12 @@ class GameChapterDialogueSerializer(serializers.Serializer):
     )
 
 class GameChapterSceneSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
     backgroundImage = serializers.CharField()
     dialogues = GameChapterDialogueSerializer(many=True)
-    backgroundImageUrl = serializers.CharField()
 
 class GameChapterResponseSerializer(serializers.Serializer):
+    chapterIndex = serializers.IntegerField()
     title = serializers.CharField()
     scenes = GameChapterSceneSerializer(many=True)
 

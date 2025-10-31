@@ -32,18 +32,32 @@ class Story(models.Model):
 class StoryChapter(models.Model):
     """
     故事章节模型，存储由AI生成的单个章节内容。
-    每个章节的内容以结构化的JSON格式存储。
+    每个章节由多个场景组成。
     """
     story = models.ForeignKey(Story, on_delete=models.CASCADE, related_name='chapters', help_text="关联的故事")
     chapter_index = models.PositiveIntegerField(help_text="章节序号 (从1开始)")
-
-    # 存储整个章节的结构化数据，包括序号，标题，所有场景、选项和分支
-    content = models.JSONField(help_text="章节内容的JSON结构")
+    title = models.CharField(max_length=255, help_text="章节标题")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ('story', 'chapter_index') # 每个故事的章节序号唯一
+        unique_together = ('story', 'chapter_index')
         ordering = ['story', 'chapter_index']
 
     def __str__(self):
         return f"{self.story.gamework.title} - Chapter {self.chapter_index}"
+
+class StoryScene(models.Model):
+    """故事场景模型，记录场景及其对白、选项。"""
+    chapter = models.ForeignKey(StoryChapter, on_delete=models.CASCADE, related_name='scenes', help_text="关联的章节")
+    scene_index = models.PositiveIntegerField(help_text="场景序号 (从1开始)")
+    background_image = models.TextField(help_text="场景背景描述")
+    background_image_url = models.CharField(max_length=512, help_text="背景图片URL")
+    dialogues = models.JSONField(default=list, help_text="场景对白与选项")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('chapter', 'scene_index')
+        ordering = ['chapter', 'scene_index']
+
+    def __str__(self):
+        return f"{self.chapter.story.gamework.title} - Chapter {self.chapter.chapter_index} - Scene {self.scene_index}"

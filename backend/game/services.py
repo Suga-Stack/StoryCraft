@@ -5,6 +5,7 @@ import logging
 import mimetypes
 import uuid
 import requests
+from copy import deepcopy
 from typing import List, Dict, Any, Optional, Union
 from pydantic import BaseModel, Field
 from volcenginesdkarkruntime import Ark
@@ -12,7 +13,7 @@ from volcenginesdkarkruntime.types.images.images import SequentialImageGeneratio
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from stories.models import Story, StoryChapter
+from stories.models import Story, StoryChapter, StoryScene
 from gameworks.models import Gamework
 
 logger = logging.getLogger('django')
@@ -82,7 +83,7 @@ def _generate_chapter_with_ai(messages) :
     """使用豆包API生成一个章节"""
     try:
         completion = client.beta.chat.completions.parse(
-            model="doubao-seed-1-6-250615",  
+            model=settings.AI_MODEL_FOR_TEXT,
             messages=messages,
             response_format=ChapterContent,
             extra_body={
@@ -113,7 +114,7 @@ def _generate_backgroundimages_with_ai(img_descriptions: List[str]) -> List[str]
 """
     try:
         response = client.images.generate(
-            model="doubao-seedream-4-0-250828",
+            model=settings.AI_MODEL_FOR_IMAGE,
             prompt=prompt,
             size="2730x1535",
             sequential_image_generation="auto",
@@ -170,7 +171,7 @@ def _generate_gamework_details_with_ai(tags: List[str], idea: str) -> GameworkDe
     
     try:
         completion = client.beta.chat.completions.parse(
-            model="doubao-seed-1-6-250615",
+            model=settings.AI_MODEL_FOR_TEXT,
             messages=[
                 {"role": "system", "content": "你是一位专业的文字冒险游戏策划师，请按照用户要求的格式生成内容。"},
                 {"role": "user", "content": prompt}
@@ -203,7 +204,7 @@ def _generate_cover_image_with_ai(tags: List[str], idea: str) -> str:
 """
     try:
         response = client.images.generate(
-            model="doubao-seedream-4-0-250828",
+            model=settings.AI_MODEL_FOR_IMAGE,
             prompt=prompt,
             response_format="url",
             size="2730x1535",
@@ -229,49 +230,106 @@ def _generate_cover_image_with_ai(tags: List[str], idea: str) -> str:
         logger.error("AI生成封面图片出错: %s", e)
         return placeholder_url 
 
+def _strip_choice_ids(dialogues: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    sanitized = []
+    for item in dialogues or []:
+        dialogue_copy = {"narration": item.get("narration")}
+        choices = item.get("playerChoices")
+        if choices:
+            sanitized_choices = []
+            for choice in choices:
+                choice_copy = {k: v for k, v in choice.items() if k != "choiceId"}
+                sanitized_choices.append(choice_copy)
+            dialogue_copy["playerChoices"] = sanitized_choices
+        else:
+            dialogue_copy["playerChoices"] = None
+        sanitized.append(dialogue_copy)
+    return sanitized
+
+def _serialize_chapter_for_ai(chapter: StoryChapter) -> Dict[str, Any]:
+    return {
+        "title": chapter.title,
+        "scenes": [
+            {
+                "backgroundImage": scene.background_image,
+                "dialogues": _strip_choice_ids(scene.dialogues),
+            }
+            for scene in chapter.scenes.order_by("scene_index")
+        ]
+    }
+
+def _build_chapter_response(chapter: StoryChapter) -> Dict[str, Any]:
+    payload = {
+        "chapterIndex": chapter.chapter_index,
+        "title": chapter.title,
+        "scenes": []
+    }
+    for scene in chapter.scenes.order_by("scene_index"):
+        payload["scenes"].append({
+            "id": scene.scene_index,
+            "backgroundImage": scene.background_image_url,
+            "dialogues": deepcopy(scene.dialogues) if scene.dialogues else []
+        })
+    return payload
+
 def _generate_chapter(gamework: Gamework, chapter_index: int):
-    """生成指定章节的内容"""
-    story, created = Story.objects.get_or_create(
+    story, _ = Story.objects.get_or_create(
         gamework=gamework,
         defaults={'total_chapters': 3}
     )
 
-    chapters = story.chapters.all()
+    chapters = story.chapters.prefetch_related('scenes').order_by('chapter_index')
     messages = [{"role": "system", "content": _get_system_prompt(gamework)}]
     for chapter in chapters:
         messages.extend([
             {"role": "user", "content": f"现在请你生成第{chapter.chapter_index}章的内容"},
-            {"role": "assistant", "content": json.dumps(chapter.content,ensure_ascii=False)}
+            {"role": "assistant", "content": json.dumps(_serialize_chapter_for_ai(chapter), ensure_ascii=False)}
         ])
     messages.append({"role": "user", "content": f"现在请你生成第{chapter_index}章的内容"})
 
-    # logger.info("当前历史对话：\n%s", json.dumps(messages, indent=2, ensure_ascii=False))
-
     chapter_content = _generate_chapter_with_ai(messages)
-    images_descriptions = [scene.backgroundImage for scene in getattr(chapter_content, "scenes", [])]
+    if not chapter_content:
+        raise ValueError("AI生成章节失败")
+
+    chapter_dict = chapter_content.model_dump()
+    images_descriptions = [scene.get("backgroundImage", "") for scene in chapter_dict.get("scenes", [])]
     generated_images_urls = _generate_backgroundimages_with_ai(images_descriptions)
 
-    chapter_content_with_image = chapter_content.model_dump()
-    placeholder_url = f"{settings.MEDIA_URL}placeholders/scene.jpg"
-    for idx, scene in enumerate(chapter_content_with_image.get("scenes", [])):
-        scene["backgroundImageUrl"] = generated_images_urls[idx] if idx < len(generated_images_urls) else placeholder_url
-
-    logger.info("AI生成的章节内容（含图片URL）：\n%s", json.dumps(chapter_content_with_image, indent=2, ensure_ascii=False))
-
-    chapter, created = StoryChapter.objects.update_or_create(
+    chapter_title = chapter_dict.get("title") or f"第{chapter_index}章"
+    chapter_obj, _ = StoryChapter.objects.update_or_create(
         story=story,
         chapter_index=chapter_index,
-        defaults={
-            'content': chapter_content_with_image
-        }
+        defaults={"title": chapter_title}
     )
+    chapter_obj.scenes.all().delete()
 
-    # 检查是否所有章节都已生成，如是则标记Story为完成
+    placeholder_url = f"{settings.MEDIA_URL}placeholders/scene.jpg"
+    for idx, scene_data in enumerate(chapter_dict.get("scenes", [])):
+        dialogues_with_ids = []
+        for dialogue in scene_data.get("dialogues", []):
+            dialogue_copy = deepcopy(dialogue)
+            choices = dialogue_copy.get("playerChoices") or []
+            for choice_idx, choice in enumerate(choices, start=1):
+                choice["choiceId"] = choice_idx
+            dialogues_with_ids.append(dialogue_copy)
+
+        StoryScene.objects.create(
+            chapter=chapter_obj,
+            scene_index=idx + 1,
+            background_image=scene_data.get("backgroundImage", ""),
+            background_image_url=generated_images_urls[idx] if idx < len(generated_images_urls) else placeholder_url,
+            dialogues=dialogues_with_ids
+        )
+
+    chapter_obj.refresh_from_db()
+    response_payload = _build_chapter_response(chapter_obj)
+    logger.info("AI生成的章节内容（含ID）：\n%s", json.dumps(response_payload, indent=2, ensure_ascii=False))
+
     if story.generated_chapters_count == story.total_chapters:
         story.is_complete = True
         story.save()
-        
-    return chapter
+
+    return response_payload
 
 def _resolve_total_chapters(length: str) -> int:
     """根据篇幅映射章节数量"""
@@ -333,34 +391,26 @@ def create_gamework(user, tags: List[str], idea: str, length: str) -> dict:
     }
 
 def get_or_generate_chapter(gamework: Gamework, chapter_index: int) -> dict:
-    """
-    获取或生成指定章节的内容。
-    如果章节已存在，直接从数据库返回;否则，调用AI生成。
-    """
-    story, created = Story.objects.get_or_create(
+    story, _ = Story.objects.get_or_create(
         gamework=gamework,
         defaults={'total_chapters': _resolve_total_chapters("")}
     )
 
-    total_chapters = story.total_chapters
-
     try:
-        chapter = StoryChapter.objects.get(story=story, chapter_index=chapter_index)
-        return chapter.content
+        chapter = StoryChapter.objects.prefetch_related('scenes').get(story=story, chapter_index=chapter_index)
+        return _build_chapter_response(chapter)
     except StoryChapter.DoesNotExist:
         pass
-
+    
+    total_chapters = story.total_chapters
     if chapter_index > total_chapters:
         raise ValueError(f"请求的章节索引 {chapter_index} 超出总章节数 {total_chapters}。")
-    
+
     if chapter_index > 1:
-        try:
-            _ = StoryChapter.objects.get(story=story, chapter_index=chapter_index - 1)
-        except StoryChapter.DoesNotExist:
+        if not StoryChapter.objects.filter(story=story, chapter_index=chapter_index - 1).exists():
             raise ValueError(f"上一章章节索引 {chapter_index - 1} 尚未生成，无法生成当前章节。")
 
-    generated_chapter = _generate_chapter(gamework, chapter_index)
-    return generated_chapter.content
+    return _generate_chapter(gamework, chapter_index)
 
 def get_or_generate_report(gamework: Gamework) -> dict:
     """
