@@ -63,7 +63,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         user = User.objects.create(
             username=validated_data['username'],
             email=email, 
-            password_hash=make_password(password),
+            password=make_password(password),
             is_staff=False
         )
         return user
@@ -86,7 +86,7 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError({'message': '用户不存在'})
 
         from django.contrib.auth.hashers import check_password
-        if not check_password(password, user.password_hash):
+        if not check_password(password, user.password):
             raise serializers.ValidationError({'message': '密码错误'})
 
         if not user.is_active:

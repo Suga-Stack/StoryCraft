@@ -91,6 +91,9 @@ class GameworkCreateResponseSerializer(serializers.Serializer):
         child=serializers.CharField(), 
         help_text="初始状态，例如: {'修为': '炼气期三层', '线人网络': True}"
     )
+    total_chapters = serializers.IntegerField(
+        help_text="总章节数"
+    )
 
 class GameChapterRequestSerializer(serializers.Serializer):
     """获取游戏章节内容的请求序列化器"""
@@ -105,6 +108,7 @@ class GameChapterRequestSerializer(serializers.Serializer):
     )
 
 class GameChapterChoiceSerializer(serializers.Serializer):
+    choiceId = serializers.IntegerField()
     text = serializers.CharField()
     attributesDelta = serializers.DictField(
         child=serializers.IntegerField(),
@@ -112,7 +116,7 @@ class GameChapterChoiceSerializer(serializers.Serializer):
         default=dict
     )
     statusesDelta = serializers.DictField(
-        child=serializers.CharField(),
+        child=serializers.JSONField(),
         required=False,
         default=dict
     )
@@ -129,11 +133,12 @@ class GameChapterDialogueSerializer(serializers.Serializer):
     )
 
 class GameChapterSceneSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
     backgroundImage = serializers.CharField()
     dialogues = GameChapterDialogueSerializer(many=True)
-    backgroundImageUrl = serializers.CharField()
 
 class GameChapterResponseSerializer(serializers.Serializer):
+    chapterIndex = serializers.IntegerField()
     title = serializers.CharField()
     scenes = GameChapterSceneSerializer(many=True)
 

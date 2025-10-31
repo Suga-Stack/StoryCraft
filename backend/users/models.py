@@ -7,7 +7,7 @@ class User(AbstractUser):
   # user_id = models.AutoField(primary_key=True)  # 用户id，自动递增的主键
   username = models.CharField(max_length=255, unique=True)  # 用户名，唯一
   email = models.EmailField(unique=True)  # 邮箱唯一
-  password_hash = models.CharField(max_length=255)  # 密码哈希值
+  password = models.CharField(max_length=255)  # 密码哈希值
   profile_picture = models.URLField(max_length=255, blank=True, null=True)  # 头像URL
   user_credits = models.IntegerField(blank=True, null=True)  # 用户积分
   created_at = models.DateTimeField(auto_now_add=True)  # 创建时间，自动设置

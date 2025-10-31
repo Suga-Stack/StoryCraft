@@ -1,5 +1,5 @@
 import logging
-from rest_framework import views, status
+from rest_framework import views, status, permissions
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from .serializers import GameCreateSerializer, GameworkCreateResponseSerializer, GameChapterRequestSerializer, GameChapterResponseSerializer, SettlementRequestSerializer, SettlementResponseSerializer
@@ -14,7 +14,8 @@ logger = logging.getLogger('django')
 class GameCreateView(views.APIView):
     """创建新游戏作品"""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
 
     @swagger_auto_schema(
         operation_summary="创建新游戏",
@@ -49,7 +50,8 @@ class GameCreateView(views.APIView):
 
 class GameChapterView(views.APIView):
     """获取或生成游戏章节内容"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
 
     @swagger_auto_schema(
         operation_summary="获取游戏章节内容",
@@ -84,7 +86,8 @@ class SettlementReportView(views.APIView):
     结算报告候选生成
     路径：POST /api/settlement/report/:workId
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
 
     @swagger_auto_schema(
         operation_summary="生成结算报告候选 variants",

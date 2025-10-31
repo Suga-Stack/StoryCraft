@@ -260,3 +260,6 @@ LOGGING = {
         },
     },
 }
+
+AI_MODEL_FOR_TEXT = "doubao-seed-1-6-flash-250828"
+AI_MODEL_FOR_IMAGE = "doubao-seedream-4-0-250828"
