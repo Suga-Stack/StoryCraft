@@ -2,6 +2,10 @@ docs/
 game/test.py
 game/text.json
 db.sqlite3
+logs/
+media/
+
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

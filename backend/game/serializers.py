@@ -77,7 +77,7 @@ class GameworkCreateResponseSerializer(serializers.Serializer):
     title = serializers.CharField(
         help_text="AI生成的作品标题"
     )
-    coverUrl = serializers.URLField(
+    coverUrl = serializers.CharField(
         help_text="AI生成的封面图片URL"
     )
     description = serializers.CharField(
@@ -90,6 +90,9 @@ class GameworkCreateResponseSerializer(serializers.Serializer):
     initialStatuses = serializers.DictField(
         child=serializers.CharField(), 
         help_text="初始状态，例如: {'修为': '炼气期三层', '线人网络': True}"
+    )
+    total_chapters = serializers.IntegerField(
+        help_text="总章节数"
     )
 
 class GameChapterRequestSerializer(serializers.Serializer):
@@ -105,7 +108,7 @@ class GameChapterRequestSerializer(serializers.Serializer):
     )
 
 class GameChapterChoiceSerializer(serializers.Serializer):
-    id = serializers.CharField()
+    choiceId = serializers.IntegerField()
     text = serializers.CharField()
     attributesDelta = serializers.DictField(
         child=serializers.IntegerField(),
@@ -113,7 +116,7 @@ class GameChapterChoiceSerializer(serializers.Serializer):
         default=dict
     )
     statusesDelta = serializers.DictField(
-        child=serializers.CharField(),
+        child=serializers.JSONField(),
         required=False,
         default=dict
     )
@@ -133,13 +136,11 @@ class GameChapterSceneSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     backgroundImage = serializers.CharField()
     dialogues = GameChapterDialogueSerializer(many=True)
-    isChapterEnding = serializers.BooleanField(required=False)
 
 class GameChapterResponseSerializer(serializers.Serializer):
     chapterIndex = serializers.IntegerField()
     title = serializers.CharField()
     scenes = GameChapterSceneSerializer(many=True)
-    isGameEnding = serializers.BooleanField(required=False)
 
 class SettlementReportContentSerializer(serializers.Serializer):
     title = serializers.CharField()

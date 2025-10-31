@@ -1,4 +1,5 @@
-from rest_framework import views, status
+import logging
+from rest_framework import views, status, permissions
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from .serializers import GameCreateSerializer, GameworkCreateResponseSerializer, GameChapterRequestSerializer, GameChapterResponseSerializer, SettlementRequestSerializer, SettlementResponseSerializer
@@ -8,10 +9,13 @@ from . import services
 from django.shortcuts import get_object_or_404
 from gameworks.models import Gamework
 
+logger = logging.getLogger('django')
+
 class GameCreateView(views.APIView):
     """创建新游戏作品"""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
 
     @swagger_auto_schema(
         operation_summary="创建新游戏",
@@ -41,12 +45,13 @@ class GameCreateView(views.APIView):
             )
             return Response(result, status=status.HTTP_201_CREATED)
         except Exception as e:
-            print(f"创建游戏时发生错误: {e}")
+            logger.error("创建游戏时发生错误: %s", e)
             return Response({"error": "创建游戏失败，请稍后重试。"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class GameChapterView(views.APIView):
     """获取或生成游戏章节内容"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
 
     @swagger_auto_schema(
         operation_summary="获取游戏章节内容",
@@ -73,15 +78,16 @@ class GameChapterView(views.APIView):
         except ValueError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            print(f"获取或生成章节时发生错误: {e}")
-            return Response({"error": "获取章节内容失败，请稍后重试。"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error("获取或生成章节时发生错误: %s", e)
+            return Response({"error": "服务器出错，请稍后重试。"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class SettlementReportView(views.APIView):
     """
     结算报告候选生成
     路径：POST /api/settlement/report/:workId
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
 
     @swagger_auto_schema(
         operation_summary="生成结算报告候选 variants",
