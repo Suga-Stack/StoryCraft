@@ -5,7 +5,7 @@ from tags.models import Tag  # 导入 Tag 模型
 
 class Gamework(models.Model):
     """游戏作品模型"""
-    gamework_id = models.AutoField(primary_key=True, verbose_name="Gamework ID")  # 游戏作品 ID
+    # gamework_id = models.AutoField(primary_key=True, verbose_name="Gamework ID")  # 游戏作品 ID
     author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='gameworks', verbose_name="Author")  # 作者
     title = models.CharField(max_length=255, verbose_name="Title")  # 标题
     description = models.TextField(blank=True, null=True, verbose_name="Description")   # 简介
