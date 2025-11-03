@@ -354,17 +354,17 @@ def _generate_all_chapters_async(gamework: Gamework):
                 story.current_generating_chapter = chapter_index
                 story.save()
                 
-                logger.info(f"开始生成作品 {gamework.gamework_id} 第 {chapter_index} 章")
+                logger.info(f"开始生成作品 {gamework.id} 第 {chapter_index} 章")
                 _generate_chapter(gamework, chapter_index)
-                logger.info(f"完成生成作品 {gamework.gamework_id} 第 {chapter_index} 章")
+                logger.info(f"完成生成作品 {gamework.id} 第 {chapter_index} 章")
 
             story.is_generating = False
             story.is_complete = True
             story.current_generating_chapter = 0
             story.save()
-            logger.info(f"作品 {gamework.gamework_id} 所有章节生成完成")
+            logger.info(f"作品 {gamework.id} 所有章节生成完成")
         except Exception as e:
-            logger.error(f"生成作品 {gamework.gamework_id} 章节时发生错误: {e}")
+            logger.error(f"生成作品 {gamework.id} 章节时发生错误: {e}")
             try:
                 story = Story.objects.get(gamework=gamework)
                 story.is_generating = False
@@ -420,7 +420,7 @@ def create_gamework(user, tags: List[str], idea: str, length: str) -> dict:
 
     # 返回生成的数据给前端
     return {
-        "gameworkId": gamework.gamework_id,
+        "gameworkId": gamework.id,
         "title": details.title,
         "coverUrl": cover_url,
         "description": details.description,

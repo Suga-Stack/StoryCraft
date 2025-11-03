@@ -5,9 +5,9 @@ from tags.models import Tag
 # 用户模型
 class User(AbstractUser):
   # user_id = models.AutoField(primary_key=True)  # 用户id，自动递增的主键
-  user_name = models.CharField(max_length=255, unique=True)  # 用户名，唯一
+  username = models.CharField(max_length=255, unique=True)  # 用户名，唯一
   email = models.EmailField(unique=True)  # 邮箱唯一
-  password_hash = models.CharField(max_length=255)  # 密码哈希值
+  password = models.CharField(max_length=255)  # 密码哈希值
   profile_picture = models.URLField(max_length=255, blank=True, null=True)  # 头像URL
   user_credits = models.IntegerField(blank=True, null=True)  # 用户积分
   created_at = models.DateTimeField(auto_now_add=True)  # 创建时间，自动设置
@@ -19,6 +19,7 @@ class User(AbstractUser):
         null=True
   )  # 性别字段，选择 Male、Female 或 Other
   liked_tags = models.ManyToManyField(Tag, blank=True)  # 用户喜欢的标签，可以为空
+  is_staff = models.BooleanField(default=False)  # 默认用户为非管理员
 
   def __str__(self):
-    return self.user_name
+    return self.username

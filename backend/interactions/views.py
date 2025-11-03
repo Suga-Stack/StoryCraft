@@ -8,6 +8,7 @@ from django.shortcuts import get_object_or_404
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from gameworks.models import Gamework
+from django.db.models import Avg
 
 class FavoriteViewSet(viewsets.ModelViewSet):
     """
@@ -48,12 +49,12 @@ class FavoriteViewSet(viewsets.ModelViewSet):
 
     @swagger_auto_schema(
         operation_summary="收藏作品",
-        operation_description="用户收藏一个作品（仅传入gamework_id）",
+        operation_description="用户收藏一个作品（仅传入id）",
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
-            required=['gamework_id'],
+            required=['id'],
             properties={
-                'gamework_id': openapi.Schema(type=openapi.TYPE_INTEGER, description='作品ID')
+                'id': openapi.Schema(type=openapi.TYPE_INTEGER, description='作品ID')
             }
         ),
         responses={
@@ -62,16 +63,22 @@ class FavoriteViewSet(viewsets.ModelViewSet):
         }
     )
     def create(self, request, *args, **kwargs):
-        gamework_id = request.data.get("gamework_id")
+        gamework_id = request.data.get("id")
         if not gamework_id:
-            return Response({"code": 400, "message": "缺少参数 gamework_id"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"code": 400, "message": "缺少参数 id"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 检查是否已收藏
-        if Favorite.objects.filter(user=request.user, gamework_id=gamework_id).exists():
+        # 检查作品是否存在
+        try:
+            gamework = Gamework.objects.get(id=gamework_id)
+        except Gamework.DoesNotExist:
+            return Response({"code": 400, "message": "作品不存在"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 检查用户是否已收藏该作品
+        if Favorite.objects.filter(user=request.user, gamework=gamework).exists():
             return Response({"code": 400, "message": "该作品已收藏"}, status=status.HTTP_400_BAD_REQUEST)
 
         # 创建收藏记录
-        favorite = Favorite.objects.create(user=request.user, gamework_id=gamework_id)
+        favorite = Favorite.objects.create(user=request.user, gamework=gamework)
         serializer = self.get_serializer(favorite)
 
         return Response({
@@ -105,37 +112,44 @@ class CommentViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = Comment.objects.all()
-        gamework_id = self.request.query_params.get('gamework')
-        if gamework_id:
-            qs = qs.filter(gamework__gamework_id=gamework_id)
+        id = self.request.query_params.get('gamework')
+        if id:
+            qs = qs.filter(gamework__id=id)
         return qs
 
 
 class RatingViewSet(viewsets.ModelViewSet):
     queryset = Rating.objects.all()
     serializer_class = RatingSerializer
-    permission_classes = (permissions.IsAuthenticated,)
+    permission_classes = [permissions.IsAuthenticated]
 
     def perform_create(self, serializer):
-        # 如果用户已评分则更新而不是创建（保持 unique_together）
+        # 如果用户已评分则更新，否则创建
         user = self.request.user
         gamework = serializer.validated_data['gamework']
-        obj, created = Rating.objects.update_or_create(user=user, gamework=gamework, defaults={'score': serializer.validated_data['score']})
-        self._created = created
-        self._obj = obj
+        rating, created = Rating.objects.update_or_create(
+            user=user, gamework=gamework,
+            defaults={'score': serializer.validated_data['score']}
+        )
+        return rating 
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        # 返回当前作品的平均评分（示例）
-        obj = self._obj
-        headers = self.get_success_headers(serializer.data)
-        return Response(RatingSerializer(obj).data, status=status.HTTP_200_OK, headers=headers)
+        rating = self.perform_create(serializer)
+        
+        # 获取作品的平均评分
+        average_score = Rating.objects.filter(gamework=rating.gamework).aggregate(Avg('score'))['score__avg']
 
+        return Response({
+            'message': '评分成功',
+            'average_score': average_score,  # 返回平均评分
+            'rating': RatingSerializer(rating).data  # 返回评分对象
+        }, status=status.HTTP_200_OK)
+    
     def get_queryset(self):
         qs = Rating.objects.all()
-        gamework_id = self.request.query_params.get('gamework')
-        if gamework_id:
-            qs = qs.filter(gamework__gamework_id=gamework_id)
+        id = self.request.query_params.get('gamework')
+        if id:
+            qs = qs.filter(gamework__id=id)
         return qs

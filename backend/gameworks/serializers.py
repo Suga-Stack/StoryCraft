@@ -6,10 +6,12 @@ from tags.models import Tag
 class GameworkSerializer(serializers.ModelSerializer):
     author = serializers.StringRelatedField(read_only=True)  # 显示 author 的 __str__
     tags = serializers.PrimaryKeyRelatedField(queryset=Tag.objects.all(), many=True, required=False)
+    favorite_count = serializers.IntegerField(read_only=True)  # 收藏数量字段
+    average_score = serializers.FloatField(read_only=True)  # 平均评分
 
     class Meta:
         model = Gamework
-        fields = ('gamework_id', 'author', 'title', 'description', 'tags', 'image_url', 'created_at', 'updated_at')
+        fields = ('id', 'author', 'title', 'description', 'tags', 'image_url', 'created_at', 'updated_at', 'favorite_count', 'average_score')
 
     def create(self, validated_data):
         tags = validated_data.pop('tags', [])
