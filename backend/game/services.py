@@ -5,6 +5,7 @@ import logging
 import mimetypes
 import uuid
 import requests
+import threading
 from copy import deepcopy
 from typing import List, Dict, Any, Optional, Union
 from pydantic import BaseModel, Field
@@ -341,6 +342,39 @@ def _resolve_total_chapters(length: str) -> int:
     min_chapters, max_chapters = ranges.get((length or "").lower().strip(), (6, 10))
     return random.randint(min_chapters, max_chapters)
 
+def _generate_all_chapters_async(gamework: Gamework):
+    """后台线程中连续生成所有章节"""
+    def worker():
+        try:
+            story = Story.objects.get(gamework=gamework)
+            story.is_generating = True
+            story.save()
+
+            for chapter_index in range(1, story.total_chapters + 1):
+                story.current_generating_chapter = chapter_index
+                story.save()
+                
+                logger.info(f"开始生成作品 {gamework.gamework_id} 第 {chapter_index} 章")
+                _generate_chapter(gamework, chapter_index)
+                logger.info(f"完成生成作品 {gamework.gamework_id} 第 {chapter_index} 章")
+
+            story.is_generating = False
+            story.is_complete = True
+            story.current_generating_chapter = 0
+            story.save()
+            logger.info(f"作品 {gamework.gamework_id} 所有章节生成完成")
+        except Exception as e:
+            logger.error(f"生成作品 {gamework.gamework_id} 章节时发生错误: {e}")
+            try:
+                story = Story.objects.get(gamework=gamework)
+                story.is_generating = False
+                story.save()
+            except:
+                pass
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+
 def create_gamework(user, tags: List[str], idea: str, length: str) -> dict:
     """
     创建新游戏作品的完整流程。
@@ -349,7 +383,8 @@ def create_gamework(user, tags: List[str], idea: str, length: str) -> dict:
     3. 创建并保存Gamework实例。
     4. 创建关联的Story实例。
     5. 关联标签Tags。
-    6. 返回生成的数据。
+    6. 启动异步生成所有章节。
+    7. 返回生成的数据。
     """
 
     details = _generate_gamework_details_with_ai(tags, idea)
@@ -380,6 +415,9 @@ def create_gamework(user, tags: List[str], idea: str, length: str) -> dict:
         tag_objects.append(tag)
     gamework.tags.set(tag_objects)
 
+    # 启动异步生成所有章节
+    _generate_all_chapters_async(gamework)
+
     # 返回生成的数据给前端
     return {
         "gameworkId": gamework.gamework_id,
@@ -391,27 +429,50 @@ def create_gamework(user, tags: List[str], idea: str, length: str) -> dict:
         "total_chapters": total_chapters
     }
 
-def get_or_generate_chapter(gamework: Gamework, chapter_index: int) -> dict:
+def get_chapter_status(gamework: Gamework, chapter_index: int) -> dict:
+    """
+    查询章节生成状态或返回已生成内容。
+    返回格式:
+    - {"status": "generating", "progress": {...}} - 正在生成中
+    - {"status": "ready", "chapter": {...}} - 已生成完毕
+    - {"status": "pending"} - 尚未开始生成
+    """
+
     story, _ = Story.objects.get_or_create(
         gamework=gamework,
         defaults={'total_chapters': _resolve_total_chapters("")}
     )
 
+    if chapter_index < 1 or chapter_index > story.total_chapters:
+        return {"status": "error", "message": f"章节索引 {chapter_index} 超出范围"}
+
+    # 检查章节是否已生成
     try:
-        chapter = StoryChapter.objects.prefetch_related('scenes').get(story=story, chapter_index=chapter_index)
-        return _build_chapter_response(chapter)
+        chapter = StoryChapter.objects.prefetch_related('scenes').get(
+            story=story, 
+            chapter_index=chapter_index
+        )
+        return {
+            "status": "ready",
+            "chapter": _build_chapter_response(chapter)
+        }
     except StoryChapter.DoesNotExist:
         pass
+
+    # 章节未生成，检查生成状态
+    if story.is_generating:
+        return {
+            "status": "generating",
+            "progress": {
+                "currentChapter": story.current_generating_chapter,
+                "totalChapters": story.total_chapters
+            }
+        }
     
-    total_chapters = story.total_chapters
-    if chapter_index > total_chapters:
-        raise ValueError(f"请求的章节索引 {chapter_index} 超出总章节数 {total_chapters}。")
-
-    if chapter_index > 1:
-        if not StoryChapter.objects.filter(story=story, chapter_index=chapter_index - 1).exists():
-            raise ValueError(f"上一章章节索引 {chapter_index - 1} 尚未生成，无法生成当前章节。")
-
-    return _generate_chapter(gamework, chapter_index)
+    if story.is_complete:
+        return {"status": "error", "message": "章节应已生成但未找到"}
+    
+    return {"status": "pending", "message": "章节尚未开始生成"}
 
 def get_or_generate_report(gamework: Gamework) -> dict:
     """
@@ -496,3 +557,11 @@ def build_settlement_variants(attributes: Dict[str, int], statuses: Dict[str, An
         "reports": variants,
         "debug": {"checked": checked}
     }
+
+def resolve_scene_cover_url(gamework: Gamework, chapter_index: int, scene_index: int) -> Optional[str]:
+    """根据章节与场景索引解析背景图URL"""
+    return StoryScene.objects.filter(
+        chapter__story__gamework=gamework,
+        chapter__chapter_index=chapter_index,
+        scene_index=scene_index
+    ).values_list('background_image_url', flat=True).first()

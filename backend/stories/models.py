@@ -11,6 +11,8 @@ class Story(models.Model):
     initial_attributes = models.JSONField(help_text="故事初始主角属性值")
     initial_statuses = models.JSONField(help_text="主角初始状态")
     is_complete = models.BooleanField(default=False, help_text="故事是否已完成生成")
+    is_generating = models.BooleanField(default=False, help_text="是否正在生成中")
+    current_generating_chapter = models.PositiveIntegerField(default=0, help_text="当前正在生成的章节索引")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

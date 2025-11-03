@@ -1,25 +1,30 @@
 import logging
-from rest_framework import views, status, permissions
+import time
+from rest_framework import views, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from .serializers import GameCreateSerializer, GameworkCreateResponseSerializer, GameChapterRequestSerializer, GameChapterResponseSerializer, SettlementRequestSerializer, SettlementResponseSerializer
+from .serializers import (
+    GameCreateSerializer, GameworkCreateResponseSerializer, 
+    GameChapterStatusResponseSerializer, SettlementRequestSerializer, 
+    SettlementResponseSerializer, GameSavePayloadSerializer
+)
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from . import services
-from django.shortcuts import get_object_or_404
+from rest_framework.generics import get_object_or_404
 from gameworks.models import Gamework
+from .models import GameSave
 
 logger = logging.getLogger('django')
 
 class GameCreateView(views.APIView):
     """创建新游戏作品"""
 
-    permission_classes = [permissions.AllowAny]
-    authentication_classes = []
+    permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_summary="创建新游戏",
-        operation_description="根据用户选择的标签、构思和篇幅，调用AI生成并创建一个新的游戏作品。",
+        operation_summary="创建新游戏并启动章节生成",
+        operation_description="根据用户选择的标签、构思和篇幅，调用AI生成并创建一个新的游戏作品，同时在后台异步生成所有章节。",
         request_body=GameCreateSerializer,  
         responses={
             status.HTTP_201_CREATED: GameworkCreateResponseSerializer, 
@@ -36,7 +41,6 @@ class GameCreateView(views.APIView):
         validated_data = serializer.validated_data
         
         try:
-            # 调用service层来处理创建逻辑
             result = services.create_gamework(
                 user=request.user,
                 tags=validated_data['tags'],
@@ -49,45 +53,163 @@ class GameCreateView(views.APIView):
             return Response({"error": "创建游戏失败，请稍后重试。"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class GameChapterView(views.APIView):
-    """获取或生成游戏章节内容"""
-    permission_classes = [permissions.AllowAny]
-    authentication_classes = []
+    """轮询查询游戏章节生成状态"""
+    permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_summary="获取游戏章节内容",
-        operation_description="根据作品ID和章节索引获取章节内容。如果内容尚未生成，后端将调用AI实时生成。",
-        request_body=GameChapterRequestSerializer,
+        operation_summary="查询章节生成状态或获取内容",
+        operation_description="轮询接口，返回章节生成状态(pending/generating/ready)或已生成的章节内容。",
+        manual_parameters=[
+            openapi.Parameter('gameworkId', openapi.IN_PATH, description="作品ID", type=openapi.TYPE_INTEGER, required=True),
+            openapi.Parameter('chapterIndex', openapi.IN_PATH, description="章节索引(从1开始)", type=openapi.TYPE_INTEGER, required=True),
+        ],
         responses={
-            status.HTTP_200_OK: GameChapterResponseSerializer,
+            status.HTTP_200_OK: GameChapterStatusResponseSerializer,
             status.HTTP_400_BAD_REQUEST: openapi.Response(description="请求参数错误"),
+            status.HTTP_401_UNAUTHORIZED: openapi.Response(description="未认证，请先登录"),
+            status.HTTP_404_NOT_FOUND: openapi.Response(description="作品不存在"),
             status.HTTP_500_INTERNAL_SERVER_ERROR: openapi.Response(description="服务器内部错误")
         }
     )
-    def post(self, request, *args, **kwargs):
-        serializer = GameChapterRequestSerializer(data=request.data)
+    def get(self, request, gameworkId: int, chapterIndex: int, *args, **kwargs):
+        try:
+            try:
+                gamework = get_object_or_404(Gamework, pk=gameworkId)
+            except Exception as e:
+                return Response({"error":"指定的作品不存在"}, status=status.HTTP_404_NOT_FOUND)
+            
+            result = services.get_chapter_status(gamework, chapterIndex)
+            return Response(result, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(
+                "查询章节状态时发生错误 - gamework_id: %s, chapter_index: %s, error: %s",
+                gameworkId, chapterIndex, e, exc_info=True
+            )
+            return Response(
+                {"error": "服务器出错，请稍后重试。"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class GameSaveDetailView(views.APIView):
+    """存档详情：PUT 保存/更新； GET 读取； DELETE 删除"""
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="保存或更新存档",
+        request_body=GameSavePayloadSerializer,
+        responses={
+            status.HTTP_200_OK: openapi.Response(description='保存成功'),
+            status.HTTP_404_NOT_FOUND: openapi.Response(description='作品不存在'),
+            status.HTTP_400_BAD_REQUEST: openapi.Response(description='存档参数错误'),
+        }
+    )
+    def put(self, request, gameworkId: int, slot: int, *args, **kwargs):
+        try:
+            gamework = get_object_or_404(Gamework, pk=gameworkId)
+        except Exception as e:
+            return Response({"error":"指定的作品不存在"}, status=status.HTTP_404_NOT_FOUND)
+        
+        serializer = GameSavePayloadSerializer(data=request.data or {})
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        payload = serializer.validated_data
+        state = payload.get("state")
+        cover_url = services.resolve_scene_cover_url(
+            gamework,
+            state.get("chapterIndex"),
+            state.get("sceneId")
+        ) or ""
 
-        validated_data = serializer.validated_data
-        gamework = validated_data['gameworkId']
-        chapter_index = validated_data['chapterIndex']
+        GameSave.objects.update_or_create(
+            user=request.user,
+            gamework=gamework,
+            slot=slot,
+            defaults={
+                "title": payload.get("title", "默认标题"),
+                "timestamp": payload.get("timestamp", 1),
+                "state": state,
+                "cover_url": cover_url
+            }
+        )
+        return Response({"ok": True}, status=status.HTTP_200_OK)
 
+    @swagger_auto_schema(
+        operation_summary="读取存档",
+        responses={
+            status.HTTP_200_OK: openapi.Response(description='返回完整存档对象'),
+            status.HTTP_404_NOT_FOUND: openapi.Response(description='存档不存在')
+        }
+    )
+    def get(self, request, gameworkId: int, slot: int, *args, **kwargs):
         try:
-            chapter_content = services.get_or_generate_chapter(gamework, chapter_index)
-            return Response(chapter_content, status=status.HTTP_200_OK)
-        except ValueError as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            logger.error("获取或生成章节时发生错误: %s", e)
-            return Response({"error": "服务器出错，请稍后重试。"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            gamework = get_object_or_404(Gamework, pk=gameworkId)
+            save = get_object_or_404(GameSave, user=request.user, gamework=gamework, slot=slot)
+        except Exception:
+            return Response({"error": "存档不存在"}, status=status.HTTP_404_NOT_FOUND)
+        
+        payload = {
+            "title": save.title,
+            "timestamp": save.timestamp,
+            "state": save.state
+        }
+        return Response(payload, status=status.HTTP_200_OK)
+
+    @swagger_auto_schema(
+        operation_summary="删除存档",
+        responses={
+            status.HTTP_200_OK: openapi.Response(description='成功删除'),
+            status.HTTP_404_NOT_FOUND: openapi.Response(description='存档不存在')
+        }
+    )
+    def delete(self, request, gameworkId: int, slot: int, *args, **kwargs):
+        try:
+            gamework = get_object_or_404(Gamework, pk=gameworkId)
+        except Exception:
+            return Response({"error": "存档不存在"}, status=status.HTTP_404_NOT_FOUND)
+        
+        deleted, _ = GameSave.objects.filter(user=request.user, gamework=gamework, slot=slot).delete()
+
+        if not deleted:
+            return Response({"error": "存档不存在"}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"ok": True}, status=status.HTTP_200_OK)
+
+class GameSaveListView(views.APIView):
+    """列出作品下全部存档摘要"""
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="列出存档摘要",
+        responses={status.HTTP_200_OK: openapi.Response(description='{"saves": [...]}')}
+    )
+    def get(self, request, gameworkId: int, *args, **kwargs):
+        try:
+            gamework = get_object_or_404(Gamework, pk=gameworkId)
+        except Exception:
+            return Response({"error": "存档不存在"}, status=status.HTTP_404_NOT_FOUND)
+        
+        saves = GameSave.objects.filter(user=request.user, gamework=gamework).order_by('slot')
+        items = []
+        for save in saves:
+            state = save.state 
+            items.append({
+                "slot": save.slot,
+                "title": save.title,
+                "timestamp": save.timestamp,
+                "chapterIndex": state.get("chapterIndex"),
+                "sceneId": state.get("sceneId"),
+                "dialogueIndex": state.get("dialogueIndex"),
+                "coverUrl": save.cover_url
+            })
+
+        return Response({"saves": items}, status=status.HTTP_200_OK)
 
 class SettlementReportView(views.APIView):
     """
     结算报告候选生成
     路径：POST /api/settlement/report/:workId
     """
-    permission_classes = [permissions.AllowAny]
-    authentication_classes = []
+    permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
         operation_summary="生成结算报告候选 variants",

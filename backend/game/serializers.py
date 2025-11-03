@@ -95,18 +95,6 @@ class GameworkCreateResponseSerializer(serializers.Serializer):
         help_text="总章节数"
     )
 
-class GameChapterRequestSerializer(serializers.Serializer):
-    """获取游戏章节内容的请求序列化器"""
-    gameworkId = serializers.PrimaryKeyRelatedField(
-        queryset=Gamework.objects.all(),
-        error_messages={"does_not_exist": "指定的作品不存在"},
-        help_text="gameworkId，须是已创建作品"
-    )
-    chapterIndex = serializers.IntegerField(
-        min_value=1,
-        help_text="章节编号，从 1 开始"
-    )
-
 class GameChapterChoiceSerializer(serializers.Serializer):
     choiceId = serializers.IntegerField()
     text = serializers.CharField()
@@ -174,3 +162,30 @@ class SettlementResponseSerializer(serializers.Serializer):
     success = serializers.BooleanField()
     reports = SettlementVariantSerializer(many=True)
     debug = serializers.DictField(required=False)
+
+class GameChapterProgressSerializer(serializers.Serializer):
+    currentChapter = serializers.IntegerField()
+    totalChapters = serializers.IntegerField()
+
+class GameChapterStatusResponseSerializer(serializers.Serializer):
+    """章节状态查询响应"""
+    status = serializers.ChoiceField(
+        choices=['pending', 'generating', 'ready', 'error'],
+        help_text="章节状态: pending(未开始)/generating(生成中)/ready(已完成)/error(错误)"
+    )
+    message = serializers.CharField(required=False, help_text="状态说明")
+    progress = GameChapterProgressSerializer(required=False, help_text="生成进度(仅在generating时返回)")
+    chapter = GameChapterResponseSerializer(required=False, help_text="章节内容(仅在ready时返回)")
+
+class GameSaveStateSerializer(serializers.Serializer):
+    chapterIndex = serializers.IntegerField(required=True, allow_null=True)
+    sceneId = serializers.IntegerField(required=True, allow_null=True)
+    dialogueIndex = serializers.IntegerField(required=False, allow_null=True)
+    attributes = serializers.DictField(child=serializers.IntegerField(), required=False, default=dict)
+    statuses = serializers.DictField(child=serializers.JSONField(), required=False, default=dict)
+    choiceHistory = serializers.ListField(child=serializers.DictField(), required=False, default=list)
+
+class GameSavePayloadSerializer(serializers.Serializer):
+    title = serializers.CharField(required=False, allow_blank=True)
+    timestamp = serializers.IntegerField(required=False, allow_null=True)
+    state = GameSaveStateSerializer()
