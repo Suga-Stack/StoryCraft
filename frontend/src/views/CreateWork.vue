@@ -2,6 +2,8 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ScreenOrientation } from '@capacitor/screen-orientation'
 import { useRouter } from 'vue-router'
+import { useUserStore } from '../store'
+import { showToast } from 'vant'
 import * as createWorkService from '../service/createWork.js'
 
 // 在本地测试时可开启 create mock（当后端不可用时）
@@ -11,6 +13,7 @@ const USE_MOCK_CREATE = false
 let createWorkOnBackend = createWorkService.createWorkOnBackend
 
 const router = useRouter()
+const userStore = useUserStore()
 
 // 分组的标签候选（支持折叠显示）
 const tagGroups = [
@@ -97,6 +100,14 @@ const backendWork = ref(null)
 
 // 提交到后端生成作品（使用 service）
 const submitToBackend = async () => {
+  // 检查用户是否已登录
+  if (!userStore.isAuthenticated) {
+    showToast('请先登录后再创建作品')
+    // 可以跳转到登录页面
+    router.push('/login')
+    return
+  }
+  
   const payload = {
     tags: selectedTags.value,
     idea: idea.value?.trim() || '',

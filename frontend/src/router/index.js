@@ -17,7 +17,7 @@ import ReadingHistoryPage from '../views/ReadinghistoryPage.vue'
 
 const routes = [
    {
-    path: '/',
+    path: '/home',
     name: 'Home',
     component: HomePage
   },

@@ -47,10 +47,12 @@ import {ref} from 'vue';
 import {useRouter} from 'vue-router';
 import {showLoadingToast, showSuccessToast, showFailToast} from 'vant';
 import http from '../utils/http';
+import { useUserStore } from '../store';
 
 const username = ref('');
 const password = ref('');
 const router = useRouter();
+const userStore = useUserStore();
 
 const handleLogin = async () => {
     if (!username.value){
@@ -95,6 +97,9 @@ const handleLogin = async () => {
         if (tokens.refresh) {
         localStorage.setItem('refreshToken', String(tokens.refresh));
         }
+
+        // 设置用户状态
+        userStore.login({ username: username.value }, tokens.access);
 
         showSuccessToast('登录成功，即将跳转...');
 
