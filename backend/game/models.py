@@ -6,23 +6,21 @@ class GameSave(models.Model):
     """游戏存档模型"""
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="game_saves")
     gamework = models.ForeignKey(Gamework, on_delete=models.CASCADE, related_name="game_saves")
-    
-    name = models.CharField(max_length=100, help_text="存档名称, 如 '自动存档 2024-05-21'")
-    
-    # 游戏状态快照,存储了玩家在游戏中的所有动态数据
-    game_state = models.JSONField(help_text="游戏状态的JSON快照")
-    
-    thumbnail = models.URLField(max_length=500, blank=True, null=True, help_text="存档时场景的截图URL")
-    
+    slot = models.PositiveIntegerField(default=1, help_text="存档槽位(从1开始)")
+
+    title = models.CharField(max_length=100, help_text="存档名称, 如 '自动存档 2024-05-21'")
+    timestamp = models.BigIntegerField(help_text="存档的时间戳")
+    state = models.JSONField(help_text="游戏的JSON快照")
+    cover_url = models.CharField(max_length=500, help_text="存档时场景的背景URL")
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.user.username}'s save for '{self.gamework.title}' - {self.name}"
+        return f"{self.user.username}'s save slot {self.slot} for '{self.gamework.title}' ({self.title or '未命名'})"
 
     class Meta:
-        # 同一用户对同一作品的存档名必须唯一
-        unique_together = ('user', 'gamework', 'name')
+        unique_together = ('user', 'gamework', 'slot')
         ordering = ['-updated_at']
 
 class GameReport(models.Model):
