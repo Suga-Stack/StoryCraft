@@ -4,12 +4,32 @@ import GameIntroduction from '../views/game_introduction.vue'
 import GamePage from '../views/GamePage.vue'
 import SettlementPage from '../views/SettlementPage.vue'
 import CreateWork from '../views/CreateWork.vue'
+import LoginPage from '../views/LoginPage.vue'
+import RegisterPage from '../views/RegisterPage.vue'
+import PreferencesPage from '../views/PreferencesPage.vue'
+import BookshelfPage from '../views/BookshelfPage.vue'
+import SearchPage from '../views/SearchPage.vue'
+import BookstorePage from '../views/BookstorePage.vue'
+//import CreatePage from '../views/CreatePage.vue'
+import ProfilePage from '../views/ProfilePage.vue'
+import MyCreationsPage from '../views/MyCreationsPage.vue'
+import ReadingHistoryPage from '../views/ReadinghistoryPage.vue'
 
 const routes = [
-  {
+   {
     path: '/',
     name: 'Home',
     component: HomePage
+  },
+  {
+    path: '/login',
+    name: 'login',
+    component: LoginPage
+  },
+  {
+    path: '/register',
+    name: 'register',
+    component: RegisterPage
   },
   {
     path: '/works',
@@ -30,6 +50,41 @@ const routes = [
     path: '/settlement',
     name: 'Settlement',
     component: SettlementPage
+  },
+  {
+    path: '/preferences',
+    name: 'preferences',
+    component: PreferencesPage
+  },
+  {
+    path: '/bookshelf',
+    name: 'bookshelf',
+    component: BookshelfPage
+  },
+  {
+    path: '/', 
+    name: 'bookstore',
+    component: BookstorePage
+  },
+  {
+    path: '/profile',
+    name: 'profile',
+    component: ProfilePage
+  },
+  {
+    path: '/mycreations',
+    name: 'mycreations',
+    component: MyCreationsPage  
+  },
+  {
+    path: '/readinghistory',
+    name: 'readinghistory',
+    component: ReadingHistoryPage  
+  },
+  {
+    path: '/search',
+    name: 'search',
+    component: SearchPage
   }
 ]
 

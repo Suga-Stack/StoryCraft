@@ -1,6 +1,9 @@
 from rest_framework import serializers
 from .models import Favorite, Comment, Rating
 from gameworks.models import Gamework
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
 
 class FavoriteSerializer(serializers.ModelSerializer):
     user = serializers.StringRelatedField(read_only=True)
@@ -62,7 +65,6 @@ class RatingSerializer(serializers.ModelSerializer):
         self.fields['gamework'].queryset = Gamework.objects.all()
 
     def validate(self, attrs):
-        # 阻止用户重复评分
         user = self.context['request'].user
         gamework = attrs['gamework']
 
