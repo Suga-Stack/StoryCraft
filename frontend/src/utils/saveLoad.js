@@ -1,8 +1,8 @@
 // GamePage 存档/读档相关逻辑的复用工具
 
 // ---- 配置项 ----
-const USE_BACKEND_SAVE = true
-const USE_MOCK_SAVE = false
+const USE_BACKEND_SAVE = false
+const USE_MOCK_SAVE = true
 
 // 获取当前用户 ID
 const getCurrentUserId = () => {
@@ -221,6 +221,65 @@ export const refreshSlotInfos = async (workId, slots = ['slot1', 'slot2', 'slot3
   }
 
   return results
+}
+
+// 删除存档API
+export const deleteGameData = async (workId, slot = 'default') => {
+  const userId = getCurrentUserId()
+
+  // 优先使用后端删除
+  if (USE_BACKEND_SAVE) {
+    try {
+      if (!String(userId).match(/^\d+$/)) {
+        console.warn('deleteGameData: anonymous/non-numeric userId detected, using mock/local delete instead of backend API:', userId)
+        // Mock删除
+        const mapRaw = localStorage.getItem(mockBackendKey(userId)) || '{}'
+        const map = JSON.parse(mapRaw)
+        delete map[`${workId}::${slot}`]
+        localStorage.setItem(mockBackendKey(userId), JSON.stringify(map))
+        await new Promise(r => setTimeout(r, 120))
+        return { success: true, message: '本地存档已删除' }
+      }
+      // 真实后端删除
+      const response = await fetch(`/api/game/save/${workId}/${slot}/`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': window.__STORYCRAFT_CSRF_TOKEN__ || '',
+        },
+      })
+      if (response.ok) {
+        return { success: true, message: '存档已删除' }
+      } else {
+        throw new Error(`删除失败: ${response.status}`)
+      }
+    } catch (err) {
+      console.error('后端删除失败，回退到本地删除:', err)
+      // 回退到本地删除
+      try {
+        const mapRaw = localStorage.getItem(mockBackendKey(userId)) || '{}'
+        const map = JSON.parse(mapRaw)
+        delete map[`${workId}::${slot}`]
+        localStorage.setItem(mockBackendKey(userId), JSON.stringify(map))
+        return { success: true, message: '本地存档已删除' }
+      } catch (localErr) {
+        console.error('本地删除也失败:', localErr)
+        return { success: false, message: '删除失败' }
+      }
+    }
+  } else {
+    // 仅本地删除
+    try {
+      const mapRaw = localStorage.getItem(mockBackendKey(userId)) || '{}'
+      const map = JSON.parse(mapRaw)
+      delete map[`${workId}::${slot}`]
+      localStorage.setItem(mockBackendKey(userId), JSON.stringify(map))
+      return { success: true, message: '本地存档已删除' }
+    } catch (err) {
+      console.error('本地删除失败:', err)
+      return { success: false, message: '删除失败' }
+    }
+  }
 }
 
 // 常量导出

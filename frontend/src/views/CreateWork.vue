@@ -108,14 +108,18 @@ const submitToBackend = async () => {
     // 支持两种返回：新格式（game-api.md）和老格式（backendWork）以兼容历史 mock
     if (res) {
       if (res.gameworkId) {
-        backendWork.value = {
-          id: res.gameworkId,
-          title: res.title || '',
-          coverUrl: res.coverUrl || '',
-          description: res.description || '',
-          initialAttributes: res.initialAttributes || {},
-          initialStatuses: res.statuses || {}
-        }
+          backendWork.value = {
+            id: res.gameworkId,
+            title: res.title || '',
+            coverUrl: res.coverUrl || '',
+            description: res.description || '',
+            // 后端返回的字段名为 initialAttributes / initialStatuses（参见 game-api.md）
+            initialAttributes: res.initialAttributes || {},
+            initialStatuses: res.initialStatuses || {}
+            ,
+            // 总章节数（后端在创建时会返回 total_chapters）
+            total_chapters: res.total_chapters || res.totalChapters || null
+          }
       } else if (res.backendWork) {
         backendWork.value = res.backendWork
         // attach legacy fields if present

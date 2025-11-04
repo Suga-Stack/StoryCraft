@@ -174,7 +174,7 @@ SWAGGER_SETTINGS = {
 }
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),   # 短期访问 token
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=125),   # 短期访问 token
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),      # 长期刷新 token
 }
 

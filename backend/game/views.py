@@ -12,10 +12,14 @@ from gameworks.models import Gamework
 logger = logging.getLogger('django')
 
 class GameCreateView(views.APIView):
-    """创建新游戏作品"""
+    """创建新游戏作品
 
-    permission_classes = [permissions.AllowAny]
-    authentication_classes = []
+    注意：创建作品需要认证用户，否则后端无法将 author 设为合法的 User 实例。
+    因此这里要求用户已登录（IsAuthenticated）。前端在调用此接口前需先登录并携带 JWT
+    或者使用 Session cookies（项目默认认证配置）。
+    """
+
+    permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
         operation_summary="创建新游戏",

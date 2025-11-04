@@ -16,7 +16,16 @@ import { http, getUserId } from './http.js'
  * @param {string} [payload.coverUrl] - 封面 URL（可选）
  * @param {Object} [payload.initialAttributes] - 可选的初始属性覆盖
  * @param {Object} [payload.initialStatuses] - 可选的初始状态覆盖
- * @returns {Promise<{backendWork: Object, initialAttributes: Object, initialStatuses: Object}>}
+ * @returns {Promise<Object>} 后端返回的原始对象，示例结构参考 game-api.md：
+ * {
+ *   gameworkId: number,
+ *   title: string,
+ *   coverUrl: string,
+ *   description: string,
+ *   initialAttributes: Object,
+ *   initialStatuses: Object,
+ *   total_chapters: number
+ * }
  */
 export async function createWorkOnBackend(payload = {}) {
   const userId = getUserId()

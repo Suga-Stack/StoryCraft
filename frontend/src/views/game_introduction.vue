@@ -23,7 +23,7 @@ const backendWork = state.backendWork || sessionCreate?.backendWork || null
 const work = ref({
   id: backendWork?.id || 1,
   title: backendWork?.title || '锦瑟深宫',
-  coverUrl: backendWork?.coverUrl || 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=800&h=500&fit=crop',
+  coverUrl: backendWork && backendWork.coverUrl ? ("http://localhost:8000" + backendWork.coverUrl) : 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=800&h=500&fit=crop',
   authorId: backendWork?.authorId || 'user_12345',
   tags: incomingTags || backendWork?.tags || ['科幻', '冒险', '太空', '未来'],
   description: backendWork?.description || `柳晚晚穿越成后宫小透明，她把宫斗当成终身职业来经营。

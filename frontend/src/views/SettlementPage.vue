@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { saveGameData, loadGameData, refreshSlotInfos, SLOTS } from '../utils/saveLoad.js'
+import { saveGameData, loadGameData, refreshSlotInfos, deleteGameData, SLOTS } from '../utils/saveLoad.js'
 import { fetchPersonalityReportVariants } from '../service/personality.js'
 
 const router = useRouter()
@@ -26,7 +26,7 @@ const sessionData = getGameDataFromSession()
 
 // 从多个来源获取游戏数据，优先级：sessionStorage > history.state > 默认值
 const gameData = ref({
-  work: sessionData?.work || history.state?.work || { title: '锦瑟深宫', id: 1 },
+  work: sessionData?.work || history.state?.work || { title: '青云剑心录', id: 1 },
   choiceHistory: sessionData?.choiceHistory || history.state?.choiceHistory || [],
   finalAttributes: sessionData?.finalAttributes || history.state?.finalAttributes || {},
   finalStatuses: sessionData?.finalStatuses || history.state?.finalStatuses || {},
@@ -36,27 +36,15 @@ const gameData = ref({
 })
 
 // 如果没有传递真实的属性数据，才使用默认值（用于调试）
+// NOTE: Removed local mock defaults so settlement page uses backend-provided data for testing.
+// If backend does not provide finalAttributes/finalStatuses, leave them empty and
+// surface a visible warning in the UI (handled in template) or in the console.
 if (Object.keys(gameData.value.finalAttributes).length === 0) {
-  console.warn('No finalAttributes passed, using default values for debugging')
-  gameData.value.finalAttributes = {
-    '心计': 30,
-    '才情': 60,
-    '声望': 10,
-    '圣宠': 0,
-    '健康': 100
-  }
+  console.warn('SettlementPage: finalAttributes not provided by backend; leaving empty for backend testing')
 }
 
 if (Object.keys(gameData.value.finalStatuses).length === 0) {
-  console.warn('No finalStatuses passed, using default values for debugging')
-  gameData.value.finalStatuses = {
-    '姓名': '林微月',
-    '位份': '从七品选侍',
-    '年龄': 16,
-    '阵营': '无',
-    '明眸善睐': '眼波流转间易获好感',
-    '暗香盈袖': '体带天然冷梅香'
-  }
+  console.warn('SettlementPage: finalStatuses not provided by backend; leaving empty for backend testing')
 }
 
 console.log('SettlementPage - Final Game Data:', gameData.value) // 调试日志
@@ -76,6 +64,7 @@ const loadToast = ref('')
 const branchingGraph = ref({ nodes: [], edges: [] })
 const isDragging = ref(false)
 const dragNode = ref(null)
+const isBranchingFullscreen = ref(false)
 // 节点与缩略图尺寸（统一缩略图用于节点顶部）
 const THUMB_W = 160
 const THUMB_H = 96
@@ -242,8 +231,8 @@ const personalityTemplates = [
 
 // 默认个性报告
 const defaultPersonalityReport = {
-  title: '初入宫闱的谨慎新人',
-  content: '你在宫中小心翼翼，每一步都走得格外谨慎。虽然还在适应宫廷生活，但你的谨慎和观察力将会是你在深宫中生存的重要武器。',
+  title: '谨慎新人',
+  content: '你小心翼翼，每一步都走得格外谨慎。虽然还在适应星际生活，但你的谨慎和观察力将会是你在太空中生存的重要武器。',
   traits: ['小心谨慎', '善于观察', '稳重内敛', '厚积薄发'],
   scores: { 谨慎: 85, 观察力: 80, 适应力: 75, 潜力: 82 }
 }
@@ -314,13 +303,35 @@ const generateBranchingGraph = () => {
 
   // 根据用户的选择历史按顺序生成分支图
   gameData.value.choiceHistory.forEach((userChoice, historyIndex) => {
-    // 找到对应的场景
-    const scene = gameData.value.storyScenes.find(s => 
-      s.id === userChoice.sceneId || 
-      s.sceneId === userChoice.sceneId
-    )
-    
-    if (!scene || !scene.choices) return
+    // 先尝试通过记录的 sceneIndex 定位场景（更可靠，能避免后端每章复用相同 sceneId 导致的歧义）
+    let scene = null
+    try {
+      if (typeof userChoice.sceneIndex === 'number' && Array.isArray(gameData.value.storyScenes)) {
+        scene = gameData.value.storyScenes[userChoice.sceneIndex] || null
+      }
+    } catch (e) { scene = null }
+
+    // 回退到按 id/sceneId 查找（兼容旧保存格式）
+    if (!scene) {
+      scene = gameData.value.storyScenes.find(s => {
+        try { return String(s?.id) === String(userChoice.sceneId) || String(s?.sceneId) === String(userChoice.sceneId) } catch (e) { return false }
+      })
+    }
+
+    // 如果仍未找到（例如前端在生成结算数据时没有把完整场景保存到 session），生成一个轻量的占位场景
+    if (!scene) {
+      scene = {
+        id: userChoice.sceneId || (`stub-${historyIndex}`),
+        sceneId: userChoice.sceneId || null,
+        title: userChoice.sceneTitle || `第${(userChoice.chapterIndex || historyIndex + 1)}章`,
+        backgroundImage: (gameData.value.storyScenes && typeof userChoice.sceneIndex === 'number' && gameData.value.storyScenes[userChoice.sceneIndex]) ? (gameData.value.storyScenes[userChoice.sceneIndex].backgroundImage || null) : null,
+        // 如果没有可用的选择列表，则至少用用户选择构造一个选项，保证分支图能展示该节点
+        choices: (userChoice.choiceId ? [{ id: userChoice.choiceId, text: userChoice.choiceText || '已选择' }] : [])
+      }
+    }
+
+    // 如果没有任何 choices，则仍然继续（展示问号分支）
+    if (!scene || !scene.choices) scene.choices = scene.choices || []
 
   // 场景节点（选择发生的地方）
     const sceneNodeId = nodeId++
@@ -629,6 +640,27 @@ const loadGame = async (slot) => {
   }
 }
 
+const deleteGame = async (slot) => {
+  if (!confirm(`确定要删除 ${slot === 'slot6' ? '自动存档' : `存档位 ${slot.slice(-1)}`} 的存档吗？此操作不可撤销。`)) {
+    return
+  }
+  
+  try {
+    const result = await deleteGameData(gameData.value.work.id, slot)
+    if (result.success) {
+      saveToast.value = result.message
+      setTimeout(() => (saveToast.value = ''), 2000)
+      // 刷新槽位信息
+      await refreshSlotInfosData()
+    } else {
+      alert(result.message)
+    }
+  } catch (err) {
+    console.error('删除存档失败:', err)
+    alert('删除存档失败：' + err.message)
+  }
+}
+
 // 刷新槽位信息
 const refreshSlotInfosData = async () => {
   try {
@@ -724,7 +756,7 @@ onMounted(async () => {
       <button 
         class="tab-btn" 
         :class="{ active: currentView === 'branching' }"
-        @click="currentView = 'branching'"
+        @click="currentView = 'branching'; isBranchingFullscreen = true"
       >
         分支探索
       </button>
@@ -763,9 +795,60 @@ onMounted(async () => {
       </div>
 
       <!-- 分支探索图 -->
-      <div v-if="currentView === 'branching'" class="branching-content">
-            <div class="branching-graph">
-          <svg class="graph-svg" :width="graphWidth" :height="graphHeight">
+      <div v-if="currentView === 'branching'" :class="['branching-content', { 'fullscreen': isBranchingFullscreen }]">
+        <div v-if="isBranchingFullscreen" class="fullscreen-header">
+          <button class="exit-fullscreen-btn" @click="isBranchingFullscreen = false">×</button>
+        </div>
+        <div class="branching-graph" :style="{ 
+            width: isBranchingFullscreen ? 'auto' : graphWidth + 'px',
+            height: isBranchingFullscreen ? 'auto' : graphHeight + 'px',
+            minWidth: isBranchingFullscreen ? graphWidth + 'px' : 'auto',
+            minHeight: isBranchingFullscreen ? graphHeight + 'px' : 'auto',
+            maxWidth: isBranchingFullscreen ? 'none' : graphWidth + 'px',
+            maxHeight: isBranchingFullscreen ? 'none' : graphHeight + 'px'
+          }">
+          <!-- 全屏展开按钮放入图框左上角（只有在非全屏时显示） -->
+          <button v-if="!isBranchingFullscreen" class="expand-fullscreen-btn" @click="isBranchingFullscreen = true" title="全屏查看">⛶</button>
+          <svg class="graph-svg" :width="isBranchingFullscreen ? graphWidth : graphWidth" :height="graphHeight" :viewBox="isBranchingFullscreen ? `0 0 ${graphWidth} ${graphHeight}` : null" preserveAspectRatio="xMidYMid meet">
+            <defs>
+              <!-- 墨汁晕染渐变 -->
+              <radialGradient id="inkGradient" cx="30%" cy="30%" r="70%">
+                <stop offset="0%" style="stop-color:#2c1810;stop-opacity:0.9"/>
+                <stop offset="40%" style="stop-color:#4a2c1a;stop-opacity:0.7"/>
+                <stop offset="70%" style="stop-color:#8b7355;stop-opacity:0.4"/>
+                <stop offset="100%" style="stop-color:#d4c4a8;stop-opacity:0.2"/>
+              </radialGradient>
+              
+              <radialGradient id="inkGradientStart" cx="40%" cy="40%" r="80%">
+                <stop offset="0%" style="stop-color:#8b4513;stop-opacity:0.95"/>
+                <stop offset="30%" style="stop-color:#a0522d;stop-opacity:0.8"/>
+                <stop offset="60%" style="stop-color:#cd853f;stop-opacity:0.5"/>
+                <stop offset="100%" style="stop-color:#f4e4bc;stop-opacity:0.3"/>
+              </radialGradient>
+              
+              <radialGradient id="inkGradientScene" cx="35%" cy="35%" r="75%">
+                <stop offset="0%" style="stop-color:#654321;stop-opacity:0.85"/>
+                <stop offset="35%" style="stop-color:#8b7355;stop-opacity:0.7"/>
+                <stop offset="65%" style="stop-color:#b8860b;stop-opacity:0.4"/>
+                <stop offset="100%" style="stop-color:#f5f5dc;stop-opacity:0.2"/>
+              </radialGradient>
+              
+              <radialGradient id="inkGradientChoice" cx="25%" cy="25%" r="65%">
+                <stop offset="0%" style="stop-color:#8b4513;stop-opacity:0.8"/>
+                <stop offset="40%" style="stop-color:#a0522d;stop-opacity:0.6"/>
+                <stop offset="70%" style="stop-color:#cd853f;stop-opacity:0.3"/>
+                <stop offset="100%" style="stop-color:#fff8dc;stop-opacity:0.1"/>
+              </radialGradient>
+              
+              <radialGradient id="inkGradientSelected" cx="45%" cy="45%" r="85%">
+                <stop offset="0%" style="stop-color:#2c1810;stop-opacity:1"/>
+                <stop offset="25%" style="stop-color:#4a2c1a;stop-opacity:0.9"/>
+                <stop offset="50%" style="stop-color:#8b7355;stop-opacity:0.7"/>
+                <stop offset="75%" style="stop-color:#d4c4a8;stop-opacity:0.4"/>
+                <stop offset="100%" style="stop-color:#f5f5dc;stop-opacity:0.2"/>
+              </radialGradient>
+            </defs>
+            
             <!-- 边 -->
             <g class="edges">
               <line
@@ -939,15 +1022,23 @@ onMounted(async () => {
         <div class="slot-list">
           <div v-for="slot in SLOTS" :key="slot" class="slot-card">
             <div class="slot-title">{{ slot === 'slot6' ? '自动存档' : `存档位 ${slot.slice(-1)}` }}</div>
-            <div class="slot-meta" :class="{ empty: !slotInfos[slot] }">
+            <div :class="{ empty: !slotInfos[slot] }">
               <template v-if="slotInfos[slot]">
-                {{ slotInfos[slot].sceneTitle }}<br>
-                {{ new Date(slotInfos[slot].timestamp).toLocaleString() }}
+                <div class="slot-thumb" v-if="(slotInfos[slot].thumbnailData || slotInfos[slot].thumbnail || (slotInfos[slot].game_state && (slotInfos[slot].game_state.thumbnailData || slotInfos[slot].game_state.thumbnail)))">
+                  <img :src="slotInfos[slot].thumbnailData || slotInfos[slot].thumbnail || (slotInfos[slot].game_state && (slotInfos[slot].game_state.thumbnailData || slotInfos[slot].game_state.thumbnail))" alt="thumb" />
+                  <div class="thumb-meta">
+                    <div class="meta-time">{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}</div>
+                  </div>
+                </div>
+                <div class="slot-meta" v-else>
+                  {{ new Date(slotInfos[slot].timestamp).toLocaleString() }}
+                </div>
               </template>
               <template v-else>空存档位</template>
             </div>
             <div class="slot-actions">
               <button @click="saveGame(slot)">保存</button>
+              <button v-if="slotInfos[slot]" @click="deleteGame(slot)" class="delete-btn">删除</button>
             </div>
           </div>
         </div>
@@ -965,15 +1056,20 @@ onMounted(async () => {
         <div class="slot-list">
           <div v-for="slot in SLOTS" :key="slot" class="slot-card">
             <div class="slot-title">{{ slot === 'slot6' ? '自动存档' : `存档位 ${slot.slice(-1)}` }}</div>
-            <div class="slot-meta" :class="{ empty: !slotInfos[slot] }">
+            <div :class="{ empty: !slotInfos[slot] }">
               <template v-if="slotInfos[slot]">
-                {{ slotInfos[slot].sceneTitle }}<br>
-                {{ new Date(slotInfos[slot].timestamp).toLocaleString() }}
+                <div class="slot-thumb" v-if="(slotInfos[slot].thumbnail || (slotInfos[slot].game_state && slotInfos[slot].game_state.thumbnail))">
+                  <img :src="slotInfos[slot].thumbnail || (slotInfos[slot].game_state && slotInfos[slot].game_state.thumbnail)" alt="thumb" />
+                </div>
+                <div class="slot-meta" v-else>
+                  {{ new Date(slotInfos[slot].timestamp).toLocaleString() }}
+                </div>
               </template>
               <template v-else>空存档位</template>
             </div>
             <div class="slot-actions">
               <button :disabled="!slotInfos[slot]" @click="loadGame(slot)">读取</button>
+              <button v-if="slotInfos[slot]" @click="deleteGame(slot)" class="delete-btn">删除</button>
             </div>
           </div>
         </div>
@@ -1121,54 +1217,146 @@ onMounted(async () => {
   border-radius: 12px;
   padding: 1.5rem;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  position: relative;
 }
 
-.branching-header {
-  text-align: center;
-  margin-bottom: 2rem;
+.branching-content.fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  padding: 2rem;
+  z-index: 1000;
+  /* 纯色羊皮纸底色并加上微小斑点以模拟瑕疵，避免条纹 */
+  background: 
+    radial-gradient(circle at 20% 80%, rgba(101, 67, 33, 0.08) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(139, 115, 85, 0.06) 0%, transparent 50%),
+    radial-gradient(circle at 40% 40%, rgba(160, 130, 90, 0.04) 0%, transparent 50%),
+    radial-gradient(circle at 60% 30%, rgba(139, 115, 85, 0.03) 0%, transparent 40%),
+    radial-gradient(circle at 30% 70%, rgba(101, 67, 33, 0.05) 0%, transparent 45%),
+    linear-gradient(135deg, #f4f1e8 0%, #e8dcc0 30%, #f4f1e8 70%, #e8dcc0 100%);
+  background-size: 100% 100%, 100% 100%, 100% 100%, 80% 80%, 70% 70%, 100% 100%;
+  box-shadow: inset 0 0 100px rgba(139, 115, 85, 0.3);
 }
 
-.branching-header h3 {
-  color: #8B7355;
-  margin: 0 0 0.5rem 0;
+.fullscreen-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 1rem;
 }
 
-.branching-header p {
-  color: #666;
-  margin: 0;
+.exit-fullscreen-btn {
+  background: rgba(44, 24, 16, 0.8);
+  color: #f4e4bc;
+  border: 2px solid #8b7355;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  font-size: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(44, 24, 16, 0.3);
+}
+
+.exit-fullscreen-btn:hover {
+  background: rgba(44, 24, 16, 0.9);
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(44, 24, 16, 0.4);
+}
+
+.expand-fullscreen-btn {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: rgba(44, 24, 16, 0.8);
+  color: #f4e4bc;
+  border: 2px solid #8b7355;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(44, 24, 16, 0.3);
+  z-index: 10;
+}
+
+.expand-fullscreen-btn:hover {
+  background: rgba(44, 24, 16, 0.9);
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(44, 24, 16, 0.4);
 }
 
 .branching-graph {
   position: relative;
-  height: 600px;
+  height: calc(100vh - 200px);
   overflow: auto;
   border: 1px solid #eee;
   border-radius: 8px;
+  flex: 1;
+}
+
+.branching-content.fullscreen .branching-graph {
+  flex: 1;
+  width: auto;
+  min-width: 100%;
+  min-height: 100%;
+  border: none;
+  border-radius: 0;
+  overflow: auto;
+  display: flex;
+  justify-content: flex-start;
+  align-items: flex-start;
+  padding: 1rem;
 }
 
 .graph-svg {
   cursor: grab;
   display: block;
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  min-width: 100%;
+  min-height: 100%;
+  flex-shrink: 0;
 }
 
 .edge-line {
-  stroke: #f0cfcf; /* light base for unselected look, overridden by selected/unselected classes */
+  stroke: #8b7355;
   stroke-width: 2;
-  opacity: 0.7;
+  opacity: 0.6;
 }
 
 .edge-selected {
-  /* 更鲜艳的同色系高亮色（基于主题色 #d4a5a5） */
-  stroke: #e07a7a;
-  stroke-width: 3.5;
-  opacity: 0.98;
+  stroke: #2c1810;
+  stroke-width: 3;
+  opacity: 0.9;
 }
 
 .edge-unselected {
-  /* 更清晰的未选中线条：浅粉色虚线，稍粗，明显但不抢眼 */
-  stroke: #f5dcdc;
-  stroke-width: 2;
-  opacity: 0.7;
+  /* 未探索的分支：提高对比度以便更清晰可见（略带虚线样式） */
+  stroke: #6b8aa4;
+  stroke-width: 1.6;
+  opacity: 0.9;
   stroke-dasharray: 6,4;
 }
 
@@ -1177,67 +1365,79 @@ onMounted(async () => {
 }
 
 .node-rect {
-  fill: rgba(255,255,255,0.92);
-  stroke: #d4a5a5;
-  stroke-width: 2;
+  fill: url(#inkGradient);
+  stroke: #2c1810;
+  stroke-width: 1.5;
+  filter: drop-shadow(0 2px 4px rgba(44, 24, 16, 0.3));
 }
 
 .node-start .node-rect {
-  /* 使用粉色系主题的起始节点背景 */
-  fill: #fff2f2;
-  stroke: #e07a7a;
+  fill: url(#inkGradientStart);
+  stroke: #8b4513;
+  stroke-width: 2;
 }
 
 .node-scene .node-rect {
-  /* 场景节点使用柔和粉色底，与主题色系协调 */
-  fill: #fff5f5;
-  stroke: #d4a5a5;
+  fill: url(#inkGradientScene);
+  stroke: #654321;
+  stroke-width: 1.5;
 }
 
 .node-choice .node-rect {
-  fill: #fff3e0;
-  stroke: #ff9800;
+  fill: url(#inkGradientChoice);
+  stroke: #8b4513;
+  stroke-width: 1.5;
 }
 
 .node-choice-selected .node-rect {
-  /* 选中选择使用更鲜艳的粉色高亮 */
-  fill: #ffecec;
-  stroke: #e07a7a;
-  stroke-width: 3;
+  fill: url(#inkGradientSelected);
+  stroke: #2c1810;
+  stroke-width: 2.5;
 }
 
 .node-choice-unselected .node-rect {
-  fill: #fafafa;
-  stroke: #bdbdbd;
+  fill: url(#inkGradientChoice);
+  stroke: #8b4513;
+  stroke-width: 1.5;
   stroke-dasharray: 5,5;
 }
 
 .node-result .node-rect {
-  /* 主线/结果节点使用主题系的暖粉底 */
-  fill: #fff0f0;
-  stroke: #e07a7a;
+  fill: url(#inkGradientScene);
+  stroke: #654321;
+  stroke-width: 1.5;
 }
 
 .node-question .node-rect {
-  fill: #ffebee;
-  stroke: #f44336;
+  fill: url(#inkGradientChoice);
+  stroke: #2c1810;
+  stroke-width: 1.5;
   stroke-dasharray: 3,3;
 }
 
 .node-end .node-rect {
-  fill: #fce4ec;
-  stroke: #e91e63;
+  fill: url(#inkGradientStart);
+  stroke: #8b4513;
+  stroke-width: 2;
 }
 
 .node-title {
-  fill: #333;
+  fill: #2c1810;
   font-size: 12px;
   font-weight: 600;
+  text-shadow: 0 1px 2px rgba(244, 228, 188, 0.8);
+}
+
+.node-question .node-title {
+  fill: #000000;
+  font-size: 16px;
+  font-weight: bold;
 }
 
 .node-desc {
-  fill: #666;
+  fill: #654321;
   font-size: 10px;
+  text-shadow: 0 1px 2px rgba(244, 228, 188, 0.6);
 }
 
 /* 个性报告 */
@@ -1493,7 +1693,7 @@ onMounted(async () => {
 .slot-list { 
   display:grid; 
   grid-template-columns: repeat(3, 1fr); 
-  gap: 0.75rem; 
+  gap: 0.5rem; 
   margin-top: 0.5rem; 
   flex: 1 1 auto; 
   overflow-y: auto; 
@@ -1505,7 +1705,7 @@ onMounted(async () => {
   background:#ffffff; 
   border:1px solid rgba(212,165,165,0.2); 
   border-radius:8px; 
-  padding:0.75rem; 
+  padding:0.5rem; 
   display:flex; 
   flex-direction:column; 
   gap:0.5rem;
@@ -1545,6 +1745,17 @@ onMounted(async () => {
   background: rgba(212,165,165,0.22);
 }
 
+.slot-actions button.delete-btn {
+  background: rgba(220, 53, 69, 0.15);
+  color: #dc3545;
+  border: 1px solid rgba(220, 53, 69, 0.35);
+  margin-left: 0.5rem;
+}
+
+.slot-actions button.delete-btn:hover {
+  background: rgba(220, 53, 69, 0.25);
+}
+
 .slot-actions button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -1552,6 +1763,39 @@ onMounted(async () => {
 
 .slot-actions button:disabled:hover {
   background: rgba(212,165,165,0.15);
+}
+
+/* 缩略图样式：用于在存档槽位显示保存时的背景图缩略 */
+.slot-thumb {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #f6f6f6;
+}
+.slot-thumb img {
+  width: 100%;
+  height: 80px;
+  object-fit: cover;
+  display: block;
+  border-radius: 6px 6px 0 0;
+}
+
+.thumb-meta { 
+  width: 100%; 
+  background: rgba(0, 0, 0, 0.5); 
+  color: white; 
+  padding: 0.4rem; 
+  text-align: left; 
+  border-radius: 0 0 6px 6px; 
+}
+.thumb-meta .meta-time { font-size: 0.78rem; color: white; }
+
+@media (max-width: 720px) {
+  .slot-list { grid-template-columns: 1fr; }
+  .slot-thumb img { height: 70px }
 }
 
 /* Toast 提示 */
