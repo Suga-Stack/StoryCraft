@@ -8,10 +8,14 @@
           <i class="search-icon">🔍</i>
         </button>
         <button @click="openCreateFolderDialog" class="icon-btn" v-if="!currentFolder">
-          <i class="add-folder-icon">📁+</i>
+          <i class="add-folder-icon">+</i>
         </button>
         <button @click="goBack" class="icon-btn" v-if="currentFolder">
           <i class="back-icon">←</i>
+        </button>
+        <!-- 批量管理按钮 -->
+        <button @click="toggleBatchMode" class="icon-btn">
+          <i class="batch-icon">{{ isBatchMode ? '✓' : '✎' }}</i>
         </button>
       </div>
     </header>
@@ -29,6 +33,19 @@
       </button>
     </div>
 
+    <!-- 批量操作栏 -->
+    <div class="batch-actions" v-if="isBatchMode && selectedBooks.length">
+      <button @click="showAddToFolderDialog = true" class="batch-btn">
+        加入收藏夹
+      </button>
+      <button @click="removeSelectedFromFolder" class="batch-btn remove-btn">
+        从收藏夹移除
+      </button>
+      <button @click="cancelBatchMode" class="batch-btn cancel-btn">
+        取消
+      </button>
+    </div>
+
     <!-- 收藏夹列表（仅在书架根目录显示） -->
     <div class="folders-section" v-if="!currentFolder && folders.length">
       <h2 class="section-title">我的收藏夹</h2>
@@ -38,9 +55,6 @@
           v-for="folder in folders" 
           :key="folder.id"
           @click="enterFolder(folder)"
-          @dragover.prevent="handleDragOver"
-          @drop.prevent="handleDrop(folder)"
-          :class="{ 'folder-highlight': isDragging }"
         >
           <div class="folder-icon">📁</div>
           <div class="folder-name">{{ folder.name }}</div>
@@ -63,20 +77,43 @@
       </h2>
       
       <div class="books-grid" v-if="filteredBooks.length">
-        <div class="book-item" v-for="book in filteredBooks" :key="book.id"  draggable="true" @dragstart="handleDragStart(book, $event)"  @dragend="handleDragEnd">
-          <div class="book-cover" :style="{ backgroundImage: `url(${book.coverUrl})` }"></div>
+        <div 
+          class="book-item" 
+          v-for="book in filteredBooks" 
+          :key="book.id"
+          @click="isBatchMode ? toggleSelectBook(book) : openReader(book.id)"
+        >
+          <!-- 批量选择框 -->
+          <div class="batch-select" v-if="isBatchMode">
+            <input 
+              type="checkbox" 
+              v-model="selectedBooks" 
+              :value="book"
+              @click.stop
+            >
+          </div>
+          
+          <div class="book-cover" :style="{ backgroundImage: `url(${book.cover})` }"></div>
             <div class="book-info-grid">
               <div class="book-info">
                 <div class="book-title">{{ book.title }}</div>
-                <div class="book-author">{{ book.author }}</div>
               </div>
               
-              <div class="btn">
+              <div class="btn-group">
+                <!-- 收藏状态按钮 -->
                 <van-icon 
                   :name="book.isFavorite ? 'star' : 'star-o'" 
                   class="favorite-icon"
                   :class="{ active: book.isFavorite }"
                   @click.stop="handleFavorite(book)"
+                />
+                
+                <!-- 收藏夹操作按钮 -->
+                <van-icon 
+                  :name="book.folderId ? 'clear' : 'plus'" 
+                  class="folder-action-icon"
+                  :class="{ 'in-folder': book.folderId }"
+                  @click.stop="handleFolderAction(book)"
                 />
               </div>
             </div>
@@ -87,6 +124,23 @@
       <div class="empty-state" v-if="!filteredBooks.length">
         <p>{{ searchQuery ? '没有找到匹配的书籍' : '这里还是空的哦' }}</p>
         <p v-if="!currentFolder">添加书籍到书架吧~</p>
+      </div>
+    </div>
+
+    <!-- 在模板中添加移除确认对话框 -->
+    <div class="dialog-overlay" v-if="showRemoveFromFolderDialog">
+      <div class="dialog">
+        <h3>从收藏夹移除</h3>
+        <p>确定要将《{{ currentBook?.title }}》从收藏夹中移除吗？</p>
+        <div class="dialog-actions">
+          <button @click="showRemoveFromFolderDialog = false" class="cancel-btn">取消</button>
+          <button 
+            @click="confirmRemoveFromFolder(); showRemoveFromFolderDialog = false" 
+            class="confirm-btn"
+          >
+            确认移除
+          </button>
+        </div>
       </div>
     </div>
 
@@ -113,7 +167,38 @@
       </div>
     </div>
 
-   <!-- 底部导航栏 -->
+    <!-- 添加到收藏夹对话框 -->
+    <div class="dialog-overlay" v-if="showAddToFolderDialog">
+      <div class="dialog">
+        <h3>{{ currentBook ? '添加到收藏夹' : '批量添加到收藏夹' }}</h3>
+        <select 
+          v-model="selectedFolderId" 
+          class="folder-select"
+          @change.stop
+        >
+          <option value="">-- 选择收藏夹 --</option>
+          <option 
+            v-for="folder in folders" 
+            :key="folder.id" 
+            :value="folder.id"
+          >
+            {{ folder.name }}
+          </option>
+        </select>
+        <div class="dialog-actions">
+          <button @click="showAddToFolderDialog = false; resetFolderDialog()" class="cancel-btn">取消</button>
+          <button 
+            @click="confirmAddToFolder(); resetFolderDialog()" 
+            class="confirm-btn"
+            :disabled="!selectedFolderId"
+          >
+            确认添加
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部导航栏 -->
     <van-tabbar v-model="activeTab" @change="handleTabChange" safe-area-inset-bottom>
       <van-tabbar-item icon="home-o" name="bookstore">书城</van-tabbar-item>
       <van-tabbar-item icon="edit" name="create">创作</van-tabbar-item>
@@ -164,7 +249,7 @@ const books = ref([
     title: '城市微光', 
     author: '王五', 
     cover: bookCover3,
-    isFavorite: false,
+    isFavorite: true,
     folderId: null
   },
   { 
@@ -180,7 +265,7 @@ const books = ref([
     title: "职场生存指南",
     author: "钱七",
     cover: bookCover5,
-    isFavorite: false,
+    isFavorite: true,
     folderId: null  
   },
   {
@@ -188,7 +273,7 @@ const books = ref([
     title: "科幻世界",
     author: "孙八",
     cover: bookCover2,
-    isFavorite: false,
+    isFavorite: true,
     folderId: null  
   },
   {
@@ -196,7 +281,7 @@ const books = ref([
     title: "美食日记",
     author: "周九",
     cover: bookCover1,
-    isFavorite: false,
+    isFavorite: true,
     folderId: null  
   },
   {
@@ -204,7 +289,7 @@ const books = ref([
     title: "山间小屋",
     author: "吴十",
     cover: bookCover6,
-    isFavorite: false,
+    isFavorite: true,
     folderId: null
   },
   {
@@ -212,7 +297,7 @@ const books = ref([
     title: "编程入门指南",
     author: "郑十一",
     cover: bookCover7,
-    isFavorite: false,
+    isFavorite: true,
     folderId: null
   },
   {
@@ -220,7 +305,7 @@ const books = ref([
     title: "绿植养护大全",
     author: "冯十二",
     cover: bookCover8,
-    isFavorite: false,
+    isFavorite: true,
     folderId: null
   }
 ]);
@@ -232,11 +317,10 @@ const searchQuery = ref('');
 const showCreateFolderDialog = ref(false);
 const newFolderName = ref('');
 const selectedFolderId = ref('');
-
-// 新增拖拽相关状态
-const isDragging = ref(false);
-const draggedBook = ref(null);
-
+const showAddToFolderDialog = ref(false);
+const currentBook = ref(null);
+const isBatchMode = ref(false);
+const selectedBooks = ref([]);
 
 // 底部导航
 const activeTab = ref('bookshelf');
@@ -298,24 +382,55 @@ const filteredBooks = computed(() => {
   return result;
 });
 
-// 检查书籍是否被收藏
-const isBookFavorite = (bookId) => {
-  const book = books.value.find(b => b.id === bookId);
-  return book ? book.isFavorite : false;
-};
-
 // 获取收藏夹中的书籍数量
 const getFolderBookCount = (folderId) => {
   return books.value.filter(book => book.folderId === folderId).length;
 };
 
 // 切换书籍收藏状态
-const toggleFavorite = (book) => {
+const handleFavorite = (book) => {
   book.isFavorite = !book.isFavorite;
   // 如果取消收藏，同时从收藏夹中移除
   if (!book.isFavorite) {
     book.folderId = null;
   }
+  saveData();
+};
+
+
+// 处理收藏夹操作（添加/移除）
+const handleFolderAction = (book) => {
+  if (!book.isFavorite) {
+    alert('请先收藏该书籍');
+    return;
+  }
+  
+  if (book.folderId) {
+    // 移除出收藏夹 - 改为显示对话框
+    currentBook.value = book;
+    showRemoveFromFolderDialog.value = true; // 新增一个对话框状态
+  } else {
+    // 添加到收藏夹（保持不变）
+    currentBook.value = book;
+    showAddToFolderDialog.value = true;
+  }
+};
+
+// 确认添加到收藏夹
+const confirmAddToFolder = () => {
+  if (!selectedFolderId.value) return;
+  
+  if (currentBook.value) {
+    // 单个添加
+    currentBook.value.folderId = selectedFolderId.value;
+  } else if (selectedBooks.value.length) {
+    // 批量添加
+    selectedBooks.value.forEach(book => {
+      book.folderId = selectedFolderId.value;
+    });
+  }
+  
+  showAddToFolderDialog.value = false;
   saveData();
 };
 
@@ -367,54 +482,58 @@ const deleteFolder = (folderId) => {
   }
 };
 
-// 将书籍添加到收藏夹
-const addToFolder = (bookId, folderId) => {
-  const book = books.value.find(b => b.id === bookId);
-  if (book) {
-    book.folderId = folderId;
-    saveData(); // 保存到本地存储
+// 批量管理相关函数
+const toggleBatchMode = () => {
+  isBatchMode.value = !isBatchMode.value;
+  if (!isBatchMode.value) {
+    selectedBooks.value = [];
   }
 };
 
-// 处理拖拽开始
-const handleDragStart = (book, event) => {  // 显式接收 event 参数
-  // 只有已收藏的书籍才能被拖拽
-  if (!book.isFavorite) return;
-  
-  isDragging.value = true;
-  draggedBook.value = book;
-
-  event.dataTransfer.setData('text/plain', book.id.toString());
-
-  const dragImage = new Image();
-  dragImage.src = book.coverUrl;
-  event.dataTransfer.setDragImage(dragImage, 0, 0);
+const toggleSelectBook = (book) => {
+  const index = selectedBooks.value.findIndex(b => b.id === book.id);
+  if (index > -1) {
+    selectedBooks.value.splice(index, 1);
+  } else {
+    selectedBooks.value.push(book);
+  }
 };
 
-// 处理拖拽结束
-const handleDragEnd = () => {
-  isDragging.value = false;
-  draggedBook.value = null;
+const cancelBatchMode = () => {
+  isBatchMode.value = false;
+  selectedBooks.value = [];
 };
 
-// 处理拖拽经过
-const handleDragOver = (event) => {
-  event.preventDefault(); // 允许放置
-};
-
-// 处理放置
-const handleDrop = (folder) => {
-  if (draggedBook.value) {
-    // 将书籍添加到目标收藏夹
-    addToFolder(draggedBook.value.id, folder.id);
-    // 显示提示信息
-    alert(`已将《${draggedBook.value.title}》添加到${folder.name}`);
+const removeSelectedFromFolder = () => {
+  if (confirm(`确定要将选中的${selectedBooks.value.length}本书从收藏夹中移除吗？`)) {
+    selectedBooks.value.forEach(book => {
+      book.folderId = null;
+    });
+    selectedBooks.value = [];
+    saveData();
   }
 };
 
 // 打开阅读器
 const openReader = (bookId) => {
   router.push(`/reader/${bookId}`);
+};
+
+const showRemoveFromFolderDialog = ref(false);
+
+// 添加确认移除的方法
+const confirmRemoveFromFolder = () => {
+  if (currentBook.value) {
+    currentBook.value.folderId = null;
+    saveData();
+  }
+};
+
+// 在resetFolderDialog中添加重置
+const resetFolderDialog = () => {
+  currentBook.value = null;
+  selectedFolderId.value = '';
+  showRemoveFromFolderDialog.value = false; // 新增
 };
 </script>
 
@@ -586,20 +705,17 @@ const openReader = (bookId) => {
   grid-template-columns: 3fr 1fr;
 }
 
-.favorite-btn {
-  border: none;
-  background: none;
-  width: 35px;
-  height: 35px;
-  border-radius: 50%;
-  font-size: 22px;
-  cursor: pointer;
-  transition: all 0.2s;
+.favorite-icon {
+  font-size: 18px;
+  color: #888;
+  margin-left: 12px;
+  flex-shrink: 0;
 }
 
-.favorite-btn.active {
-  color: #ffd700;
+.favorite-icon.active {
+  color: #ffcc00;
 }
+
 
 .book-title {
   font-size: 14px;
@@ -654,6 +770,9 @@ const openReader = (bookId) => {
   color: #333;
 }
 
+.folder-select{
+  padding: 10px 0;
+}
 .folder-input {
   width: 100%;
   padding: 10px;
@@ -669,11 +788,19 @@ const openReader = (bookId) => {
   gap: 10px;
 }
 
+.dialog-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 5px;
+}
+
 .cancel-btn, .confirm-btn {
+  font-size: 16px;
   padding: 8px 16px;
   border-radius: 4px;
   border: none;
   cursor: pointer;
+  flex: 1;
 }
 
 .cancel-btn {
@@ -681,13 +808,64 @@ const openReader = (bookId) => {
 }
 
 .confirm-btn {
-  background-color: #1890ff;
+  color: white;
+  background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
+}
+
+.btn-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.folder-action-icon {
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.folder-action-icon.in-folder {
+  color: #ff4d4f;
+}
+
+.batch-actions {
+  display: flex;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid #eee;
+  margin-bottom: 15px;
+}
+
+.batch-btn {
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  background: #d4a5a5;
   color: white;
 }
 
-.confirm-btn:disabled {
-  background-color: #ccc;
-  cursor: not-allowed;
+.batch-btn.remove-btn {
+  background: #d17d7d;
+}
+
+.batch-btn.cancel-btn {
+  background: #978787;
+}
+
+.batch-select {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  z-index: 10;
+}
+
+.book-item {
+  position: relative;
+  cursor: pointer;
+  border-radius: 8px;
+  overflow: hidden;
+  height: 150px;
 }
 
 @media (max-width: 768px) {

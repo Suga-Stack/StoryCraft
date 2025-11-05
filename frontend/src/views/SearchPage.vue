@@ -601,6 +601,16 @@ const formatNumber = (num) => {
   border-radius: 50%;
 }
 
+.rank-number.top3:nth-child(1) {
+  background-color: #d4a5a5; /* 金牌 */
+}
+.rank-number.top3:nth-child(2) {
+  background-color: #c0c0c0; /* 银牌 */
+}
+.rank-number.top3:nth-child(3) {
+  background-color: #cd7f32; /* 铜牌 */
+}
+
 .item-cover {
   width: 120px;
   height: 80px;

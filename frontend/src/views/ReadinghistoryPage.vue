@@ -233,7 +233,7 @@ const handleFavorite = (book) => {
 }
 
 .favorite-icon {
-  font-size: 22px;
+  font-size: 18px;
   color: #888;
   margin-left: 12px;
   flex-shrink: 0;

@@ -252,7 +252,7 @@ const handlePublish = (book) => {
 }
 
 .favorite-icon {
-  font-size: 22px;
+  font-size: 18px;
   color: #888;
   margin-left: 12px;
   flex-shrink: 0;
@@ -264,13 +264,13 @@ const handlePublish = (book) => {
 
 
 .visibility-icon {
-  font-size: 22px;
+  font-size: 20px;
   color: #888;
   margin-left: 12px;
   flex-shrink: 0;
 }
 
 .visibility-icon.active {
-  color: #007aff;  
+  color: #b88484;  
 }
 </style>
