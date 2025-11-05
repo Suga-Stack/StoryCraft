@@ -79,6 +79,9 @@ import bookCover2 from '../assets/book2.jpg';
 import bookCover3 from '../assets/book3.jpg';
 import bookCover4 from '../assets/book4.jpg';
 import bookCover5 from '../assets/book5.jpg';
+import bookCover6 from '../assets/book6.jpg'; 
+import bookCover7 from '../assets/book7.jpg'; 
+import bookCover8 from '../assets/book8.jpg';
 
 // 模拟热门作品数据
 const hotBooks = ref([
@@ -131,6 +134,27 @@ const recommendedBooks = ref([
     author: "周九",
     cover: bookCover1,
     tags: ["美食", "生活"]
+  },
+  {
+    id: 8,
+    title: "山间小屋",
+    author: "吴十",
+    cover: bookCover6,
+    tags: ["自然", "散文"]
+  },
+  {
+    id: 9,
+    title: "编程入门指南",
+    author: "郑十一",
+    cover: bookCover7,
+    tags: ["编程", "技术"]
+  },
+  {
+    id: 10,
+    title: "绿植养护大全",
+    author: "冯十二",
+    cover: bookCover8,
+    tags: ["绿植", "园艺"]
   }
 ]);
 

@@ -88,7 +88,7 @@
             >
               <!-- 排名标识 -->
               <div class="rank-number" :class="{ top3: index < 3 }">
-                {{ (currentPage - 1) * pageSize + index + 1 }}
+                  {{ (currentPage - 1) * pageSize + index + 1 }}
               </div>
               
               <!-- 封面 -->
@@ -131,6 +131,52 @@
             :show-page-size="false"
             @change="handlePageChange"
           />
+
+          <div class="pagination-buttons">
+            <van-button 
+              type="primary" 
+              size="small"
+              class="pre-btn"
+              @click="handlePrevPage"
+              :disabled="currentPage === 1"
+            >
+              上一页
+            </van-button>
+            <van-button 
+              type="primary" 
+              size="small"
+              class="next-btn"
+              @click="handleNextPage"
+              :disabled="currentPage >= totalPages"
+            >
+              下一页
+            </van-button>
+          </div>
+
+          <div class="page-jump">
+            <span class="page-info">
+              {{ currentPage }} / {{ totalPages }}
+            </span>
+            <div class="jump-controls">
+              <van-input
+                v-model="jumpPage"
+                type="number"
+                placeholder="页码"
+                class="page-input"
+                :max="totalPages"
+                :min="1"
+                @keyup.enter="handleJump"
+              />
+              <van-button 
+                type="primary" 
+                size="small"
+                class="jump-btn"
+                @click="handleJump"
+              >
+                跳转
+              </van-button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -179,7 +225,6 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { Search as VanSearch, Icon, Tag, Empty, Image as VanImage, Pagination } from 'vant'
 
 // 路由实例
 const router = useRouter()
@@ -193,6 +238,7 @@ const searchResults = ref([])
 const currentTab = ref('total') // total, month, week, rating
 const currentPage = ref(1)
 const pageSize = ref(20)
+const jumpPage = ref('')
 
 // 生成模拟数据
 const generateRankData = (type, count = 50) => {
@@ -283,14 +329,57 @@ const switchTab = (tab) => {
   currentPage.value = 1 // 切换标签时重置到第一页
 }
 
-// 页面变更
-const handlePageChange = (page) => {
-  currentPage.value = page
-  // 滚动到排行榜顶部
+// 计算总页数
+const totalPages = computed(() => {
+  return Math.ceil(totalItems.value / pageSize.value) || 1
+})
+
+// 上一页
+const handlePrevPage = () => {
+  if (currentPage.value > 1) {
+    currentPage.value--
+    scrollToTop()
+  }
+}
+
+// 下一页
+const handleNextPage = () => {
+  if (currentPage.value < totalPages.value) {
+    currentPage.value++
+    scrollToTop()
+  }
+}
+
+// 提取滚动到顶部的逻辑为共用方法
+const scrollToTop = () => {
   const listWrapper = document.querySelector('.ranking-list-wrapper')
   if (listWrapper) {
     listWrapper.scrollTop = 0
   }
+}
+
+const handlePageChange = (page) => {
+  currentPage.value = page
+  scrollToTop()
+}
+
+// 处理页码跳转
+const handleJump = () => {
+  // 验证输入的页码是否有效
+  const page = parseInt(jumpPage.value, 10)
+  if (
+    !isNaN(page) && 
+    page >= 1 && 
+    page <= totalPages.value && 
+    page !== currentPage.value
+  ) {
+    currentPage.value = page
+    scrollToTop()
+  } else {
+    showToast('请输入有效的页码')
+  }
+  // 清空输入框
+  jumpPage.value = ''
 }
 
 // 页面挂载时加载搜索历史
@@ -445,9 +534,6 @@ const formatNumber = (num) => {
 }
 
 /* 排行榜通用样式 */
-.rankings {
-  padding-bottom: 20px;
-}
 
 .ranking-section {
   background-color: #fff;
@@ -467,7 +553,7 @@ const formatNumber = (num) => {
 
 /* 可滚动的排行榜列表容器 */
 .ranking-list-wrapper {
-  max-height: 500px;
+  max-height: 610px;
   overflow-y: auto;
   margin-bottom: 16px;
   scrollbar-width: thin;
@@ -515,21 +601,18 @@ const formatNumber = (num) => {
   border-radius: 50%;
 }
 
-/* 前三名颜色 */
-.ranking-item:nth-child(1) .rank-number.top3 {
-  background-color: #ff4d4f;
+.rank-number.top3:nth-child(1) {
+  background-color: #d4a5a5; /* 金牌 */
 }
-
-.ranking-item:nth-child(2) .rank-number.top3 {
-  background-color: #faad14;
+.rank-number.top3:nth-child(2) {
+  background-color: #c0c0c0; /* 银牌 */
 }
-
-.ranking-item:nth-child(3) .rank-number.top3 {
-  background-color: #1890ff;
+.rank-number.top3:nth-child(3) {
+  background-color: #cd7f32; /* 铜牌 */
 }
 
 .item-cover {
-  width: 60px;
+  width: 120px;
   height: 80px;
   border-radius: 4px;
   flex-shrink: 0;
@@ -574,10 +657,77 @@ const formatNumber = (num) => {
 }
 
 /* 分页样式 */
-.pagination {
+.pagination-buttons {
   display: flex;
   justify-content: center;
-  padding: 10px 0;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.van-button_content{
+  color: white;
+  font-size: 14px;
+  width: 100%;
+  background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
+  border: none;
+}
+
+.pagination {
+  padding: 0 0 10px 0;
+}
+
+::v-deep .pre-btn,
+::v-deep .next-btn {
+  color: white;
+  font-size: 14px;
+  width: 20%;
+  background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
+  border: none;
+}
+
+::v-deep .pre-btn:disabled,
+::v-deep .next-btn:disabled {
+  background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+
+/* 页码跳转区域样式 */
+.page-jump {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 15px;
+  margin-top: 10px;
+  padding: 5px 0;
+}
+
+.page-info {
+  font-size: 14px;
+  color: #666;
+}
+
+.jump-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.page-input {
+  width: 80px;
+  min-height: 32px; 
+}
+
+.jump-btn{
+  color: white;
+  font-size: 14px;
+  width: 50px;
+  background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
+  border: none;
+}
+
+.page-input {
+  width: 80px;
 }
 
 /* 搜索结果样式 */
