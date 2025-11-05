@@ -9,7 +9,7 @@ import {
   Button, Cell, CellGroup, Tabbar, TabbarItem, NavBar, 
   Field, Toast, Tabs, Tab, List, Grid, GridItem, Empty, 
   Icon, RadioGroup, Radio, Tag, Dialog, Search,
-  Swipe, SwipeItem, Divider, Loading
+  Swipe, SwipeItem, Divider, Loading, Image
 } from 'vant'
 import 'vant/lib/index.css'
 
@@ -41,6 +41,7 @@ app.use(Swipe)
 app.use(SwipeItem)
 app.use(Divider)
 app.use(Loading)
+app.use(Image)
 
 // 2. 注册路由和状态管理
 app.use(router)

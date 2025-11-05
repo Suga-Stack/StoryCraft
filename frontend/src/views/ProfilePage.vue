@@ -32,21 +32,13 @@
 
       <!-- 性别信息 -->
       <van-cell 
-        title="性别" 
+        title="性别及偏好" 
         :value="userGender"
         icon="user"
         is-link
         @click="navigateToPreferences"
       />
 
-      <!-- 偏好标签 -->
-      <van-cell 
-        title="偏好标签" 
-        value="查看偏好"
-        icon="tag"
-        is-link
-        @click="navigateToPreferences"
-      />
     </van-cell-group>
 
     <!-- 阅读历史区域 -->
@@ -291,6 +283,14 @@ const handleTabChange = (tabName) => {
 .edit-icon {
   color: #888;
   cursor: pointer;
+}
+
+::v-deep .van-dialog__confirm {
+  color: white;
+  font-size: 16px;
+  width: 100%;
+  background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
+  border: none;
 }
 
 /* 积分样式 */

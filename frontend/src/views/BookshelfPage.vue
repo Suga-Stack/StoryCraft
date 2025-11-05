@@ -72,13 +72,12 @@
               </div>
               
               <div class="btn">
-                <button 
-                  @click.stop="toggleFavorite(book)" 
-                  class="favorite-btn"
-                  :class="{ active: isBookFavorite(book.id) }"
-                >
-                  {{ isBookFavorite(book.id) ? '★' : '☆' }}
-                </button>
+                <van-icon 
+                  :name="book.isFavorite ? 'star' : 'star-o'" 
+                  class="favorite-icon"
+                  :class="{ active: book.isFavorite }"
+                  @click.stop="handleFavorite(book)"
+                />
               </div>
             </div>
           </div>
@@ -130,6 +129,10 @@ import bookCover1 from '../assets/book1.jpg';
 import bookCover2 from '../assets/book2.jpg';
 import bookCover3 from '../assets/book3.jpg';
 import bookCover4 from '../assets/book4.jpg';
+import bookCover5 from '../assets/book5.jpg';
+import bookCover6 from '../assets/book6.jpg';
+import bookCover7 from '../assets/book7.jpg';
+import bookCover8 from '../assets/book8.jpg';
 
 // 路由实例
 const router = useRouter();
@@ -144,15 +147,15 @@ const books = ref([
     id: 1, 
     title: '星辰大海', 
     author: '张三', 
-    coverUrl: bookCover1,
+    cover: bookCover1,
     isFavorite: true,
-    folderId: null
+    folderId: 1
   },
   { 
     id: 2, 
     title: '时光旅行者', 
     author: '李四', 
-    coverUrl: bookCover2,
+    cover: bookCover2,
     isFavorite: true,
     folderId: 1
   },
@@ -160,7 +163,7 @@ const books = ref([
     id: 3, 
     title: '城市微光', 
     author: '王五', 
-    coverUrl: bookCover3,
+    cover: bookCover3,
     isFavorite: false,
     folderId: null
   },
@@ -168,8 +171,56 @@ const books = ref([
     id: 4, 
     title: '青春物语', 
     author: '赵六', 
-    coverUrl: bookCover4,
+    cover: bookCover4,
     isFavorite: true,
+    folderId: null
+  },
+  {
+    id: 5,
+    title: "职场生存指南",
+    author: "钱七",
+    cover: bookCover5,
+    isFavorite: false,
+    folderId: null  
+  },
+  {
+    id: 6,
+    title: "科幻世界",
+    author: "孙八",
+    cover: bookCover2,
+    isFavorite: false,
+    folderId: null  
+  },
+  {
+    id: 7,
+    title: "美食日记",
+    author: "周九",
+    cover: bookCover1,
+    isFavorite: false,
+    folderId: null  
+  },
+  {
+    id: 8,
+    title: "山间小屋",
+    author: "吴十",
+    cover: bookCover6,
+    isFavorite: false,
+    folderId: null
+  },
+  {
+    id: 9,
+    title: "编程入门指南",
+    author: "郑十一",
+    cover: bookCover7,
+    isFavorite: false,
+    folderId: null
+  },
+  {
+    id: 10,
+    title: "绿植养护大全",
+    author: "冯十二",
+    cover: bookCover8,
+    isFavorite: false,
     folderId: null
   }
 ]);
