@@ -259,11 +259,7 @@ const handleRegister = async () => {
       email_code: formData.value.email_code
     });
 
-<<<<<<< HEAD
-    if (response.status === 201) {
-=======
     if (response.code === 201) {
->>>>>>> pq/app-frontend
       router.push('/preferences');
     } else {
       // 处理正常响应中的错误信息

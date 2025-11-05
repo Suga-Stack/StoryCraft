@@ -60,7 +60,7 @@
           <div class="folder-name">{{ folder.name }}</div>
           <div class="folder-count">{{ getFolderBookCount(folder.id) }}本</div>
           <span 
-            @click.stop="deleteFolder(folder.id)" 
+            @click.stop="openDeleteFolderDialog(folder.id)" 
             class="folder-delete-icon"
           >
             x
@@ -193,6 +193,23 @@
             :disabled="!selectedFolderId"
           >
             确认添加
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 删除收藏夹对话框 -->
+    <div class="dialog-overlay" v-if="showDeleteFolderDialog">
+      <div class="dialog">
+        <h3>删除收藏夹</h3>
+        <p>确定要删除这个收藏夹吗？里面的书籍会回到书架。</p>
+        <div class="dialog-actions">
+          <button @click="showDeleteFolderDialog = false" class="cancel-btn">取消</button>
+          <button 
+            @click="confirmDeleteFolder(); showDeleteFolderDialog = false" 
+            class="confirm-btn"
+          >
+            确认删除
           </button>
         </div>
       </div>
@@ -479,6 +496,34 @@ const deleteFolder = (folderId) => {
     // 删除收藏夹
     folders.value = folders.value.filter(folder => folder.id !== folderId);
     saveData();
+  }
+};
+
+// 添加删除收藏夹对话框状态
+const showDeleteFolderDialog = ref(false);
+// 存储当前要删除的收藏夹ID
+const folderToDelete = ref(null);
+
+// 打开删除收藏夹对话框
+const openDeleteFolderDialog = (id) => {
+  folderToDelete.value = id;
+  showDeleteFolderDialog.value = true;
+};
+
+// 确认删除收藏夹
+const confirmDeleteFolder = () => {
+  if (folderToDelete.value) {
+    // 将收藏夹中的书籍移回书架
+    books.value.forEach(book => {
+      if (book.folderId === folderToDelete.value) {
+        book.folderId = null;
+      }
+    });
+    
+    // 删除收藏夹
+    folders.value = folders.value.filter(folder => folder.id !== folderToDelete.value);
+    saveData();
+    folderToDelete.value = null;
   }
 };
 

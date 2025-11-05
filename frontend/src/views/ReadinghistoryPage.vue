@@ -65,7 +65,7 @@ const readingHistory = ref([
     author: '李明',
     description: '这是一本关于青春成长的小说，讲述了主人公在高中时期的点点滴滴...',
     tags: ['青春', '校园', '成长'],
-    isFavorite: false
+    isFavorite: true
   },
   {
     id: 2,
