@@ -51,7 +51,7 @@ class Rating(models.Model):
         return f"{self.user} 给 {self.gamework} 打了 {self.score} 分"
 
     def clean(self):
-        """限制评分范围在1~5"""
+        """限制评分范围在2~10"""
         from django.core.exceptions import ValidationError
         if not (2 <= self.score <= 10):
             raise ValidationError("评分必须在1到5颗星之间！")

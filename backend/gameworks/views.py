@@ -1,4 +1,4 @@
-from rest_framework import viewsets, generics, permissions, filters
+from rest_framework import viewsets, generics, permissions, filters, status
 from .models import Gamework
 from .serializers import GameworkSerializer
 from interactions.permissions import IsOwnerOrReadOnly
@@ -17,6 +17,51 @@ class GameworkViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
 
+    def get_queryset(self):
+        # 只有作者和管理员可以看到未发布作品
+        queryset = Gamework.objects.all()
+        user = self.request.user
+
+        # 只显示已发布的作品或该用户为作品作者或管理员
+        if not user.is_staff:
+            # 过滤条件：显示已发布作品或者是该作品的作者
+            queryset = queryset.filter(is_published=True) | queryset.filter(author=user)
+
+        return queryset
+
+class PublishGameworkViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="发布作品",
+        operation_description=(
+            "作品发布前对作者和管理员以外不可见。\n\n"
+        ),
+        responses={
+            200: openapi.Response("作品已成功发布", GameworkSerializer(many=True)),
+            404: "作品未找到",
+            403: "您没有权限发布该作品"
+        }
+    )
+
+    def publish(self, request, pk=None):
+        # 获取作品对象
+        try:
+            gamework = Gamework.objects.get(pk=pk)
+        except Gamework.DoesNotExist:
+            return Response({'message': '作品未找到'}, status=status.HTTP_404_NOT_FOUND)
+
+        # 确保用户是作品的作者或管理员
+        if gamework.author != request.user and not request.user.is_staff:
+            return Response({'message': '您没有权限发布该作品'}, status=status.HTTP_403_FORBIDDEN)
+
+        # 设置作品为已发布
+        gamework.is_published = True
+        gamework.save()
+
+        return Response({'message': '作品已成功发布', 'gamework': GameworkSerializer(gamework).data}, status=status.HTTP_200_OK)
+
+
 class GameworkSearchView(generics.ListAPIView):
     """
     作品搜索接口
@@ -24,7 +69,7 @@ class GameworkSearchView(generics.ListAPIView):
     示例：/api/gameworks/search/?q=冒险&author=Alice&tag=3
     """
     serializer_class = GameworkSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     @swagger_auto_schema(
         operation_summary="搜索作品",
@@ -79,7 +124,7 @@ class GameworkSearchView(generics.ListAPIView):
 
     def get_queryset(self):
         """根据查询参数筛选作品"""
-        queryset = Gamework.objects.all()
+        queryset = Gamework.objects.filter(is_published=True)
         q = self.request.query_params.get("q")
         author = self.request.query_params.get("author")
         tag = self.request.query_params.get("tag")
@@ -127,7 +172,7 @@ class RecommendView(generics.ListAPIView):
 
         # 按标签重叠度计算推荐得分
         queryset = (
-            Gamework.objects.filter(tags__in=liked_tags)
+            Gamework.objects.filter(tags__in=liked_tags, is_published=True)
             .exclude(author=user)  # 不推荐自己创作的作品
             .annotate(
                 match_count=Count("tags", filter=Q(tags__in=liked_tags), distinct=True),
@@ -157,7 +202,8 @@ class GameworkFavoriteLeaderboardViewSet(viewsets.ViewSet):
     )
     def list(self, request):
         # 查询作品并按收藏量排序（降序）
-        queryset = Gamework.objects.annotate(favorite_count=Count('favorites')).order_by('-favorite_count')[:10]
+        queryset = (Gamework.objects.filter(is_published=True)
+            .annotate(favorite_count=Count('favorites')).order_by('-favorite_count')[:10])
         
         # 序列化数据
         serializer = GameworkSerializer(queryset, many=True)
@@ -179,7 +225,8 @@ class GameworkRatingLeaderboardViewSet(viewsets.ViewSet):
     )
     def list(self, request):
         # 查询作品并按评分的平均值排序（降序）
-        queryset = Gamework.objects.annotate(average_score=Avg(F('ratings__score') * 2)).order_by('-average_score')[:10]
+        queryset = Gamework.objects(Gamework.objects.filter(is_published=True)
+            .annotate(average_score=Avg(F('ratings__score'))).order_by('-average_score')[:10])
         
         # 序列化数据
         serializer = GameworkSerializer(queryset, many=True)

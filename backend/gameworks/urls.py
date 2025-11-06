@@ -1,7 +1,8 @@
-from .views import GameworkSearchView, GameworkViewSet, RecommendView, GameworkFavoriteLeaderboardViewSet, GameworkRatingLeaderboardViewSet
+from .views import GameworkViewSet, PublishGameworkViewSet, GameworkSearchView, RecommendView, GameworkFavoriteLeaderboardViewSet, GameworkRatingLeaderboardViewSet
 from django.urls import path
 
 urlpatterns = [
+    path('publish/<int:pk>/', PublishGameworkViewSet.as_view({'post': 'publish'}), name='publish-gamework'),
     path('search/', GameworkSearchView.as_view(), name='gamework-search'),
     path("recommend/", RecommendView.as_view(), name="gamework-recommend"),
     path('favorite-leaderboard/', GameworkFavoriteLeaderboardViewSet.as_view({'get': 'list'}), name='gamework-leaderboard'),

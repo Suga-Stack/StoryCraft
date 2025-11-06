@@ -7,22 +7,24 @@ User = get_user_model()
 
 class FavoriteSerializer(serializers.ModelSerializer):
     user = serializers.StringRelatedField(read_only=True)
-    gamework = serializers.PrimaryKeyRelatedField(
-        queryset=Gamework.objects.all(), write_only=True
+    id = serializers.PrimaryKeyRelatedField(
+        source='gamework',  # 输入字段“id”映射到模型的 gamework 外键
+        queryset=Gamework.objects.filter(is_published=True),
+        write_only=True
     )
     gamework_detail = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Favorite
-        fields = ('id', 'user', 'gamework', 'gamework_detail', 'created_at')
+        fields = ('id', 'user', 'gamework_detail', 'created_at')
 
     def get_gamework_detail(self, obj):
-        """返回被收藏作品的简要信息"""
+        g = obj.gamework
         return {
-            "id": obj.gamework.id,
-            "title": obj.gamework.title,
-            "author": obj.gamework.author.username if obj.gamework.author else None,
-            "cover": obj.gamework.cover.url if hasattr(obj.gamework, 'cover') and obj.gamework.cover else None,
+            "id": g.id,
+            "title": g.title,
+            "author": g.author.username if g.author else None,
+            "cover": g.cover.url if getattr(g, 'cover', None) else None,
         }
 
     def create(self, validated_data):
@@ -35,39 +37,62 @@ class FavoriteSerializer(serializers.ModelSerializer):
 
 class CommentSerializer(serializers.ModelSerializer):
     user = serializers.StringRelatedField(read_only=True)
-    gamework = serializers.PrimaryKeyRelatedField(queryset=Gamework.objects.all())
+    id = serializers.PrimaryKeyRelatedField(
+        source='gamework',
+        queryset=Gamework.objects.filter(is_published=True),
+        write_only=True
+    )
+    gamework_detail = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Comment
-        fields = ('id', 'user', 'gamework', 'content', 'created_at', 'updated_at')
+        fields = ('id', 'user', 'content', 'gamework_detail', 'created_at', 'updated_at')
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        from gameworks.models import Gamework
-        self.fields['gamework'].queryset = Gamework.objects.all()
+    def get_gamework_detail(self, obj):
+        g = obj.gamework
+        return {
+            "id": g.id,
+            "title": g.title,
+            "author": g.author.username if g.author else None,
+            "cover": g.cover.url if getattr(g, 'cover', None) else None,
+        }
 
     def create(self, validated_data):
-        # user 由 view 中注入
-        return super().create(validated_data)
+        user = self.context['request'].user
+        gamework = validated_data['gamework']
+        content = validated_data['content']
+        comment = Comment.objects.create(user=user, gamework=gamework, content=content)
+        return comment
 
 class RatingSerializer(serializers.ModelSerializer):
     user = serializers.StringRelatedField(read_only=True)
-    gamework = serializers.PrimaryKeyRelatedField(queryset=Gamework.objects.all())
-    score = serializers.IntegerField(min_value=1, max_value=5)
+    id = serializers.PrimaryKeyRelatedField(
+        source='gamework',
+        queryset=Gamework.objects.filter(is_published=True),
+        write_only=True
+    )
+    score = serializers.IntegerField(min_value=2, max_value=10)
+    gamework_detail = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Rating
-        fields = ('id', 'user', 'gamework', 'score', 'created_at', 'updated_at')
+        fields = ('id', 'user', 'score', 'gamework_detail', 'created_at', 'updated_at')
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        from gameworks.models import Gamework
-        self.fields['gamework'].queryset = Gamework.objects.all()
+    def get_gamework_detail(self, obj):
+        g = obj.gamework
+        return {
+            "id": g.id,
+            "title": g.title,
+            "author": g.author.username if g.author else None,
+            "cover": g.cover.url if getattr(g, 'cover', None) else None,
+        }
 
-    def validate(self, attrs):
+    def create(self, validated_data):
         user = self.context['request'].user
-        gamework = attrs['gamework']
-
-        if Rating.objects.filter(user=user, gamework=gamework).exists():
-            raise serializers.ValidationError("您已经对该作品提交过评分！")
-        return attrs
+        gamework = validated_data['gamework']
+        score = validated_data['score']
+        rating, created = Rating.objects.update_or_create(
+            user=user, gamework=gamework,
+            defaults={'score': score}
+        )
+        return rating
