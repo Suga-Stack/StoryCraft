@@ -382,7 +382,7 @@ def create_gamework(user, tags: List[str], idea: str, length: str) -> dict:
 
     # 返回生成的数据给前端
     return {
-        "gameworkId": gamework.gamework_id,
+        "gameworkId": gamework.id,
         "title": details.title,
         "coverUrl": cover_url,
         "description": details.description,

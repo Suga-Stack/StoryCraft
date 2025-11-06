@@ -39,7 +39,6 @@ class UserViewSet(viewsets.ModelViewSet):
         """
         user = self.request.user
         if user.is_staff:
-            print("isstaff")
             return User.objects.all()
         return User.objects.filter(id=user.id)
     

@@ -8,14 +8,16 @@ from drf_yasg import openapi
 from . import services
 from django.shortcuts import get_object_or_404
 from gameworks.models import Gamework
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
 logger = logging.getLogger('django')
 
 class GameCreateView(views.APIView):
     """创建新游戏作品"""
 
-    permission_classes = [permissions.AllowAny]
-    authentication_classes = []
+    permission_classes = [IsAuthenticated]
+    # 启用JWT认证
+    authentication_classes = [JWTAuthentication]
 
     @swagger_auto_schema(
         operation_summary="创建新游戏",
