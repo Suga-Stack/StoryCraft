@@ -95,6 +95,7 @@ const handleLogin = async () => {
         if (tokens.refresh) {
         localStorage.setItem('refreshToken', String(tokens.refresh));
         }
+        localStorage.setItem('userInfo', JSON.stringify(data.user));
 
         showSuccessToast('登录成功，即将跳转...');
 

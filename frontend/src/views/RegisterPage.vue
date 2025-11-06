@@ -260,6 +260,15 @@ const handleRegister = async () => {
     });
 
     if (response.code === 201) {
+      // 处理token存储
+      const { tokens = {} } = res.data || {};
+      if (tokens.access) {
+        localStorage.setItem('token', tokens.access);
+      }
+      if (tokens.refresh) {
+        localStorage.setItem('refreshToken', tokens.refresh);
+      }
+      localStorage.setItem('userInfo', JSON.stringify(data.user));
       router.push('/preferences');
     } else {
       // 处理正常响应中的错误信息
