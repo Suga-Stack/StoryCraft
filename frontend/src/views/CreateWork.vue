@@ -234,6 +234,27 @@ const startCreate = async () => {
     progress.value = 0
   }
 }
+
+// 底部导航
+const activeTab = ref('create');
+
+// 处理底部导航切换
+const handleTabChange = (name) => {
+  switch(name) {
+    case 'bookstore':
+      router.push('/');
+      break;
+    case 'create':
+      // 已经在创建页面，不需要跳转
+      break;
+    case 'bookshelf':
+      router.push('/bookshelf');
+      break;
+    case 'profile':
+      router.push('/profile');
+      break;
+  }
+};
 </script>
 
 <template>
@@ -308,11 +329,19 @@ const startCreate = async () => {
         <div class="progress-text">{{ progress }}%</div>
       </div>
     </div>
+
+    <!-- 底部导航栏 -->
+    <van-tabbar v-model="activeTab" @change="handleTabChange" safe-area-inset-bottom>
+      <van-tabbar-item icon="home-o" name="bookstore">书城</van-tabbar-item>
+      <van-tabbar-item icon="edit" name="create">创作</van-tabbar-item>
+      <van-tabbar-item icon="bookmark-o" name="bookshelf">书架</van-tabbar-item>
+      <van-tabbar-item icon="user-o" name="profile">我的</van-tabbar-item>
+    </van-tabbar>
   </div>
 </template>
 
 <style scoped>
-.create-page { min-height: 100vh; background: #faf8f3; padding: 2rem 1rem; }
+.create-page { min-height: 100vh; background: #faf8f3; padding: 2rem 1rem 80px; }
 .header { max-width: 960px; margin: -36px auto 1rem; }
 .header { max-width: 960px; margin: 0 auto 1rem; }
 .header h1 { color:#2c1810; margin:0 0 0.25rem; }
@@ -424,4 +453,25 @@ const startCreate = async () => {
 /* 取消为固定底部按钮预留的底部空间 */
 .create-page { padding-bottom: 16px; }
 /* 保持原有样式结尾 */
+
+/* 底部导航栏 */
+.van-tabbar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background-color: #faf8f3;
+}
+
+::v-deep .van-tabbar-item--active {
+  background-color: transparent !important;
+}
+
+::v-deep .van-tabbar-item:not(.van-tabbar-item--active){
+  color: #999 !important;
+}
+
+::v-deep .van-tabbar-item--active {
+  color: #d16e6e !important;
+}
 </style>

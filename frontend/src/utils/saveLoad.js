@@ -1,8 +1,8 @@
 // GamePage 存档/读档相关逻辑的复用工具
 
 // ---- 配置项 ----
-const USE_BACKEND_SAVE = false
-const USE_MOCK_SAVE = true
+const USE_BACKEND_SAVE = true
+const USE_MOCK_SAVE = false
 
 // 获取当前用户 ID
 const getCurrentUserId = () => {
@@ -57,77 +57,104 @@ const mockBackendLoad = async (userId, workId, slot) => {
 const backendSave = async (userId, workId, slot, data) => {
   if (USE_MOCK_SAVE) return mockBackendSave(userId, workId, slot, data)
   const numWorkId = Number(workId)
-  const url = `/api/users/${encodeURIComponent(userId)}/saves/${encodeURIComponent(numWorkId)}/${encodeURIComponent(slot)}`
-  const body = { workId: numWorkId, slot, data }
+  // 将 slot1-slot6 转换为 1-6
+  const slotNum = slot.replace('slot', '')
+  const url = `/api/game/saves/${encodeURIComponent(numWorkId)}/${encodeURIComponent(slotNum)}/`  // ← 添加尾部斜杠
   const headers = { 'Content-Type': 'application/json' }
-  if (window.__STORYCRAFT_AUTH_TOKEN__) headers['Authorization'] = `Bearer ${window.__STORYCRAFT_AUTH_TOKEN__}`
+  // 优先使用 window 注入的 token，其次从 localStorage 获取
+  const token = localStorage.getItem('token')
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  
+  // 按照API文档格式化数据
+  const body = {
+    title: `存档 ${new Date().toLocaleString()}`,
+    timestamp: Date.now(),
+    state: data.state || data
+  }
+  
   const res = await fetch(url, { method: 'PUT', headers, body: JSON.stringify(body) })
   if (!res.ok) {
     const txt = await res.text()
     throw new Error(txt || res.statusText)
   }
-  return res.json().catch(() => ({}))
+  return res.json().catch(() => ({ ok: true }))
 }
 
 const backendLoad = async (userId, workId, slot) => {
   if (USE_MOCK_SAVE) return mockBackendLoad(userId, workId, slot)
   const numWorkId = Number(workId)
-  const url = `/api/users/${encodeURIComponent(userId)}/saves/${encodeURIComponent(numWorkId)}/${encodeURIComponent(slot)}`
+  // 将 slot1-slot6 转换为 1-6
+  const slotNum = slot.replace('slot', '')
+  const url = `/api/game/saves/${encodeURIComponent(numWorkId)}/${encodeURIComponent(slotNum)}/`  // ← 添加尾部斜杠
   const headers = {}
-  if (window.__STORYCRAFT_AUTH_TOKEN__) headers['Authorization'] = `Bearer ${window.__STORYCRAFT_AUTH_TOKEN__}`
+  // 优先使用 window 注入的 token，其次从 localStorage 获取
+  const token = localStorage.getItem('token')
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  
+  console.log(`🌐 后端读档请求 - URL: ${url}`)
   const res = await fetch(url, { method: 'GET', headers })
-  if (res.status === 404) return null
+  console.log(`📡 后端响应状态: ${res.status}`)
+  
+  if (res.status === 404) {
+    console.log(`⚠️ ${slot} 不存在 (404)`)
+    return null
+  }
   if (!res.ok) {
     const txt = await res.text()
+    console.error(`❌ 后端读档失败:`, txt)
     throw new Error(txt || res.statusText)
   }
   const obj = await res.json()
-  return obj && obj.data ? obj.data : obj
+  console.log(`✅ 后端返回数据:`, obj)
+  return obj
 }
 
 // 存档API
 export const saveGameData = async (gameData, slot = 'default') => {
-  // 新的存档结构：保存章节索引、场景 id 与对话索引，便于跨章节/不同场景序号复用
-  // 优先使用传入的明确字段，否则从 storyScenes + 索引推导
-    const deriveChapterIndex = () => {
-      if (gameData.chapterIndex != null) return gameData.chapterIndex
-      if (gameData.currentChapterIndex != null) return gameData.currentChapterIndex
-      return (gameData.currentChapterIndex || 1)
-    }
+  // 新的存档结构：保存章节索引、场景 id 与对话索引，符合 API 文档格式
+  const deriveChapterIndex = () => {
+    if (gameData.chapterIndex != null) return gameData.chapterIndex
+    if (gameData.currentChapterIndex != null) return gameData.currentChapterIndex
+    return 1
+  }
 
-    const deriveSceneId = () => {
-      if (gameData.sceneId != null) return gameData.sceneId
-      if (gameData.currentSceneId != null) return gameData.currentSceneId
-      // 不再从 gameData.storyScenes 回退（该字段已从存档 payload 中移除）
-      return null
-    }
+  const deriveSceneId = () => {
+    if (gameData.sceneId != null) return Number(gameData.sceneId)
+    if (gameData.currentSceneId != null) return Number(gameData.currentSceneId)
+    return null
+  }
 
+  // 清理 choiceHistory，只保留 API 需要的字段
+  const cleanedChoiceHistory = (gameData.choiceHistory || []).map(choice => {
+    // 确保 choiceId 是整数(后端要求)
+    let choiceId = choice.choiceId
+    if (typeof choiceId === 'string') {
+      // 如果是字符串,尝试解析为整数
+      choiceId = parseInt(choiceId, 10)
+    }
+    if (isNaN(choiceId)) {
+      choiceId = null
+    }
+    
+    return {
+      chapterIndex: choice.chapterIndex || deriveChapterIndex(),
+      sceneId: choice.sceneId,
+      choiceTriggerIndex: choice.choiceTriggerIndex || 0,
+      choiceId: choiceId
+    }
+  })
+
+  // 构建符合 API 文档的 payload
   const payload = {
-    // 为后端兼容，构建符合后端 GameStateSerializer 的 game_state 对象
-    work: gameData.work,
-    // 保留友好字段，便于前端显示与回退
-    chapterIndex: deriveChapterIndex(),
-    sceneId: deriveSceneId(),
-    dialogueIndex: (gameData.currentDialogueIndex != null) ? gameData.currentDialogueIndex : (gameData.dialogueIndex || 0),
-    attributes: deepClone(gameData.attributes),
-    statuses: deepClone(gameData.statuses),
-    choiceHistory: deepClone(gameData.choiceHistory),
+    title: `存档 ${new Date().toLocaleString()}`,
     timestamp: Date.now(),
-    // 兼容后端的 game_state 结构（GameStateSerializer）
-    game_state: {
-      gameworkId: Number(gameData.work && gameData.work.id) || null,
-      userId: (typeof window !== 'undefined' && window.__STORYCRAFT_USER__ && Number(window.__STORYCRAFT_USER__.id)) ? Number(window.__STORYCRAFT_USER__.id) : null,
-      currentChapterIndex: deriveChapterIndex(),
-      currentSceneId: deriveSceneId(),
-      history: Array.isArray(gameData.choiceHistory) ? deepClone(gameData.choiceHistory) : [],
-      character: {
-        attributes: deepClone(gameData.attributes) || {},
-        statuses: deepClone(gameData.statuses) || {}
-      },
-      inventory: Array.isArray(gameData.inventory) ? deepClone(gameData.inventory) : [],
-      relationships: deepClone(gameData.relationships) || {},
-      flags: deepClone(gameData.flags) || {},
-      branch_exploration: { choiceHistory: deepClone(gameData.choiceHistory) || [] }
+    state: {
+      chapterIndex: deriveChapterIndex(),
+      sceneId: deriveSceneId(),
+      dialogueIndex: (gameData.currentDialogueIndex != null) ? gameData.currentDialogueIndex : (gameData.dialogueIndex || 0),
+      attributes: deepClone(gameData.attributes),
+      statuses: deepClone(gameData.statuses),
+      choiceHistory: cleanedChoiceHistory
     }
   }
 
@@ -137,8 +164,7 @@ export const saveGameData = async (gameData, slot = 'default') => {
   // 尝试后端存储
   if (USE_BACKEND_SAVE) {
     try {
-  // 后端期望 body 中的 data 字段为 game_state 风格或兼容对象；我们传递 payload.game_state 以匹配后端序列化器
-  await backendSave(userId, workId, slot, payload.game_state ?? payload)
+      await backendSave(userId, workId, slot, payload.state)
       return { success: true, message: `后端存档成功 (${slot})`, payload }
     } catch (err) {
       console.warn('后端存档失败，回退到本地:', err)
@@ -148,7 +174,7 @@ export const saveGameData = async (gameData, slot = 'default') => {
   // 本地存储回退
   try {
     const key = localSaveKey(userId, workId, slot)
-    // 本地保存整份 payload（包含友好字段与 game_state）以便 UI 读取
+    // 本地保存整份 payload 以便 UI 读取
     localStorage.setItem(key, JSON.stringify(payload))
     return { success: true, message: `本地存档成功 (${slot})`, payload }
   } catch (err) {
@@ -188,14 +214,32 @@ export const loadGameData = async (workId, slot = 'default') => {
 
 // 刷新存档槽位信息
 export const refreshSlotInfos = async (workId, slots = ['slot1', 'slot2', 'slot3', 'slot4', 'slot5', 'slot6']) => {
+  console.log('📦 refreshSlotInfos 调用 - workId:', workId, 'slots:', slots)
   const userId = getCurrentUserId()
+  console.log('👤 当前用户ID:', userId)
   const results = {}
 
   for (const slot of slots) {
     try {
+      console.log(`🔍 正在加载 ${slot}...`)
       const result = await loadGameData(workId, slot)
+      console.log(`📥 ${slot} 加载结果:`, result)
       if (result.success) {
-        const d = result.data
+        let d = result.data
+        console.log(`✅ ${slot} 原始数据:`, d)
+        
+        // 处理后端返回的嵌套结构: {game_state: {...}, timestamp: ...}
+        // 或新格式: {state: {...}, timestamp: ...}
+        if (d.game_state) {
+          console.log(`🔄 ${slot} 检测到 game_state 字段，展开嵌套结构`)
+          d = { ...d.game_state, timestamp: d.timestamp }
+        } else if (d.state && typeof d.state === 'object') {
+          console.log(`🔄 ${slot} 检测到 state 字段，展开嵌套结构`)
+          d = { ...d.state, timestamp: d.timestamp }
+        }
+        
+        console.log(`✅ ${slot} 处理后数据:`, d)
+        
         results[slot] = {
           slot,
           data: deepClone(d),
@@ -208,18 +252,23 @@ export const refreshSlotInfos = async (workId, slots = ['slot1', 'slot2', 'slot3
           // 兼容旧字段：某些代码仍会读取 currentSceneIndex/currentDialogueIndex
           currentSceneIndex: (typeof d.currentSceneIndex === 'number') ? d.currentSceneIndex : null,
           currentDialogueIndex: (typeof d.currentDialogueIndex === 'number') ? d.currentDialogueIndex : (d.dialogueIndex != null ? d.dialogueIndex : 0),
+          // 缩略图字段
+          thumbnail: d.thumbnail || null,
+          thumbnailData: d.thumbnailData || null,
           // 不再包含 sceneTitle（因存档不再携带 storyScenes）
           sceneTitle: null
         }
       } else {
+        console.log(`⚠️ ${slot} 无数据`)
         results[slot] = null
       }
     } catch (err) {
-      console.error(`刷新 ${slot} 失败:`, err)
+      console.error(`❌ 刷新 ${slot} 失败:`, err)
       results[slot] = null
     }
   }
 
+  console.log('📊 最终槽位信息汇总:', results)
   return results
 }
 
@@ -230,42 +279,49 @@ export const deleteGameData = async (workId, slot = 'default') => {
   // 优先使用后端删除
   if (USE_BACKEND_SAVE) {
     try {
-      if (!String(userId).match(/^\d+$/)) {
-        console.warn('deleteGameData: anonymous/non-numeric userId detected, using mock/local delete instead of backend API:', userId)
-        // Mock删除
-        const mapRaw = localStorage.getItem(mockBackendKey(userId)) || '{}'
-        const map = JSON.parse(mapRaw)
-        delete map[`${workId}::${slot}`]
-        localStorage.setItem(mockBackendKey(userId), JSON.stringify(map))
-        await new Promise(r => setTimeout(r, 120))
-        return { success: true, message: '本地存档已删除' }
-      }
       // 真实后端删除
-      const response = await fetch(`/api/game/save/${workId}/${slot}/`, {
+      const numWorkId = Number(workId)
+      // 将 slot1-slot6 转换为 1-6
+      const slotNum = slot.replace('slot', '')
+      const url = `/api/game/saves/${encodeURIComponent(numWorkId)}/${encodeURIComponent(slotNum)}/`
+      
+      const headers = {}
+      // 使用 Bearer token 认证，与读档/存档保持一致
+      const token = localStorage.getItem('token')
+      if (token) headers['Authorization'] = `Bearer ${token}`
+      
+      console.log(`🗑️ 后端删档请求 - URL: ${url}`)
+      const response = await fetch(url, {
         method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRFToken': window.__STORYCRAFT_CSRF_TOKEN__ || '',
-        },
+        headers
       })
+      console.log(`📡 后端删档响应状态: ${response.status}`)
+      
       if (response.ok) {
+        const result = await response.json().catch(() => ({ ok: true }))
+        console.log(`✅ 后端删档成功:`, result)
         return { success: true, message: '存档已删除' }
       } else {
-        throw new Error(`删除失败: ${response.status}`)
+        const txt = await response.text()
+        console.error(`❌ 后端删档失败:`, txt)
+        throw new Error(`删除失败: ${response.status} - ${txt}`)
       }
     } catch (err) {
-      console.error('后端删除失败，回退到本地删除:', err)
+      console.error('❌ 后端删除失败，回退到本地删除:', err)
       // 回退到本地删除
-      try {
-        const mapRaw = localStorage.getItem(mockBackendKey(userId)) || '{}'
-        const map = JSON.parse(mapRaw)
-        delete map[`${workId}::${slot}`]
-        localStorage.setItem(mockBackendKey(userId), JSON.stringify(map))
-        return { success: true, message: '本地存档已删除' }
-      } catch (localErr) {
-        console.error('本地删除也失败:', localErr)
-        return { success: false, message: '删除失败' }
+      if (USE_MOCK_SAVE) {
+        try {
+          const mapRaw = localStorage.getItem(mockBackendKey(userId)) || '{}'
+          const map = JSON.parse(mapRaw)
+          delete map[`${workId}::${slot}`]
+          localStorage.setItem(mockBackendKey(userId), JSON.stringify(map))
+          return { success: true, message: '本地存档已删除' }
+        } catch (localErr) {
+          console.error('本地删除也失败:', localErr)
+          return { success: false, message: '删除失败: ' + localErr.message }
+        }
       }
+      return { success: false, message: '删除失败: ' + err.message }
     }
   } else {
     // 仅本地删除
@@ -277,7 +333,7 @@ export const deleteGameData = async (workId, slot = 'default') => {
       return { success: true, message: '本地存档已删除' }
     } catch (err) {
       console.error('本地删除失败:', err)
-      return { success: false, message: '删除失败' }
+      return { success: false, message: '删除失败: ' + err.message }
     }
   }
 }

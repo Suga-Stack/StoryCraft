@@ -4,15 +4,16 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   plugins: [vue()], // 注册插件
   server: {
-    host: '0.0.0.0', // 允许局域网访问（调试时用）
+    host: '0.0.0.0', // 允许局域网访问(调试时用)
     port: 5173,
-    // 开发模式下代理 /api 到后端 Django runserver (8000)，避免浏览器 CORS 问题
+    // 开发模式下代理 /api 到后端 Django runserver (8000),避免浏览器 CORS 问题
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
         secure: false,
-        rewrite: (path) => path.replace(/^\/api/, '/api')
+        // 不需要 rewrite,因为 Django 的 URL 已经包含 /api 前缀
+        // rewrite: (path) => path // 保持原路径不变
       }
     }
   },

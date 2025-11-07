@@ -10,7 +10,8 @@ import mock from './personality.mock.js'
 export async function fetchPersonalityReportVariants(workId, attributes = {}, statuses = {}, options = {}) {
   // allow workId to be numeric or string; ensure numeric in URL if possible
   const wid = Number(workId)
-  const url = Number.isInteger(wid) ? `/api/settlement/report/${wid}` : '/api/settlement/report'
+  // 注意：Django 需要 URL 以斜杠结尾
+  const url = Number.isInteger(wid) ? `/api/settlement/report/${wid}/` : '/api/settlement/report/'
 
   try {
     const resp = await fetch(url, {

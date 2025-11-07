@@ -260,6 +260,16 @@ const handleRegister = async () => {
     });
 
     if (response.status === 201) {
+      // 注册成功后，如果后端返回了 token，保存到 localStorage
+      if (response.data && response.data.tokens) {
+        const tokens = response.data.tokens;
+        if (tokens.access) {
+          localStorage.setItem('token', String(tokens.access));
+          if (tokens.refresh) {
+            localStorage.setItem('refreshToken', String(tokens.refresh));
+          }
+        }
+      }
       router.push('/preferences');
     } else {
       // 处理正常响应中的错误信息

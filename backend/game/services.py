@@ -48,7 +48,7 @@ class GameworkDetails(BaseModel):
     initialStatuses: Dict[str, Union[str, bool, int]] = Field(description="当前状态集合，键为状态名，值为状态值")
 
 client = Ark(
-    api_key="3f00ab95-6096-4639-a8b0-09c711a63d9c",
+    api_key="16797a69-5b15-4795-aaac-aaced367197d",
     base_url="https://ark.cn-beijing.volces.com/api/v3",
 )
 

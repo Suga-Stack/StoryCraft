@@ -28,7 +28,15 @@ SECRET_KEY = 'django-insecure-k$yb$ixo21c3ci)k)l)mp*#79)7u0_5%xbfr-r_hrv1@p5$$ud
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    '',
+    'localhost',
+    'localhost:8000',
+    '127.0.0.1',
+    'http://localhost:5173', 
+    'http://127.0.0.1:5173', 
+    '0.0.0.0'
+]
 
 
 # Application definition
@@ -40,6 +48,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'corsheaders',  # CORS支持
     'rest_framework',
     'rest_framework_simplejwt', 
     'drf_yasg',
@@ -52,12 +61,12 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    
     'django.middleware.common.CommonMiddleware',
-    # Simple CORS middleware for local dev to allow requests from Vite (http://localhost:5173)
-    'project.middleware.CORSMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware', 
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
@@ -106,6 +115,16 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+        'OPTIONS': {
+            'timeout': 30,  # 数据库锁等待超时时间(秒),增加到30秒
+            'init_command': (
+                "PRAGMA journal_mode=WAL;"  # 使用 WAL 模式提高并发性能
+                "PRAGMA synchronous=NORMAL;"  # 平衡性能和安全性
+                "PRAGMA busy_timeout=30000;"  # 30秒超时
+                "PRAGMA temp_store=MEMORY;"  # 使用内存存储临时数据
+                "PRAGMA cache_size=-64000;"  # 64MB 缓存
+            ),
+        },
     }
 }
 
@@ -160,7 +179,7 @@ REST_FRAMEWORK = {
 }
 """
 
-# 所有功能开启权限验证
+# 完全关闭权限验证
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',  # 使用JWT认证
@@ -208,7 +227,7 @@ DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": "redis://172.20.124.44:6379/1",  # 替换为实际IP
+        "LOCATION": "redis://127.0.0.1:6379/1",  # 替换为实际IP
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
         }
@@ -279,3 +298,60 @@ LOGGING = {
 
 AI_MODEL_FOR_TEXT = "doubao-seed-1-6-flash-250828"
 AI_MODEL_FOR_IMAGE = "doubao-seedream-4-0-250828"
+
+# ============================================
+# CORS配置
+# ============================================
+
+# 方法1：允许所有 origins（开发环境）
+CORS_ALLOW_ALL_ORIGINS = True
+
+# 或者方法2：指定允许的 origins
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+
+# 允许携带凭证（cookies, authorization headers 等）
+CORS_ALLOW_CREDENTIALS = True
+
+# 允许的 HTTP 方法
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+
+# 允许的 headers
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+    'Authorization',
+    'Content-Type',
+    'Referrer',
+    'User-Agent',
+]
+
+# 如果需要，也可以显式设置允许的 origins（与 CORS_ALLOWED_ORIGINS 相同）
+ALLOWED_HOSTS = [
+    'localhost',
+    '127.0.0.1',
+    '0.0.0.0',
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+]

@@ -23,7 +23,7 @@ export {
   getScenes,
   getWorkInfo,
   getWorkList,
-  createWork,
+  createGame,
   updateWork,
   deleteWork,
   getInitialScenes

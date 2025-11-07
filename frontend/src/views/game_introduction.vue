@@ -767,7 +767,7 @@ const startReading = () => {
   min-height: 200px;
   max-height: 350px;
   overflow: hidden;
-  background-color: #f0f0f0;
+  background-color: #faf8f3;
 }
 
 .cover-image {
@@ -1315,7 +1315,7 @@ const startReading = () => {
 .sort-selector {
   display: flex;
   gap: 0.5rem;
-  background: #f5f5f5;
+  background: #faf8f3;
   padding: 0.25rem;
   border-radius: 8px;
 }

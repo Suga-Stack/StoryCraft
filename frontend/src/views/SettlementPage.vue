@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { saveGameData, loadGameData, refreshSlotInfos, deleteGameData, SLOTS } from '../utils/saveLoad.js'
+import { loadGameData, refreshSlotInfos, deleteGameData, SLOTS } from '../utils/saveLoad.js'
 import { fetchPersonalityReportVariants } from '../service/personality.js'
 
 const router = useRouter()
@@ -51,13 +51,11 @@ console.log('SettlementPage - Final Game Data:', gameData.value) // 调试日志
 
 // UI 状态
 const showAttributesModal = ref(false)
-const showSaveModal = ref(false) 
 const showLoadModal = ref(false)
 const currentView = ref('overview') // overview, branching, personality
 
 // 存档/读档相关状态
 const slotInfos = ref({ slot1: null, slot2: null, slot3: null, slot4: null, slot5: null, slot6: null })
-const saveToast = ref('')
 const loadToast = ref('')
 
 // 分支探索图状态
@@ -592,32 +590,7 @@ const startDrag = (event, node) => {
   }
 }
 
-// 存档相关
-const saveGame = async (slot) => {
-  try {
-    const result = await saveGameData({
-      work: gameData.value.work,
-      currentSceneIndex: gameData.value.currentSceneIndex,
-      currentDialogueIndex: gameData.value.currentDialogueIndex,
-      attributes: gameData.value.finalAttributes,
-      statuses: gameData.value.finalStatuses,
-      storyScenes: gameData.value.storyScenes,
-      choiceHistory: gameData.value.choiceHistory
-    }, slot)
-    
-    if (result.success) {
-      saveToast.value = result.message
-      setTimeout(() => (saveToast.value = ''), 2000)
-      showSaveModal.value = false
-      // 刷新槽位信息
-      await refreshSlotInfosData()
-    }
-  } catch (err) {
-    console.error('存档失败:', err)
-    alert('存档失败：' + err.message)
-  }
-}
-
+// 读档相关
 const loadGame = async (slot) => {
   try {
     const result = await loadGameData(gameData.value.work.id, slot)
@@ -641,15 +614,15 @@ const loadGame = async (slot) => {
 }
 
 const deleteGame = async (slot) => {
-  if (!confirm(`确定要删除 ${slot === 'slot6' ? '自动存档' : `存档位 ${slot.slice(-1)}`} 的存档吗？此操作不可撤销。`)) {
+  if (!confirm(`确定要删除 ${slot.toUpperCase()} 的存档吗？此操作不可撤销。`)) {
     return
   }
   
   try {
     const result = await deleteGameData(gameData.value.work.id, slot)
     if (result.success) {
-      saveToast.value = result.message
-      setTimeout(() => (saveToast.value = ''), 2000)
+      loadToast.value = result.message
+      setTimeout(() => (loadToast.value = ''), 2000)
       // 刷新槽位信息
       await refreshSlotInfosData()
     } else {
@@ -664,25 +637,21 @@ const deleteGame = async (slot) => {
 // 刷新槽位信息
 const refreshSlotInfosData = async () => {
   try {
+    console.log('🔍 结算页面 - 开始刷新槽位信息, workId:', gameData.value.work.id)
     const infos = await refreshSlotInfos(gameData.value.work.id, SLOTS)
+    console.log('✅ 结算页面 - 槽位信息刷新成功:', infos)
     slotInfos.value = infos
   } catch (err) {
-    console.error('刷新槽位信息失败:', err)
+    console.error('❌ 结算页面 - 刷新槽位信息失败:', err)
   }
 }
 
-// 打开存档/读档弹窗
-const openSaveModal = async () => {
-  showSaveModal.value = true
-  await refreshSlotInfosData()
-}
-
+// 打开读档弹窗
 const openLoadModal = async () => {
   showLoadModal.value = true
   await refreshSlotInfosData()
 }
 
-const closeSaveModal = () => { showSaveModal.value = false }
 const closeLoadModal = () => { showLoadModal.value = false }
 
 // 返回游戏或主页
@@ -739,7 +708,6 @@ onMounted(async () => {
       
       <div class="quick-actions">
         <button class="nav-btn" @click="showAttributesModal = true">属性</button>
-        <button class="nav-btn" @click="openSaveModal">存档</button>
         <button class="nav-btn" @click="openLoadModal">读档</button>
       </div>
     </div>
@@ -1011,73 +979,43 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- 存档弹窗 -->
-    <div v-if="showSaveModal" class="modal-backdrop" @click="closeSaveModal">
-      <div class="modal-panel save-load-modal" @click.stop>
-        <div class="modal-header">
-          <h3>保存存档</h3>
-          <button class="modal-close" @click="closeSaveModal">×</button>
-        </div>
-        
-        <div class="slot-list">
-          <div v-for="slot in SLOTS" :key="slot" class="slot-card">
-            <div class="slot-title">{{ slot === 'slot6' ? '自动存档' : `存档位 ${slot.slice(-1)}` }}</div>
-            <div :class="{ empty: !slotInfos[slot] }">
-              <template v-if="slotInfos[slot]">
-                <div class="slot-thumb" v-if="(slotInfos[slot].thumbnailData || slotInfos[slot].thumbnail || (slotInfos[slot].game_state && (slotInfos[slot].game_state.thumbnailData || slotInfos[slot].game_state.thumbnail)))">
-                  <img :src="slotInfos[slot].thumbnailData || slotInfos[slot].thumbnail || (slotInfos[slot].game_state && (slotInfos[slot].game_state.thumbnailData || slotInfos[slot].game_state.thumbnail))" alt="thumb" />
-                  <div class="thumb-meta">
-                    <div class="meta-time">{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}</div>
-                  </div>
-                </div>
-                <div class="slot-meta" v-else>
-                  {{ new Date(slotInfos[slot].timestamp).toLocaleString() }}
-                </div>
-              </template>
-              <template v-else>空存档位</template>
-            </div>
-            <div class="slot-actions">
-              <button @click="saveGame(slot)">保存</button>
-              <button v-if="slotInfos[slot]" @click="deleteGame(slot)" class="delete-btn">删除</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- 读档弹窗 -->
-    <div v-if="showLoadModal" class="modal-backdrop" @click="closeLoadModal">
-      <div class="modal-panel save-load-modal" @click.stop>
+    <div v-if="showLoadModal" class="modal-backdrop" @click.self="closeLoadModal">
+      <div class="modal-panel save-load-modal">
         <div class="modal-header">
-          <h3>读取存档</h3>
+          <h3>选择读档槽位</h3>
           <button class="modal-close" @click="closeLoadModal">×</button>
         </div>
         
         <div class="slot-list">
           <div v-for="slot in SLOTS" :key="slot" class="slot-card">
-            <div class="slot-title">{{ slot === 'slot6' ? '自动存档' : `存档位 ${slot.slice(-1)}` }}</div>
-            <div :class="{ empty: !slotInfos[slot] }">
-              <template v-if="slotInfos[slot]">
-                <div class="slot-thumb" v-if="(slotInfos[slot].thumbnail || (slotInfos[slot].game_state && slotInfos[slot].game_state.thumbnail))">
-                  <img :src="slotInfos[slot].thumbnail || (slotInfos[slot].game_state && slotInfos[slot].game_state.thumbnail)" alt="thumb" />
+            <div class="slot-title">{{ slot.toUpperCase() }}</div>
+            <div v-if="slotInfos[slot]">
+              <div class="slot-thumb" v-if="(slotInfos[slot].thumbnailData || slotInfos[slot].thumbnail || (slotInfos[slot].game_state && (slotInfos[slot].game_state.thumbnailData || slotInfos[slot].game_state.thumbnail)))">
+                <img :src="slotInfos[slot].thumbnailData || slotInfos[slot].thumbnail || (slotInfos[slot].game_state && (slotInfos[slot].game_state.thumbnailData || slotInfos[slot].game_state.thumbnail))" alt="thumb" />
+                <div class="thumb-meta">
+                  <div class="meta-time">{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}</div>
                 </div>
-                <div class="slot-meta" v-else>
-                  {{ new Date(slotInfos[slot].timestamp).toLocaleString() }}
-                </div>
-              </template>
-              <template v-else>空存档位</template>
+              </div>
+              <div class="slot-meta" v-else>
+                <div>时间：{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}</div>
+              </div>
             </div>
+            <div class="slot-meta empty" v-else>空槽位</div>
             <div class="slot-actions">
-              <button :disabled="!slotInfos[slot]" @click="loadGame(slot)">读取</button>
+              <button :disabled="!slotInfos[slot]" @click="loadGame(slot)">读取 {{ slot.toUpperCase() }}</button>
               <button v-if="slotInfos[slot]" @click="deleteGame(slot)" class="delete-btn">删除</button>
             </div>
           </div>
+        </div>
+        
+        <div class="modal-actions">
+          <button @click="closeLoadModal">关闭</button>
         </div>
       </div>
     </div>
 
     <!-- Toast 提示 -->
-    <div v-if="saveToast" class="toast save-toast">{{ saveToast }}</div>
     <div v-if="loadToast" class="toast load-toast">{{ loadToast }}</div>
   </div>
 </template>

@@ -20,20 +20,24 @@ import { http, getUserId } from './http.js'
  * @returns {Promise<{ok: boolean}>}
  */
 export async function saveGame(workId, slot, saveData) {
-  const userId = getUserId()
+  // 将 slot1-slot6 转换为 1-6
+  const slotNum = slot.replace('slot', '')
   
   const requestBody = {
-    // ensure workId numeric per API contract
-    workId: Number(workId),
-    slot,
-    data: {
-      ...saveData,
-      timestamp: Date.now()
+    title: `存档 ${new Date().toLocaleString()}`,
+    timestamp: Date.now(),
+    state: {
+      chapterIndex: saveData.chapterIndex || 1,
+      sceneId: saveData.sceneId || null,
+      dialogueIndex: saveData.dialogueIndex || 0,
+      attributes: saveData.attributes || {},
+      statuses: saveData.statuses || {},
+      choiceHistory: saveData.choiceHistory || []
     }
   }
   
   try {
-    const result = await http.put(`/api/users/${userId}/saves/${Number(workId)}/${slot}`, requestBody)
+    const result = await http.put(`/api/game/saves/${Number(workId)}/${slotNum}`, requestBody)
     return result || { ok: true }
   } catch (error) {
     console.error('Save game failed:', error)
@@ -48,10 +52,12 @@ export async function saveGame(workId, slot, saveData) {
  * @returns {Promise<{data: Object, timestamp: number}|null>}
  */
 export async function loadGame(workId, slot) {
-  const userId = getUserId()
+  // 将 slot1-slot6 转换为 1-6
+  const slotNum = slot.replace('slot', '')
   
   try {
-    return await http.get(`/api/users/${userId}/saves/${Number(workId)}/${slot}`)
+    const result = await http.get(`/api/game/saves/${Number(workId)}/${slotNum}`)
+    return result
   } catch (error) {
     // 404 表示该槽位无存档
     if (error.status === 404) {
@@ -68,10 +74,8 @@ export async function loadGame(workId, slot) {
  * @returns {Promise<Array<{slot: string, timestamp: number, excerpt?: string}>>}
  */
 export async function getSavesList(workId) {
-  const userId = getUserId()
-  
   try {
-    const result = await http.get(`/api/users/${userId}/saves/${Number(workId)}`)
+    const result = await http.get(`/api/game/saves/${Number(workId)}`)
     return result.saves || []
   } catch (error) {
     // 如果后端不支持批量获取,则返回空数组
@@ -91,10 +95,11 @@ export async function getSavesList(workId) {
  * @returns {Promise<{ok: boolean}>}
  */
 export async function deleteSave(workId, slot) {
-  const userId = getUserId()
+  // 将 slot1-slot6 转换为 1-6
+  const slotNum = slot.replace('slot', '')
   
   try {
-    const result = await http.delete(`/api/users/${userId}/saves/${Number(workId)}/${slot}`)
+    const result = await http.delete(`/api/game/saves/${Number(workId)}/${slotNum}`)
     return result || { ok: true }
   } catch (error) {
     console.error('Delete save failed:', error)

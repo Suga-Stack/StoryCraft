@@ -3,16 +3,19 @@ import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import './GamePage.css'
 import { useRouter, useRoute } from 'vue-router'
 import { ScreenOrientation } from '@capacitor/screen-orientation'
+import { useUserStore } from '../store/index.js'
+import http from '../utils/http.js' // 导入 http 工具
 
 // ---- 保存/读档后端集成配置 ----
 // 开启后优先尝试调用后端 API 保存/读取；若后端不可用则回退到 localStorage。
 // 关闭 mock 后，前端将直接调用后端接口以进行集成测试。
-const USE_BACKEND_SAVE = false
-const USE_MOCK_SAVE = true
+const USE_BACKEND_SAVE = true
+const USE_MOCK_SAVE = false
 // 是否启用故事内容的本地 mock（后端暂未就绪时）
 const USE_MOCK_STORY = false
 
 import * as storyService from '../service/story.js'
+import { saveGameData, loadGameData, refreshSlotInfos as refreshSlotInfosUtil, deleteGameData } from '../utils/saveLoad.js'
 
 // 本地引用，允许在运行时替换为 mock 实现
 let getScenes = storyService.getScenes
@@ -53,6 +56,16 @@ const generateUUID = () => {
 
 // 新增初始化函数
 const initializeGame = async () => {
+  // 检查用户是否已登录
+  const userStore = useUserStore()
+  if (!userStore.isAuthenticated) {
+    console.log('用户未登录，重定向到登录页面')
+    // 保存当前页面，登录后可以返回
+    sessionStorage.setItem('redirectAfterLogin', router.currentRoute.value.fullPath)
+    router.push('/login')
+    return
+  }
+  
   isLoading.value = true
   loadingProgress.value = 0
   
@@ -76,7 +89,15 @@ const initializeGame = async () => {
         // 没有来自创建页的首章，尝试获取第一章
         if (USE_MOCK_STORY && typeof getScenes === 'function') {
           try {
-            const resp = await getScenes(work.value.id, 1)
+            const resp = await getScenes(work.value.id, 1, {
+              onProgress: (progress) => {
+                console.log(`[Story] 首章生成进度:`, progress)
+                // 更新加载进度
+                if (progress.status === 'generating' && progress.progress) {
+                  loadingProgress.value = Math.min(90, (progress.progress.currentChapter / progress.progress.totalChapters) * 100)
+                }
+              }
+            })
             const initial = (resp && resp.scenes) ? resp.scenes : (Array.isArray(resp) ? resp : [])
             if (Array.isArray(initial) && initial.length > 0) {
               storyScenes.value = []
@@ -98,21 +119,30 @@ const initializeGame = async () => {
               currentChapterIndex.value = 1
             } else {
               // mock 未返回初始场景，回退到后端请求
-              await fetchNextChapter(work.value.id, 1)
+              console.log('[GamePage] mock未返回场景，回退到fetchNextChapter...')
+              const result = await fetchNextChapter(work.value.id, 1)
+              console.log('[GamePage] fetchNextChapter返回结果:', result)
             }
           } catch (e) {
             console.warn('getInitialScenes failed, fallback to fetchNextChapter', e)
-            await fetchNextChapter(work.value.id, 1)
+            console.log('[GamePage] getInitialScenes失败，尝试fetchNextChapter...')
+            const result = await fetchNextChapter(work.value.id, 1)
+            console.log('[GamePage] fetchNextChapter返回结果:', result)
           }
         } else {
-          await fetchNextChapter(work.value.id, 1)
+          console.log('[GamePage] 调用fetchNextChapter获取第一章...')
+          const result = await fetchNextChapter(work.value.id, 1)
+          console.log('[GamePage] fetchNextChapter返回结果:', result)
+          console.log('[GamePage] 当前storyScenes数量:', storyScenes.value?.length || 0)
         }
       }
     } catch (e) { 
       console.warn('initFromCreateResult failed', e)
       // 如果 initFromCreateResult 失败，尝试直接获取第一章
       try {
-        await fetchNextChapter(work.value.id, 1)
+        console.log('[GamePage] initFromCreateResult失败，尝试fetchNextChapter...')
+        const result = await fetchNextChapter(work.value.id, 1)
+        console.log('[GamePage] fetchNextChapter返回结果:', result)
       } catch (err) {
         console.warn('fetchNextChapter failed in initializeGame', err)
       }
@@ -123,14 +153,28 @@ const initializeGame = async () => {
       await ScreenOrientation.lock({ type: 'portrait' }).catch(() => {})
     } catch (e) {}
 
-    // 关键修改：确保有场景数据后再关闭加载界面
-    let retryCount = 0
-    const maxRetries = 10 // 最多重试10次，每次等待500ms
+
     
-    while ((!Array.isArray(storyScenes.value) || storyScenes.value.length === 0) && retryCount < maxRetries) {
-      await new Promise(resolve => setTimeout(resolve, 500))
-      retryCount++
-      console.log(`等待场景数据加载... 重试 ${retryCount}/${maxRetries}`)
+    
+    // 等待场景数据加载的逻辑需要修改，因为现在getScenes是轮询的
+    let retryCount = 0
+    const maxRetries = 120 // 增加重试次数，因为轮询可能需要更长时间
+    
+    // 首先检查是否已经有场景数据（从fetchNextChapter加载的）
+    if (Array.isArray(storyScenes.value) && storyScenes.value.length > 0) {
+      console.log(`场景数据已加载，跳过等待循环。场景数量: ${storyScenes.value.length}`)
+    } else {
+      // 如果没有场景数据，才进入等待循环
+      while ((!Array.isArray(storyScenes.value) || storyScenes.value.length === 0) && retryCount < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, 1000)) // 每秒检查一次
+        retryCount++
+        console.log(`等待场景数据加载... 重试 ${retryCount}/${maxRetries}`)
+        
+        // 如果进度超过50%，显示更详细的状态
+        if (loadingProgress.value > 50) {
+          console.log(`生成进度: ${loadingProgress.value}%`)
+        }
+      }
     }
 
     // 如果仍然没有场景，使用一个默认场景避免黑屏
@@ -170,82 +214,63 @@ const initializeGame = async () => {
 
 const backendSave = async (userId, workId, slot, data) => {
   if (USE_MOCK_SAVE) return mockBackendSave(userId, workId, slot, data)
-  // 如果 userId 不是数字（例如本地匿名 id 'anon-...')，后端路由可能期望整数型 userId，直接回退到 local mock 保存以避免 404
-  try {
-    if (!String(userId).match(/^\d+$/)) {
-      console.warn('backendSave: non-numeric userId, falling back to mockBackendSave:', userId)
-      return mockBackendSave(userId, workId, slot, data)
-    }
-  } catch (e) {}
-  // 支持在开发环境通过 VITE_API_BASE 或 window 全局变量指定后端地址，避免相对路径被 vite dev server 拦截
-  const API_BASE = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE)
-    ? import.meta.env.VITE_API_BASE
-    : (window.__STORYCRAFT_API_BASE__ || 'http://localhost:8000')
-  const base = String(API_BASE).replace(/\/$/, '')
-  const url = `${base}/api/users/${encodeURIComponent(userId)}/saves/${encodeURIComponent(workId)}/${encodeURIComponent(slot)}`
-  const body = { workId, slot, data }
-  const headers = { 'Content-Type': 'application/json' }
-  // 如果页面注入了 token，请添加 Authorization
-  if (window.__STORYCRAFT_AUTH_TOKEN__) headers['Authorization'] = `Bearer ${window.__STORYCRAFT_AUTH_TOKEN__}`
-  const res = await fetch(url, { method: 'PUT', headers, body: JSON.stringify(body) })
-  if (!res.ok) {
-    const txt = await res.text()
-    throw new Error(txt || res.statusText)
+  
+  const numWorkId = Number(workId)
+  // 将 slot1-slot6 转换为 1-6
+  const slotNum = slot.replace('slot', '')
+  // 注意:不要加 /api 前缀,因为 axios 的 baseURL 已经是 /api
+  const url = `/game/saves/${encodeURIComponent(numWorkId)}/${encodeURIComponent(slotNum)}/`
+  
+  // 按照API文档格式化数据
+  const body = {
+    title: `存档 ${new Date().toLocaleString()}`,
+    timestamp: Date.now(),
+    state: data
   }
-  return res.json().catch(() => ({}))
+  
+  try {
+    const response = await http.put(url, body)
+    return response.data || { ok: true }
+  } catch (error) {
+    console.error('保存失败:', error)
+    throw new Error(error.response?.data?.error || error.message || '保存失败')
+  }
 }
 
 const backendLoad = async (userId, workId, slot) => {
   if (USE_MOCK_SAVE) return mockBackendLoad(userId, workId, slot)
-  // 与 backendSave 保持一致：如果 userId 不是数字，回退到本地 mock 读取以避免向后端发送不匹配的 URL
+  
+  const numWorkId = Number(workId)
+  // 将 slot1-slot6 转换为 1-6
+  const slotNum = slot.replace('slot', '')
+  const url = `/game/saves/${encodeURIComponent(numWorkId)}/${encodeURIComponent(slotNum)}/`
+  
   try {
-    if (!String(userId).match(/^\d+$/)) {
-      console.warn('backendLoad: non-numeric userId, falling back to mockBackendLoad:', userId)
-      return mockBackendLoad(userId, workId, slot)
-    }
-  } catch (e) {}
-  const API_BASE = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE)
-    ? import.meta.env.VITE_API_BASE
-    : (window.__STORYCRAFT_API_BASE__ || 'http://localhost:8000')
-  const base = String(API_BASE).replace(/\/$/, '')
-  const url = `${base}/api/users/${encodeURIComponent(userId)}/saves/${encodeURIComponent(workId)}/${encodeURIComponent(slot)}`
-  const headers = {}
-  if (window.__STORYCRAFT_AUTH_TOKEN__) headers['Authorization'] = `Bearer ${window.__STORYCRAFT_AUTH_TOKEN__}`
-  const res = await fetch(url, { method: 'GET', headers })
-  if (res.status === 404) return null
-  if (!res.ok) {
-    const txt = await res.text()
-    throw new Error(txt || res.statusText)
+    const response = await http.get(url)
+    // 返回的是 { title, timestamp, state: {...} } 格式
+    return response.data
+  } catch (error) {
+    if (error.response?.status === 404) return null
+    console.error('读取存档失败:', error)
+    throw new Error(error.response?.data?.error || error.message || '读取存档失败')
   }
-  const obj = await res.json()
-  // 兼容返回格式 { data: {...}, timestamp }
-  return obj && obj.data ? obj.data : obj
 }
 
 const backendDelete = async (userId, workId, slot) => {
   if (USE_MOCK_SAVE) return mockBackendDelete(userId, workId, slot)
-  // 如果 userId 不是数字，回退到本地 mock 删除
+  
+  const numWorkId = Number(workId)
+  // 将 slot1-slot6 转换为 1-6
+  const slotNum = slot.replace('slot', '')
+  const url = `/game/saves/${encodeURIComponent(numWorkId)}/${encodeURIComponent(slotNum)}/`
+  
   try {
-    if (!String(userId).match(/^\d+$/)) {
-      console.warn('backendDelete: non-numeric userId, falling back to mockBackendDelete:', userId)
-      return mockBackendDelete(userId, workId, slot)
-    }
-  } catch (e) {}
-  // 支持在开发环境通过 VITE_API_BASE 或 window 全局变量指定后端地址
-  const API_BASE = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE)
-    ? import.meta.env.VITE_API_BASE
-    : (window.__STORYCRAFT_API_BASE__ || 'http://localhost:8000')
-  const base = String(API_BASE).replace(/\/$/, '')
-  const url = `${base}/api/users/${encodeURIComponent(userId)}/saves/${encodeURIComponent(workId)}/${encodeURIComponent(slot)}`
-  const headers = { 'Content-Type': 'application/json' }
-  // 如果页面注入了 token，请添加 Authorization
-  if (window.__STORYCRAFT_AUTH_TOKEN__) headers['Authorization'] = `Bearer ${window.__STORYCRAFT_AUTH_TOKEN__}`
-  const res = await fetch(url, { method: 'DELETE', headers })
-  if (!res.ok) {
-    const txt = await res.text()
-    throw new Error(txt || res.statusText)
+    const response = await http.delete(url)
+    return response.data || { ok: true }
+  } catch (error) {
+    console.error('删除存档失败:', error)
+    throw new Error(error.response?.data?.error || error.message || '删除存档失败')
   }
-  return res.json().catch(() => ({}))
 }
 
 // 简单的 mock 实现（基于 localStorage），用于后端尚未就绪时的本地联调
@@ -490,8 +515,12 @@ const storyScenes = ref([])
 // - 将在 dialogue 内出现的 playerChoices 抽取并放到 scene.choices + scene.choiceTriggerIndex（便于现有渲染逻辑复用）
 const pushSceneFromServer = (sceneObj) => {
   try {
+    console.log('[pushSceneFromServer] Received sceneObj:', sceneObj)
     const raw = sceneObj.scene ? sceneObj.scene : sceneObj
-    if (!raw) return
+    if (!raw) {
+      console.warn('[pushSceneFromServer] No raw data')
+      return
+    }
 
     // 标准化 id 字段（支持旧的 sceneId 和新的 id）
     const id = raw.id ?? raw.sceneId ?? (raw.seq ? `seq-${raw.seq}` : Math.floor(Math.random() * 1000000))
@@ -569,10 +598,15 @@ const pushSceneFromServer = (sceneObj) => {
       const baseId = String(toPush.sceneId ?? toPush.id ?? Math.floor(Math.random() * 1000000))
       const chap = toPush.chapterIndex != null ? String(toPush.chapterIndex) : 'nochap'
       toPush._uid = `${chap}-${baseId}-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+      console.log('[pushSceneFromServer] Pushing scene:', toPush.id, 'Total scenes before push:', storyScenes.value.length)
       storyScenes.value.push(toPush)
+      console.log('[pushSceneFromServer] Total scenes after push:', storyScenes.value.length)
     } catch (e) {
       // fallback: push raw scene if deepClone failed
-      try { storyScenes.value.push(scene) } catch (err) { console.warn('pushSceneFromServer push failed', err) }
+      try { 
+        console.warn('[pushSceneFromServer] deepClone failed, using fallback')
+        storyScenes.value.push(scene) 
+      } catch (err) { console.warn('pushSceneFromServer push failed', err) }
     }
   } catch (e) { console.warn('pushSceneFromServer failed', e) }
 }
@@ -605,7 +639,15 @@ const initFromCreateResult = async () => {
     // 从后端获取首章内容（chapterIndex = 1，后端为 1-based）
     try {
       const workId = work.value.id
-      const result = await getScenes(workId, 1)
+      const result = await getScenes(workId, 1, {
+        onProgress: (progress) => {
+          console.log(`[Story] 首章生成进度:`, progress)
+          // 更新加载进度
+          if (progress.status === 'generating' && progress.progress) {
+            loadingProgress.value = Math.min(90, (progress.progress.currentChapter / progress.progress.totalChapters) * 100)
+          }
+        }
+      })
       if (result && result.scenes && result.scenes.length > 0) {
         storyScenes.value = []
         for (const sc of result.scenes) {
@@ -714,20 +756,44 @@ const fetchNextChapter = async (workId, chapterIndex = null) => {
     let idx = Number(chapterIndex) || null
     if (!idx || idx <= 0) idx = currentChapterIndex.value || 1
 
-    console.log(`[Story] 正在获取第 ${idx} 章内容...`)
+    console.log(`[fetchNextChapter] 开始获取第 ${idx} 章内容...`)
     
-    const data = await getScenes(workId, idx)
+    const data = await getScenes(workId, idx, {
+      onProgress: (progress) => {
+        console.log(`[Story] 章节 ${idx} 生成进度:`, progress)
+        // 可以在这里更新UI显示进度
+        if (progress.status === 'generating' && progress.progress) {
+          loadingProgress.value = Math.min(90, (progress.progress.currentChapter / progress.progress.totalChapters) * 100)
+        }
+      }
+    })
+
+    console.log(`[fetchNextChapter] getScenes返回数据:`, data)
+    console.log(`[fetchNextChapter] 数据类型检查:`, {
+      data: typeof data,
+      dataIsObject: data && typeof data === 'object',
+      hasScenes: data && 'scenes' in data,
+      scenesType: data && data.scenes ? typeof data.scenes : 'undefined',
+      scenesIsArray: data && Array.isArray(data.scenes),
+      scenesLength: data && data.scenes ? data.scenes.length : 'undefined'
+    })
 
     // 支持后端返回 { generating: true }
     if (data && data.generating === true) {
+      console.log(`[fetchNextChapter] 后端返回generating状态`)
       return data
     }
 
     // 标准返回：{ chapterIndex, title, scenes: [...] }
+    console.log(`[fetchNextChapter] 检查scenes: data=${!!data}, scenes=${data?.scenes}, isArray=${Array.isArray(data?.scenes)}, length=${data?.scenes?.length}`)
     if (data && Array.isArray(data.scenes) && data.scenes.length > 0) {
+      console.log('[fetchNextChapter] Processing scenes:', data.scenes.length)
       const startIdx = storyScenes.value.length
       for (const sc of data.scenes) {
-        try { pushSceneFromServer(sc) } catch (e) { console.warn('pushSceneFromServer failed for one entry', e) }
+        try { 
+          console.log('[fetchNextChapter] Processing scene:', sc.id)
+          pushSceneFromServer(sc) 
+        } catch (e) { console.warn('pushSceneFromServer failed for one entry', e) }
       }
       
       // 重要修改：更新当前章节索引
@@ -792,12 +858,14 @@ const requestNextIfNeeded = async () => {
   } catch (e) { console.warn('requestNextIfNeeded failed', e) }
 }
 
-// 最后一章结束后，向后端请求个性化报告：POST /api/settlement/report/:workId/
+// 最后一章结束后,向后端请求个性化报告：POST /api/settlement/report/:workId/
 const fetchReport = async (workId) => {
   try {
     const url = `/api/settlement/report/${encodeURIComponent(workId)}/`
     const headers = { 'Accept': 'application/json', 'Content-Type': 'application/json' }
-    if (window.__STORYCRAFT_AUTH_TOKEN__) headers['Authorization'] = `Bearer ${window.__STORYCRAFT_AUTH_TOKEN__}`
+    // 优先使用 window 注入的 token，其次从 localStorage 获取
+    const token = localStorage.getItem('token')
+    if (token) headers['Authorization'] = `Bearer ${token}`
     const body = JSON.stringify({ attributes: attributes.value || {}, statuses: statuses.value || {} })
     const res = await fetch(url, { method: 'POST', headers, body, credentials: 'include' })
     if (!res.ok) return null
@@ -944,6 +1012,14 @@ onMounted(async () => {
     } catch (e) {
       console.warn('加载 story.mock.js 失败，将回退到真实 service：', e)
     }
+  }
+  
+  // 检查用户是否已登录
+  const userStore = useUserStore()
+  if (!userStore.isAuthenticated) {
+    console.log('用户未登录，重定向到登录页面')
+    router.push('/login')
+    return
   }
   
   // 加载自动播放偏好并按需启动
@@ -1671,6 +1747,10 @@ const generateThumbnailDataURL = async (imageUrl, maxW = 360, maxH = 200) => {
 // 自动存档槽位（退出时写入）
 const AUTO_SAVE_SLOT = 'slot6'
 
+// 防止频繁自动存档的节流控制
+let lastAutoSaveTime = 0
+const AUTO_SAVE_THROTTLE_MS = 3000 // 3秒内最多自动存档一次
+
 // 其它弹窗（存档/读档/属性/设置）打开时同样应暂停自动播放
 const anyOverlayOpen = computed(() =>
   showMenu.value ||
@@ -1688,114 +1768,113 @@ watch(anyOverlayOpen, (open) => {
   }
 })
 
-// 构建当前存档快照（不再在 payload 中包含完整的 storyScenes）
-const buildSavePayload = () => ({
-  work: work.value,
-  // 明确传递定位信息（后端/存档使用这三项来定位进度）
-  chapterIndex: currentChapterIndex.value,
-  // 直接保存当前在前端队列中的索引，便于恢复时无需依赖后端 sceneId 匹配
-  currentSceneIndex: currentSceneIndex.value,
-  sceneId: (currentScene.value && (currentScene.value.id || currentScene.value.sceneId)) ? String(currentScene.value.id ?? currentScene.value.sceneId) : String(currentSceneIndex.value),
-  dialogueIndex: currentDialogueIndex.value,
-  attributes: deepClone(attributes.value),
-  statuses: deepClone(statuses.value),
-  choiceHistory: deepClone(choiceHistory.value),
-  // 缩略图：优先使用当前对话或场景提供的背景图，回退到作品封面
-  thumbnail: (currentBackground && currentBackground.value) ? currentBackground.value : (effectiveCoverUrl && effectiveCoverUrl.value) ? effectiveCoverUrl.value : (work.value && work.value.coverUrl) ? work.value.coverUrl : null,
-  timestamp: Date.now(),
-  // 兼容后端 GameStateSerializer
-  game_state: {
-    gameworkId: Number(work.value && work.value.id) || null,
-    userId: (typeof window !== 'undefined' && window.__STORYCRAFT_USER__ && Number(window.__STORYCRAFT_USER__.id)) ? Number(window.__STORYCRAFT_USER__.id) : null,
-    currentChapterIndex: currentChapterIndex.value,
-    currentSceneId: (currentScene.value && (currentScene.value.id || currentScene.value.sceneId)) ? String(currentScene.value.id ?? currentScene.value.sceneId) : null,
-    history: Array.isArray(choiceHistory.value) ? deepClone(choiceHistory.value) : [],
-    // 将缩略图也放入 game_state，以便后端/后续使用 game_state 时能访问到
+// 构建当前存档快照，格式符合 API 文档要求
+const buildSavePayload = () => {
+  // 清理 choiceHistory，只保留 API 需要的字段
+  const cleanedChoiceHistory = (choiceHistory.value || []).map(choice => {
+    // 确保 choiceId 是整数(后端要求)
+    let choiceId = choice.choiceId
+    if (typeof choiceId === 'string') {
+      // 如果是字符串,尝试解析为整数
+      choiceId = parseInt(choiceId, 10)
+    }
+    if (isNaN(choiceId)) {
+      choiceId = null
+    }
+    
+    return {
+      chapterIndex: choice.chapterIndex || currentChapterIndex.value,
+      sceneId: choice.sceneId,
+      choiceTriggerIndex: choice.choiceTriggerIndex || 0,
+      choiceId: choiceId
+    }
+  })
+
+  return {
+    work: work.value,
+    // API 文档要求的 state 结构
+    state: {
+      chapterIndex: currentChapterIndex.value,
+      sceneId: (currentScene.value && (currentScene.value.id || currentScene.value.sceneId)) 
+        ? Number(currentScene.value.id ?? currentScene.value.sceneId) 
+        : currentSceneIndex.value,
+      dialogueIndex: currentDialogueIndex.value,
+      attributes: deepClone(attributes.value),
+      statuses: deepClone(statuses.value),
+      choiceHistory: cleanedChoiceHistory
+    },
+    // 缩略图：优先使用当前对话或场景提供的背景图，回退到作品封面
     thumbnail: (currentBackground && currentBackground.value) ? currentBackground.value : (effectiveCoverUrl && effectiveCoverUrl.value) ? effectiveCoverUrl.value : (work.value && work.value.coverUrl) ? work.value.coverUrl : null,
-    character: { attributes: deepClone(attributes.value) || {}, statuses: deepClone(statuses.value) || {} },
-    inventory: [],
-    relationships: {},
-    flags: {},
-    branch_exploration: { choiceHistory: deepClone(choiceHistory.value) || [] }
+    timestamp: Date.now()
   }
-})
+}
 
 const saveGame = async (slot = 'default') => {
-  const payload = buildSavePayload()
-
-  const userId = getCurrentUserId()
-  const workId = work.value.id
-
-  // 生成缩略图的 base64 版本（非必须），以便在后端/本地都可直接显示小图而无需额外 fetch
   try {
-    const thumbUrl = payload.thumbnail || (payload.game_state && payload.game_state.thumbnail)
-    const dataUrl = await generateThumbnailDataURL(thumbUrl, 360, 160)
-    if (dataUrl) {
-      payload.thumbnailData = dataUrl
-      if (payload.game_state) payload.game_state.thumbnailData = dataUrl
+    // 构建 gameData 对象，包含所有游戏状态
+    const gameData = {
+      work: work.value,
+      chapterIndex: currentChapterIndex.value,
+      sceneId: currentScene.value?.sceneId || currentScene.value?.id || null,
+      currentDialogueIndex: currentDialogueIndex.value,
+      dialogueIndex: currentDialogueIndex.value,
+      currentSceneIndex: currentSceneIndex.value,
+      attributes: attributes.value,
+      statuses: statuses.value,
+      choiceHistory: choiceHistory.value
     }
-  } catch (e) {
-    // 不影响保存流程
-  }
 
-  // 优先使用后端存储（如果开启）
-  if (USE_BACKEND_SAVE) {
-    try {
-      // 如果 userId 不是纯数字（即匿名用户），后端路由通常期望整数 id，直接使用前端的 mock 保存（localStorage）并给出明确提示
-      if (!String(userId).match(/^\d+$/)) {
-        console.warn('saveGame: anonymous/non-numeric userId detected, using mock/local save instead of backend API:', userId)
-        await mockBackendSave(userId, workId, slot, payload.game_state ?? payload)
-        lastSaveInfo.value = deepClone(payload)
-        saveToast.value = `已本地保存（未登录用户）`
-        setTimeout(() => (saveToast.value = ''), 2000)
-        console.log('saved to mockBackend (localStorage)', { userId, workId, slot, payload })
-        return
-      }
-      // 否则尝试真实后端保存
-      await backendSave(userId, workId, slot, payload.game_state ?? payload)
-      lastSaveInfo.value = deepClone(payload)
-      saveToast.value = `已上传存档（${new Date(payload.timestamp).toLocaleString()}）`
+    // 使用 saveLoad.js 中的统一存档函数
+    const result = await saveGameData(gameData, slot)
+    
+    if (result.success) {
+      lastSaveInfo.value = deepClone(result.payload)
+      saveToast.value = result.message || `存档成功（${new Date().toLocaleString()}）`
       setTimeout(() => (saveToast.value = ''), 2000)
-      console.log('saved to backend', { userId, workId, slot, payload })
-      return
-    } catch (err) {
-      console.warn('后端存档失败，回落到 localStorage：', err)
-      // fallthrough to localStorage save
+      console.log('✅ 存档成功:', result)
+    } else {
+      throw new Error(result.message || '存档失败')
     }
-  }
-
-  // fallback: localStorage（包含 userId 以避免不同用户冲突）
-  try {
-    const key = localSaveKey(userId, workId, slot)
-    localStorage.setItem(key, JSON.stringify(payload))
-  lastSaveInfo.value = deepClone(payload)
-    saveToast.value = `已本地存档（${new Date(payload.timestamp).toLocaleString()}）`
-    setTimeout(() => (saveToast.value = ''), 2000)
-    console.log('saved to localStorage', key, payload)
   } catch (err) {
-    console.error('保存失败', err)
+    console.error('❌ 保存失败:', err)
     alert('保存失败：' + err.message)
   }
 }
 
 // 静默自动存档（退出时使用，不弹 toast）
 const autoSaveToSlot = async (slot = AUTO_SAVE_SLOT) => {
+  // 节流：如果距离上次自动存档不到 3 秒，跳过本次存档
+  const now = Date.now()
+  if (now - lastAutoSaveTime < AUTO_SAVE_THROTTLE_MS) {
+    console.log('⏱️ 自动存档节流：跳过（距离上次存档 <3秒）')
+    return
+  }
+  lastAutoSaveTime = now
+  
   try {
-    const payload = buildSavePayload()
-    const userId = getCurrentUserId()
-    const workId = work.value.id
-    if (USE_BACKEND_SAVE) {
-        try {
-        await backendSave(userId, workId, slot, payload.game_state ?? payload)
-        return
-      } catch (e) {
-        // 忽略错误，回落到本地
-      }
+    // 构建 gameData 对象
+    const gameData = {
+      work: work.value,
+      chapterIndex: currentChapterIndex.value,
+      sceneId: currentScene.value?.sceneId || currentScene.value?.id || null,
+      currentDialogueIndex: currentDialogueIndex.value,
+      dialogueIndex: currentDialogueIndex.value,
+      currentSceneIndex: currentSceneIndex.value,
+      attributes: attributes.value,
+      statuses: statuses.value,
+      choiceHistory: choiceHistory.value
     }
-    const key = localSaveKey(userId, workId, slot)
-    localStorage.setItem(key, JSON.stringify(payload))
-  } catch (e) {
-    // 保底失败忽略
+
+    // 使用 saveLoad.js 中的统一存档函数
+    const result = await saveGameData(gameData, slot)
+    
+    if (result.success) {
+      console.log('✅ 自动存档成功:', result.message)
+    } else {
+      console.warn('⚠️ 自动存档失败:', result.message)
+    }
+  } catch (err) {
+    console.error('❌ 自动存档失败:', err)
   }
 }
 
@@ -1811,109 +1890,67 @@ const quickLocalAutoSave = (slot = AUTO_SAVE_SLOT) => {
 }
 
 const loadGame = async (slot = 'default') => {
-  const userId = getCurrentUserId()
-  const workId = work.value.id
-
-  // 尝试后端读取
-  if (USE_BACKEND_SAVE) {
-    try {
-      const remote = await backendLoad(userId, workId, slot)
-      if (remote) {
-        // Note: 存档 payload 不再包含完整的 storyScenes。若后端仍返回 scenes，可在后端和前端协商后再恢复。
-        // 支持新存档格式：chapterIndex / sceneId / dialogueIndex
-        const deriveIndexFromPayload = (p) => {
-          try {
-            if (!p) return null
-            // 优先使用 sceneId 来定位
-            if (p.sceneId != null && Array.isArray(storyScenes.value)) {
-              // 强制字符串比较，避免后端/前端存储的 id 类型（number/string）不一致导致匹配失败
-              const pid = String(p.sceneId)
-              const idx = storyScenes.value.findIndex(s => s && (String(s.id) === pid || String(s.sceneId) === pid))
-              if (idx >= 0) return idx
-              // 如果没有在当前已加载的 storyScenes 中找到对应 sceneId，回退到起始场景（0）
-              return 0
-            }
-            // 兼容老字段 currentSceneIndex
-            if (typeof p.currentSceneIndex === 'number') return p.currentSceneIndex
-            if (typeof p.chapterIndex === 'number') {
-              // 尝试使用 chapterIndex 映射到第一条该章节的场景
-              const idx = storyScenes.value.findIndex(s => s && (s.chapterIndex === p.chapterIndex || s.chapter === p.chapterIndex))
-              if (idx >= 0) return idx
-            }
-          } catch (e) {}
-          return null
-        }
-
-        let derived = deriveIndexFromPayload(remote)
-        if (derived != null) {
-          currentSceneIndex.value = derived
-        } else if (remote.sceneId != null && typeof remote.chapterIndex === 'number') {
-          // 若当前 storyScenes 中没有该 sceneId，则尝试按 chapterIndex 拉取该章节的场景并拼接，再定位
-          try {
-            const fetched = await fetchNextContent(workId, remote.chapterIndex)
-            if (fetched && Array.isArray(fetched.scenes) && fetched.scenes.length > 0) {
-              // 将获取到的 scenes 推入本地队列（使用 pushSceneFromServer 以保留兼容处理）
-              for (const s of fetched.scenes) {
-                try { pushSceneFromServer(s) } catch (e) { console.warn('pushSceneFromServer failed when restoring chapter', e) }
-              }
-              // 重新尝试定位
-              derived = deriveIndexFromPayload(remote)
-              if (derived != null) currentSceneIndex.value = derived
-            }
-          } catch (e) { console.warn('fetchNextContent failed while restoring saved chapter:', e) }
-        }
-        if (typeof currentSceneIndex.value !== 'number') {
-          if (typeof remote.currentSceneIndex === 'number') currentSceneIndex.value = remote.currentSceneIndex
-          else currentSceneIndex.value = 0
-        }
-        if (typeof remote.currentDialogueIndex === 'number') currentDialogueIndex.value = remote.currentDialogueIndex
-        else if (remote.dialogueIndex != null) currentDialogueIndex.value = remote.dialogueIndex
-        // attributes/statuses 使用存档快照完整覆盖，缺省则置空，避免选项后的变化残留
-        attributes.value = deepClone(remote.attributes || {})
-        statuses.value = deepClone(remote.statuses || {})
-  // 恢复选择历史
-  choiceHistory.value = deepClone(remote.choiceHistory || [])
-  // 根据选择历史恢复场景的已选标记与解锁后续选项
-  try { restoreChoiceFlagsFromHistory() } catch (e) { console.warn('restoreChoiceFlagsFromHistory error (remote):', e) }
-        // 恢复文字显示状态，并让选项由 watch 重新判断
-        showText.value = true
-        choicesVisible.value = false
-        lastSaveInfo.value = deepClone(remote)
-        loadToast.value = `已从服务器读档（${new Date(remote.timestamp || Date.now()).toLocaleString()}）`
-        setTimeout(() => (loadToast.value = ''), 2000)
-        console.log('loaded from backend', { userId, workId, slot, remote })
-        // 读档成功后自动关闭读档弹窗
-        showLoadModal.value = false
-        return
-      }
-      // 如果后端返回 null/404，则回退到本地
-    } catch (err) {
-      console.warn('后端读档失败，回退到 localStorage：', err)
-      // fallback to localStorage below
-    }
-  }
-
-  // fallback: localStorage（包含 userId 以避免不同用户冲突）
   try {
-    const key = localSaveKey(userId, workId, slot)
-    const raw = localStorage.getItem(key)
-    if (!raw) {
-      loadToast.value = '未找到本地存档'
+    const workId = work.value.id
+    
+    // 使用 saveLoad.js 中的统一读档函数
+    const result = await loadGameData(workId, slot)
+    
+    if (!result.success) {
+      loadToast.value = result.message || '未找到存档'
       setTimeout(() => (loadToast.value = ''), 1500)
       return
     }
-    const payload = JSON.parse(raw)
-    // 存档不再包含 storyScenes；若本地存档含 scenes，可按需手动恢复（默认这里忽略）
-    // 支持新的保存字段 sceneId / chapterIndex / dialogueIndex，同时兼容旧字段 currentSceneIndex
-    const deriveIndexFromPayloadLocal = (p) => {
+
+    // 从读取的数据中恢复游戏状态
+    const savedData = result.data
+    const remote = savedData.state || savedData
+    
+    // 🔑 关键修改：读档后必须向后端请求相应章节的剧情内容
+    const savedChapterIndex = typeof remote.chapterIndex === 'number' ? remote.chapterIndex : 1
+    
+    console.log(`📖 读档后请求章节 ${savedChapterIndex} 的剧情内容...`)
+    
+    try {
+      // 清空当前场景列表，准备加载存档章节的内容
+      storyScenes.value = []
+      
+      // 向后端请求存档中保存的章节内容
+      const chapterData = await fetchNextChapter(workId, savedChapterIndex)
+      
+      if (chapterData && chapterData.chapter && Array.isArray(chapterData.chapter.scenes)) {
+        console.log(`✅ 成功获取章节 ${savedChapterIndex} 的内容，共 ${chapterData.chapter.scenes.length} 个场景`)
+        
+        // 将场景内容推入 storyScenes
+        for (const scene of chapterData.chapter.scenes) {
+          try {
+            pushSceneFromServer(scene)
+          } catch (e) {
+            console.warn('pushSceneFromServer failed when loading chapter:', e)
+          }
+        }
+      } else {
+        console.warn('⚠️ 未能获取章节内容，场景数据可能不完整')
+      }
+    } catch (e) {
+      console.error('❌ 请求章节内容失败:', e)
+      alert('读档成功，但未能加载章节内容，可能影响游戏体验')
+    }
+    
+    // 辅助函数：根据 sceneId 或 chapterIndex 定位场景索引
+    const deriveIndexFromPayload = (p) => {
       try {
         if (!p) return null
+        // 优先使用 sceneId 来定位
         if (p.sceneId != null && Array.isArray(storyScenes.value)) {
-              const pid = String(p.sceneId)
-              const idx = storyScenes.value.findIndex(s => s && (String(s.id) === pid || String(s.sceneId) === pid))
-              if (idx >= 0) return idx
-              return 0
-            }
+          const pid = String(p.sceneId)
+          const idx = storyScenes.value.findIndex(s => s && (String(s.id) === pid || String(s.sceneId) === pid))
+          if (idx >= 0) return idx
+          // 如果找不到对应的 sceneId，返回 0（章节开头）
+          console.warn(`⚠️ 未找到 sceneId=${pid} 对应的场景，将从章节开头开始`)
+          return 0
+        }
+        // 兼容老字段 currentSceneIndex
         if (typeof p.currentSceneIndex === 'number') return p.currentSceneIndex
         if (typeof p.chapterIndex === 'number') {
           const idx = storyScenes.value.findIndex(s => s && (s.chapterIndex === p.chapterIndex || s.chapter === p.chapterIndex))
@@ -1922,43 +1959,57 @@ const loadGame = async (slot = 'default') => {
       } catch (e) {}
       return null
     }
-    let derivedLocal = deriveIndexFromPayloadLocal(payload)
-    if (derivedLocal != null) {
-      currentSceneIndex.value = derivedLocal
-    } else if (payload.sceneId != null && typeof payload.chapterIndex === 'number') {
-      try {
-        const fetched = await fetchNextContent(workId, payload.chapterIndex)
-        if (fetched && Array.isArray(fetched.scenes) && fetched.scenes.length > 0) {
-          for (const s of fetched.scenes) {
-            try { pushSceneFromServer(s) } catch (e) { console.warn('pushSceneFromServer failed when restoring chapter (local):', e) }
-          }
-          derivedLocal = deriveIndexFromPayloadLocal(payload)
-          if (derivedLocal != null) currentSceneIndex.value = derivedLocal
-        }
-      } catch (e) { console.warn('fetchNextContent failed while restoring saved chapter (local):', e) }
-    }
-    if (typeof currentSceneIndex.value !== 'number') {
+
+    // 恢复场景索引
+    let derived = deriveIndexFromPayload(remote)
+    if (derived != null) {
+      currentSceneIndex.value = derived
+    } else {
+      // 如果无法定位到具体场景，从章节开头开始
       currentSceneIndex.value = 0
     }
-    if (typeof payload.currentDialogueIndex === 'number') currentDialogueIndex.value = payload.currentDialogueIndex
-    else if (payload.dialogueIndex != null) currentDialogueIndex.value = payload.dialogueIndex
-    // attributes/statuses 使用存档快照完整覆盖，缺省则置空
-    attributes.value = deepClone(payload.attributes || {})
-    statuses.value = deepClone(payload.statuses || {})
-  // 恢复选择历史
-  choiceHistory.value = deepClone(payload.choiceHistory || [])
-  // 根据选择历史恢复场景的已选标记与解锁后续选项
-  try { restoreChoiceFlagsFromHistory() } catch (e) { console.warn('restoreChoiceFlagsFromHistory error (local):', e) }
+
+    // 恢复对话索引
+    if (typeof remote.currentDialogueIndex === 'number') {
+      currentDialogueIndex.value = remote.currentDialogueIndex
+    } else if (remote.dialogueIndex != null) {
+      currentDialogueIndex.value = remote.dialogueIndex
+    } else {
+      currentDialogueIndex.value = 0
+    }
+
+    // 恢复章节索引
+    if (typeof remote.chapterIndex === 'number') {
+      currentChapterIndex.value = remote.chapterIndex
+    }
+
+    // 恢复属性和状态
+    attributes.value = deepClone(remote.attributes || {})
+    statuses.value = deepClone(remote.statuses || {})
+    
+    // 恢复选择历史
+    choiceHistory.value = deepClone(remote.choiceHistory || [])
+    
+    // 根据选择历史恢复场景的已选标记
+    try { restoreChoiceFlagsFromHistory() } catch (e) { 
+      console.warn('restoreChoiceFlagsFromHistory error:', e) 
+    }
+
+    // 恢复显示状态
     showText.value = true
     choicesVisible.value = false
-    lastSaveInfo.value = deepClone(payload)
-    loadToast.value = `本地读档成功（${new Date(payload.timestamp).toLocaleString()}）`
+    lastSaveInfo.value = deepClone(remote)
+    
+    loadToast.value = result.message || `读档成功（${new Date(savedData.timestamp).toLocaleString()}）`
     setTimeout(() => (loadToast.value = ''), 2000)
-    console.log('loaded from localStorage', key, payload)
+    
+    console.log('✅ 读档成功:', result)
+    console.log(`📍 当前位置: 章节${currentChapterIndex.value}, 场景${currentSceneIndex.value}, 对话${currentDialogueIndex.value}`)
+    
     // 读档成功后自动关闭读档弹窗
     showLoadModal.value = false
   } catch (err) {
-    console.error('读档失败', err)
+    console.error('❌ 读档失败:', err)
     alert('读档失败：' + err.message)
   }
 }
@@ -1968,52 +2019,24 @@ const deleteGame = async (slot = 'default') => {
     return
   }
 
-  const userId = getCurrentUserId()
-  const workId = work.value.id
-
   try {
-    // 优先使用后端删除
-    if (USE_BACKEND_SAVE) {
-      try {
-        if (!String(userId).match(/^\d+$/)) {
-          console.warn('deleteGame: anonymous/non-numeric userId detected, using mock/local delete instead of backend API:', userId)
-          await mockBackendDelete(userId, workId, slot)
-          saveToast.value = `本地存档已删除`
-          setTimeout(() => (saveToast.value = ''), 2000)
-          console.log('deleted from mockBackend (localStorage)', { userId, workId, slot })
-          // 刷新槽位信息
-          await refreshSlotInfos()
-          return
-        }
-        // 否则尝试真实后端删除
-        await backendDelete(userId, workId, slot)
-        saveToast.value = `存档已删除`
-        setTimeout(() => (saveToast.value = ''), 2000)
-        console.log('deleted from backend', { userId, workId, slot })
-        // 刷新槽位信息
-        await refreshSlotInfos()
-        return
-      } catch (err) {
-        console.error('后端删除失败，回退到本地删除:', err)
-        // 回退到本地删除
-        await mockBackendDelete(userId, workId, slot)
-        saveToast.value = `本地存档已删除`
-        setTimeout(() => (saveToast.value = ''), 2000)
-        console.log('deleted from mockBackend (localStorage)', { userId, workId, slot })
-        // 刷新槽位信息
-        await refreshSlotInfos()
-      }
-    } else {
-      // 仅本地删除
-      await mockBackendDelete(userId, workId, slot)
-      saveToast.value = `本地存档已删除`
+    const workId = work.value.id
+    
+    // 使用 saveLoad.js 中的统一删除函数
+    const result = await deleteGameData(workId, slot)
+    
+    if (result.success) {
+      saveToast.value = result.message || '存档已删除'
       setTimeout(() => (saveToast.value = ''), 2000)
-      console.log('deleted from mockBackend (localStorage)', { userId, workId, slot })
+      console.log('✅ 删除存档成功:', result)
+      
       // 刷新槽位信息
       await refreshSlotInfos()
+    } else {
+      throw new Error(result.message || '删除失败')
     }
   } catch (err) {
-    console.error('删除存档失败', err)
+    console.error('❌ 删除存档失败:', err)
     alert('删除存档失败：' + err.message)
   }
 }
@@ -2120,33 +2143,15 @@ const closeLoadModal = () => { showLoadModal.value = false; try { if (autoPlayEn
 
 const refreshSlotInfos = async () => {
   try {
-    const userId = getCurrentUserId()
     const workId = work.value.id
-    const results = await Promise.all(SLOTS.map(async (slot) => {
-      // 优先尝试后端或 mock 后端
-      if (USE_BACKEND_SAVE) {
-        try {
-          const data = await backendLoad(userId, workId, slot)
-          if (data) return { slot, data: deepClone(data) }
-        } catch (e) {
-          // 忽略错误，回退到本地
-        }
-      }
-      // 回退到本地
-      const key = localSaveKey(userId, workId, slot)
-      const raw = localStorage.getItem(key)
-      if (raw) {
-  const data = JSON.parse(raw)
-  return { slot, data: deepClone(data) }
-      }
-      return { slot, data: null }
-    }))
-  const info = {}
-  SLOTS.forEach(s => (info[s] = null))
-  results.forEach(r => { if (r && r.slot) info[r.slot] = r.data })
+    
+    // 使用 saveLoad.js 中的统一刷新函数
+    const info = await refreshSlotInfosUtil(workId, SLOTS)
     slotInfos.value = info
+    
+    console.log('✅ 刷新槽位信息成功:', info)
   } catch (e) {
-    console.warn('刷新槽位信息失败：', e)
+    console.warn('⚠️ 刷新槽位信息失败：', e)
   }
 }
 
