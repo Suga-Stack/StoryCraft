@@ -19,6 +19,7 @@ class GameworkViewSet(viewsets.ModelViewSet):
     """
     serializer_class = GameworkSerializer
     permission_classes = (permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly)
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
 
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
