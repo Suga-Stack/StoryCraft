@@ -20,7 +20,6 @@ export const sendEmailCode = (email) => {
   return http.post('/auth/send-email-code/', {email})
 }
 
-
 // 保存用户偏好
 export const savePreferences = (gender, liked_tags) => {
   return http.put('/users/preferences/', {gender, liked_tags}) 
@@ -31,3 +30,12 @@ export const getPreferences = () => {
   return http.get('/users/preferences/')
 }
 
+// 获取用户信息
+export const getUserInfo = (id) => {
+  return http.get(`/users/admin/${id}/`)
+}
+
+// 更新用户信息
+export const updateUserInfo = (id, username, profile_picture, gender, liked_tags) => {
+  return http.patch(`/users/admin/${id}/`, {username, profile_picture, gender, liked_tags})
+}
