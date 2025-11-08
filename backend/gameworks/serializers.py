@@ -11,7 +11,7 @@ class GameworkSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Gamework
-        fields = ('id', 'author', 'title', 'description', 'tags', 'image_url', 'created_at', 'updated_at', 'favorite_count', 'average_score')
+        fields = ('id', 'author', 'title', 'description', 'tags', 'image_url', 'is_published', 'created_at', 'updated_at', 'published_at', 'favorite_count', 'average_score')
 
     def create(self, validated_data):
         tags = validated_data.pop('tags', [])
