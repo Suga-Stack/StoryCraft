@@ -320,7 +320,65 @@ class RecentReadGameworksView(APIView):
         serializer = GameworkSerializer(gameworks, many=True)
         return Response({'code': 200, 'data': serializer.data}, status=status.HTTP_200_OK)
 
+class MyGameworkListView(APIView):
+    """
+    返回当前登录用户创作的作品列表
+    GET /api/users/myworks/
+    """
+    permission_classes = [permissions.IsAuthenticated]
 
+    @swagger_auto_schema(
+        operation_summary="获取当前用户创作的作品列表",
+        responses={
+            200: openapi.Response(
+                description='当前用户创作的作品列表',
+                examples={
+                    "application/json": {
+                        "code": 200,
+                        "data": [
+                            {"id": 1, "title": "我的作品A", "image_url": "https://..."},
+                            {"id": 2, "title": "我的作品B", "image_url": "https://..."}
+                        ]
+                    }
+                }
+            )
+        }
+    )
+    def get(self, request):
+        user = request.user
+        works = Gamework.objects.filter(author=user).order_by('-created_at')
+        serializer = GameworkSerializer(works, many=True)
+        return Response({'code': 200, 'data': serializer.data}, status=status.HTTP_200_OK)
+    
+class RecentMyGameworksView(APIView):
+    """
+    返回当前用户最近创作的两部作品
+    GET /api/users/my-works/recent/
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="获取当前用户最近创作的两部作品",
+        responses={
+            200: openapi.Response(
+                description='最近两部创作的作品',
+                examples={
+                    "application/json": {
+                        "code": 200,
+                        "data": [
+                            {"id": 5, "title": "我的作品B", "image_url": "https://..."},
+                            {"id": 3, "title": "我的作品A", "image_url": "https://..."}
+                        ]
+                    }
+                }
+            )
+        }
+    )
+    def get(self, request):
+        user = request.user
+        works = Gamework.objects.filter(author=user).order_by('-created_at')[:2]
+        serializer = GameworkSerializer(works, many=True)
+        return Response({'code': 200, 'data': serializer.data}, status=200)
 
 class SaveDetailView(APIView):
     """
