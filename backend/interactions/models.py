@@ -55,3 +55,16 @@ class Rating(models.Model):
         from django.core.exceptions import ValidationError
         if not (2 <= self.score <= 10):
             raise ValidationError("评分必须在1到5颗星之间！")
+
+class ReadRecord(models.Model):
+    """用户阅读作品记录"""
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='read_records')
+    gamework = models.ForeignKey(Gamework, on_delete=models.CASCADE, related_name='read_records')
+    read_at = models.DateTimeField(auto_now_add=True)  # 阅读时间
+
+    class Meta:
+        unique_together = ('user', 'gamework')  # 同一用户对同一作品只记录一次
+        ordering = ['-read_at']
+
+    def __str__(self):
+        return f"{self.user.username} read {self.gamework.title}"

@@ -2,12 +2,8 @@ from rest_framework import viewsets, status, permissions
 from rest_framework.response import Response
 from .models import Favorite, Comment, Rating
 from .serializers import FavoriteSerializer, CommentSerializer, RatingSerializer
-from .permissions import IsOwnerOrReadOnly
-from rest_framework.decorators import action
-from django.shortcuts import get_object_or_404
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-from gameworks.models import Gamework
 from django.db.models import Avg
 
 class FavoriteViewSet(viewsets.ModelViewSet):

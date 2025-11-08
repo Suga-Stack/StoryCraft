@@ -1,6 +1,7 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from tags.models import Tag
+from gameworks.models import Gamework
 
 # 用户模型
 class User(AbstractUser):
@@ -20,6 +21,10 @@ class User(AbstractUser):
   )  # 性别字段，选择 Male、Female 或 Other
   liked_tags = models.ManyToManyField(Tag, blank=True)  # 用户喜欢的标签，可以为空
   is_staff = models.BooleanField(default=False)  # 默认用户为非管理员
+
+  def get_read_gameworks(self):
+        """返回该用户读过的所有作品"""
+        return Gamework.objects.filter(read_records__user=self).distinct()
 
   def __str__(self):
     return self.username

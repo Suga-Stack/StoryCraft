@@ -7,7 +7,6 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django.db.models import Count, Q, Avg, F
 
-from tags.models import Tag
 
 class GameworkViewSet(viewsets.ModelViewSet):
     queryset = Gamework.objects.all()

@@ -1,6 +1,5 @@
 from django.db import models
-from django.conf import settings 
-from users.models import User # 导入 User 模型
+from django.conf import settings
 from tags.models import Tag  # 导入 Tag 模型
 
 class Gamework(models.Model):
