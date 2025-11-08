@@ -18,6 +18,8 @@ class FavoriteViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Favorite.objects.none()
         return Favorite.objects.filter(user=self.request.user).select_related('gamework')
 
     def list(self, request, *args, **kwargs):

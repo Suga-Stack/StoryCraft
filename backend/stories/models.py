@@ -10,6 +10,11 @@ class Story(models.Model):
     total_chapters = models.PositiveIntegerField(default=3, help_text="计划总章节数")
     initial_attributes = models.JSONField(help_text="故事初始主角属性值")
     initial_statuses = models.JSONField(help_text="主角初始状态")
+    
+    # 创作者模式相关
+    ai_callable = models.BooleanField(default=False, help_text="是否允许创作者调用AI生成")
+    outlines = models.JSONField(default=list, blank=True, help_text="所有章节的大纲")
+
     is_complete = models.BooleanField(default=False, help_text="故事是否已完成生成")
     is_generating = models.BooleanField(default=False, help_text="是否正在生成中")
     current_generating_chapter = models.PositiveIntegerField(default=0, help_text="当前正在生成的章节索引")
@@ -40,7 +45,7 @@ class StoryChapter(models.Model):
     chapter_index = models.PositiveIntegerField(help_text="章节序号 (从1开始)")
     title = models.CharField(max_length=255, help_text="章节标题")
     created_at = models.DateTimeField(auto_now_add=True)
-
+    
     class Meta:
         unique_together = ('story', 'chapter_index')
         ordering = ['story', 'chapter_index']

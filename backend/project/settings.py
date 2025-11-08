@@ -186,7 +186,7 @@ SWAGGER_SETTINGS = {
 }
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),   # 短期访问 token
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),   # 短期访问 token
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),      # 长期刷新 token
 }
 
@@ -274,4 +274,5 @@ LOGGING = {
 }
 
 AI_MODEL_FOR_TEXT = "doubao-seed-1-6-flash-250828"
-AI_MODEL_FOR_IMAGE = "doubao-seedream-4-0-250828"
+AI_MODEL_FOR_IMAGE = "doubao-seedream-3-0-t2i-250415"
+AI_API_KEY = "3f00ab95-6096-4639-a8b0-09c711a63d9c"

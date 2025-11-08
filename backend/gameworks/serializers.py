@@ -13,6 +13,11 @@ class GameworkSerializer(serializers.ModelSerializer):
     rating_count = serializers.SerializerMethodField()
     read_count = serializers.SerializerMethodField()
     is_favorited = serializers.SerializerMethodField()
+    is_complete = serializers.SerializerMethodField()
+    generated_chapters = serializers.SerializerMethodField()
+    total_chapters = serializers.SerializerMethodField()
+    modifiable = serializers.SerializerMethodField()
+    ai_callable = serializers.SerializerMethodField()
 
     class Meta:
         model = Gamework
@@ -20,6 +25,7 @@ class GameworkSerializer(serializers.ModelSerializer):
             'id', 'author', 'title', 'description', 'tags', 'image_url',
             'is_published', 'created_at', 'updated_at', 'published_at',
             'favorite_count', 'average_score', 'rating_count', 'read_count', 'is_favorited',
+            'is_complete', 'generated_chapters', 'total_chapters', 'modifiable', 'ai_callable',
         )
 
     def get_favorite_count(self, obj):
@@ -55,3 +61,22 @@ class GameworkSerializer(serializers.ModelSerializer):
             return len(obj.user_favorites) > 0
 
         return obj.favorited_by.filter(user=user).exists()
+
+    def get_is_complete(self, obj):
+        return getattr(obj.story, 'is_complete', False)
+
+    def get_generated_chapters(self, obj):
+        return obj.story.chapters.count() if hasattr(obj, 'story') else 0
+
+    def get_total_chapters(self, obj):
+        return getattr(obj.story, 'total_chapters', 0)
+
+    def get_modifiable(self, obj):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not (user and user.is_authenticated):
+            return False
+        return obj.author == user
+
+    def get_ai_callable(self, obj):
+        return getattr(obj.story, 'ai_callable', False)

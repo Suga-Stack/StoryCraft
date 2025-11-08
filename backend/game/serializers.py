@@ -63,6 +63,7 @@ class GameCreateSerializer(serializers.Serializer):
         choices=["short", "medium", "long"],
         help_text="篇幅类型：'short' (3-5章) / 'medium' (6-10章) / 'long' (10章以上)"
     )
+    modifiable = serializers.BooleanField(required=False, default=False, help_text="是否为创作者模式")
 
     def validate_tags(self, value):
         if not (3 <= len(value) <= 6):
@@ -93,6 +94,11 @@ class GameworkCreateResponseSerializer(serializers.Serializer):
     )
     total_chapters = serializers.IntegerField(
         help_text="总章节数"
+    )
+    chapterOutlines = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        help_text="各章节大纲"
     )
 
 class GameChapterChoiceSerializer(serializers.Serializer):
@@ -129,6 +135,20 @@ class GameChapterResponseSerializer(serializers.Serializer):
     chapterIndex = serializers.IntegerField()
     title = serializers.CharField()
     scenes = GameChapterSceneSerializer(many=True)
+
+class GameChapterManualUpdateSerializer(serializers.Serializer):
+    """用于手动更新章节内容的序列化器"""
+    chapterIndex = serializers.IntegerField()
+    title = serializers.CharField()
+    scenes = GameChapterSceneSerializer(many=True)
+
+class ChapterOutlineSerializer(serializers.Serializer):
+    chapterIndex = serializers.IntegerField()
+    outline = serializers.CharField()
+
+class ChapterGenerateSerializer(serializers.Serializer):
+    chapterOutlines = ChapterOutlineSerializer(many=True)
+    userPrompt = serializers.CharField(required=False, allow_blank=True)
 
 class SettlementReportContentSerializer(serializers.Serializer):
     title = serializers.CharField()

@@ -41,7 +41,7 @@ class GameworkViewSet(viewsets.ModelViewSet):
                 rating_count=Count('ratings', distinct=True),
                 read_count=Count('read_records__user', distinct=True),
             )
-            .select_related('author')
+            .select_related('author', 'story')
             .prefetch_related('tags')
         )
 
