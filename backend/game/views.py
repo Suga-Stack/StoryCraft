@@ -31,7 +31,7 @@ class GameCreateView(views.APIView):
         operation_description="根据用户选择的标签、构思和篇幅，调用AI生成并创建一个新的游戏作品，同时在后台异步生成所有章节。",
         request_body=GameCreateSerializer,  
         responses={
-            status.HTTP_201_CREATED: GameworkCreateResponseSerializer, 
+            status.HTTP_201_CREATED: openapi.Response(description='{"gameworkId": 123}'), 
             status.HTTP_400_BAD_REQUEST: openapi.Response(description="请求参数错误"),
             status.HTTP_401_UNAUTHORIZED: openapi.Response(description="未认证，请先登录"),
             status.HTTP_500_INTERNAL_SERVER_ERROR: openapi.Response(description="服务器内部错误")

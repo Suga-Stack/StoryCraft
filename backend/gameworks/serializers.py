@@ -18,6 +18,9 @@ class GameworkSerializer(serializers.ModelSerializer):
     total_chapters = serializers.SerializerMethodField()
     modifiable = serializers.SerializerMethodField()
     ai_callable = serializers.SerializerMethodField()
+    initial_attributes = serializers.SerializerMethodField()
+    initial_statuses = serializers.SerializerMethodField()
+    outlines = serializers.SerializerMethodField()
 
     class Meta:
         model = Gamework
@@ -26,6 +29,7 @@ class GameworkSerializer(serializers.ModelSerializer):
             'is_published', 'created_at', 'updated_at', 'published_at',
             'favorite_count', 'average_score', 'rating_count', 'read_count', 'is_favorited',
             'is_complete', 'generated_chapters', 'total_chapters', 'modifiable', 'ai_callable',
+            'initial_attributes', 'initial_statuses', 'outlines'
         )
 
     def get_favorite_count(self, obj):
@@ -80,3 +84,12 @@ class GameworkSerializer(serializers.ModelSerializer):
 
     def get_ai_callable(self, obj):
         return getattr(obj.story, 'ai_callable', False)
+
+    def get_initial_attributes(self, obj):
+        return getattr(obj.story, 'initial_attributes', {})
+
+    def get_initial_statuses(self, obj):
+        return getattr(obj.story, 'initial_statuses', {})
+
+    def get_outlines(self, obj):
+        return getattr(obj.story, 'outlines', [])

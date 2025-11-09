@@ -24,6 +24,16 @@ class GameworkViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
 
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        
+        # 检查初始生成是否完成
+        if not getattr(instance.story, 'initial_generation_complete', False):
+            return Response({"status": "generating"}, status=status.HTTP_200_OK)
+
+        serializer = self.get_serializer(instance)
+        return Response({"status": "ready", "data": serializer.data})
+
     def get_queryset(self):
         user = self.request.user
         base_filter = Q(is_published=True)

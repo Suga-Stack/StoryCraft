@@ -15,6 +15,8 @@ class Story(models.Model):
     ai_callable = models.BooleanField(default=False, help_text="是否允许创作者调用AI生成")
     outlines = models.JSONField(default=list, blank=True, help_text="所有章节的大纲")
 
+    # 生成状态
+    initial_generation_complete = models.BooleanField(default=False, help_text="初始信息（标题、简介、封面、大纲）是否生成完成")
     is_complete = models.BooleanField(default=False, help_text="故事是否已完成生成")
     is_generating = models.BooleanField(default=False, help_text="是否正在生成中")
     current_generating_chapter = models.PositiveIntegerField(default=0, help_text="当前正在生成的章节索引")

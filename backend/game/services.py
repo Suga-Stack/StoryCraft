@@ -181,7 +181,7 @@ def _generate_gamework_details_with_ai(tags: List[str], idea: str, total_chapter
 3.  一套初始玩家属性 (initialAttributes)，包含3-4个核心数值属性，并设定初始值。
 4.  一套初始玩家状态等级 (initialStatuses)，定义主角的初始成长状态，如"修为": "炼气期一层"。
 5.  一个包含 {total_chapters} 章的章节大纲 (chapterOutlines)，每章大纲应简洁明了，概括核心剧情。
-6.  确保剧情有始有终，结构合理完善，情节跌宕起伏，引人入胜。
+6.  确保剧情有始有终，结构合理完善，情节跌宕起伏，引人入胜，可以参考热门网文创作手法。
 
 # 数据格式要求
 请严格按照指定的JSON格式输出，不要添加任何额外解释。
@@ -394,72 +394,89 @@ def _generate_all_chapters_async(gamework: Gamework):
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()
 
+def _update_gamework_after_generation(gamework_id: int, details: Optional[GameworkDetails] = None, cover_url: Optional[str] = None):
+    """在后台任务完成后，更新Gamework和Story实例。"""
+    try:
+        gamework = Gamework.objects.select_related('story').get(pk=gamework_id)
+        story = gamework.story
+        
+        if details:
+            gamework.title = details.title
+            gamework.description = details.description
+            story.initial_attributes = details.initialAttributes
+            story.initial_statuses = details.initialStatuses
+            
+            outlines_data = details.model_dump().get("chapterOutlines", [])
+            corrected_outlines = []
+            for i in range(story.total_chapters):
+                if i < len(outlines_data) and outlines_data[i].get('outline'):
+                    outline_text = outlines_data[i]['outline']
+                else:
+                    outline_text = f"第 {i + 1} 章大纲待补充"
+                corrected_outlines.append({"chapterIndex": i + 1, "outline": outline_text})
+            story.outlines = corrected_outlines
+
+        if cover_url:
+            gamework.image_url = cover_url
+
+        # 检查是否所有部分都已完成
+        if (details and gamework.image_url and not gamework.image_url.endswith('placeholders/cover.jpg')) or \
+           (cover_url and gamework.title and gamework.title != "作品生成中..."):
+            story.initial_generation_complete = True
+
+        gamework.save()
+        story.save()
+
+        # 如果是读者模式，在初始信息生成后，开始生成所有章节
+        if story.initial_generation_complete and not story.ai_callable:
+            _generate_all_chapters_async(gamework)
+
+    except Gamework.DoesNotExist:
+        logger.error(f"更新作品详情时未找到 Gamework ID: {gamework_id}")
+    except Exception as e:
+        logger.error(f"更新作品详情时发生错误 (Gamework ID: {gamework_id}): {e}", exc_info=True)
+
 def create_gamework(user, tags: List[str], idea: str, length: str, modifiable: bool = False) -> dict:
     """
-    创建新游戏作品的完整流程。
-    根据 modifiable 参数区分创作者模式和读者模式。
+    启动新游戏作品的创建流程，并立即返回gameworkId。
     """
     total_chapters = _resolve_total_chapters(length)
-    details = _generate_gamework_details_with_ai(tags, idea, total_chapters)
-    cover_url = _generate_cover_image_with_ai(tags, idea)
 
+    # 1. 创建占位实例
     gamework = Gamework.objects.create(
         author=user,
-        title=details.title,
-        description=details.description,
-        image_url=cover_url
+        title="作品生成中...",
+        description="AI正在努力创作中，请稍候...",
+        image_url=f"{settings.MEDIA_URL}placeholders/cover.jpg"
     )
-    
-    outlines_data = details.model_dump().get("chapterOutlines", [])
+    Story.objects.create(
+        gamework=gamework,
+        total_chapters=total_chapters,
+        initial_attributes={},
+        initial_statuses={},
+        ai_callable=modifiable,
+        outlines=[]
+    )
 
-    # 确保 chapterIndex 从 1 开始正确递增，并处理数量不匹配问题
-    corrected_outlines = []
-    for i in range(total_chapters):
-        if i < len(outlines_data) and outlines_data[i].get('outline'):
-            outline_text = outlines_data[i]['outline']
-        else:
-            outline_text = f"第 {i + 1} 章大纲待补充"
-        
-        corrected_outlines.append({
-            "chapterIndex": i + 1,
-            "outline": outline_text
-        })
-    outlines_data = corrected_outlines
-
-    story_defaults = {
-        'total_chapters': total_chapters,
-        'initial_attributes': details.initialAttributes,
-        'initial_statuses': details.initialStatuses,
-        'ai_callable': modifiable,
-        'outlines': outlines_data,
-    }
-
-    response_data = {
-        "gameworkId": gamework.id,
-        "title": details.title,
-        "coverUrl": cover_url,
-        "description": details.description,
-        "initialAttributes": details.initialAttributes,
-        "initialStatuses": details.initialStatuses,
-        "total_chapters": total_chapters,
-        "chapterOutlines": outlines_data,
-    }
-    
-    Story.objects.create(gamework=gamework, **story_defaults)
-
-    # 关联标签
+    # 2. 关联标签
     from tags.models import Tag
-    tag_objects = []
-    for tag_name in tags:
-        tag, _ = Tag.objects.get_or_create(name=tag_name)
-        tag_objects.append(tag)
+    tag_objects = [Tag.objects.get_or_create(name=tag_name)[0] for tag_name in tags]
     gamework.tags.set(tag_objects)
 
-    if not modifiable:
-        # 读者模式：启动异步生成所有章节
-        _generate_all_chapters_async(gamework)
+    # 3. 并行启动后台生成任务
+    def details_worker():
+        details = _generate_gamework_details_with_ai(tags, idea, total_chapters)
+        _update_gamework_after_generation(gamework.id, details=details)
 
-    return response_data
+    def cover_worker():
+        cover_url = _generate_cover_image_with_ai(tags, idea)
+        _update_gamework_after_generation(gamework.id, cover_url=cover_url)
+
+    threading.Thread(target=details_worker, daemon=True).start()
+    threading.Thread(target=cover_worker, daemon=True).start()
+
+    # 4. 立即返回
+    return {"gameworkId": gamework.id}
 
 def start_single_chapter_generation(gamework: Gamework, chapter_index: int, outlines: List[Dict], user_prompt: str):
     """为创作者模式启动单章节的异步生成"""
