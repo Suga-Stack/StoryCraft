@@ -1,5 +1,5 @@
 import logging
-import time
+import os
 from rest_framework import views, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -18,8 +18,64 @@ from gameworks.models import Gamework
 from .models import GameSave
 from stories.models import Story, StoryChapter, StoryScene
 from copy import deepcopy
+from rest_framework.parsers import MultiPartParser, FormParser
+import uuid
+from django.core.files.storage import default_storage
+from django.conf import settings
 
 logger = logging.getLogger('django')
+
+class UserImageUploadView(views.APIView):
+    """用户上传自定义图片"""
+    permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser)
+
+    @swagger_auto_schema(
+        operation_summary="上传自定义图片",
+        operation_description="用户上传图片文件，服务器存储后返回图片的URL。",
+        manual_parameters=[
+            openapi.Parameter(
+                'file',
+                openapi.IN_FORM,
+                description="要上传的图片文件",
+                type=openapi.TYPE_FILE,
+                required=True
+            )
+        ],
+        responses={
+            status.HTTP_201_CREATED: openapi.Response(
+                description="上传成功",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'imageUrl': openapi.Schema(type=openapi.TYPE_STRING, description="图片的访问URL")
+                    }
+                )
+            ),
+            status.HTTP_400_BAD_REQUEST: openapi.Response(description="请求无效或未提供文件"),
+        }
+    )
+    def post(self, request, *args, **kwargs):
+        file_obj = request.data.get('file')
+        if not file_obj:
+            return Response({'error': '未提供文件'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # 生成唯一文件名
+            file_ext = os.path.splitext(file_obj.name)[1]
+            file_name = f"user_upload/{uuid.uuid4().hex}{file_ext}"
+            
+            # 保存文件
+            path = default_storage.save(file_name, file_obj)
+            
+            # 构建完整的URL
+            image_url = request.build_absolute_uri(settings.MEDIA_URL + path)
+
+            return Response({'imageUrl': image_url}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            logger.error(f"上传图片时发生错误: {e}", exc_info=True)
+            return Response({'error': '图片上传失败，请稍后重试。'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 class GameCreateView(views.APIView):
     """创建新游戏作品"""

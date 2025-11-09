@@ -114,13 +114,14 @@ def _generate_chapter_with_ai(messages) :
         logger.error("AI生成剧情出错：%s", e)
 
 def _generate_backgroundimages_with_ai(img_descriptions: List[str]) -> List[str]:
-    """使用豆包API生成一组连贯的背景图片,返回URL(media/gamework_scenes/xxx.jpg)列表"""
+    """使用豆包API生成一组连贯的背景图片,返回绝对URL列表"""
 
     images_count = len(img_descriptions)
     if images_count == 0:
         return []
 
-    placeholder_url = f"{settings.MEDIA_URL}placeholders/scene.jpg"
+    base_url = settings.SITE_DOMAIN
+    placeholder_url = f"{base_url}{settings.MEDIA_URL}placeholders/scene.jpg"
     results: List[str] = []
 
     prompt = f"""
@@ -153,7 +154,7 @@ def _generate_backgroundimages_with_ai(img_descriptions: List[str]) -> List[str]
             guessed_ext = mimetypes.guess_extension(file_resp.headers.get("Content-Type", ""), strict=False) or ".jpg"
             filename = f"gamework_scenes/{uuid.uuid4().hex}{guessed_ext}"
             default_storage.save(filename, ContentFile(file_resp.content))
-            results.append(f"{settings.MEDIA_URL}{filename}")
+            results.append(f"{base_url}{settings.MEDIA_URL}{filename}")
         except Exception as e:  
             logger.error("第 %s 张背景图生成或保存失败: %s", idx + 1, e)
 
@@ -211,9 +212,10 @@ def _generate_gamework_details_with_ai(tags: List[str], idea: str, total_chapter
         )
 
 def _generate_cover_image_with_ai(tags: List[str], idea: str) -> str:
-    """使用AI生成封面图片,返回URL(media/gamework_covers/xxx.jpg)"""
+    """使用AI生成封面图片,返回绝对URL"""
 
-    placeholder_url = f"{settings.MEDIA_URL}placeholders/cover.jpg"
+    base_url = settings.SITE_DOMAIN
+    placeholder_url = f"{base_url}{settings.MEDIA_URL}placeholders/cover.jpg"
 
     prompt = f"""
 生成一部小说的封面
@@ -243,7 +245,7 @@ def _generate_cover_image_with_ai(tags: List[str], idea: str) -> str:
         default_storage.save(filename, ContentFile(file_resp.content))
 
         logger.info(f"AI封面生成成功: {filename}")
-        return f"{settings.MEDIA_URL}{filename}"
+        return f"{base_url}{settings.MEDIA_URL}{filename}"
     
     except Exception as e:
         logger.error("AI生成封面图片出错: %s", e)
@@ -284,9 +286,14 @@ def _build_chapter_response(chapter: StoryChapter) -> Dict[str, Any]:
         "scenes": []
     }
     for scene in chapter.scenes.order_by("scene_index"):
+        # 确保返回的backgroundImage是完整的URL
+        bg_image = scene.background_image_url
+        if bg_image and not bg_image.startswith(('http://', 'https://')):
+             bg_image = f"{settings.SITE_DOMAIN}{bg_image}"
+
         payload["scenes"].append({
             "id": scene.scene_index,
-            "backgroundImage": scene.background_image_url,
+            "backgroundImage": bg_image,
             "dialogues": deepcopy(scene.dialogues) if scene.dialogues else []
         })
     return payload
@@ -447,7 +454,7 @@ def create_gamework(user, tags: List[str], idea: str, length: str, modifiable: b
         author=user,
         title="作品生成中...",
         description="AI正在努力创作中，请稍候...",
-        image_url=f"{settings.MEDIA_URL}placeholders/cover.jpg"
+        image_url=f"{settings.SITE_DOMAIN}{settings.MEDIA_URL}placeholders/cover.jpg"
     )
     Story.objects.create(
         gamework=gamework,
@@ -651,8 +658,12 @@ def build_settlement_variants(attributes: Dict[str, int], statuses: Dict[str, An
 
 def resolve_scene_cover_url(gamework: Gamework, chapter_index: int, scene_index: int) -> Optional[str]:
     """根据章节与场景索引解析背景图URL"""
-    return StoryScene.objects.filter(
+    url = StoryScene.objects.filter(
         chapter__story__gamework=gamework,
         chapter__chapter_index=chapter_index,
         scene_index=scene_index
     ).values_list('background_image_url', flat=True).first()
+
+    if url and not url.startswith(('http://', 'https://')):
+        return f"{settings.SITE_DOMAIN}{url}"
+    return url

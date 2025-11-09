@@ -6,6 +6,7 @@ from django.db.models import Avg
 class GameworkSerializer(serializers.ModelSerializer):
     author = serializers.StringRelatedField(read_only=True)
     tags = serializers.PrimaryKeyRelatedField(many=True, read_only=False, queryset=Tag.objects.all())
+    image_url = serializers.SerializerMethodField()
 
     # 统计字段
     favorite_count = serializers.SerializerMethodField()
@@ -31,6 +32,17 @@ class GameworkSerializer(serializers.ModelSerializer):
             'is_complete', 'generated_chapters', 'total_chapters', 'modifiable', 'ai_callable',
             'initial_attributes', 'initial_statuses', 'outlines'
         )
+
+    def get_image_url(self, obj):
+        request = self.context.get('request')
+        if obj.image_url:
+            if request:
+                return request.build_absolute_uri(obj.image_url)
+            # Fallback for contexts without request (e.g., management commands)
+            if not obj.image_url.startswith(('http://', 'https://')):
+                from django.conf import settings
+                return f"{settings.SITE_DOMAIN}{obj.image_url}"
+        return obj.image_url
 
     def get_favorite_count(self, obj):
         if hasattr(obj, "favorite_count"):

@@ -142,6 +142,9 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # 指定用户模型
 AUTH_USER_MODEL = 'users.User'
 
+# 站点域名，用于在后台任务中构建绝对URL
+SITE_DOMAIN = os.getenv('SITE_DOMAIN', 'http://127.0.0.1:8000')
+
 # 所有功能开启权限验证
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
