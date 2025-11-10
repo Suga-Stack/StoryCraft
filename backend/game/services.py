@@ -323,14 +323,20 @@ def _generate_chapter(gamework: Gamework, chapter_index: int, user_prompt: str =
     generated_images_urls = _generate_backgroundimages_with_ai(images_descriptions)
 
     chapter_title = chapter_dict.get("title") or f"第{chapter_index}章"
-    chapter_obj, _ = StoryChapter.objects.update_or_create(
+    
+    chapter_obj, created = StoryChapter.objects.update_or_create(
         story=story,
         chapter_index=chapter_index,
-        defaults={"title": chapter_title}
+        defaults={
+            "title": chapter_title,
+            "status": StoryChapter.ChapterStatus.GENERATED
+        }
     )
-    chapter_obj.scenes.all().delete()
+    # 如果是重新生成，先清空旧场景
+    if not created:
+        chapter_obj.scenes.all().delete()
 
-    placeholder_url = f"{settings.MEDIA_URL}placeholders/scene.jpg"
+    placeholder_url = f"{settings.SITE_DOMAIN}{settings.MEDIA_URL}placeholders/scene.jpg"
     for idx, scene_data in enumerate(chapter_dict.get("scenes", [])):
         dialogues_with_ids = []
         for dialogue in scene_data.get("dialogues", []):
@@ -491,14 +497,33 @@ def start_single_chapter_generation(gamework: Gamework, chapter_index: int, outl
     if not story.ai_callable:
         raise PermissionError("此作品不允许调用AI生成。")
 
+    # 检查是否已有章节正在生成
+    if story.is_generating:
+        raise PermissionError("已有章节正在生成中，请稍候。")
+
+    # 检查前一章是否已保存
+    if chapter_index > 1:
+        try:
+            prev_chapter = StoryChapter.objects.get(story=story, chapter_index=chapter_index - 1)
+            if prev_chapter.status != StoryChapter.ChapterStatus.SAVED:
+                raise PermissionError(f"请先保存第 {chapter_index - 1} 章的内容。")
+        except StoryChapter.DoesNotExist:
+            raise PermissionError(f"请先生成并保存第 {chapter_index - 1} 章。")
+
+    # 检查当前章节是否已保存，已保存则不允许重新生成
+    current_chapter = story.chapters.filter(chapter_index=chapter_index).first()
+    if current_chapter and current_chapter.status == StoryChapter.ChapterStatus.SAVED:
+        raise PermissionError(f"第 {chapter_index} 章已保存，无法使用AI重新生成。")
+
     # 更新大纲
     story.outlines = outlines
     story.save()
 
-    # 重置章节状态，准备重新生成
+    # 删除可能存在的旧章节实例，准备重新生成
     StoryChapter.objects.filter(story=story, chapter_index=chapter_index).delete()
+
+    # 设置全局生成状态锁
     story.is_generating = True
-    story.is_complete = False
     story.current_generating_chapter = chapter_index
     story.save()
 
@@ -507,44 +532,29 @@ def start_single_chapter_generation(gamework: Gamework, chapter_index: int, outl
             logger.info(f"创作者模式：开始生成作品ID {gamework.id} 第 {chapter_index} 章")
             _generate_chapter(gamework, chapter_index, user_prompt)
             logger.info(f"创作者模式：完成生成作品ID {gamework.id} 第 {chapter_index} 章")
-            
+        except Exception as e:
+            logger.error(f"生成作品ID {gamework.id} 章节时发生错误: {e}", exc_info=True)
+            # 如果出错，确保没有残留的章节片段
+            StoryChapter.objects.filter(story__gamework=gamework, chapter_index=chapter_index).delete()
+        finally:
+            # 释放全局锁
             story.refresh_from_db()
             story.is_generating = False
             story.current_generating_chapter = 0
-            if story.generated_chapters_count == story.total_chapters:
-                story.is_complete = True
             story.save()
-
-        except Exception as e:
-            logger.error(f"生成作品ID {gamework.id} 章节时发生错误: {e}")
-            try:
-                story.refresh_from_db()
-                story.is_generating = False
-                story.save()
-            except:
-                pass
 
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()
 
 def get_chapter_status(gamework: Gamework, chapter_index: int) -> dict:
-    """
-    查询章节生成状态或返回已生成内容。
-    返回格式:
-    - {"status": "generating", "progress": {...}} - 正在生成中
-    - {"status": "ready", "chapter": {...}} - 已生成完毕
-    - {"status": "pending"} - 尚未开始生成
-    """
+    """查询章节生成状态或返回已生成内容。"""
 
-    story, _ = Story.objects.get_or_create(
-        gamework=gamework,
-        defaults={'total_chapters': _resolve_total_chapters("")}
-    )
+    story = gamework.story
 
     if chapter_index < 1 or chapter_index > story.total_chapters:
         return {"status": "error", "message": f"章节索引 {chapter_index} 超出范围"}
 
-    # 检查章节是否已生成
+    # 1. 检查章节是否已物理存在于数据库
     try:
         chapter = StoryChapter.objects.prefetch_related('scenes').get(
             story=story, 
@@ -557,8 +567,8 @@ def get_chapter_status(gamework: Gamework, chapter_index: int) -> dict:
     except StoryChapter.DoesNotExist:
         pass
 
-    # 章节未生成，检查生成状态
-    if story.is_generating:
+    # 2. 如果章节不存在，再检查全局生成锁
+    if story.is_generating and story.current_generating_chapter == chapter_index:
         return {
             "status": "generating",
             "progress": {
@@ -567,9 +577,11 @@ def get_chapter_status(gamework: Gamework, chapter_index: int) -> dict:
             }
         }
     
+    # 3. 如果已完成所有章节的生成流程，但仍找不到，说明出错了
     if story.is_complete:
         return {"status": "error", "message": "章节应已生成但未找到"}
     
+    # 4. 否则，就是尚未开始生成
     return {"status": "pending", "message": "章节尚未开始生成"}
 
 def get_or_generate_report(gamework: Gamework) -> dict:
