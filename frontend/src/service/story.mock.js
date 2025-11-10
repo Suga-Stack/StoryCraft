@@ -106,4 +106,18 @@ export async function getScenes(workId, chapterIndex = 1) {
 export async function getInitialScenes(workId) {
   return getScenes(workId, 1)
 }
+
+// Mock: 接收创作者确认的大纲并启动章节生成（立即返回 ok）
+export async function generateChapter(gameworkId, chapterIndex, body = {}) {
+  await delay(200)
+  console.log('[mock] generateChapter called', gameworkId, chapterIndex, body)
+  return { ok: true }
+}
+
+// Mock: 保存章节到后端（PUT）
+export async function saveChapter(gameworkId, chapterIndex, chapterData = {}) {
+  await delay(200)
+  console.log('[mock] saveChapter called', gameworkId, chapterIndex, chapterData)
+  return { ok: true }
+}
 // ...existing code...

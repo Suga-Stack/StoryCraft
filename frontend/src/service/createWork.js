@@ -33,7 +33,9 @@ export async function createWorkOnBackend(payload = {}) {
   const body = {
     tags: payload.tags || [],
     idea: payload.idea || '',
-    length: payload.length || 'medium'
+    length: payload.length || 'medium',
+    // 如果前端告诉后端 modifiable=true，后端应返回章节大纲（chapterOutlines）而不是直接生成完整章节内容
+    modifiable: payload.modifiable === true
   }
   // 直接按 game-api.md：返回后端原始响应，字段名保持一致（gameworkId, title, coverUrl, description, initialAttributes, statuses）
   const res = await http.post('/api/game/create/', body)

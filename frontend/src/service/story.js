@@ -161,6 +161,33 @@ export async function createGame(gameData) {
 }
 
 /**
+ * 在创作者模式下：基于用户最终确认的大纲 & prompt 启动后端章节生成
+ * @param {number|string} gameworkId
+ * @param {number} chapterIndex
+ * @param {Object} body - { chapterOutlines: Array, userPrompt?: string }
+ */
+export async function generateChapter(gameworkId, chapterIndex, body = {}) {
+  try {
+    return await http.post(`/api/game/chapter/generate/${gameworkId}/${chapterIndex}/`, body)
+  } catch (e) {
+    console.error('generateChapter failed', e)
+    throw e
+  }
+}
+
+/**
+ * 将创作者在前端修改后的章节内容持久化到后端（PUT 覆盖）
+ */
+export async function saveChapter(gameworkId, chapterIndex, chapterData = {}) {
+  try {
+    return await http.put(`/api/game/chapter/${gameworkId}/${chapterIndex}/`, chapterData)
+  } catch (e) {
+    console.error('saveChapter failed', e)
+    throw e
+  }
+}
+
+/**
  * 更新作品信息
  * @param {string|number} workId - 作品 ID
  * @param {Object} updates - 更新的字段
@@ -195,6 +222,8 @@ export async function getInitialScenes(workId) {
 export default {
   getScenes,
   createGame,
+  generateChapter,
+  saveChapter,
   getWorkInfo,
   getWorkList,
   updateWork,

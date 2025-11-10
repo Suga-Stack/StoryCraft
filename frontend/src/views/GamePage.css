@@ -439,6 +439,40 @@
   backface-visibility: hidden;
 }
 
+/* 编辑态样式 */
+.dialogue-text[contenteditable="true"] {
+  outline: none;
+  caret-color: #f5e6d3;
+  background: rgba(255,255,255,0.03);
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  min-height: 3.2rem;
+}
+
+.edit-controls {
+  position: absolute;
+  bottom: 0.6rem;
+  right: 6rem;
+  display: flex;
+  gap: 0.5rem;
+  z-index: 6;
+}
+.edit-btn {
+  background: rgba(0,0,0,0.45);
+  color: #fff;
+  border: 1px solid rgba(245,230,211,0.08);
+  padding: 0.28rem 0.6rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.edit-btn:hover { transform: translateY(-2px); }
+
+/* 文本框在创作者模式和编辑态的高亮 */
+.text-box.creator-mode { box-shadow: 0 0 0 2px rgba(212,165,165,0.12) inset, 0 8px 24px rgba(0,0,0,0.2); }
+.text-box.editing { border-top-left-radius: 12px; border-top-right-radius: 12px; box-shadow: 0 0 0 3px rgba(212,165,165,0.22); }
+.creator-badge { position: absolute; top: 1rem; right: 4.5rem; background: rgba(212,165,165,0.95); color: #2c1810; padding: 0.25rem 0.5rem; border-radius: 999px; font-weight:700; z-index: 8; }
+
 /* 继续提示箭头 */
 .continue-hint {
   position: absolute;
@@ -672,6 +706,7 @@
 .toast { position: fixed; right: 1rem; bottom: 1rem; background: rgba(0,0,0,0.8); color: #fff; padding: 0.6rem 1rem; border-radius: 6px; z-index: 11000 }
 .save-toast { background: linear-gradient(90deg,#d4a574,#f5e6d3); color:#2c1810 }
 .load-toast { background: linear-gradient(90deg,#a5d4a5,#d3f5d3); color:#183a12 }
+.notice-toast { background: linear-gradient(90deg,#ffd966,#fff3d6); color:#4a2b00 }
 
 /* 选项样式 */
 .choices-container { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(37vh + 1rem); display:flex; flex-direction:column; gap:1rem; z-index: 5; align-items:center; }

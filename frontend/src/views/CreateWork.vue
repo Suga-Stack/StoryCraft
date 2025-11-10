@@ -45,6 +45,9 @@ const lengthOptions = [
   { value: 'long', label: '长篇（10章以上）' }
 ]
 
+// 选择身份：阅读者（默认）或创作者
+const identity = ref('reader') // 'reader' | 'creator'
+
 // 折叠状态：默认折叠以节省空间（用户可展开）
 const collapsed = ref([])
 onMounted(() => {
@@ -111,7 +114,10 @@ const submitToBackend = async () => {
   const payload = {
     tags: selectedTags.value,
     idea: idea.value?.trim() || '',
-    length: lengthType.value
+    length: lengthType.value,
+    // 为便于本地测试，暂时强制以创作者模式处理（无论用户在界面选择何种身份）
+    // 注意：这是测试用行为，集成真实后端时可改回 identity.value === 'creator'
+    modifiable: true
   }
   try {
     const res = await createWorkOnBackend(payload)
@@ -157,8 +163,31 @@ const submitToBackend = async () => {
       const createResult = {
         selectedTags: selectedTags.value,
         fromCreate: true,
-        backendWork: backendWork.value || null
+        backendWork: backendWork.value || null,
+        // 若为创作者模式，后端应返回 chapterOutlines（见 API 约定）
+        chapterOutlines: res?.chapterOutlines || null,
+        modifiable: payload.modifiable || false
       }
+
+      // 如果用户选择了创作者模式但后端尚未实现返回大纲（或返回为空），在前端合成一份用于本地测试的 mock 大纲
+      // 这样可以立即触发大纲编辑器，便于本地调试与演示；一旦后端实现，请删除或调整此合成逻辑
+      try {
+        if (createResult.modifiable && (!Array.isArray(createResult.chapterOutlines) || createResult.chapterOutlines.length === 0)) {
+          // 合成 5 章示例大纲（可按需调整数量与内容）
+          createResult.chapterOutlines = [
+            { title: '第一章：意外的相遇', summary: '主角在小镇发生意外，与神秘人物结下缘分，故事由此展开。' },
+            { title: '第二章：秘密与挑战', summary: '主角发现身边隐藏的秘密，被迫面对第一个挑战与抉择。' },
+            { title: '第三章：盟友与背叛', summary: '旧友露出真实面目，新盟友带来转机或陷阱。' },
+            { title: '第四章：黑暗边缘', summary: '冲突升级，主角经历重大损失，世界观逐渐揭露更大的阴谋。' },
+            { title: '第五章：重生与抉择', summary: '进入高潮，主角必须做出影响全局的选择，为结局埋下伏笔。' }
+          ]
+          // 给到后端生成时的用户提示示例，前端会把它一并传给生成接口
+          createResult.userPrompt = '请根据下面的大纲，逐章生成场景与对白，保持叙事风格一致并包含丰富的细节与人物互动：' + JSON.stringify(createResult.chapterOutlines)
+        }
+      } catch (synthErr) {
+        console.warn('合成 createResult.chapterOutlines 失败：', synthErr)
+      }
+
       sessionStorage.setItem('createResult', JSON.stringify(createResult))
       return createResult
     } catch (e) { /* ignore storage errors */ return { backendWork: backendWork.value || null } }
@@ -265,6 +294,16 @@ const handleTabChange = (name) => {
     </div>
 
     <div class="section">
+      <div class="section-title">选择身份</div>
+      <div style="display:flex; gap:1rem; margin:0.5rem 0 1rem;">
+        <label style="display:flex; align-items:center; gap:0.5rem;">
+          <input type="radio" name="identity" value="reader" v-model="identity" /> 阅读者（默认）
+        </label>
+        <label style="display:flex; align-items:center; gap:0.5rem;">
+          <input type="radio" name="identity" value="creator" v-model="identity" /> 创作者（获得章节大纲，可编辑并发起生成）
+        </label>
+      </div>
+
       <div class="section-title">选择标签（3-6 个）</div>
       <!-- 横向四个分类按钮 -->
       <div class="category-tabs">
@@ -329,6 +368,8 @@ const handleTabChange = (name) => {
         <div class="progress-text">{{ progress }}%</div>
       </div>
     </div>
+
+    
 
     <!-- 底部导航栏 -->
     <van-tabbar v-model="activeTab" @change="handleTabChange" safe-area-inset-bottom>

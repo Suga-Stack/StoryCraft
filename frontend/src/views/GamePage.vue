@@ -14,11 +14,25 @@ const USE_MOCK_SAVE = false
 // 是否启用故事内容的本地 mock（后端暂未就绪时）
 const USE_MOCK_STORY = false
 
+// 测试开关：强制在进入游戏前以创作者身份（作品创建者）显示大纲编辑器（用于本地 AI 交互调试）
+const FORCE_CREATOR_FOR_TEST = true
+let creatorEditorHandled = false
+
+// 区分两种身份相关开关：
+// - isCreatorIdentity: 当前进入游戏的身份是否为作品创建者（用于自动在每一章前弹出可编辑大纲）
+// - creatorMode: 菜单中的手动创作者模式开关（用户手动在菜单中切换，用于启用页面上的手动编辑功能）
+const isCreatorIdentity = ref(FORCE_CREATOR_FOR_TEST)
+
+// 编辑器调用来源：'auto'（自动在章节前弹出，可编辑并可触发生成）或 'manual'（由浮动按钮打开，默认只读，除非菜单 creatorMode 打开）
+const editorInvocation = ref('manual')
+
 import * as storyService from '../service/story.js'
 import { saveGameData, loadGameData, refreshSlotInfos as refreshSlotInfosUtil, deleteGameData } from '../utils/saveLoad.js'
 
 // 本地引用，允许在运行时替换为 mock 实现
 let getScenes = storyService.getScenes
+let generateChapter = storyService.generateChapter
+let saveChapter = storyService.saveChapter
 // 在 onMounted 流程中，如果我们使用本地 mock 获取到了初始场景，需要强制展示加载界面一段时间
 let didLoadInitialMock = false
 
@@ -83,6 +97,24 @@ const initializeGame = async () => {
     
     let initOk = false
     try {
+      // 测试模式：强制在进入游戏前弹出创作者大纲编辑器（若尚未处理）
+      if (FORCE_CREATOR_FOR_TEST && !creatorEditorHandled) {
+        try {
+          // 构造一个临时的 createResult 对象（从路由 或 session 的 lastWorkMeta 获取基础信息）
+          const temp = {
+            fromCreate: true,
+            backendWork: { id: work.value.id, title: work.value.title },
+            modifiable: true,
+            total_chapters: Number(totalChapters.value) || 5,
+            chapterOutlines: null
+          }
+          // 将临时对象写入 sessionStorage，复用 initFromCreateResult 的弹窗逻辑
+          try { sessionStorage.setItem('createResult', JSON.stringify(temp)) } catch (e) {}
+          // 标记为已处理，避免重复弹窗
+          creatorEditorHandled = true
+        } catch (e) { console.warn('prepare FORCE_CREATOR_FOR_TEST failed', e) }
+      }
+
       const ok = await initFromCreateResult()
       initOk = !!ok
       if (!ok) {
@@ -639,6 +671,44 @@ const initFromCreateResult = async () => {
     // 从后端获取首章内容（chapterIndex = 1，后端为 1-based）
     try {
       const workId = work.value.id
+      // 如果当前 createResult 表示为创作者模式，先让用户编辑大纲再触发生成（即使后端尚未返回大纲）
+      if (obj.modifiable) {
+        // 如果当前进入者是作品创建者身份（isCreatorIdentity），我们需要自动弹出编辑器用于生成大纲
+        if (isCreatorIdentity.value && !creatorEditorHandled) {
+          editorInvocation.value = 'auto'
+          creatorEditorHandled = true
+        } else {
+          // 仅标识该作品支持创作者功能，但不自动启用菜单创作者模式
+          // 菜单中的 creatorMode 由用户在页面手动切换
+        }
+
+        // 将后端可能返回的 chapterOutlines 映射为编辑器使用的格式：{ chapterIndex, outline }
+        try {
+          const rawOutlines = Array.isArray(obj.chapterOutlines) ? obj.chapterOutlines : []
+          if (rawOutlines.length > 0) {
+            outlineEdits.value = rawOutlines.map((ch, i) => ({ chapterIndex: (i + 1), outline: ch.summary || ch.title || ch.outline || JSON.stringify(ch) }))
+          } else {
+            // 若后端未返回大纲，则合成一份用于本地测试（生成直到 total_chapters 或默认 5 章）
+            const total = Number(obj.total_chapters) || 5
+            outlineEdits.value = []
+            for (let i = 1; i <= total; i++) {
+              outlineEdits.value.push({ chapterIndex: i, outline: `第${i}章：自动生成的示例大纲（测试用）。` })
+            }
+          }
+          // 若 createResult 中包含 userPrompt 字段，则带入编辑器供用户修改
+          outlineUserPrompt.value = obj.userPrompt || ''
+        } catch (mapErr) {
+          console.warn('map chapterOutlines failed', mapErr)
+          outlineEdits.value = [{ chapterIndex: 1, outline: '请在此编辑第一章大纲' }]
+        }
+
+  // 记录原始大纲快照（用于取消时按原始大纲生成）
+  try { originalOutlineSnapshot.value = JSON.parse(JSON.stringify(outlineEdits.value || [])) } catch(e) { originalOutlineSnapshot.value = (outlineEdits.value || []).slice() }
+  showOutlineEditor.value = true
+        // 等待用户确认或取消（confirmOutlineEdits/cancelOutlineEdits 会 resolve outlineEditorResolver）
+        await new Promise((resolve) => { outlineEditorResolver = resolve })
+        // 如果用户确认，confirmOutlineEdits 已调用 generateChapter，后端可能仍在生成，getScenes 会轮询等待
+      }
       const result = await getScenes(workId, 1, {
         onProgress: (progress) => {
           console.log(`[Story] 首章生成进度:`, progress)
@@ -757,7 +827,48 @@ const fetchNextChapter = async (workId, chapterIndex = null) => {
     if (!idx || idx <= 0) idx = currentChapterIndex.value || 1
 
     console.log(`[fetchNextChapter] 开始获取第 ${idx} 章内容...`)
-    
+
+  // 若当前为作品创建者身份，则在每一章加载前弹出大纲编辑器供创作者确认/修改后再真正请求章节内容
+  // 注意：menu 中的 creatorMode 仍然负责页面内手动编辑权限；这里的 isCreatorIdentity 用于在进入每章前自动弹出可编辑大纲（测试/创作者流程）
+  if (isCreatorIdentity.value) {
+      try {
+        // 尝试从 sessionStorage.createResult 获得原始大纲（若存在）
+        let createRaw = null
+        try { createRaw = JSON.parse(sessionStorage.getItem('createResult') || 'null') } catch (e) { createRaw = null }
+        const rawOutlines = (createRaw && Array.isArray(createRaw.chapterOutlines)) ? createRaw.chapterOutlines : []
+        // 展示从当前请求章节 idx 到末章的所有大纲供编辑（若后端未返回则合成到 total_chapters）
+        const total = (Array.isArray(rawOutlines) && rawOutlines.length) ? rawOutlines.length : (Number(totalChapters.value) || 5)
+        outlineEdits.value = []
+        for (let j = idx; j <= total; j++) {
+          if (rawOutlines && rawOutlines[j - 1]) {
+            const ch = rawOutlines[j - 1]
+            outlineEdits.value.push({ chapterIndex: j, outline: ch.summary || ch.title || ch.outline || JSON.stringify(ch) })
+          } else {
+            outlineEdits.value.push({ chapterIndex: j, outline: `第${j}章：请在此编辑/补充本章大纲以指导生成。` })
+          }
+        }
+        outlineUserPrompt.value = (createRaw && createRaw.userPrompt) ? createRaw.userPrompt : ''
+      } catch (e) {
+        outlineEdits.value = [{ chapterIndex: idx, outline: `第${idx}章：请在此编辑/补充本章大纲以指导生成。` }]
+        outlineUserPrompt.value = ''
+      }
+
+  // 自动触发的编辑器（章节前弹出）应以 auto 模式打开，允许编辑并生成
+  editorInvocation.value = 'auto'
+  // 记录原始大纲快照（用于取消时按原始大纲生成）
+  try { originalOutlineSnapshot.value = JSON.parse(JSON.stringify(outlineEdits.value || [])) } catch(e) { originalOutlineSnapshot.value = (outlineEdits.value || []).slice() }
+  showOutlineEditor.value = true
+      const confirmed = await new Promise((resolve) => { outlineEditorResolver = resolve })
+      // 如果创作者确认，则调用生成接口（后端会基于传入大纲开始生成）
+      if (confirmed) {
+        try {
+          const payloadOutlines = outlineEdits.value.map(o => ({ chapterIndex: o.chapterIndex, summary: o.outline }))
+          await generateChapter(workId, idx, { chapterOutlines: payloadOutlines, userPrompt: outlineUserPrompt.value })
+          // 允许后端/生成服务有短暂准备时间；getScenes 会处理生成中状态并轮询展示进度
+        } catch (e) { console.warn('generateChapter for next chapter failed', e) }
+      }
+    }
+
     const data = await getScenes(workId, idx, {
       onProgress: (progress) => {
         console.log(`[Story] 章节 ${idx} 生成进度:`, progress)
@@ -1155,8 +1266,74 @@ const currentDialogueIndex = ref(0)
 const currentChapterIndex = ref(1)
 // 是否显示菜单
 const showMenu = ref(false)
+// 创作者模式开关：必须启用后才允许编辑或替换图片
+const creatorMode = ref(false)
 // 是否显示文字（用于淡入效果）
 const showText = ref(false)
+
+// 创作者大纲编辑器（当从 createResult 进入且为 modifiable 时使用）
+const showOutlineEditor = ref(false)
+const outlineEdits = ref([]) // [{ chapterIndex, outline }]
+const outlineUserPrompt = ref('')
+const originalOutlineSnapshot = ref([])
+let outlineEditorResolver = null
+
+// 手动打开大纲编辑器（供页面按钮或其它流程调用）
+const openOutlineEditorManual = async () => {
+  try {
+    let createRaw = null
+    try { createRaw = JSON.parse(sessionStorage.getItem('createResult') || 'null') } catch (e) { createRaw = null }
+    const rawOutlines = (createRaw && Array.isArray(createRaw.chapterOutlines)) ? createRaw.chapterOutlines : []
+    const start = Number(currentChapterIndex.value) || 1
+    const total = (Array.isArray(rawOutlines) && rawOutlines.length) ? rawOutlines.length : (Number(totalChapters.value) || 5)
+    outlineEdits.value = []
+    for (let j = start; j <= total; j++) {
+      if (rawOutlines && rawOutlines[j - 1]) {
+        const ch = rawOutlines[j - 1]
+        outlineEdits.value.push({ chapterIndex: j, outline: ch.summary || ch.title || ch.outline || JSON.stringify(ch) })
+      } else {
+        outlineEdits.value.push({ chapterIndex: j, outline: `第${j}章：请在此编辑/补充本章大纲以指导生成。` })
+      }
+    }
+    outlineUserPrompt.value = createRaw?.userPrompt || ''
+    // 记录原始大纲快照（用于取消时按原始大纲生成）
+    try { originalOutlineSnapshot.value = JSON.parse(JSON.stringify(outlineEdits.value || [])) } catch(e) { originalOutlineSnapshot.value = (outlineEdits.value || []).slice() }
+    // 由手动按钮打开 editor，标记为 manual 调用；仅当菜单 creatorMode 为 true 时允许编辑/生成
+    editorInvocation.value = 'manual'
+    showOutlineEditor.value = true
+  } catch (e) { console.warn('openOutlineEditorManual failed', e) }
+}
+
+const cancelOutlineEdits = () => {
+  try { showOutlineEditor.value = false } catch (e) {}
+  // 如果是自动调用（章节前弹出），或菜单中启用了创作者模式，则取消也需要触发生成（使用原始大纲）
+  (async () => {
+    try {
+      const workId = work.value.id
+      if (editorInvocation.value === 'auto' || creatorMode.value) {
+        const payloadOutlines = (originalOutlineSnapshot.value || []).map(o => ({ chapterIndex: o.chapterIndex, summary: o.outline }))
+        try { await generateChapter(workId, payloadOutlines[0]?.chapterIndex || 1, { chapterOutlines: payloadOutlines, userPrompt: outlineUserPrompt.value }) } catch (e) { console.warn('cancelOutlineEdits generate failed', e) }
+      }
+    } catch (e) { console.warn('cancelOutlineEdits async failed', e) }
+  })()
+  if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(false); outlineEditorResolver = null }
+}
+
+const confirmOutlineEdits = async () => {
+  try {
+    // 将编辑器格式映射回后端期望的章节大纲格式并调用生成接口
+    const workId = work.value.id
+    const payloadOutlines = (outlineEdits.value || []).map(o => ({ chapterIndex: o.chapterIndex, summary: o.outline }))
+    await generateChapter(workId, payloadOutlines[0]?.chapterIndex || 1, { chapterOutlines: payloadOutlines, userPrompt: outlineUserPrompt.value })
+    showOutlineEditor.value = false
+  // 用户确认了大纲编辑并触发了生成，清除任何 creator-mode 预览快照，防止后续退出创作者模式时回滚到旧状态
+  try { previewSnapshot.value = null } catch (e) {}
+    if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(true); outlineEditorResolver = null }
+  } catch (e) {
+    console.warn('confirmOutlineEdits failed', e)
+    if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(false); outlineEditorResolver = null }
+  }
+}
 
 // 打开菜单时暂停自动播放；关闭菜单后若开启则恢复
 watch(showMenu, (open) => {
@@ -1200,11 +1377,299 @@ const currentBackground = computed(() => {
   return scene?.backgroundImage || ''
 })
 
+// --------- 用户可编辑 / 图片替换支持（前端优先，本地持久化） ---------
+// 存储 key：storycraft_overrides_{userId}_{workId}
+const overridesKey = (userId, workId) => `storycraft_overrides_${userId}_${workId}`
+const userId = getCurrentUserId()
+const overrides = ref({}) // { scenes: {<sceneId>: { backgroundImage, dialogues: {<idx>: text} } } }
+
+const loadOverrides = () => {
+  try {
+    // 为了保证每次“重进游戏”不再保留上一次的修改：
+    // - 先清理遗留在 localStorage 中的旧键（向后兼容旧实现）
+    // - 优先从 sessionStorage 读取（session 只在当前标签页/会话内有效，关闭标签后会自动清除）
+    try { localStorage.removeItem(overridesKey(userId, work.value.id)) } catch (e) {}
+    const raw = sessionStorage.getItem(overridesKey(userId, work.value.id))
+    if (raw) overrides.value = JSON.parse(raw)
+    else overrides.value = {}
+  } catch (e) { overrides.value = {} }
+}
+
+const saveOverrides = () => {
+  try {
+    // 使用 sessionStorage 保持当前会话内的修改，但在关闭/重新进入时不恢复
+    sessionStorage.setItem(overridesKey(userId, work.value.id), JSON.stringify(overrides.value || {}))
+  } catch (e) {
+    // 记录更详细信息以便排查（例如 quota 问题）
+    try {
+      const size = JSON.stringify(overrides.value || {}).length
+      console.warn('保存 overrides 失败, size:', size, e)
+    } catch (inner) { console.warn('保存 overrides 失败', e) }
+  }
+}
+
+// 应用 overrides 到 storyScenes（只在前端显示，不更改后端数据）
+const applyOverridesToScenes = () => {
+  try {
+    if (!overrides.value || !overrides.value.scenes) return
+    for (const sid in overrides.value.scenes) {
+      // 找到与 sid 对应的场景索引，兼容数值或字符串 sceneId/id
+      let sIdx = -1
+      for (let i = 0; i < storyScenes.value.length; i++) {
+        const s = storyScenes.value[i]
+          // 优先使用内部唯一 id (_uid)，然后尝试 sceneId 或 id，最后回退到索引键
+          const key = String((s && (s._uid ?? s.sceneId ?? s.id)) != null ? (s._uid ?? s.sceneId ?? s.id) : `idx_${i}`)
+        if (key === String(sid)) { sIdx = i; break }
+      }
+      if (sIdx === -1) continue
+      const ov = overrides.value.scenes[sid]
+      if (ov.backgroundImage) storyScenes.value[sIdx].backgroundImage = ov.backgroundImage
+      if (ov.dialogues) {
+        for (const k in ov.dialogues) {
+          const idx = Number(k)
+          if (!isNaN(idx) && storyScenes.value[sIdx].dialogues && idx < storyScenes.value[sIdx].dialogues.length) {
+            // 如果对话项是对象，保留结构并覆盖 text；若是字符串则直接替换
+            const orig = storyScenes.value[sIdx].dialogues[idx]
+            if (typeof orig === 'string') storyScenes.value[sIdx].dialogues[idx] = ov.dialogues[k]
+            else if (typeof orig === 'object') storyScenes.value[sIdx].dialogues[idx] = { ...orig, text: ov.dialogues[k] }
+          }
+        }
+      }
+    }
+    // 强制刷新 storyScenes 引用，确保视图更新（部分嵌套修改在某些情况下未触发视图更新）
+    try {
+      storyScenes.value = JSON.parse(JSON.stringify(storyScenes.value || []))
+      // 如果当前文字正在显示，短暂切换以触发过渡/重绘
+      try { showText.value = false; setTimeout(() => { showText.value = true }, 40) } catch (e) {}
+    } catch (e) { console.warn('force refresh after applyOverridesToScenes failed', e) }
+  } catch (e) { console.warn('applyOverridesToScenes failed', e) }
+}
+
+// 文本编辑状态与内容
+const editingDialogue = ref(false)
+const editableText = ref('')
+const editableDiv = ref(null)
+const isComposing = ref(false)
+
+
+const startEdit = () => {
+  if (!creatorMode.value) {
+    // 仅在创作者模式允许编辑
+    showMenu.value = true
+    return
+  }
+  editableText.value = currentDialogue.value || ''
+  editingDialogue.value = true
+  // 允许用户聚焦到可编辑块
+  setTimeout(() => {
+    try {
+      const el = editableDiv.value || document.querySelector('.dialogue-text[contenteditable]')
+      if (el) {
+        // 设置初始文本而不触发 Vue 重新渲染
+        try { el.innerText = editableText.value } catch (e) {}
+        el.focus()
+        // 将光标放到末尾
+        try { const range = document.createRange(); const sel = window.getSelection(); range.selectNodeContents(el); range.collapse(false); sel.removeAllRanges(); sel.addRange(range) } catch (e) {}
+      }
+    } catch (e) {}
+  }, 50)
+}
+
+// contenteditable 事件处理器（使用命名函数避免模板内联表达式引起的运行时绑定问题）
+const onEditableInput = (e) => {
+  try {
+    if (!isComposing.value) editableText.value = e.target.innerText
+  } catch (err) { console.warn('onEditableInput failed', err) }
+}
+
+const onCompositionStart = () => {
+  try { isComposing.value = true } catch (err) { console.warn('onCompositionStart failed', err) }
+}
+
+const onCompositionEnd = (e) => {
+  try { isComposing.value = false; editableText.value = e.target.innerText } catch (err) { console.warn('onCompositionEnd failed', err) }
+}
+
+const cancelEdit = () => {
+  // 放弃修改，恢复为当前对话内容
+  editableText.value = currentDialogue.value || ''
+  editingDialogue.value = false
+}
+
+const finishEdit = () => {
+  // 将修改写入 overrides 并持久化，再应用到场景
+  try {
+    const scene = currentScene.value
+    if (!scene) return
+    // 优先使用内部唯一标识 _uid（若存在），以保证在场景数组发生插入/删减后仍能正确映射
+    const sid = (scene._uid || scene.sceneId || scene.id || `idx_${currentSceneIndex.value}`)
+    // 如果当前对话来源于某个选项的 subsequentDialogues，则同步修改该 choice 的 subsequentDialogues
+    try {
+      const sceneIdx = currentSceneIndex.value
+      const curScene = storyScenes.value[sceneIdx]
+      const curItem = curScene && Array.isArray(curScene.dialogues) ? curScene.dialogues[currentDialogueIndex.value] : null
+      if (curItem && typeof curItem === 'object' && curItem._fromChoiceId != null) {
+        try {
+          const cid = curItem._fromChoiceId
+          const cidx = Number(curItem._fromChoiceIndex)
+          const ch = curScene.choices && curScene.choices.find(cc => String(cc.id) === String(cid))
+          if (ch) {
+            ch.subsequentDialogues = ch.subsequentDialogues || []
+            ch.subsequentDialogues[cidx] = editableText.value
+          }
+        } catch (e) { console.warn('sync back to choice.subsequentDialogues failed', e) }
+      }
+    } catch (e) { console.warn('finishEdit sync check failed', e) }
+
+    overrides.value.scenes = overrides.value.scenes || {}
+    overrides.value.scenes[sid] = overrides.value.scenes[sid] || { dialogues: {} }
+    overrides.value.scenes[sid].dialogues = overrides.value.scenes[sid].dialogues || {}
+    overrides.value.scenes[sid].dialogues[currentDialogueIndex.value] = editableText.value
+    saveOverrides()
+    applyOverridesToScenes()
+    // 确认编辑后，清除任何 creator-mode 的预览快照，避免退出创作者模式时被回滚
+    try { previewSnapshot.value = null } catch (e) {}
+  } catch (e) { console.warn('finishEdit failed', e) }
+  // 确认编辑后不允许自动切换，必须点击播放下一句按钮
+  editingDialogue.value = false
+  allowAdvance.value = false
+  // 强制刷新显示（切换 showText 触发过渡），以确保替换后的文本立刻渲染
+  try {
+    showText.value = false
+    setTimeout(() => { showText.value = true }, 60)
+  } catch (e) {}
+}
+
+
+// 图片替换：在本地将图片读取为 dataURL，并保存在 overrides 中
+const imgInput = ref(null)
+const triggerImagePicker = () => {
+  if (!creatorMode.value) { showMenu.value = true; return }
+  try { imgInput.value && imgInput.value.click() } catch (e) {}
+}
+
+const onImageSelected = async (ev) => {
+  try {
+    const f = ev?.target?.files?.[0]
+    if (!f) return
+    // 只允许图片
+    if (!/^image\//.test(f.type)) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const data = reader.result
+      const scene = currentScene.value
+      if (!scene) return
+      const sid = (scene._uid || scene.sceneId || scene.id || `idx_${currentSceneIndex.value}`)
+      overrides.value.scenes = overrides.value.scenes || {}
+      overrides.value.scenes[sid] = overrides.value.scenes[sid] || { dialogues: {} }
+      overrides.value.scenes[sid].backgroundImage = data
+      saveOverrides()
+      applyOverridesToScenes()
+      // 确认图片替换后，清除预览快照，避免退出创作者模式时被回滚
+      try { previewSnapshot.value = null } catch (e) {}
+      // 强制重绘以确保背景图立即生效
+      try { showText.value = false; setTimeout(() => { showText.value = true }, 40) } catch (e) {}
+    }
+    reader.readAsDataURL(f)
+  } catch (e) { console.warn('onImageSelected failed', e) }
+}
+
+// 点击播放下一句：允许 advance 并直接尝试切换到下一句
+const playNextAfterEdit = () => {
+  try {
+    allowAdvance.value = true
+    // 关闭菜单（若菜单还打开），以便 nextDialogue 不会被 showMenu 阻止
+    try { showMenu.value = false } catch (e) {}
+    // 等一个短时钟再触发 nextDialogue，确保菜单已关闭并 UI 能聚焦
+    setTimeout(() => { nextDialogue() }, 60)
+  } catch (e) { console.warn('playNextAfterEdit failed', e) }
+}
+
+// 在组件挂载时加载 overrides
+onMounted(() => {
+  loadOverrides()
+  applyOverridesToScenes()
+})
+
+
 // 当前说话人（仅当对白带有 speaker 时显示；叙述性文字不显示）
 const currentSpeaker = computed(() => {
   const scene = currentScene.value
   const item = getDialogueItem(scene, currentDialogueIndex.value)
   return (item && typeof item.speaker === 'string' && item.speaker.trim()) ? item.speaker.trim() : ''
+})
+
+// 控制在创作者模式下是否允许切换到下一句（进入创作者模式时禁用，需点击播放按钮开启）
+const allowAdvance = ref(true)
+// 记录进入创作者模式时的场景起点，用于退出时回跳
+const creatorEntry = { sceneIndex: null, dialogueIndex: null }
+// 在创作者模式下阻止自动加载下一章，并保存待加载的章节索引，退出创作者模式后再去加载
+const pendingNextChapter = ref(null)
+// 预览快照：用于在创作者模式下预览选项后的剧情，退出创作者模式时恢复
+const previewSnapshot = ref(null)
+
+// 页面内短时提醒（代替浏览器 alert）
+const noticeToast = ref('')
+let noticeTimer = null
+const showNotice = (msg, ms = 5000) => {
+  try {
+    noticeToast.value = msg
+    if (noticeTimer) clearTimeout(noticeTimer)
+    noticeTimer = setTimeout(() => { noticeToast.value = ''; noticeTimer = null }, ms)
+  } catch (e) { console.warn('showNotice failed', e) }
+}
+
+// 观察 creatorMode：进入记录位置并禁用 advance；退出回到 entry 的第一幕并恢复播放权限
+watch(creatorMode, (val) => {
+  if (val) {
+    try {
+      creatorEntry.sceneIndex = currentSceneIndex.value
+      creatorEntry.dialogueIndex = 0
+      allowAdvance.value = false
+      // 暂停自动播放
+      try { stopAutoPlayTimer() } catch (e) {}
+    } catch (e) { console.warn('enter creatorMode failed', e) }
+  } else {
+    try {
+      if (creatorEntry.sceneIndex != null) {
+        currentSceneIndex.value = creatorEntry.sceneIndex
+        currentDialogueIndex.value = creatorEntry.dialogueIndex || 0
+        showText.value = true
+      }
+      allowAdvance.value = true
+      // 恢复自动播放（如果之前开启）
+      try { if (autoPlayEnabled.value) startAutoPlayTimer() } catch (e) {}
+      // 如果之前在创作者模式中到达了本章末并保存了待加载章节，则在退出创作者模式后触发加载
+      try {
+        if (pendingNextChapter.value != null) {
+          const chap = pendingNextChapter.value
+          pendingNextChapter.value = null
+          // 异步触发加载下一章（与原逻辑一致）
+          (async () => {
+            try {
+              startLoading()
+              await fetchNextChapter(work.value.id, chap)
+            } catch (e) { console.warn('load pending next chapter failed', e) }
+            try { await stopLoading() } catch (e) {}
+          })()
+        }
+      } catch (e) { console.warn('trigger pending next chapter failed', e) }
+      // 如果存在预览快照，退出创作者模式时需要恢复到快照状态（移除预览）
+      try {
+        if (previewSnapshot.value) {
+          console.log('Restoring previewSnapshot on exit creatorMode')
+          try { storyScenes.value = deepClone(previewSnapshot.value.storyScenes || []) } catch(e) { storyScenes.value = previewSnapshot.value.storyScenes || [] }
+          currentSceneIndex.value = previewSnapshot.value.currentSceneIndex || 0
+          currentDialogueIndex.value = previewSnapshot.value.currentDialogueIndex || 0
+          try { attributes.value = deepClone(previewSnapshot.value.attributes || {}) } catch(e) { attributes.value = previewSnapshot.value.attributes || {} }
+          try { statuses.value = deepClone(previewSnapshot.value.statuses || {}) } catch(e) { statuses.value = previewSnapshot.value.statuses || {} }
+          try { choiceHistory.value = deepClone(previewSnapshot.value.choiceHistory || []) } catch(e) { choiceHistory.value = previewSnapshot.value.choiceHistory || [] }
+          previewSnapshot.value = null
+          try { restoreChoiceFlagsFromHistory() } catch(e) {}
+        }
+      } catch(e) { console.warn('restore previewSnapshot failed', e) }
+    } catch (e) { console.warn('exit creatorMode failed', e) }
+  }
 })
 
 // Ensure first sentence shows when we have scenes and are ready (entering landscape & not loading).
@@ -1265,6 +1730,12 @@ const nextDialogue = async () => {
   // 如果当前显示选项，必须选择后才能继续
   if (choicesVisible.value) {
     console.log('Choices are visible, must select an option to continue')
+    return
+  }
+
+  // 在创作者模式下，若未被允许播放则阻止切换（需要用户点击播放下一句按钮）
+  if (creatorMode.value && !allowAdvance.value) {
+    console.log('Creator mode active and advance is locked. Click "播放下一句" to continue.')
     return
   }
   
@@ -1329,8 +1800,8 @@ const nextDialogue = async () => {
         const remainingScenes = storyScenes.value.length - (currentSceneIndex.value + 1)
         console.log('Remaining scenes:', remainingScenes, 'storyEndSignaled:', storyEndSignaled.value)
         
-        // 当剩余场景少于2个且故事未结束时预加载下一章
-        if (remainingScenes <= 2 && !eventSource && !storyEndSignaled.value) {
+  // 当剩余场景少于2个且故事未结束时预加载下一章（若处于创作者模式则跳过预加载）
+  if (remainingScenes <= 2 && !eventSource && !storyEndSignaled.value && !creatorMode.value) {
           console.log('Preloading next chapter...')
           startLoading()
           try {
@@ -1384,6 +1855,14 @@ const nextDialogue = async () => {
           // 计算希望请求的章节索引
           const nextChapter = isChapterEnd ? currentChapterIndex.value : (currentChapterIndex.value + 1)
           console.log('Fetching next content for chapter:', nextChapter)
+          // 若处于创作者模式，则不立即加载下一章，保存待加载章节并提示用户退出创作者模式后继续
+          if (creatorMode.value) {
+            pendingNextChapter.value = nextChapter
+            console.log('Creator mode active — deferring blocking fetch for chapter', nextChapter)
+            try { showNotice('已到本章末。请退出创作者模式以继续加载下一章。') } catch(e) {}
+            await stopLoading()
+            return
+          }
           // 若已知 totalChapters 且下一章超出范围，直接进入结算
           if (totalChapters.value && Number(nextChapter) > Number(totalChapters.value)) {
             console.log('Next chapter exceeds totalChapters (blocking fetch), marking end and handling game end')
@@ -1409,6 +1888,14 @@ const nextDialogue = async () => {
           // 请求下一章（使用 chapterIndex）
           const nextChapter = isChapterEnd ? currentChapterIndex.value : (currentChapterIndex.value + 1)
           console.log('Fetching next chapter:', nextChapter)
+          // 若处于创作者模式，则不立即加载下一章，保存待加载章节并提示用户退出创作者模式后继续
+          if (creatorMode.value) {
+            pendingNextChapter.value = nextChapter
+            console.log('Creator mode active — deferring blocking fetch for chapter', nextChapter)
+            try { showNotice('已到本章末。请退出创作者模式以继续加载下一章。') } catch(e) {}
+            await stopLoading()
+            return
+          }
           // 若已知 totalChapters 且下一章超出范围，直接进入结算
           if (totalChapters.value && Number(nextChapter) > Number(totalChapters.value)) {
             console.log('Next chapter exceeds totalChapters (blocking fetch), marking end and handling game end')
@@ -2300,11 +2787,26 @@ const restoreChoiceFlagsFromHistory = () => {
 // 处理选项点击：向后端请求选项后续剧情并应用返回结果
 const chooseOption = async (choiceId) => {
   if (isFetchingChoice.value) return
-  
-  // 记录用户选择历史
+
+  // 如果处于创作者模式且尚未有预览快照，则保存当前快照（用于退出创作者模式时恢复）
+  if (creatorMode.value && !previewSnapshot.value) {
+    try {
+      previewSnapshot.value = {
+        storyScenes: deepClone(storyScenes.value || []),
+        currentSceneIndex: currentSceneIndex.value,
+        currentDialogueIndex: currentDialogueIndex.value,
+        attributes: deepClone(attributes.value || {}),
+        statuses: deepClone(statuses.value || {}),
+        choiceHistory: deepClone(choiceHistory.value || [])
+      }
+      console.log('Saved previewSnapshot for creator-mode preview')
+    } catch (e) { console.warn('save previewSnapshot failed', e) }
+  }
+
+  // 记录用户选择历史（仅在非创作者模式下作为真实选择记录）
   const scene = currentScene.value
   const choiceObj = scene?.choices?.find(c => c.id === choiceId)
-  if (choiceObj) {
+  if (choiceObj && !creatorMode.value) {
     choiceHistory.value.push({
       sceneId: scene.id || scene.sceneId,
       sceneTitle: scene.title || `场景 ${currentSceneIndex.value + 1}`,
@@ -2329,25 +2831,45 @@ const chooseOption = async (choiceId) => {
     // 优先使用本地选项自带的后续剧情（subsequentDialogues / nextScenes / nextScene）
     if (localChoice) {
       // 属性/状态变化直接应用
-      if (localChoice.attributesDelta) applyAttributesDelta(localChoice.attributesDelta)
-      if (localChoice.statusesDelta) applyStatusesDelta(localChoice.statusesDelta)
-      if (localChoice.statuses) applyStatusesDelta(localChoice.statuses)
+  if (localChoice.attributesDelta) applyAttributesDelta(localChoice.attributesDelta)
+  if (localChoice.statusesDelta) applyStatusesDelta(localChoice.statusesDelta)
+  if (localChoice.statuses) applyStatusesDelta(localChoice.statuses)
 
       // 若选项自带 subsequentDialogues（插入到当前场景）
       if (Array.isArray(localChoice.subsequentDialogues) && localChoice.subsequentDialogues.length > 0) {
         const idx = currentSceneIndex.value
         // 标记当前场景选项已被消费，防止后续重复弹出
-        try { storyScenes.value[idx].choiceConsumed = true } catch (e) {}
+  // 预览时不修改原场景的已消费标记
+  try { if (!creatorMode.value) storyScenes.value[idx].choiceConsumed = true } catch (e) {}
         const insertAt = currentDialogueIndex.value + 1
-        // 规范化为前端对话项（字符串或对象）
-        const toInsert = localChoice.subsequentDialogues.map(d => (typeof d === 'string') ? d : (d.narration ?? d.text ?? String(d)))
+        // 规范化为前端对话项（保留来源 metadata）
+        const toInsert = localChoice.subsequentDialogues.map((d, di) => {
+          const text = (typeof d === 'string') ? d : (d.narration ?? d.text ?? String(d))
+          // 保留来源标记：用于在创作者模式编辑时同步回 choice.subsequentDialogues
+          return { text, _fromChoiceId: localChoice.id, _fromChoiceIndex: di }
+        })
         const currentDialogues = Array.isArray(storyScenes.value[idx].dialogues) ? storyScenes.value[idx].dialogues.slice() : []
-        currentDialogues.splice(insertAt, 0, ...toInsert)
-        storyScenes.value.splice(idx, 1, Object.assign({}, storyScenes.value[idx], { dialogues: currentDialogues }))
-        // 移动到第一条插入的对话
+        // 去重逻辑：如果目标插入位置已经存在与 toInsert 相同的连续文本，则跳过插入以避免重复展示
+        const existingSegment = currentDialogues.slice(insertAt, insertAt + toInsert.length)
+        const normalize = (d) => (typeof d === 'string') ? d : (d && d.text) ? d.text : String(d)
+        const existingTexts = existingSegment.map(normalize)
+        const toInsertTexts = toInsert.map(t => t.text)
+        let alreadyPresent = true
+        if (existingTexts.length !== toInsertTexts.length) alreadyPresent = false
+        else {
+          for (let i = 0; i < toInsertTexts.length; i++) {
+            if (existingTexts[i] !== toInsertTexts[i]) { alreadyPresent = false; break }
+          }
+        }
+        if (!alreadyPresent) {
+          // 插入仅缺失或不同的项（简单策略：插入整个 toInsert）
+          currentDialogues.splice(insertAt, 0, ...toInsert)
+          storyScenes.value.splice(idx, 1, Object.assign({}, storyScenes.value[idx], { dialogues: currentDialogues }))
+        }
+        // 移动到第一条插入的对话（无论是否实际插入，都定位到该位置以显示后续内容）
         currentDialogueIndex.value = insertAt
         showText.value = true
-        try { const prev = storyScenes.value[idx]; if (prev) prev.chosenChoiceId = choiceId } catch (e) {}
+        try { const prev = storyScenes.value[idx]; if (prev && !creatorMode.value) prev.chosenChoiceId = choiceId } catch (e) {}
         if (autoPlayEnabled.value) startAutoPlayTimer()
         return
       }
@@ -2358,12 +2880,12 @@ const chooseOption = async (choiceId) => {
         for (const sc of localChoice.nextScenes) {
           try { pushSceneFromServer(sc) } catch (e) { console.warn('pushSceneFromServer failed for choice nextScenes entry', e) }
         }
-        // 标记上一个场景选项已被消费（避免回到上一场景时再次弹出）
-        try { const prev = storyScenes.value[startIdx - 1]; if (prev) prev.choiceConsumed = true } catch (e) {}
+  // 标记上一个场景选项已被消费（避免回到上一场景时再次弹出）
+  try { const prev = storyScenes.value[startIdx - 1]; if (prev && !creatorMode.value) prev.choiceConsumed = true } catch (e) {}
         currentSceneIndex.value = startIdx
         currentDialogueIndex.value = 0
         showText.value = true
-        try { const prev = storyScenes.value[startIdx - 1]; if (prev) prev.chosenChoiceId = choiceId } catch (e) {}
+  try { const prev = storyScenes.value[startIdx - 1]; if (prev && !creatorMode.value) prev.chosenChoiceId = choiceId } catch (e) {}
         if (autoPlayEnabled.value) startAutoPlayTimer()
         return
       }
@@ -2372,21 +2894,21 @@ const chooseOption = async (choiceId) => {
       if (localChoice.nextScene) {
         const startIdx = storyScenes.value.length
         try { pushSceneFromServer(localChoice.nextScene) } catch (e) { console.warn('pushSceneFromServer failed for choice nextScene', e) }
-        // 标记上一个场景选项已被消费
-        try { const prev = storyScenes.value[startIdx - 1]; if (prev) prev.choiceConsumed = true } catch (e) {}
+  // 标记上一个场景选项已被消费
+  try { const prev = storyScenes.value[startIdx - 1]; if (prev && !creatorMode.value) prev.choiceConsumed = true } catch (e) {}
         currentSceneIndex.value = startIdx
         currentDialogueIndex.value = 0
         showText.value = true
-        try { const prev = storyScenes.value[startIdx - 1]; if (prev) prev.chosenChoiceId = choiceId } catch (e) {}
+  try { const prev = storyScenes.value[startIdx - 1]; if (prev && !creatorMode.value) prev.chosenChoiceId = choiceId } catch (e) {}
         if (autoPlayEnabled.value) startAutoPlayTimer()
         return
       }
 
       // 如果本地选项没有后续剧情，只标记选择并尝试推进到下一个场景
-      try { const prev = storyScenes.value[currentSceneIndex.value]; if (prev) prev.chosenChoiceId = choiceId } catch (e) {}
+      try { const prev = storyScenes.value[currentSceneIndex.value]; if (prev && !creatorMode.value) prev.chosenChoiceId = choiceId } catch (e) {}
       if (currentSceneIndex.value < storyScenes.value.length - 1) {
         // 标记当前场景选项已被消费（用户已选择，即使没有插入后续剧情）
-        try { const prev = storyScenes.value[currentSceneIndex.value]; if (prev) prev.choiceConsumed = true } catch (e) {}
+        try { const prev = storyScenes.value[currentSceneIndex.value]; if (prev && !creatorMode.value) prev.choiceConsumed = true } catch (e) {}
         currentSceneIndex.value++
         currentDialogueIndex.value = 0
         showText.value = true
@@ -2404,10 +2926,10 @@ const chooseOption = async (choiceId) => {
     } else {
       try { await requestNextIfNeeded() } catch (e) { console.warn('requestNextIfNeeded failed', e) }
     }
-  } catch (err) {
+    } catch (err) {
     console.error('选择处理失败', err)
-    // 为保持“锦瑟深宫”剧情纯净，移除与主题无关的离线回退
-    alert('获取选项后续剧情失败：' + (err?.message || '网络异常'))
+    // 页面内短时提醒而不是浏览器 alert
+    try { showNotice('获取选项后续剧情失败：' + (err?.message || '网络异常')) } catch(e) { console.warn(e) }
   } finally {
     isFetchingChoice.value = false
   }
@@ -2682,13 +3204,34 @@ onUnmounted(async () => {
       </div>
       
       <!-- 文字栏 -->
-      <div class="text-box" @click="nextDialogue">
+      <div class="text-box" :class="{ editing: editingDialogue, 'creator-mode': creatorMode }" @click="nextDialogue">
         <!-- 说话人标签（可选） -->
         <div v-if="currentSpeaker" class="speaker-badge">{{ currentSpeaker }}</div>
         <transition name="text-fade">
-          <p v-show="showText" class="dialogue-text">{{ currentDialogue }}</p>
+          <!-- 非编辑态显示当前对话 -->
+          <p v-if="!editingDialogue && showText" class="dialogue-text">{{ currentDialogue }}</p>
+          <!-- 编辑态：contenteditable，编辑内容保存在 editableText -->
+    <div v-else-if="editingDialogue" ref="editableDiv" class="dialogue-text" contenteditable="true"
+      @input="onEditableInput"
+      @compositionstart="onCompositionStart"
+      @compositionend="onCompositionEnd"
+      @keydown.enter.prevent="finishEdit"
+      @blur="finishEdit"></div>
         </transition>
-        
+
+        <!-- 编辑与替换图片按钮：仅在创作者模式可见 -->
+        <div v-if="creatorMode" class="edit-controls" aria-hidden="false">
+          <template v-if="!editingDialogue">
+            <button class="edit-btn" title="编辑文本" @click.stop="startEdit()">编辑</button>
+            <button class="edit-btn" title="替换当前背景" @click.stop="triggerImagePicker">替换图片</button>
+            <button class="edit-btn" title="播放下一句" @click.stop="playNextAfterEdit">播放下一句</button>
+          </template>
+          <template v-else>
+            <button class="edit-btn" title="确认编辑" @click.stop="finishEdit()">确认</button>
+            <button class="edit-btn" title="取消编辑" @click.stop="cancelEdit()">取消</button>
+          </template>
+        </div>
+
         <!-- 继续提示箭头 -->
         <div v-if="showText && !isLastDialogue" class="continue-hint">
           <svg viewBox="0 0 24 24" fill="currentColor">
@@ -2710,6 +3253,9 @@ onUnmounted(async () => {
           <line x1="3" y1="18" x2="21" y2="18" stroke-width="2"/>
         </svg>
       </button>
+
+      <!-- 创作者模式指示器 -->
+      <div v-if="creatorMode" class="creator-badge">创作者模式</div>
 
       <!-- 顶部不再显示快速操作，相关功能移动到菜单中 -->
       
@@ -2744,6 +3290,13 @@ onUnmounted(async () => {
               </svg>
               <span>读档</span>
             </button>
+            <button class="menu-item" @click="showMenu = false; triggerImagePicker()">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14" stroke-width="2"/>
+                <path d="M3 7h18M8 11l2.5 3L13 11l4 6H7l1-2z" stroke-width="2"/>
+              </svg>
+              <span>替换当前背景</span>
+            </button>
             <button class="menu-item" @click="showMenu = false; openAttributes()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <circle cx="12" cy="12" r="3" stroke-width="2"/>
@@ -2757,6 +3310,14 @@ onUnmounted(async () => {
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.27.27a2 2 0 1 1-2.83 2.83l-.27-.27a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V22a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.27.27a2 2 0 1 1-2.83-2.83l.27-.27a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H2a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.27-.27a2 2 0 1 1 2.83-2.83l.27.27a1.65 1.65 0 0 0 1.82.33h0A1.65 1.65 0 0 0 9 2.09V2a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.27-.27a2 2 0 1 1 2.83 2.83l-.27.27a1.65 1.65 0 0 0-.33 1.82v0A1.65 1.65 0 0 0 21.91 11H22a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
               <span>设置</span>
+            </button>
+            <!-- 创作者模式开关 -->
+            <button class="menu-item" @click="creatorMode = !creatorMode; showMenu = false">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" stroke-width="1.5"/>
+                <circle cx="12" cy="12" r="3" stroke-width="1.5"/>
+              </svg>
+              <span>{{ creatorMode ? '退出创作者模式' : '进入创作者模式' }}</span>
             </button>
           </div>
           
@@ -2912,8 +3473,35 @@ onUnmounted(async () => {
       </div>
     </div>
 
-    <!-- 临时提示（存档/读档） -->
-    <div class="toast save-toast" v-if="saveToast">{{ saveToast }}</div>
-    <div class="toast load-toast" v-if="loadToast">{{ loadToast }}</div>
+  <!-- 临时提示（存档/读档/notice） -->
+  <div class="toast save-toast" v-if="saveToast">{{ saveToast }}</div>
+  <div class="toast load-toast" v-if="loadToast">{{ loadToast }}</div>
+  <div class="toast notice-toast" v-if="noticeToast">{{ noticeToast }}</div>
+  <!-- 创作者专用：手动打开大纲编辑器按钮（浮动） -->
+  <button v-if="isCreatorIdentity && !creatorMode" @click="openOutlineEditorManual" class="creator-outline-btn" title="编辑/生成章节大纲" style="position:fixed; right:1rem; bottom:6.4rem; z-index:1200; background:#ff8c42; color:#fff; border:none; padding:0.5rem 0.75rem; border-radius:6px; box-shadow:0 2px 6px rgba(0,0,0,0.2)">编辑/生成章节大纲</button>
+
+  <!-- 创作者大纲编辑器模态（当 createResult.modifiable 且有 chapterOutlines 时显示） -->
+  <div v-if="showOutlineEditor" class="modal-backdrop">
+      <div class="modal-panel">
+        <h3 style="margin-top:0;">编辑章节大纲（创作者模式）</h3>
+  <p style="color:#666;">后端返回的章节大纲可在此处微调。编辑完成后点击“确认”以让后端基于此大纲生成章节内容；若取消，则按原始大纲继续生成或按默认流程加载章节。</p>
+        <div style="max-height: 50vh; overflow:auto; margin-top:0.5rem;">
+            <div v-for="(ch, idx) in outlineEdits" :key="ch.chapterIndex" style="margin-bottom:0.6rem;">
+            <div style="font-weight:700; margin-bottom:0.25rem">第 {{ ch.chapterIndex }} 章 大纲</div>
+            <textarea v-model="outlineEdits[idx].outline" rows="2" style="width:100%; background: var(--textarea-bg, white);"></textarea>
+          </div>
+        </div>
+        <div style="margin-top:0.6rem">
+          <div style="font-weight:700; margin-bottom:0.25rem">（可选）为本章生成提供额外指令（userPrompt）</div>
+          <textarea v-model="outlineUserPrompt" rows="2" style="width:100%;"></textarea>
+        </div>
+        <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:0.75rem">
+          <button class="edit-btn" @click="cancelOutlineEdits">取消</button>
+          <button class="edit-btn" :disabled="!(editorInvocation === 'auto' || creatorMode)" @click="confirmOutlineEdits">确认</button>
+        </div>
+      </div>
+    </div>
+    <!-- 隐藏的文件输入：用于用户替换当前背景图 -->
+    <input ref="imgInput" type="file" accept="image/*" style="display:none" @change="onImageSelected" />
   </div>
 </template>
