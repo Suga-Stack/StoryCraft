@@ -2,154 +2,136 @@ from rest_framework import viewsets, status, permissions
 from rest_framework.response import Response
 from .models import Favorite, Comment, Rating
 from .serializers import FavoriteSerializer, CommentSerializer, RatingSerializer
-from .permissions import IsOwnerOrReadOnly
-from rest_framework.decorators import action
-from django.shortcuts import get_object_or_404
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-from gameworks.models import Gamework
 from django.db.models import Avg
 
 class FavoriteViewSet(viewsets.ModelViewSet):
     """
     用户收藏作品接口
     - GET: 获取当前用户收藏列表
-    - POST: 收藏作品
-    - DELETE: 取消收藏（支持通过作品ID取消）
+    - POST: 收藏作品（传入 id）
+    - DELETE: 取消收藏
     """
     http_method_names = ['get', 'post', 'delete']
     serializer_class = FavoriteSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        """只返回当前登录用户的收藏"""
+        if getattr(self, 'swagger_fake_view', False):
+            return Favorite.objects.none()
         return Favorite.objects.filter(user=self.request.user).select_related('gamework')
 
     def list(self, request, *args, **kwargs):
-        """GET /favorites/ 获取当前用户收藏列表"""
         queryset = self.get_queryset()
-        page = self.paginate_queryset(queryset)  # 启用分页
-
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response({
-                "code": 200,
-                "message": "获取收藏列表成功",
-                "data": serializer.data
-            })
-
-        # 如果未启用分页
-        serializer = self.get_serializer(queryset, many=True)
-        return Response({
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page or queryset, many=True)
+        data = {
             "code": 200,
             "message": "获取收藏列表成功",
             "data": serializer.data
-        })
-
+        }
+        return self.get_paginated_response(data) if page else Response(data)
 
     @swagger_auto_schema(
         operation_summary="收藏作品",
-        operation_description="用户收藏一个作品（仅传入id）",
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
             required=['id'],
-            properties={
-                'id': openapi.Schema(type=openapi.TYPE_INTEGER, description='作品ID')
-            }
+            properties={'id': openapi.Schema(type=openapi.TYPE_INTEGER, description='作品ID')}
         ),
-        responses={
-            201: openapi.Response('收藏成功', FavoriteSerializer),
-            400: '该作品已收藏'
-        }
     )
     def create(self, request, *args, **kwargs):
-        gamework_id = request.data.get("id")
-        if not gamework_id:
-            return Response({"code": 400, "message": "缺少参数 id"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # 检查作品是否存在
-        try:
-            gamework = Gamework.objects.get(id=gamework_id)
-        except Gamework.DoesNotExist:
-            return Response({"code": 400, "message": "作品不存在"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # 检查用户是否已收藏该作品
-        if Favorite.objects.filter(user=request.user, gamework=gamework).exists():
-            return Response({"code": 400, "message": "该作品已收藏"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # 创建收藏记录
-        favorite = Favorite.objects.create(user=request.user, gamework=gamework)
-        serializer = self.get_serializer(favorite)
-
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        favorite = serializer.save()
         return Response({
             "code": 201,
             "message": "收藏成功",
-            "data": serializer.data
+            "data": self.get_serializer(favorite).data
         }, status=status.HTTP_201_CREATED)
 
-    @swagger_auto_schema(
-        operation_summary="取消收藏",
-        operation_description="按收藏ID取消收藏，如 DELETE /favorites/<id>/",
-        responses={
-            204: openapi.Response('取消收藏成功'),
-            404: openapi.Response('收藏不存在'),
-        }
-    )
     def destroy(self, request, *args, **kwargs):
-        """DELETE /favorites/<id>/ 按收藏ID取消收藏"""
         instance = self.get_object()
         self.perform_destroy(instance)
         return Response({"code": 204, "message": "取消收藏成功"}, status=status.HTTP_204_NO_CONTENT)
 
 
 class CommentViewSet(viewsets.ModelViewSet):
-    queryset = Comment.objects.all()
+    """
+    用户评论作品接口
+    - GET: 获取评论列表（可筛选 gamework）
+    - POST: 评论作品
+    """
+    http_method_names = ['get', 'post', 'delete']
     serializer_class = CommentSerializer
-    permission_classes = (permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly)
-
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
-
-    def get_queryset(self):
-        qs = Comment.objects.all()
-        id = self.request.query_params.get('gamework')
-        if id:
-            qs = qs.filter(gamework__id=id)
-        return qs
-
-
-class RatingViewSet(viewsets.ModelViewSet):
-    queryset = Rating.objects.all()
-    serializer_class = RatingSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-    def perform_create(self, serializer):
-        # 如果用户已评分则更新，否则创建
-        user = self.request.user
-        gamework = serializer.validated_data['gamework']
-        rating, created = Rating.objects.update_or_create(
-            user=user, gamework=gamework,
-            defaults={'score': serializer.validated_data['score']}
-        )
-        return rating 
+    def get_queryset(self):
+        qs = Comment.objects.all().select_related('gamework', 'user')
+        gid = self.request.query_params.get('gamework')
+        if gid:
+            qs = qs.filter(gamework__id=gid)
+        return qs
 
+    @swagger_auto_schema(
+        operation_summary="评论作品",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['id', 'content'],
+            properties={
+                'id': openapi.Schema(type=openapi.TYPE_INTEGER, description='作品ID'),
+                'content': openapi.Schema(type=openapi.TYPE_STRING, description='评论内容')
+            }
+        )
+    )
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        rating = self.perform_create(serializer)
-        
-        # 获取作品的平均评分
-        average_score = Rating.objects.filter(gamework=rating.gamework).aggregate(Avg('score'))['score__avg']
-
+        comment = serializer.save()
         return Response({
-            'message': '评分成功',
-            'average_score': average_score,  # 返回平均评分
-            'rating': RatingSerializer(rating).data  # 返回评分对象
-        }, status=status.HTTP_200_OK)
-    
+            "code": 201,
+            "message": "评论成功",
+            "data": self.get_serializer(comment).data
+        }, status=status.HTTP_201_CREATED)
+
+
+class RatingViewSet(viewsets.ModelViewSet):
+    """
+    用户评分作品接口
+    - GET: 获取评分列表
+    - POST: 为作品评分
+    """
+    http_method_names = ['get', 'post', 'delete']
+    serializer_class = RatingSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
     def get_queryset(self):
-        qs = Rating.objects.all()
-        id = self.request.query_params.get('gamework')
-        if id:
-            qs = qs.filter(gamework__id=id)
+        qs = Rating.objects.all().select_related('gamework', 'user')
+        gid = self.request.query_params.get('gamework')
+        if gid:
+            qs = qs.filter(gamework__id=gid)
         return qs
+
+    @swagger_auto_schema(
+        operation_summary="为作品评分",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['id', 'score'],
+            properties={
+                'id': openapi.Schema(type=openapi.TYPE_INTEGER, description='作品ID'),
+                'score': openapi.Schema(type=openapi.TYPE_INTEGER, description='评分（2~10）')
+            }
+        )
+    )
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        rating = serializer.save()
+        average_score = Rating.objects.filter(gamework=rating.gamework).aggregate(Avg('score'))['score__avg']
+        return Response({
+            "code": 201,
+            "message": "评分成功",
+            "average_score": average_score,
+            "data": self.get_serializer(rating).data
+        }, status=status.HTTP_201_CREATED)

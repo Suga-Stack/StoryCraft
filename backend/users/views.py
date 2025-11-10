@@ -11,6 +11,9 @@ from django.shortcuts import get_object_or_404
 from game.models import GameSave
 from gameworks.models import Gamework
 from .serializers import UserSerializer, RegisterSerializer, LoginSerializer, LogoutSerializer, UserPreferenceSerializer
+from gameworks.serializers import GameworkSerializer
+from interactions.models import ReadRecord
+from django.utils import timezone
 
 User = get_user_model()
 
@@ -197,7 +200,185 @@ class UserPreferenceView(generics.RetrieveUpdateAPIView):
     def get_object(self):
         # 只允许操作自己的数据
         return self.request.user
+    
+class ReadGameworkListView(APIView):
+    """
+    获取、记录或删除当前用户读过的作品
+    GET: 返回当前用户所有读过的作品
+    POST: 用户阅读作品时调用，记录阅读行为
+    DELETE: 删除某条或全部阅读记录
+    """
+    permission_classes = [permissions.IsAuthenticated]
 
+    @swagger_auto_schema(
+        operation_summary="获取当前用户读过的作品",
+        responses={
+            200: openapi.Response(description="用户读过的作品列表")
+        }
+    )
+    def get(self, request):
+        user = request.user
+        read_records = ReadRecord.objects.filter(user=user).select_related('gamework').order_by('-read_at')
+        gameworks = [r.gamework for r in read_records]
+        serializer = GameworkSerializer(gameworks, many=True)
+        return Response({'code': 200, 'data': serializer.data}, status=status.HTTP_200_OK)
+
+    @swagger_auto_schema(
+        operation_summary="记录用户阅读作品",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'gamework_id': openapi.Schema(type=openapi.TYPE_INTEGER, description='作品ID'),
+            },
+            required=['gamework_id']
+        ),
+        responses={
+            200: openapi.Response(description='记录成功'),
+            400: openapi.Response(description='参数错误或作品不存在')
+        }
+    )
+    def post(self, request):
+        user = request.user
+        gamework_id = request.data.get('gamework_id')
+
+        if not gamework_id:
+            return Response({'code': 400, 'message': 'gamework_id 不能为空'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            gamework = Gamework.objects.get(pk=gamework_id)
+        except Gamework.DoesNotExist:
+            return Response({'code': 400, 'message': '作品不存在'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 创建或更新阅读记录（更新 read_at 时间）
+        obj, created = ReadRecord.objects.update_or_create(
+            user=user,
+            gamework=gamework,
+            defaults={'read_at': timezone.now()}
+        )
+
+        return Response({'code': 200, 'message': '阅读记录已创建'}, status=status.HTTP_200_OK)
+
+    @swagger_auto_schema(
+        operation_summary="删除当前用户读过的作品记录",
+        manual_parameters=[
+            openapi.Parameter(
+                'gamework_ids_param', openapi.IN_QUERY, description="要删除的作品ID列表，不传则删除所有", type=openapi.TYPE_INTEGER
+            )
+        ],
+        responses={200: openapi.Response(description="删除成功")}
+    )
+    def delete(self, request):
+        user = request.user
+        gamework_ids_param = request.query_params.get('gamework_ids')
+        
+        if gamework_ids_param:
+            # 支持传入多个作品ID，用逗号分隔
+            try:
+                gamework_ids = [int(x) for x in gamework_ids_param.split(',') if x.strip()]
+            except ValueError:
+                return Response({'code': 400, 'message': 'gamework_ids 参数格式错误'}, status=status.HTTP_400_BAD_REQUEST)
+            deleted, _ = ReadRecord.objects.filter(user=user, gamework_id__in=gamework_ids).delete()
+            return Response({'code': 200, 'message': f'删除 {deleted} 条记录'}, status=status.HTTP_200_OK)
+        else:
+            # 不传参数则删除全部
+            deleted, _ = ReadRecord.objects.filter(user=user).delete()
+            return Response({'code': 200, 'message': f'删除 {deleted} 条记录'}, status=status.HTTP_200_OK)
+    
+class RecentReadGameworksView(APIView):
+    """
+    获取当前用户最近读过的两部作品
+    路径：GET /api/users/read/recent/
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="获取最近两部读过的作品",
+        responses={
+            200: openapi.Response(
+                description='返回最近两部用户读过的作品',
+                examples={
+                    "application/json": {
+                        "code": 200,
+                        "data": [
+                            {"id": 5, "title": "未来都市"},
+                            {"id": 3, "title": "梦境回廊"}
+                        ]
+                    }
+                }
+            )
+        }
+    )
+    def get(self, request):
+        user = request.user
+        read_records = (
+            ReadRecord.objects
+            .filter(user=user)
+            .select_related('gamework')
+            .order_by('-read_at')[:2]  # 取最近两条记录
+        )
+        gameworks = [r.gamework for r in read_records]
+        serializer = GameworkSerializer(gameworks, many=True)
+        return Response({'code': 200, 'data': serializer.data}, status=status.HTTP_200_OK)
+
+class MyGameworkListView(APIView):
+    """
+    返回当前登录用户创作的作品列表
+    GET /api/users/myworks/
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="获取当前用户创作的作品列表",
+        responses={
+            200: openapi.Response(
+                description='当前用户创作的作品列表',
+                examples={
+                    "application/json": {
+                        "code": 200,
+                        "data": [
+                            {"id": 1, "title": "我的作品A", "image_url": "https://..."},
+                            {"id": 2, "title": "我的作品B", "image_url": "https://..."}
+                        ]
+                    }
+                }
+            )
+        }
+    )
+    def get(self, request):
+        user = request.user
+        works = Gamework.objects.filter(author=user).order_by('-created_at')
+        serializer = GameworkSerializer(works, many=True)
+        return Response({'code': 200, 'data': serializer.data}, status=status.HTTP_200_OK)
+    
+class RecentMyGameworksView(APIView):
+    """
+    返回当前用户最近创作的两部作品
+    GET /api/users/my-works/recent/
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="获取当前用户最近创作的两部作品",
+        responses={
+            200: openapi.Response(
+                description='最近两部创作的作品',
+                examples={
+                    "application/json": {
+                        "code": 200,
+                        "data": [
+                            {"id": 5, "title": "我的作品B", "image_url": "https://..."},
+                            {"id": 3, "title": "我的作品A", "image_url": "https://..."}
+                        ]
+                    }
+                }
+            )
+        }
+    )
+    def get(self, request):
+        user = request.user
+        works = Gamework.objects.filter(author=user).order_by('-created_at')[:2]
+        serializer = GameworkSerializer(works, many=True)
+        return Response({'code': 200, 'data': serializer.data}, status=200)
 
 class SaveDetailView(APIView):
     """

@@ -1,5 +1,5 @@
 import logging
-import time
+import os
 from rest_framework import views, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -7,7 +7,9 @@ from django.db import transaction, OperationalError
 from .serializers import (
     GameCreateSerializer, GameworkCreateResponseSerializer, 
     GameChapterStatusResponseSerializer, SettlementRequestSerializer, 
-    SettlementResponseSerializer, GameSavePayloadSerializer
+    SettlementResponseSerializer, GameSavePayloadSerializer,
+    ChapterGenerateSerializer, GameChapterResponseSerializer,
+    GameChapterManualUpdateSerializer
 )
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -15,8 +17,66 @@ from . import services
 from rest_framework.generics import get_object_or_404
 from gameworks.models import Gamework
 from .models import GameSave
+from stories.models import Story, StoryChapter, StoryScene
+from copy import deepcopy
+from rest_framework.parsers import MultiPartParser, FormParser
+import uuid
+from django.core.files.storage import default_storage
+from django.conf import settings
 
 logger = logging.getLogger('django')
+
+class UserImageUploadView(views.APIView):
+    """用户上传自定义图片"""
+    permission_classes = [IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser)
+
+    @swagger_auto_schema(
+        operation_summary="上传自定义图片",
+        operation_description="用户上传图片文件，服务器存储后返回图片的URL。",
+        manual_parameters=[
+            openapi.Parameter(
+                'file',
+                openapi.IN_FORM,
+                description="要上传的图片文件",
+                type=openapi.TYPE_FILE,
+                required=True
+            )
+        ],
+        responses={
+            status.HTTP_201_CREATED: openapi.Response(
+                description="上传成功",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'imageUrl': openapi.Schema(type=openapi.TYPE_STRING, description="图片的访问URL")
+                    }
+                )
+            ),
+            status.HTTP_400_BAD_REQUEST: openapi.Response(description="请求无效或未提供文件"),
+        }
+    )
+    def post(self, request, *args, **kwargs):
+        file_obj = request.data.get('file')
+        if not file_obj:
+            return Response({'error': '未提供文件'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # 生成唯一文件名
+            file_ext = os.path.splitext(file_obj.name)[1]
+            file_name = f"user_upload/{uuid.uuid4().hex}{file_ext}"
+            
+            # 保存文件
+            path = default_storage.save(file_name, file_obj)
+            
+            # 构建完整的URL
+            image_url = request.build_absolute_uri(settings.MEDIA_URL + path)
+
+            return Response({'imageUrl': image_url}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            logger.error(f"上传图片时发生错误: {e}", exc_info=True)
+            return Response({'error': '图片上传失败，请稍后重试。'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 class GameCreateView(views.APIView):
     """创建新游戏作品"""
@@ -28,7 +88,7 @@ class GameCreateView(views.APIView):
         operation_description="根据用户选择的标签、构思和篇幅，调用AI生成并创建一个新的游戏作品，同时在后台异步生成所有章节。",
         request_body=GameCreateSerializer,  
         responses={
-            status.HTTP_201_CREATED: GameworkCreateResponseSerializer, 
+            status.HTTP_201_CREATED: openapi.Response(description='{"gameworkId": 123}'), 
             status.HTTP_400_BAD_REQUEST: openapi.Response(description="请求参数错误"),
             status.HTTP_401_UNAUTHORIZED: openapi.Response(description="未认证，请先登录"),
             status.HTTP_500_INTERNAL_SERVER_ERROR: openapi.Response(description="服务器内部错误")
@@ -46,7 +106,8 @@ class GameCreateView(views.APIView):
                 user=request.user,
                 tags=validated_data['tags'],
                 idea=validated_data.get('idea', ''),
-                length=validated_data['length']
+                length=validated_data['length'],
+                modifiable=validated_data.get('modifiable', False)
             )
             return Response(result, status=status.HTTP_201_CREATED)
         except Exception as e:
@@ -54,7 +115,7 @@ class GameCreateView(views.APIView):
             return Response({"error": "创建游戏失败，请稍后重试。"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class GameChapterView(views.APIView):
-    """轮询查询游戏章节生成状态"""
+    """轮询查询游戏章节生成状态或手动保存章节"""
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
@@ -90,6 +151,87 @@ class GameChapterView(views.APIView):
                 {"error": "服务器出错，请稍后重试。"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    @swagger_auto_schema(
+        operation_summary="手动保存修改后的章节内容",
+        request_body=GameChapterManualUpdateSerializer,
+        responses={
+            status.HTTP_200_OK: openapi.Response(description='{"ok": true}'),
+            status.HTTP_403_FORBIDDEN: openapi.Response(description='无权修改'),
+            status.HTTP_400_BAD_REQUEST: openapi.Response(description='chapterIndex参数不匹配'),
+        }
+    )
+    def put(self, request, gameworkId: int, chapterIndex: int, *args, **kwargs):
+        gamework = get_object_or_404(Gamework, pk=gameworkId)
+        if gamework.author != request.user:
+            return Response({"error": "您没有权限修改此作品。"}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = GameChapterManualUpdateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        chapter_data = serializer.validated_data
+        story = get_object_or_404(Story, gamework=gamework)
+
+        # 校验 chapterIndex 是否匹配
+        if chapter_data.get('chapterIndex') != chapterIndex:
+            return Response({"error": "URL中的章节索引与请求体中的不匹配。"}, status=status.HTTP_400_BAD_REQUEST)
+
+        chapter_obj, _ = StoryChapter.objects.update_or_create(
+            story=story,
+            chapter_index=chapterIndex,
+            defaults={"title": chapter_data.get("title")}
+        )
+        chapter_obj.scenes.all().delete()
+
+        for scene_data in chapter_data.get("scenes", []):
+            StoryScene.objects.create(
+                chapter=chapter_obj,
+                scene_index=scene_data.get("id"), 
+                background_image=scene_data.get("backgroundImage", ""), 
+                background_image_url=scene_data.get("backgroundImage", ""), # 实际 URL
+                dialogues=scene_data.get("dialogues")
+            )
+        
+        return Response({"ok": True}, status=status.HTTP_200_OK)
+
+
+class ChapterGenerateView(views.APIView):
+    """为创作者启动指定章节的生成"""
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="启动章节生成(创作者模式)",
+        request_body=ChapterGenerateSerializer,
+        responses={
+            status.HTTP_200_OK: openapi.Response(description='{"ok": true}'),
+            status.HTTP_403_FORBIDDEN: openapi.Response(description='无权操作或非创作者模式'),
+        }
+    )
+    def post(self, request, gameworkId: int, chapterIndex: int, *args, **kwargs):
+        gamework = get_object_or_404(Gamework, pk=gameworkId)
+        if gamework.author != request.user:
+            return Response({"error": "您没有权限操作此作品。"}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = ChapterGenerateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        validated_data = serializer.validated_data
+        try:
+            services.start_single_chapter_generation(
+                gamework=gamework,
+                chapter_index=chapterIndex,
+                outlines=validated_data.get("chapterOutlines", []),
+                user_prompt=validated_data.get("userPrompt", "")
+            )
+            return Response({"ok": True}, status=status.HTTP_200_OK)
+        except PermissionError as e:
+            return Response({"error": str(e)}, status=status.HTTP_403_FORBIDDEN)
+        except Exception as e:
+            logger.error(f"启动章节生成失败: {e}", exc_info=True)
+            return Response({"error": "启动生成失败"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 class GameSaveDetailView(views.APIView):
     """存档详情：PUT 保存/更新； GET 读取； DELETE 删除"""
