@@ -156,6 +156,10 @@ STATIC_URL = 'static/'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# 用于拼接绝对 URL（例如为 AI 生成的图片或 media 文件构造完整访问地址）
+# 可通过环境变量 SITE_DOMAIN 覆盖（例如在生产中设置为 https://yourdomain.com）
+SITE_DOMAIN = os.getenv('SITE_DOMAIN', 'http://localhost:8000')
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
@@ -208,7 +212,7 @@ SWAGGER_SETTINGS = {
 }
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=125),   # 短期访问 token
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=800),   # 短期访问 token
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),      # 长期刷新 token
 }
 

@@ -54,7 +54,6 @@ class GameworkDetails(BaseModel):
 
 client = Ark(
     api_key="16797a69-5b15-4795-aaac-aaced367197d",
-    api_key=settings.AI_API_KEY,
     base_url="https://ark.cn-beijing.volces.com/api/v3",
 )
 

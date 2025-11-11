@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { useRouter } from 'vue-router'
+import { http } from '../service/http.js'
 
 const router = useRouter()
 
@@ -18,21 +19,40 @@ try { sessionCreate = JSON.parse(sessionStorage.getItem('createResult')) } catch
 const incomingTags = (state.selectedTags && Array.isArray(state.selectedTags))
   ? state.selectedTags
   : (() => { try { return JSON.parse(sessionStorage.getItem('createRequest'))?.tags } catch { return null } })()
-const backendWork = state.backendWork || sessionCreate?.backendWork || null
+
+// 规范化后端返回的数据字段（兼容 image_url / coverUrl / cover_url 等差异）
+const normalizeBackendWork = (raw) => {
+  if (!raw) return null
+  const coverCandidate = raw.coverUrl || raw.cover_url || raw.image_url || raw.imageUrl || raw.cover || (raw.image && raw.image.url) || ''
+  let cover = coverCandidate || ''
+  if (cover && /^\//.test(cover)) cover = 'http://localhost:8000' + cover
+  // 如果已经是完整 URL，保留原样
+  return {
+    id: raw.id,
+    title: raw.title || raw.name || raw.work_title || '',
+    description: raw.description || raw.desc || raw.summary || '',
+    coverUrl: cover || raw.coverUrl || raw.image_url || '',
+    tags: raw.tags || raw.tag_names || raw.tag_ids || [],
+    favoritesCount: raw.favorite_count || raw.favoritesCount || 0,
+    publishedAt: raw.published_at || raw.publishedAt || null
+  }
+}
+
+let backendWorkRaw = normalizeBackendWork(state.backendWork || sessionCreate?.backendWork || null)
 
 const work = ref({
-  id: backendWork?.id || 1,
-  title: backendWork?.title || '锦瑟深宫',
-  coverUrl: backendWork && backendWork.coverUrl ? ("http://localhost:8000" + backendWork.coverUrl) : 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=800&h=500&fit=crop',
-  authorId: backendWork?.authorId || 'user_12345',
-  tags: incomingTags || backendWork?.tags || ['科幻', '冒险', '太空', '未来'],
-  description: backendWork?.description || `柳晚晚穿越成后宫小透明，她把宫斗当成终身职业来经营。
+  id: backendWorkRaw?.id || 1,
+  title: backendWorkRaw?.title || '锦瑟深宫',
+  coverUrl: backendWorkRaw?.coverUrl || 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=800&h=500&fit=crop',
+  authorId: backendWorkRaw?.authorId || 'user_12345',
+  tags: incomingTags || backendWorkRaw?.tags || ['科幻', '冒险', '太空', '未来'],
+  description: backendWorkRaw?.description || `柳晚晚穿越成后宫小透明，她把宫斗当成终身职业来经营。
 不争宠不夺权，只求平安活到退休。
-
+ 
 别人算计位份，她研究菜谱
 别人争抢赏赐，她核算份例
 在步步惊心的深宫里，她用一口小锅涮出温暖天地。
-
+ 
 皇帝觉得她省心，妃嫔当她没威胁。直到风波来临，众人才发现——这个整天算账吃饭的鹌鹑，早把生存智慧练到满级。
 
 当六宫争得头破血流时，
@@ -44,12 +64,63 @@ const work = ref({
   isFavorite: false
 })
 
+// 如果首次没有传入 backendWork（直接打开 /works 或刷新），尝试在挂载时去后端拉取最新详情并规范化映射
+onMounted(async () => {
+  try {
+    // 每次进入作品介绍页都向后端拉取最新详情，避免展示本地占位内容
+    // 优先使用路由参数 / query 中的 id，其次使用 sessionStorage.createResult 中的 backendWork.id，最后回退到当前 work.value.id
+    let sr = null
+    try { sr = JSON.parse(sessionStorage.getItem('createResult')) } catch (e) { sr = null }
+    const paramId = route.params?.id || route.query?.id || null
+    const candidateId = paramId || sr?.backendWork?.id || new URLSearchParams(window.location.search).get('id') || work.value.id
+
+    if (!candidateId) {
+      console.warn('[game_introduction] no candidate id to fetch')
+      return
+    }
+
+    const details = await http.get(`/api/gameworks/gameworks/${candidateId}/`)
+    // 兼容不同后端返回格式，优先取 data
+    const payload = details?.data || details || null
+    if (!payload) {
+      console.warn('[game_introduction] fetched empty payload for id', candidateId)
+      return
+    }
+
+    const normalized = normalizeBackendWork(payload)
+    if (normalized) {
+      // 完整覆盖界面字段，优先使用后端数据（但保留 tags 若路由/导航传入 overrides）
+      work.value.id = normalized.id || work.value.id
+      work.value.title = normalized.title || work.value.title
+      work.value.coverUrl = normalized.coverUrl || work.value.coverUrl
+      work.value.description = normalized.description || work.value.description
+      work.value.tags = incomingTags || normalized.tags || work.value.tags
+      try { favoritesCount.value = payload.favorite_count || payload.favoritesCount || favoritesCount.value } catch (e) {}
+      try { publishedAt.value = payload.published_at || payload.publishedAt || publishedAt.value } catch (e) {}
+
+      // 将获取到的后端原始数据写回 sessionStorage.createResult，方便其他页面/刷新时复用
+      try {
+        const prev = JSON.parse(sessionStorage.getItem('createResult') || '{}')
+        // 写入后端原始数据到 backendWork，便于其它页面读取；同时保留两个重要标记：modifiable / ai_callable
+        prev.backendWork = payload
+        // 兼容性：将 modifiable 与 ai_callable 同时写回顶级 createResult，便于前端快速判断权限/能力
+        try { prev.modifiable = !!payload.modifiable } catch (e) {}
+        try { prev.ai_callable = typeof payload.ai_callable !== 'undefined' ? !!payload.ai_callable : (payload.data && typeof payload.data.ai_callable !== 'undefined' ? !!payload.data.ai_callable : undefined) } catch (e) {}
+        sessionStorage.setItem('createResult', JSON.stringify(prev))
+      } catch (e) { console.warn('failed to write createResult to sessionStorage', e) }
+    }
+
+  } catch (e) {
+    console.warn('fetch work details failed:', e)
+  }
+})
+
 // 切换收藏状态
 const toggleFavorite = () => {
   work.value.isFavorite = !work.value.isFavorite
 }
 // 收藏数（示例初始值或来自后端）
-const favoritesCount = ref(backendWork?.favoritesCount || 124)
+const favoritesCount = ref(backendWorkRaw?.favoritesCount || 124)
 
 // 修改切换收藏以维护收藏计数
 const toggleFavoriteWithCount = () => {
@@ -57,7 +128,7 @@ const toggleFavoriteWithCount = () => {
   favoritesCount.value += work.value.isFavorite ? 1 : -1
 }
 // 发表时间（来自后端或默认当前时间）
-const publishedAt = ref(backendWork?.publishedAt || backendWork?.publishedDate || new Date().toISOString())
+const publishedAt = ref(backendWorkRaw?.publishedAt || backendWorkRaw?.publishedDate || new Date().toISOString())
 
 const publicationDisplay = computed(() => {
   try {

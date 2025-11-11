@@ -15,7 +15,7 @@ const USE_MOCK_SAVE = false
 const USE_MOCK_STORY = false
 
 // 测试开关：强制在进入游戏前以创作者身份（作品创建者）显示大纲编辑器（用于本地 AI 交互调试）
-const FORCE_CREATOR_FOR_TEST = true
+const FORCE_CREATOR_FOR_TEST = false
 let creatorEditorHandled = false
 
 // 区分两种身份相关开关：
@@ -28,6 +28,11 @@ const editorInvocation = ref('manual')
 
 import * as storyService from '../service/story.js'
 import { saveGameData, loadGameData, refreshSlotInfos as refreshSlotInfosUtil, deleteGameData } from '../utils/saveLoad.js'
+
+// 是否允许创作者相关的 AI 生成功能（由 createResult.modifiable 与后端 backendWork.ai_callable 共同决定）
+const creatorFeatureEnabled = ref(false)
+// 是否从 createResult/后端标记为可手动编辑（modifiable 字段），用于允许菜单手动进入创作者模式
+const modifiableFromCreate = ref(false)
 
 // 本地引用，允许在运行时替换为 mock 实现
 let getScenes = storyService.getScenes
@@ -108,8 +113,11 @@ const initializeGame = async () => {
             total_chapters: Number(totalChapters.value) || 5,
             chapterOutlines: null
           }
-          // 将临时对象写入 sessionStorage，复用 initFromCreateResult 的弹窗逻辑
-          try { sessionStorage.setItem('createResult', JSON.stringify(temp)) } catch (e) {}
+          // 仅在 sessionStorage 中尚无 createResult 时写入临时对象，避免覆盖后端或创建页写入的真实数据
+          try {
+            const existing = sessionStorage.getItem('createResult')
+            if (!existing) sessionStorage.setItem('createResult', JSON.stringify(temp))
+          } catch (e) {}
           // 标记为已处理，避免重复弹窗
           creatorEditorHandled = true
         } catch (e) { console.warn('prepare FORCE_CREATOR_FOR_TEST failed', e) }
@@ -558,7 +566,7 @@ const pushSceneFromServer = (sceneObj) => {
     const id = raw.id ?? raw.sceneId ?? (raw.seq ? `seq-${raw.seq}` : Math.floor(Math.random() * 1000000))
 
   // 背景图：只在 raw.backgroundImage 存在时才拼接后端地址，避免错误拼接导致无效 URL
-  const backgroundImage = raw && raw.backgroundImage ? ("http://localhost:8000" + raw.backgroundImage) : (raw && (raw.bg || ''))
+  const backgroundImage = raw && raw.backgroundImage ? ( raw.backgroundImage) : (raw && (raw.bg || ''))
 
     // 转换 dialogues：支持三种输入形式：
     // 1) 字符串数组（旧） -> { text }
@@ -625,11 +633,13 @@ const pushSceneFromServer = (sceneObj) => {
     // 我们在将 scene 推入本地队列前先深拷贝并赋予一个内部唯一 id（_uid）。
     // 这样可以保证每一次插入的场景在前端内部都是唯一的实例，避免引用/id 冲突。
     try {
-      const toPush = deepClone(scene)
+  const toPush = deepClone(scene)
       // internal unique id: chapter-sceneId-timestamp-random
       const baseId = String(toPush.sceneId ?? toPush.id ?? Math.floor(Math.random() * 1000000))
       const chap = toPush.chapterIndex != null ? String(toPush.chapterIndex) : 'nochap'
-      toPush._uid = `${chap}-${baseId}-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+  toPush._uid = `${chap}-${baseId}-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+  // pushed timestamp to help segment modified vs original scenes
+  toPush._pushedAt = Date.now()
       console.log('[pushSceneFromServer] Pushing scene:', toPush.id, 'Total scenes before push:', storyScenes.value.length)
       storyScenes.value.push(toPush)
       console.log('[pushSceneFromServer] Total scenes after push:', storyScenes.value.length)
@@ -654,25 +664,45 @@ const initFromCreateResult = async () => {
       work.value.id = obj.backendWork.id || work.value.id
       work.value.title = obj.backendWork.title || work.value.title
       work.value.coverUrl = obj.backendWork.coverUrl || work.value.coverUrl
+      // 后端可能返回 ai_callable 字段，标识是否允许调用 AI 生成
+      if (typeof obj.backendWork.ai_callable !== 'undefined') {
+        work.value.ai_callable = obj.backendWork.ai_callable
+      }
     }
     // 从 createResult 或 history.state 获取初始属性和状态
     // 兼容两种写法：createResult 可能直接包含 initialAttributes/initialStatuses，
     // 也可能只包含 backendWork（其中包含 initialAttributes/statuses 字段）
-    if (obj.initialAttributes) attributes.value = obj.initialAttributes
-    else if (obj.backendWork && obj.backendWork.initialAttributes) attributes.value = obj.backendWork.initialAttributes
+  // attributes/statuses: 支持多种命名与嵌套位置（camelCase / snake_case / backendWork.data）
+  if (obj.initialAttributes) attributes.value = obj.initialAttributes
+  else if (obj.initial_attributes) attributes.value = obj.initial_attributes
+  else if (obj.backendWork && obj.backendWork.initialAttributes) attributes.value = obj.backendWork.initialAttributes
+  else if (obj.backendWork && obj.backendWork.initial_attributes) attributes.value = obj.backendWork.initial_attributes
+  else if (obj.backendWork && obj.backendWork.data && obj.backendWork.data.initialAttributes) attributes.value = obj.backendWork.data.initialAttributes
+  else if (obj.backendWork && obj.backendWork.data && obj.backendWork.data.initial_attributes) attributes.value = obj.backendWork.data.initial_attributes
 
-    if (obj.initialStatuses) statuses.value = obj.initialStatuses
-    else if (obj.backendWork && obj.backendWork.initialStatuses) statuses.value = obj.backendWork.initialStatuses
+  if (obj.initialStatuses) statuses.value = obj.initialStatuses
+  else if (obj.initial_statuses) statuses.value = obj.initial_statuses
+  else if (obj.backendWork && obj.backendWork.initialStatuses) statuses.value = obj.backendWork.initialStatuses
+  else if (obj.backendWork && obj.backendWork.initial_statuses) statuses.value = obj.backendWork.initial_statuses
+  else if (obj.backendWork && obj.backendWork.data && obj.backendWork.data.initialStatuses) statuses.value = obj.backendWork.data.initialStatuses
+  else if (obj.backendWork && obj.backendWork.data && obj.backendWork.data.initial_statuses) statuses.value = obj.backendWork.data.initial_statuses
 
     // total_chapters（若提供）
     if (obj.total_chapters) totalChapters.value = obj.total_chapters
     else if (obj.backendWork && (obj.backendWork.total_chapters || obj.backendWork.total_chapters === 0)) totalChapters.value = obj.backendWork.total_chapters || null
     
+    // 根据 createResult 与 backendWork 决定是否启用创作者功能
+    try {
+      creatorFeatureEnabled.value = !!(obj.modifiable && !(obj.backendWork && obj.backendWork.ai_callable === false))
+    } catch (e) { creatorFeatureEnabled.value = !!obj.modifiable }
+    // 记录 createResult.modifiable，用于决定是否允许菜单触发的手动创作编辑（即使 ai_callable 为 false）
+    try { modifiableFromCreate.value = !!obj.modifiable } catch (e) { modifiableFromCreate.value = !!obj.modifiable }
+
     // 从后端获取首章内容（chapterIndex = 1，后端为 1-based）
     try {
       const workId = work.value.id
-      // 如果当前 createResult 表示为创作者模式，先让用户编辑大纲再触发生成（即使后端尚未返回大纲）
-      if (obj.modifiable) {
+      // 如果当前 createResult 同时表示为创作者模式且后端允许 AI 调用，先让用户编辑大纲再触发生成（即使后端尚未返回大纲）
+  if (creatorFeatureEnabled.value) {
         // 如果当前进入者是作品创建者身份（isCreatorIdentity），我们需要自动弹出编辑器用于生成大纲
         if (isCreatorIdentity.value && !creatorEditorHandled) {
           editorInvocation.value = 'auto'
@@ -684,32 +714,35 @@ const initFromCreateResult = async () => {
 
         // 将后端可能返回的 chapterOutlines 映射为编辑器使用的格式：{ chapterIndex, outline }
         try {
-          const rawOutlines = Array.isArray(obj.chapterOutlines) ? obj.chapterOutlines : []
+          // 支持后端在多种字段位置返回大纲：优先使用 createResult.chapterOutlines，其次尝试 backendWork.outlines / data.outlines / outlines
+          let rawOutlines = []
+          if (Array.isArray(obj.chapterOutlines) && obj.chapterOutlines.length > 0) rawOutlines = obj.chapterOutlines
+          else if (obj.backendWork && Array.isArray(obj.backendWork.outlines) && obj.backendWork.outlines.length > 0) rawOutlines = obj.backendWork.outlines
+          else if (Array.isArray(obj.outlines) && obj.outlines.length > 0) rawOutlines = obj.outlines
+          else if (obj.data && Array.isArray(obj.data.outlines) && obj.data.outlines.length > 0) rawOutlines = obj.data.outlines
+
           if (rawOutlines.length > 0) {
-            outlineEdits.value = rawOutlines.map((ch, i) => ({ chapterIndex: (i + 1), outline: ch.summary || ch.title || ch.outline || JSON.stringify(ch) }))
+            outlineEdits.value = rawOutlines.map((ch, i) => ({ chapterIndex: (ch.chapterIndex || i + 1), outline: ch.outline || ch.summary || ch.title || JSON.stringify(ch) }))
           } else {
-            // 若后端未返回大纲，则合成一份用于本地测试（生成直到 total_chapters 或默认 5 章）
-            const total = Number(obj.total_chapters) || 5
+            // 不再合成本地 mock：如果后端未返回大纲，则使用空数组，让编辑器呈现空状态由用户或后端生成
             outlineEdits.value = []
-            for (let i = 1; i <= total; i++) {
-              outlineEdits.value.push({ chapterIndex: i, outline: `第${i}章：自动生成的示例大纲（测试用）。` })
-            }
           }
+
           // 若 createResult 中包含 userPrompt 字段，则带入编辑器供用户修改
           outlineUserPrompt.value = obj.userPrompt || ''
         } catch (mapErr) {
           console.warn('map chapterOutlines failed', mapErr)
-          outlineEdits.value = [{ chapterIndex: 1, outline: '请在此编辑第一章大纲' }]
+          outlineEdits.value = []
         }
 
   // 记录原始大纲快照（用于取消时按原始大纲生成）
   try { originalOutlineSnapshot.value = JSON.parse(JSON.stringify(outlineEdits.value || [])) } catch(e) { originalOutlineSnapshot.value = (outlineEdits.value || []).slice() }
   showOutlineEditor.value = true
-        // 等待用户确认或取消（confirmOutlineEdits/cancelOutlineEdits 会 resolve outlineEditorResolver）
+  // 等待用户确认或取消（confirmOutlineEdits/cancelOutlineEdits 会 resolve outlineEditorResolver）
         await new Promise((resolve) => { outlineEditorResolver = resolve })
         // 如果用户确认，confirmOutlineEdits 已调用 generateChapter，后端可能仍在生成，getScenes 会轮询等待
       }
-      const result = await getScenes(workId, 1, {
+  const result = await getScenes(workId, 1, {
         onProgress: (progress) => {
           console.log(`[Story] 首章生成进度:`, progress)
           // 更新加载进度
@@ -819,7 +852,9 @@ const openStream = (url) => {
 
 // 向后端请求指定章节（使用 POST /api/game/chapter/），chapterIndex 为 1-based
 // 向后端请求指定章节（使用 POST /api/game/chapter/），chapterIndex 为 1-based
-const fetchNextChapter = async (workId, chapterIndex = null) => {
+// fetchNextChapter 增加可选 opts 参数：{ replace: boolean }
+// 如果 opts.replace === true，则用返回的章节内容覆盖当前 storyScenes（替换），而不是追加
+const fetchNextChapter = async (workId, chapterIndex = null, opts = { replace: true }) => {
   try {
     if (!workId) workId = work.value.id
     // 计算希望请求的章节索引（1-based）
@@ -828,14 +863,26 @@ const fetchNextChapter = async (workId, chapterIndex = null) => {
 
     console.log(`[fetchNextChapter] 开始获取第 ${idx} 章内容...`)
 
-  // 若当前为作品创建者身份，则在每一章加载前弹出大纲编辑器供创作者确认/修改后再真正请求章节内容
-  // 注意：menu 中的 creatorMode 仍然负责页面内手动编辑权限；这里的 isCreatorIdentity 用于在进入每章前自动弹出可编辑大纲（测试/创作者流程）
-  if (isCreatorIdentity.value) {
+  // 若后端/创建页标记允许创作功能（creatorFeatureEnabled），则在每一章加载前弹出大纲编辑器供创作者确认/修改后再真正请求章节内容
+  // 注意：menu 中的 creatorMode 仍然负责页面内手动编辑权限；这里的 creatorFeatureEnabled 用于在进入每章前自动弹出可编辑大纲
+  if (creatorFeatureEnabled.value) {
       try {
         // 尝试从 sessionStorage.createResult 获得原始大纲（若存在）
         let createRaw = null
         try { createRaw = JSON.parse(sessionStorage.getItem('createResult') || 'null') } catch (e) { createRaw = null }
-        const rawOutlines = (createRaw && Array.isArray(createRaw.chapterOutlines)) ? createRaw.chapterOutlines : []
+          // 优先读取 createResult.chapterOutlines；若不存在则尝试使用 createResult.backendWork.outlines 或 work.value 中的 outlines
+          let rawOutlines = []
+          if (createRaw && Array.isArray(createRaw.chapterOutlines) && createRaw.chapterOutlines.length) {
+            rawOutlines = createRaw.chapterOutlines
+          } else if (createRaw && createRaw.backendWork && Array.isArray(createRaw.backendWork.outlines) && createRaw.backendWork.outlines.length) {
+            rawOutlines = createRaw.backendWork.outlines
+          } else if (createRaw && createRaw.data && Array.isArray(createRaw.data.outlines) && createRaw.data.outlines.length) {
+            rawOutlines = createRaw.data.outlines
+          } else if (work.value && Array.isArray(work.value.outlines) && work.value.outlines.length) {
+            rawOutlines = work.value.outlines
+          } else {
+            rawOutlines = []
+          }
         // 展示从当前请求章节 idx 到末章的所有大纲供编辑（若后端未返回则合成到 total_chapters）
         const total = (Array.isArray(rawOutlines) && rawOutlines.length) ? rawOutlines.length : (Number(totalChapters.value) || 5)
         outlineEdits.value = []
@@ -898,31 +945,40 @@ const fetchNextChapter = async (workId, chapterIndex = null) => {
     // 标准返回：{ chapterIndex, title, scenes: [...] }
     console.log(`[fetchNextChapter] 检查scenes: data=${!!data}, scenes=${data?.scenes}, isArray=${Array.isArray(data?.scenes)}, length=${data?.scenes?.length}`)
     if (data && Array.isArray(data.scenes) && data.scenes.length > 0) {
-      console.log('[fetchNextChapter] Processing scenes:', data.scenes.length)
-      const startIdx = storyScenes.value.length
-      for (const sc of data.scenes) {
-        try { 
-          console.log('[fetchNextChapter] Processing scene:', sc.id)
-          pushSceneFromServer(sc) 
-        } catch (e) { console.warn('pushSceneFromServer failed for one entry', e) }
+      console.log('[fetchNextChapter] Processing scenes:', data.scenes.length, 'opts.replace=', opts && opts.replace)
+      if (opts && opts.replace === true) {
+        // 用新章节覆盖当前 storyScenes
+        storyScenes.value = []
+        for (const sc of data.scenes) {
+          try { pushSceneFromServer(sc) } catch (e) { console.warn('pushSceneFromServer failed for one entry', e) }
+        }
+        // 重置播放 / 对话索引以从新章节开始
+        currentSceneIndex.value = 0
+        currentDialogueIndex.value = 0
+      } else {
+        const startIdx = storyScenes.value.length
+        for (const sc of data.scenes) {
+          try { 
+            console.log('[fetchNextChapter] Processing scene:', sc.id)
+            pushSceneFromServer(sc) 
+          } catch (e) { console.warn('pushSceneFromServer failed for one entry', e) }
+        }
+        // 如果在追加场景且当前在最后一个旧场景，自动切换到第一个新场景
+        if (startIdx > 0 && currentSceneIndex.value === startIdx - 1) {
+          showText.value = false
+          setTimeout(() => {
+            currentSceneIndex.value = startIdx
+            currentDialogueIndex.value = 0
+            showText.value = true
+            choicesVisible.value = false
+          }, 300)
+        }
       }
-      
-      // 重要修改：更新当前章节索引
+
+      // 重要修改：更新当前章节索引（无论覆盖或追加都要更新）
       currentChapterIndex.value = idx
 
       console.log(`[Story] 成功加载第 ${idx} 章，共 ${data.scenes.length} 个场景`)
-
-      // 重要修改：如果有新场景添加，并且当前处于最后一个场景，自动切换到第一个新场景
-      if (startIdx > 0 && currentSceneIndex.value === storyScenes.value.length - 1 - data.scenes.length) {
-        // 当前在最后一个旧场景，自动切换到第一个新场景
-        showText.value = false
-        setTimeout(() => {
-          currentSceneIndex.value = startIdx
-          currentDialogueIndex.value = 0
-          showText.value = true
-          choicesVisible.value = false
-        }, 300)
-      }
 
       // 如果我们已请求了超出 totalChapters 的章节（totalChapters 可用），视为已到结尾并不再继续请求下一章。
       // 注意：不要在请求到等于 totalChapters 时立即标记结束 —— 只有在请求超出范围或后端显式返回 end 时才认为结束。
@@ -947,24 +1003,39 @@ const requestNextIfNeeded = async () => {
   try {
     // 如果已由 SSE 推送，则不需要额外请求
     if (eventSource) return
-    
-    // 重要修改：只在当前章节接近结束时才预加载下一章
+    // 重要：仅在当前章节已「真正结束」时才请求下一章：
+    // 判断条件：当前场景存在且被标记为 isChapterEnding 且当前已读到该场景最后一句对话（chapter end 完结）
     const currentScene = storyScenes.value[currentSceneIndex.value]
-    const isNearEnd = currentSceneIndex.value >= storyScenes.value.length - 2
-    
-    if (isNearEnd && !storyEndSignaled.value) {
-      const nextChapter = currentChapterIndex.value + 1
-      // 如果已知总章节数且下一章超出范围，则标记为结束并不请求
-      if (totalChapters.value && Number(nextChapter) > Number(totalChapters.value)) {
-        console.log('requestNextIfNeeded: nextChapter exceeds totalChapters, marking story end')
-        storyEndSignaled.value = true
-        return
-      }
-      if (USE_MOCK_STORY) {
-        await fetchNextContent(work.value.id, nextChapter)
-      } else {
-        await fetchNextChapter(work.value.id, nextChapter)
-      }
+    if (!currentScene) return
+    const atLastDialogue = Array.isArray(currentScene.dialogues) ? (currentDialogueIndex.value >= (currentScene.dialogues.length - 1)) : true
+    const isChapterEndScene = currentScene.isChapterEnding === true || currentScene.chapterEnd === true
+
+    if (!(isChapterEndScene && atLastDialogue)) {
+      // 未到章节结束，不触发获取下一章
+      return
+    }
+
+    // 现在确认为章节结束，按原先逻辑请求下一章（并在需要时替换现有章节）
+    const nextChapter = currentChapterIndex.value + 1
+    // 如果已知总章节数且下一章超出范围，则标记为结束并不请求
+    if (totalChapters.value && Number(nextChapter) > Number(totalChapters.value)) {
+      console.log('requestNextIfNeeded: nextChapter exceeds totalChapters, marking story end')
+      storyEndSignaled.value = true
+      return
+    }
+
+    // 如果处于创作者模式则不自动请求
+    if (creatorMode.value) return
+
+    // 请求下一章并用返回内容覆盖当前已加载的章节（避免将下一章拼接进当前播放队列）
+    try {
+      startLoading()
+      const resp = await fetchNextChapter(work.value.id, nextChapter, { replace: true })
+      console.log('requestNextIfNeeded fetched next chapter with replace:', resp)
+    } catch (e) {
+      console.warn('requestNextIfNeeded fetch failed', e)
+    } finally {
+      try { await stopLoading() } catch (e) {}
     }
   } catch (e) { console.warn('requestNextIfNeeded failed', e) }
 }
@@ -1281,6 +1352,11 @@ let outlineEditorResolver = null
 // 手动打开大纲编辑器（供页面按钮或其它流程调用）
 const openOutlineEditorManual = async () => {
   try {
+    // 手动打开编辑器仅需要 createResult.modifiable 为 true（允许作者手动编辑），不强制要求 AI 可用
+    if (!modifiableFromCreate.value) {
+      try { showNotice('您无权编辑本作品的大纲（非作者或未开启创作者模式）。') } catch(e){}
+      return
+    }
     let createRaw = null
     try { createRaw = JSON.parse(sessionStorage.getItem('createResult') || 'null') } catch (e) { createRaw = null }
     const rawOutlines = (createRaw && Array.isArray(createRaw.chapterOutlines)) ? createRaw.chapterOutlines : []
@@ -1321,17 +1397,276 @@ const cancelOutlineEdits = () => {
 
 const confirmOutlineEdits = async () => {
   try {
-    // 将编辑器格式映射回后端期望的章节大纲格式并调用生成接口
-    const workId = work.value.id
-    const payloadOutlines = (outlineEdits.value || []).map(o => ({ chapterIndex: o.chapterIndex, summary: o.outline }))
-    await generateChapter(workId, payloadOutlines[0]?.chapterIndex || 1, { chapterOutlines: payloadOutlines, userPrompt: outlineUserPrompt.value })
-    showOutlineEditor.value = false
-  // 用户确认了大纲编辑并触发了生成，清除任何 creator-mode 预览快照，防止后续退出创作者模式时回滚到旧状态
-  try { previewSnapshot.value = null } catch (e) {}
-    if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(true); outlineEditorResolver = null }
+    // 映射为后端期望格式（包含 outline 字段）
+    const workId = work.value && (work.value.id || work.value.gameworkId || work.value.workId)
+    if (!workId) {
+      showNotice('无法识别作品 ID，无法提交生成请求')
+      if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(false); outlineEditorResolver = null }
+      return
+    }
+
+    const payloadOutlines = (outlineEdits.value || []).map(o => ({ chapterIndex: o.chapterIndex, outline: o.outline || o.summary || '' }))
+
+    // 以当前章节优先，fallback 到列表首项
+    const targetChapter = Number(currentChapterIndex.value) || payloadOutlines[0]?.chapterIndex || 1
+
+  // 立即关闭编辑器并切换到加载界面，让用户知道请求已发出
+  try { showOutlineEditor.value = false } catch (e) {}
+  try { startLoading() } catch (e) { isLoading.value = true }
+  isFetchingNext.value = true
+  showNotice('已提交大纲，正在请求后端生成章节，请稍候...')
+
+  // Debug log - 确保点击触发
+  console.log('confirmOutlineEdits triggered', { workId, currentChapterIndex: currentChapterIndex.value })
+
+    // 将用户编辑的最新版大纲与 prompt 写回 sessionStorage.createResult，便于下次打开时回显
+    try {
+      const prev = JSON.parse(sessionStorage.getItem('createResult') || '{}')
+      prev.chapterOutlines = payloadOutlines
+      prev.userPrompt = outlineUserPrompt.value || ''
+      // 也将 backendWork.outlines 更新为最新大纲（便于介绍页/其它页面使用）
+      prev.backendWork = prev.backendWork || {}
+      prev.backendWork.outlines = payloadOutlines
+      sessionStorage.setItem('createResult', JSON.stringify(prev))
+    } catch (e) { console.warn('failed to write createResult outlines to sessionStorage', e) }
+
+    // 触发后端生成
+    let genResp = null
+      try {
+        // 如果 AI 生成功能不可用但 createResult 表示可手动编辑，则将当前章节内容 PUT 到后端（手动覆盖保存）
+        if (!creatorFeatureEnabled.value && modifiableFromCreate.value) {
+          try {
+            // 构建章节数据：以当前已加载的 storyScenes 中属于 targetChapter 的场景为准
+            let chapterScenes = []
+            if (Array.isArray(storyScenes.value)) {
+              // 优先使用 explicit chapterIndex 标记，但可能存在旧版本与新修改的两个断裂片段都带有相同 chapterIndex，
+              // 需要选择包含当前播放位置的连续片段（若没有则选最后一个段）以避免拼接旧 + 新 内容。
+              const explicitIdxs = []
+              for (let i = 0; i < storyScenes.value.length; i++) {
+                const s = storyScenes.value[i]
+                if (s && typeof s.chapterIndex !== 'undefined' && s.chapterIndex !== null && Number(s.chapterIndex) === Number(targetChapter)) explicitIdxs.push(i)
+              }
+              if (explicitIdxs.length > 0) {
+                const segments = []
+                let segStart = explicitIdxs[0]
+                let prev = explicitIdxs[0]
+                for (let k = 1; k < explicitIdxs.length; k++) {
+                  const cur = explicitIdxs[k]
+                  if (cur === prev + 1) {
+                    // If contiguous indices but pushedAt gap is large, treat as a new segment
+                    try {
+                      const prevAt = storyScenes.value[prev] && storyScenes.value[prev]._pushedAt ? Number(storyScenes.value[prev]._pushedAt) : 0
+                      const curAt = storyScenes.value[cur] && storyScenes.value[cur]._pushedAt ? Number(storyScenes.value[cur]._pushedAt) : 0
+                      if (prevAt && curAt && (curAt - prevAt) > 500) {
+                        // gap detected -> split
+                        segments.push([segStart, prev])
+                        segStart = cur
+                        prev = cur
+                        continue
+                      }
+                    } catch (e) { /* ignore and fallthrough */ }
+                    prev = cur
+                    continue
+                  }
+                  segments.push([segStart, prev])
+                  segStart = cur
+                  prev = cur
+                }
+                segments.push([segStart, prev])
+                let chosenSeg = null
+                for (const seg of segments) {
+                  if (Number(currentSceneIndex.value) >= seg[0] && Number(currentSceneIndex.value) <= seg[1]) { chosenSeg = seg; break }
+                }
+                if (!chosenSeg) {
+                  // If no segment contains the current playhead, pick the segment most likely to be the "modified" one.
+                  // Heuristic: prefer segments with more local overrides, then prefer more recently pushed segments.
+                  let best = null
+                  let bestScore = -Infinity
+                  for (const seg of segments) {
+                    try {
+                      const slice = storyScenes.value.slice(seg[0], seg[1] + 1)
+                      let modifiedCount = 0
+                      let maxAt = 0
+                      for (const s of slice) {
+                        const key = s && (s._uid ?? s.sceneId ?? s.id) ? String(s._uid ?? s.sceneId ?? s.id) : null
+                        if (key && overrides && overrides.value && overrides.value.scenes && overrides.value.scenes[key]) modifiedCount += 1
+                        const at = s && s._pushedAt ? Number(s._pushedAt) : 0
+                        if (at > maxAt) maxAt = at
+                      }
+                      const score = (modifiedCount * 1e12) + maxAt
+                      if (score > bestScore) { bestScore = score; best = seg }
+                    } catch (e) { /* ignore */ }
+                  }
+                  chosenSeg = best || segments[segments.length - 1]
+                }
+                try { chapterScenes = storyScenes.value.slice(chosenSeg[0], chosenSeg[1] + 1) } catch (e) { chapterScenes = storyScenes.value.filter(s => (s && Number(s.chapterIndex) === Number(targetChapter))) }
+              } else {
+                try {
+                  const chaptersArr = []
+                  let cur = []
+                  for (let i = 0; i < storyScenes.value.length; i++) {
+                    const sc = storyScenes.value[i]
+                    cur.push(sc)
+                    if (sc && sc.isChapterEnding) {
+                      chaptersArr.push(cur)
+                      cur = []
+                    }
+                  }
+                  if (cur.length > 0) chaptersArr.push(cur)
+                  if (Array.isArray(chaptersArr) && chaptersArr.length >= Number(targetChapter)) {
+                    chapterScenes = chaptersArr[Number(targetChapter) - 1] || []
+                  }
+                } catch (e) { console.warn('chapter split by isChapterEnding failed', e) }
+              }
+              if (!chapterScenes || chapterScenes.length === 0) {
+                try {
+                  const start = Number(currentSceneIndex.value) || 0
+                  const chunk = []
+                  for (let i = start; i < storyScenes.value.length; i++) {
+                    const sc = storyScenes.value[i]
+                    chunk.push(sc)
+                    if (sc && sc.isChapterEnding) break
+                  }
+                  if (chunk.length > 0) chapterScenes = chunk
+                } catch (e) { console.warn('fallback derive chapterScenes failed', e) }
+              }
+            }
+            // Fallback: 若没有找到对应章节的场景，尝试使用 outlineEdits 生成一个占位场景（以防止 PUT 失败）
+            let scenesPayload = []
+            if (chapterScenes && chapterScenes.length > 0) {
+              scenesPayload = chapterScenes.map((s, idx) => {
+                let sid = Number(s.sceneId ?? s.id)
+                if (!Number.isInteger(sid) || sid <= 0) sid = idx + 1
+                return { id: Number(sid), backgroundImage: s.backgroundImage, dialogues: s.dialogues }
+              })
+            } else if (Array.isArray(outlineEdits.value) && outlineEdits.value.length > 0) {
+              const o = outlineEdits.value.find(x => Number(x.chapterIndex) === Number(targetChapter)) || outlineEdits.value[0]
+              scenesPayload = [{ id: 1, backgroundImage: work.value.coverUrl || '', dialogues: [{ narration: o ? (o.outline || '') : '手动编辑占位' }] }]
+            }
+
+            const getFallbackTitleForTarget = () => {
+              try {
+                const byOutline = (outlineEdits.value && outlineEdits.value.length) ? (outlineEdits.value.find(x => Number(x.chapterIndex) === Number(targetChapter))?.outline || '') : ''
+                if (byOutline && String(byOutline).trim()) return String(byOutline).trim()
+                try {
+                  const prev = JSON.parse(sessionStorage.getItem('createResult') || '{}')
+                  const bwOut = prev && prev.backendWork && Array.isArray(prev.backendWork.outlines) ? prev.backendWork.outlines : []
+                  const found = (bwOut || []).find(x => Number(x.chapterIndex) === Number(targetChapter))
+                  if (found && (found.outline || found.summary || found.title)) return String(found.outline || found.summary || found.title).trim()
+                } catch (e) {}
+                if (work && work.value && work.value.title) return String(work.value.title)
+              } catch (e) { console.warn('getFallbackTitleForTarget failed', e) }
+              return `第${Number(targetChapter)}章`
+            }
+
+            const chapterData = {
+              chapterIndex: Number(targetChapter),
+              title: getFallbackTitleForTarget(),
+              scenes: scenesPayload
+            }
+
+            console.log('saveChapter PUT', { workId, targetChapter, chapterData })
+            const saveResp = await saveChapter(workId, targetChapter, chapterData)
+            console.log('saveChapter response', saveResp)
+            showNotice('手动编辑已保存到后端')
+            // 将编辑结果写回 sessionStorage（保持一致性）
+            try {
+              const prev = JSON.parse(sessionStorage.getItem('createResult') || '{}')
+              prev.backendWork = prev.backendWork || {}
+              prev.backendWork.outlines = prev.backendWork.outlines || []
+              // 更新对应大纲（若存在）
+              const idx = (prev.backendWork.outlines || []).findIndex(x => Number(x.chapterIndex) === Number(targetChapter))
+              if (idx >= 0) prev.backendWork.outlines[idx].outline = outlineEdits.value && outlineEdits.value.length ? (outlineEdits.value.find(x => Number(x.chapterIndex) === Number(targetChapter))?.outline || '') : prev.backendWork.outlines[idx].outline
+              sessionStorage.setItem('createResult', JSON.stringify(prev))
+            } catch (e) { console.warn('failed to update createResult after saveChapter', e) }
+
+            // 结束编辑器并返回
+            showOutlineEditor.value = false
+            if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(true); outlineEditorResolver = null }
+            try { await stopLoading(); showText.value = true } catch (e) { isLoading.value = false; showText.value = true }
+            isFetchingNext.value = false
+            return
+          } catch (e) {
+            // log backend validation error body if present
+            try { console.error('confirmOutlineEdits: saveChapter failed response body:', e && e.response && e.response.data ? e.response.data : e) } catch (logErr) { console.error('saveChapter 调用失败', e) }
+            showNotice('保存章节失败，请检查网络或稍后重试（查看控制台以获取后端错误信息）')
+            if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(false); outlineEditorResolver = null }
+            isFetchingNext.value = false
+            try { await stopLoading() } catch (err) { isLoading.value = false }
+            return
+          }
+        }
+
+        console.log('calling generateChapter POST', { workId, targetChapter, payloadOutlines, userPrompt: outlineUserPrompt.value })
+        genResp = await generateChapter(workId, targetChapter, { chapterOutlines: payloadOutlines, userPrompt: outlineUserPrompt.value })
+        console.log('generateChapter response', genResp)
+      } catch (e) {
+        console.error('generateChapter 调用失败', e)
+        showNotice('提交生成请求失败，请检查网络或稍后重试')
+        if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(false); outlineEditorResolver = null }
+        isFetchingNext.value = false
+        return
+      }
+
+    // 后端通常返回 { ok: true } 来表示已接受请求
+    if (!genResp || genResp.ok !== true) {
+      console.warn('generateChapter 返回非预期结果', genResp)
+      showNotice('后端未接受生成请求或返回状态异常，请稍后重试')
+      if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(false); outlineEditorResolver = null }
+      isFetchingNext.value = false
+      return
+    }
+
+    // 轮询获取生成后的章节内容（getScenes 内部会重试直到 ready 或超时）
+    try {
+      const res = await getScenes(workId, targetChapter, {
+        onProgress: (p) => {
+          if (p && p.status === 'generating' && p.progress) {
+            showNotice(`章节生成中：${p.progress.current || 0}/${p.progress.total || '?'} `)
+          }
+        }
+      })
+
+      // 如果返回了 scenes，则将其适配并加入 storyScenes
+      if (res && Array.isArray(res.scenes)) {
+        // 清空当前场景队列并重新推入
+        storyScenes.value = []
+        for (const s of res.scenes) {
+          try { pushSceneFromServer(s) } catch (e) { console.warn('pushSceneFromServer failed', e); storyScenes.value.push(s) }
+        }
+        currentSceneIndex.value = 0
+        currentDialogueIndex.value = 0
+        // 场景已加载，停止 loading 并显示文字
+        try { await stopLoading(); showText.value = true } catch (e) { isLoading.value = false; showText.value = true }
+      } else if (res && res.scenes) {
+        storyScenes.value = res.scenes
+        currentSceneIndex.value = 0
+        currentDialogueIndex.value = 0
+        try { await stopLoading(); showText.value = true } catch (e) { isLoading.value = false; showText.value = true }
+      }
+
+      showOutlineEditor.value = false
+      showNotice('章节生成完成，已加载到编辑器/阅读页面')
+      // 清除预览快照
+      try { previewSnapshot.value = null } catch (e) {}
+      if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(true); outlineEditorResolver = null }
+    } catch (e) {
+      console.error('获取生成章节失败', e)
+      showNotice('获取章节内容超时或出错，请稍后重试')
+      if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(false); outlineEditorResolver = null }
+      try { await stopLoading() } catch (err) { isLoading.value = false }
+    }
+
   } catch (e) {
     console.warn('confirmOutlineEdits failed', e)
+    showNotice('提交大纲时发生错误，请稍后重试')
     if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(false); outlineEditorResolver = null }
+  } finally {
+    isFetchingNext.value = false
+    // 确保 loading 被关闭（防止由于异常停留）
+    if (isLoading.value) {
+      try { await stopLoading() } catch (e) { isLoading.value = false }
+    }
   }
 }
 
@@ -1544,7 +1879,9 @@ const finishEdit = () => {
 // 图片替换：在本地将图片读取为 dataURL，并保存在 overrides 中
 const imgInput = ref(null)
 const triggerImagePicker = () => {
+  // 仅在手动创作者模式下允许替换图片；如果未启用 modifiable，则提示并打开菜单
   if (!creatorMode.value) { showMenu.value = true; return }
+  if (!modifiableFromCreate.value) { showNotice('您无权替换图片：非作者或未开启创作者模式'); return }
   try { imgInput.value && imgInput.value.click() } catch (e) {}
 }
 
@@ -1555,16 +1892,41 @@ const onImageSelected = async (ev) => {
     // 只允许图片
     if (!/^image\//.test(f.type)) return
     const reader = new FileReader()
-    reader.onload = () => {
+    reader.onload = async () => {
       const data = reader.result
       const scene = currentScene.value
       if (!scene) return
       const sid = (scene._uid || scene.sceneId || scene.id || `idx_${currentSceneIndex.value}`)
       overrides.value.scenes = overrides.value.scenes || {}
       overrides.value.scenes[sid] = overrides.value.scenes[sid] || { dialogues: {} }
+      // 先把本地 preview 用 dataURL 显示
       overrides.value.scenes[sid].backgroundImage = data
       saveOverrides()
       applyOverridesToScenes()
+      // 上传图片到后端，获取 imageUrl 后替换本地 preview
+      try {
+        const form = new FormData()
+        form.append('file', f)
+        // axios http instance is imported as `http` (utils/http.js)
+        try {
+          const resp = await http.post('/game/upload-image/', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+          // axios response data is in resp.data
+          const imageUrl = (resp && resp.data && (resp.data.imageUrl || resp.data.imageUrl)) || (resp && resp.imageUrl) || null
+          if (imageUrl) {
+            overrides.value.scenes[sid].backgroundImage = imageUrl
+            saveOverrides()
+            applyOverridesToScenes()
+            showNotice('图片已上传并替换为服务器 URL')
+          } else {
+            console.warn('upload returned no imageUrl', resp)
+            showNotice('图片已本地替换，但上传未返回 URL')
+          }
+        } catch (uploadErr) {
+          console.error('upload image failed', uploadErr)
+          showNotice('图片上传失败，请稍后重试（已保留本地预览）')
+        }
+      } catch (e) { console.warn('image upload flow failed', e) }
+
       // 确认图片替换后，清除预览快照，避免退出创作者模式时被回滚
       try { previewSnapshot.value = null } catch (e) {}
       // 强制重绘以确保背景图立即生效
@@ -1585,10 +1947,279 @@ const playNextAfterEdit = () => {
   } catch (e) { console.warn('playNextAfterEdit failed', e) }
 }
 
+// 将当前章节（currentChapterIndex）中前端当前 scenes 的修改持久化到后端（PUT /api/game/chapter/{id}/{chapterIndex}/）
+const persistCurrentChapterEdits = async () => {
+  try {
+    if (!modifiableFromCreate.value) {
+      console.log('persistCurrentChapterEdits skipped: not modifiableFromCreate')
+      return
+    }
+    const workId = work.value && (work.value.id || work.value.gameworkId || work.value.workId)
+    if (!workId) return
+    const chapterIndex = Number(currentChapterIndex.value) || 1
+    // 从 storyScenes 中挑出属于该章节的 scenes（更鲁棒的选择算法）：
+    // 1) 优先使用显式的 chapterIndex
+    // 2) 否则在 currentSceneIndex 周围向前/向后扩展直到遇到 isChapterEnding 或 chapterIndex 越界
+    // 3) 若仍未找到则按 isChapterEnding 切分整个序列
+    let chapterScenes = []
+    if (Array.isArray(storyScenes.value) && storyScenes.value.length > 0) {
+      // 1) explicit markings: 可能存在多个断裂的片段（旧版本与修改后的片段都带有 chapterIndex），
+      // 我们需挑选包含当前播放位置的连续片段（若无则选最后一个片段），以避免把原始与修改后的章节拼接在一起。
+      const explicitIdxs = []
+      for (let i = 0; i < storyScenes.value.length; i++) {
+        const s = storyScenes.value[i]
+        if (s && typeof s.chapterIndex !== 'undefined' && s.chapterIndex !== null && Number(s.chapterIndex) === Number(chapterIndex)) explicitIdxs.push(i)
+      }
+      if (explicitIdxs.length > 0) {
+        // 将连续索引合并为段
+        const segments = []
+        let segStart = explicitIdxs[0]
+        let prev = explicitIdxs[0]
+        for (let k = 1; k < explicitIdxs.length; k++) {
+          const cur = explicitIdxs[k]
+          if (cur === prev + 1) {
+            // If contiguous indices but pushedAt gap is large, treat as a new segment
+            try {
+              const prevAt = storyScenes.value[prev] && storyScenes.value[prev]._pushedAt ? Number(storyScenes.value[prev]._pushedAt) : 0
+              const curAt = storyScenes.value[cur] && storyScenes.value[cur]._pushedAt ? Number(storyScenes.value[cur]._pushedAt) : 0
+              if (prevAt && curAt && (curAt - prevAt) > 500) {
+                // gap detected -> split
+                segments.push([segStart, prev])
+                segStart = cur
+                prev = cur
+                continue
+              }
+            } catch (e) { /* ignore and fallthrough */ }
+            prev = cur
+            continue
+          }
+          segments.push([segStart, prev])
+          segStart = cur
+          prev = cur
+        }
+        segments.push([segStart, prev])
+
+        // 选择包含 currentSceneIndex 的段（优先），若无则选择最近推入的段（以 max _pushedAt 为准）。
+        let chosenSeg = null
+        for (const seg of segments) {
+          if (Number(currentSceneIndex.value) >= seg[0] && Number(currentSceneIndex.value) <= seg[1]) { chosenSeg = seg; break }
+        }
+        if (!chosenSeg) {
+          // No segment contains the playhead: pick the segment most likely to be the modified one.
+          // Heuristic: prefer segments with more local overrides, then prefer recently pushed segments.
+          let bestSeg = null
+          let bestScore = -Infinity
+          for (const seg of segments) {
+            try {
+              const slice = storyScenes.value.slice(seg[0], seg[1] + 1)
+              let modifiedCount = 0
+              let maxAt = 0
+              for (const s of slice) {
+                const key = s && (s._uid ?? s.sceneId ?? s.id) ? String(s._uid ?? s.sceneId ?? s.id) : null
+                if (key && overrides && overrides.value && overrides.value.scenes && overrides.value.scenes[key]) modifiedCount += 1
+                const at = s && s._pushedAt ? Number(s._pushedAt) : 0
+                if (at > maxAt) maxAt = at
+              }
+              const score = (modifiedCount * 1e12) + maxAt
+              if (score > bestScore) { bestScore = score; bestSeg = seg }
+            } catch (e) { /* ignore */ }
+          }
+          if (bestSeg) chosenSeg = bestSeg
+          else chosenSeg = segments[segments.length - 1]
+        }
+        try {
+          console.log('choose segment for chapterIndex', chapterIndex, 'segments:', segments, 'chosen:', chosenSeg)
+          chapterScenes = storyScenes.value.slice(chosenSeg[0], chosenSeg[1] + 1)
+        } catch (e) { chapterScenes = storyScenes.value.filter(s => (s && Number(s.chapterIndex) === Number(chapterIndex))) }
+      } else {
+        // 2) window around currentSceneIndex
+        try {
+          const len = storyScenes.value.length
+          let start = Math.max(0, Number(currentSceneIndex.value) || 0)
+          let end = start
+          // walk backward until boundary
+          while (start > 0) {
+            const prev = storyScenes.value[start - 1]
+            if (!prev) { start -= 1; continue }
+            if (prev.isChapterEnding === true) break
+            if (typeof prev.chapterIndex !== 'undefined' && prev.chapterIndex !== null && Number(prev.chapterIndex) < Number(chapterIndex)) break
+            start -= 1
+          }
+          // walk forward until boundary (include the scene marked as isChapterEnding)
+          while (end < len - 1) {
+            const cur = storyScenes.value[end]
+            const nxt = storyScenes.value[end + 1]
+            if (cur && cur.isChapterEnding === true) { break }
+            if (nxt && typeof nxt.chapterIndex !== 'undefined' && nxt.chapterIndex !== null && Number(nxt.chapterIndex) > Number(chapterIndex)) break
+            end += 1
+          }
+          chapterScenes = storyScenes.value.slice(start, end + 1)
+        } catch (e) { console.warn('derive chapterScenes by window failed', e); chapterScenes = [] }
+
+        // 3) fallback: split by isChapterEnding
+        if ((!chapterScenes || chapterScenes.length === 0) && Array.isArray(storyScenes.value)) {
+          try {
+            const chaptersArr = []
+            let cur = []
+            for (let i = 0; i < storyScenes.value.length; i++) {
+              const sc = storyScenes.value[i]
+              cur.push(sc)
+              if (sc && sc.isChapterEnding) {
+                chaptersArr.push(cur)
+                cur = []
+              }
+            }
+            if (cur.length > 0) chaptersArr.push(cur)
+            if (Array.isArray(chaptersArr) && chaptersArr.length >= Number(chapterIndex)) {
+              chapterScenes = chaptersArr[Number(chapterIndex) - 1] || []
+            }
+          } catch (e) { console.warn('chapter split by isChapterEnding failed', e) }
+        }
+      }
+    }
+
+    if (!chapterScenes || chapterScenes.length === 0) {
+      console.log('persistCurrentChapterEdits: no scenes to persist for chapter', chapterIndex)
+      return
+    }
+
+    const normalizeDialogue = (d, scene, dIdx) => {
+      try {
+        // If string, wrap as narration
+        if (typeof d === 'string') {
+          // but if scene has choices promoted to scene.choices, attach them when this index matches choiceTriggerIndex
+          const playerChoicesFromScene = (scene && Array.isArray(scene.choices) && Number(scene.choiceTriggerIndex) === Number(dIdx)) ? scene.choices.map((c, idx) => {
+            const pc = { text: c.text ?? c.label ?? '', attributesDelta: c.attributesDelta || c.delta || {}, statusesDelta: c.statusesDelta || c.statuses || {}, subsequentDialogues: c.subsequentDialogues || c.nextLines || [] }
+            const maybeId = Number(c.choiceId ?? c.id)
+            pc.choiceId = Number.isInteger(maybeId) ? maybeId : (idx + 1)
+            return pc
+          }) : []
+          return { narration: d, playerChoices: playerChoicesFromScene }
+        }
+        // If object and has narration/text, try to normalize playerChoices
+        if (d && typeof d === 'object') {
+          const narration = (typeof d.narration === 'string') ? d.narration : (d.text || d.content || '')
+          let playerChoices = []
+          if (Array.isArray(d.playerChoices) && d.playerChoices.length > 0) playerChoices = d.playerChoices.map((c, idx) => {
+            const pc = { text: c.text ?? c.label ?? '', attributesDelta: c.attributesDelta || c.delta || {}, statusesDelta: c.statusesDelta || c.statuses || {}, subsequentDialogues: c.subsequentDialogues || c.nextLines || [] }
+            const maybeId = Number(c.choiceId ?? c.id)
+            pc.choiceId = Number.isInteger(maybeId) ? maybeId : (idx + 1)
+            return pc
+          })
+          else if (Array.isArray(d.choices) && d.choices.length > 0) playerChoices = d.choices.map((c, idx) => {
+            const pc = { text: c.text ?? c.label ?? '', attributesDelta: c.attributesDelta || c.delta || {}, statusesDelta: c.statusesDelta || c.statuses || {}, subsequentDialogues: c.subsequentDialogues || c.nextLines || [] }
+            const maybeId = Number(c.choiceId ?? c.id)
+            pc.choiceId = Number.isInteger(maybeId) ? maybeId : (idx + 1)
+            return pc
+          })
+          // If dialogue object itself has no playerChoices but the scene has promoted choices at this index, merge them
+          if ((!playerChoices || playerChoices.length === 0) && scene && Array.isArray(scene.choices) && Number(scene.choiceTriggerIndex) === Number(dIdx)) {
+            playerChoices = scene.choices.map((c, idx) => {
+              const pc = { text: c.text ?? c.label ?? '', attributesDelta: c.attributesDelta || c.delta || {}, statusesDelta: c.statusesDelta || c.statuses || {}, subsequentDialogues: c.subsequentDialogues || c.nextLines || [] }
+              const maybeId = Number(c.choiceId ?? c.id)
+              pc.choiceId = Number.isInteger(maybeId) ? maybeId : (idx + 1)
+              return pc
+            })
+          }
+          return { narration: narration || '', playerChoices }
+        }
+      } catch (e) { console.warn('normalizeDialogue failed', e) }
+      return { narration: '', playerChoices: [] }
+    }
+
+    // 初步构建 scenesPayload（保留原始 id 以便侦错）
+    const scenesPayload = chapterScenes.map((s, mapIdx) => {
+      let sid = Number(s.sceneId ?? s.id)
+      const origId = sid
+      if (!Number.isInteger(sid) || sid <= 0) sid = mapIdx + 1
+      const bg = (s.backgroundImage || s.background_image || s.background || '')
+      const rawDialogues = Array.isArray(s.dialogues) ? s.dialogues : []
+      const dialogues = rawDialogues.map((d, idx) => normalizeDialogue(d, s, idx))
+      return { id: Number(sid), _origId: origId ?? null, backgroundImage: bg || '', dialogues }
+    })
+
+    // 检测 id 重复：如果存在重复或跨章节 id（可能因为 storyScenes 含有其它章节），则强制按顺序重索引为 1..N
+    const idCounts = {}
+    for (const sp of scenesPayload) {
+      const k = String(sp.id)
+      idCounts[k] = (idCounts[k] || 0) + 1
+    }
+    const hasDup = Object.values(idCounts).some(c => c > 1)
+    let reindexed = false
+    if (hasDup) {
+      reindexed = true
+      for (let i = 0; i < scenesPayload.length; i++) {
+        scenesPayload[i].id = i + 1
+      }
+    }
+    // 另外：若 scenesPayload 中的 id 与后端期望冲突（例如 id=1 在多个章节重复），重索引可以避免 UNIQUE 约束错误
+    if (reindexed) {
+      try { console.log('persistCurrentChapterEdits: detected duplicate scene ids, forced reindex. originalIds:', scenesPayload.map(s=>s._origId), 'newIds:', scenesPayload.map(s=>s.id)) } catch (e) {}
+    }
+    // Ensure title is non-empty (backend requires non-blank title). Try multiple fallbacks:
+    // 1) outlineEdits for this chapter 2) sessionStorage.createResult.backendWork.outlines entry
+    // 3) work.value.title as a generic fallback 4) a generated default '第N章' string
+    const getFallbackTitle = () => {
+      try {
+        const byOutline = (outlineEdits.value && outlineEdits.value.length) ? (outlineEdits.value.find(x => Number(x.chapterIndex) === Number(chapterIndex))?.outline || '') : ''
+        if (byOutline && String(byOutline).trim()) return String(byOutline).trim()
+        // try sessionStorage cached backend outlines
+        try {
+          const prev = JSON.parse(sessionStorage.getItem('createResult') || '{}')
+          const bwOut = prev && prev.backendWork && Array.isArray(prev.backendWork.outlines) ? prev.backendWork.outlines : []
+          const found = (bwOut || []).find(x => Number(x.chapterIndex) === Number(chapterIndex))
+          if (found && (found.outline || found.summary || found.title)) return String(found.outline || found.summary || found.title).trim()
+        } catch (e) {}
+        if (work && work.value && work.value.title) return String(work.value.title)
+      } catch (e) { console.warn('getFallbackTitle failed', e) }
+      return `第${Number(chapterIndex)}章`
+    }
+
+    const chapterData = {
+      chapterIndex: Number(chapterIndex),
+      title: getFallbackTitle(),
+      scenes: scenesPayload.map(s => ({ id: s.id, backgroundImage: s.backgroundImage, dialogues: s.dialogues }))
+    }
+
+    console.log('persistCurrentChapterEdits: saving chapter', { workId, chapterIndex, scenesCount: scenesPayload.length })
+    try {
+      try { console.log('persistCurrentChapterEdits: outbound chapterData:\n', JSON.stringify(chapterData, null, 2)) } catch (e) {}
+      await saveChapter(workId, chapterIndex, chapterData)
+      console.log('persistCurrentChapterEdits: saveChapter succeeded', { workId, chapterIndex })
+      try { showNotice('已将本章修改保存到后端') } catch (e) {}
+      // 更新 sessionStorage.createResult 中的大纲/后端缓存（以便下次打开使用）
+      try {
+        const prev = JSON.parse(sessionStorage.getItem('createResult') || '{}')
+        prev.backendWork = prev.backendWork || {}
+        prev.backendWork.outlines = prev.backendWork.outlines || []
+        const idx = (prev.backendWork.outlines || []).findIndex(x => Number(x.chapterIndex) === Number(chapterIndex))
+        if (idx >= 0 && outlineEdits.value && outlineEdits.value.length) prev.backendWork.outlines[idx].outline = outlineEdits.value.find(x => Number(x.chapterIndex) === Number(chapterIndex))?.outline || prev.backendWork.outlines[idx].outline
+        sessionStorage.setItem('createResult', JSON.stringify(prev))
+      } catch (e) { console.warn('persistCurrentChapterEdits: update createResult failed', e) }
+    } catch (e) {
+      // Try to log backend validation errors (DRF returns JSON body)
+      try { console.error('persistCurrentChapterEdits: saveChapter failed response body:', e && e.response && e.response.data ? e.response.data : e) } catch (logErr) { console.error('persistCurrentChapterEdits: saveChapter failed', e) }
+      try { console.error('persistCurrentChapterEdits: full error object:', e) } catch (ee) {}
+      try { showNotice('自动保存失败，请手动保存或检查网络（查看控制台以获取后端错误信息）') } catch (err) {}
+    }
+  } catch (e) { console.warn('persistCurrentChapterEdits failed', e) }
+}
+
 // 在组件挂载时加载 overrides
 onMounted(() => {
   loadOverrides()
   applyOverridesToScenes()
+})
+
+// 在组件卸载时自动持久化当前章节（如果可手动编辑）
+onUnmounted(() => {
+  try {
+    (async () => {
+      try {
+        await persistCurrentChapterEdits()
+      } catch (e) { console.warn('persistCurrentChapterEdits onUnmount failed', e) }
+    })()
+  } catch (e) { console.warn('onUnmounted persist failed', e) }
 })
 
 
@@ -1619,6 +2250,23 @@ const showNotice = (msg, ms = 5000) => {
   } catch (e) { console.warn('showNotice failed', e) }
 }
 
+// 切换创作者模式（受 creatorFeatureEnabled 控制）
+const toggleCreatorMode = () => {
+  try {
+    // 允许基于 createResult.modifiable 的手动进入：只要 modifiableFromCreate 为真，菜单可以进入创作者模式，
+    // 即使后端 ai_callable 为 false（此时生成 AI 内容不可用，手动保存/PUT 仍允许）。
+    if (!modifiableFromCreate.value) {
+      showNotice('创作者功能当前不可用：您不是本作品作者或创建时未开启创作者模式。')
+      return
+    }
+    if (!creatorMode.value && !creatorFeatureEnabled.value) {
+      // 即将进入手动创作模式，但 AI 生成功能被后端禁用，提示用户当前为纯手动编辑模式
+      showNotice('注意：作品设置不允许 AI 自动生成，进入后为手动编辑模式，确认后保存会直接覆盖章节内容。')
+    }
+    creatorMode.value = !creatorMode.value
+  } catch (e) { console.warn('toggleCreatorMode failed', e) }
+}
+
 // 观察 creatorMode：进入记录位置并禁用 advance；退出回到 entry 的第一幕并恢复播放权限
 watch(creatorMode, (val) => {
   if (val) {
@@ -1631,6 +2279,14 @@ watch(creatorMode, (val) => {
     } catch (e) { console.warn('enter creatorMode failed', e) }
   } else {
     try {
+      // 在退出创作者模式前尝试将当前章节的本地修改持久化到后端（仅当 createResult 标记为 modifiable 时）
+      try {
+        (async () => {
+          try {
+            await persistCurrentChapterEdits()
+          } catch (e) { console.warn('persistCurrentChapterEdits on exit creatorMode failed', e) }
+        })()
+      } catch (e) { console.warn('trigger persist on exit creatorMode failed', e) }
       if (creatorEntry.sceneIndex != null) {
         currentSceneIndex.value = creatorEntry.sceneIndex
         currentDialogueIndex.value = creatorEntry.dialogueIndex || 0
@@ -1796,40 +2452,40 @@ const nextDialogue = async () => {
         showText.value = true
         console.log('Next scene:', currentSceneIndex.value)
         
-        // 重要修改：检查是否需要预加载下一章
+        // 只有在当前章节真正结束（当前场景为章节结束并且已读到该场景最后一句）时
+        // 才去主动拉取下一章；并且拉取时使用 replace 模式覆盖当前章节内容，避免中途拼接
         const remainingScenes = storyScenes.value.length - (currentSceneIndex.value + 1)
         console.log('Remaining scenes:', remainingScenes, 'storyEndSignaled:', storyEndSignaled.value)
-        
-  // 当剩余场景少于2个且故事未结束时预加载下一章（若处于创作者模式则跳过预加载）
-  if (remainingScenes <= 2 && !eventSource && !storyEndSignaled.value && !creatorMode.value) {
-          console.log('Preloading next chapter...')
+
+        // 条件：当前场景为章节结束且我们已读到该场景最后一句
+        const curr = storyScenes.value[currentSceneIndex.value]
+        const atLastDialogue = curr && Array.isArray(curr.dialogues) ? (currentDialogueIndex.value >= curr.dialogues.length - 1) : true
+        const isChapterEndScene = curr && (curr.isChapterEnding === true || curr.chapterEnd === true)
+
+        if (isChapterEndScene && atLastDialogue && !eventSource && !storyEndSignaled.value && !creatorMode.value) {
+          console.log('Chapter end reached — fetching next chapter and replacing current content')
           startLoading()
           try {
-            const nextChapter = isChapterEnd ? currentChapterIndex.value : (currentChapterIndex.value + 1)
-            // 如果我们已知总章节数且下一章索引超出范围，则标记为故事结束，停止预取
+            const nextChapter = currentChapterIndex.value + 1
             if (totalChapters.value && Number(nextChapter) > Number(totalChapters.value)) {
-              console.log('Next chapter exceeds totalChapters, marking story end (preload skipped)')
+              console.log('Next chapter exceeds totalChapters, marking story end (fetch skipped)')
               storyEndSignaled.value = true
             } else {
               if (USE_MOCK_STORY) {
                 await fetchNextContent(work.value.id, nextChapter)
               } else {
-                const result = await fetchNextChapter(work.value.id, nextChapter)
-                console.log('Preloaded next chapter result:', result)
+                const result = await fetchNextChapter(work.value.id, nextChapter, { replace: true })
+                console.log('Replaced with next chapter result:', result)
               }
             }
           } catch (error) {
-            console.warn('Preload next chapter failed:', error)
+            console.warn('Fetch next chapter (replace) failed:', error)
           } finally {
             await stopLoading()
           }
         } else {
-          // 非阻塞预取
-          try { 
-            requestNextIfNeeded() 
-          } catch (e) { 
-            console.warn('requestNextIfNeeded failed', e) 
-          }
+          // 若未达到章节结束，继续保持不主动拼接下一章（避免中途插入）
+          try { requestNextIfNeeded() } catch (e) { console.warn('requestNextIfNeeded failed', e) }
         }
       }, 300)
     } else {
@@ -3312,7 +3968,7 @@ onUnmounted(async () => {
               <span>设置</span>
             </button>
             <!-- 创作者模式开关 -->
-            <button class="menu-item" @click="creatorMode = !creatorMode; showMenu = false">
+            <button class="menu-item" @click="toggleCreatorMode(); showMenu = false">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" stroke-width="1.5"/>
                 <circle cx="12" cy="12" r="3" stroke-width="1.5"/>
@@ -3478,7 +4134,11 @@ onUnmounted(async () => {
   <div class="toast load-toast" v-if="loadToast">{{ loadToast }}</div>
   <div class="toast notice-toast" v-if="noticeToast">{{ noticeToast }}</div>
   <!-- 创作者专用：手动打开大纲编辑器按钮（浮动） -->
-  <button v-if="isCreatorIdentity && !creatorMode" @click="openOutlineEditorManual" class="creator-outline-btn" title="编辑/生成章节大纲" style="position:fixed; right:1rem; bottom:6.4rem; z-index:1200; background:#ff8c42; color:#fff; border:none; padding:0.5rem 0.75rem; border-radius:6px; box-shadow:0 2px 6px rgba(0,0,0,0.2)">编辑/生成章节大纲</button>
+  <!--
+    改动说明：将按钮从仅在 isCreatorIdentity 下显示改为在 creatorFeatureEnabled 下显示，
+    使得当 createResult.modifiable 且 后端 ai_callable 可用时，阅读界面始终显示该按钮，方便在章节内随时触发 AI 生成/编辑。
+  -->
+  <button v-if="creatorFeatureEnabled" @click="openOutlineEditorManual" class="creator-outline-btn" title="编辑/生成章节大纲" style="position:fixed; right:1rem; bottom:6.4rem; z-index:1200; background:#ff8c42; color:#fff; border:none; padding:0.5rem 0.75rem; border-radius:6px; box-shadow:0 2px 6px rgba(0,0,0,0.2)">编辑/生成章节大纲</button>
 
   <!-- 创作者大纲编辑器模态（当 createResult.modifiable 且有 chapterOutlines 时显示） -->
   <div v-if="showOutlineEditor" class="modal-backdrop">
@@ -3497,7 +4157,8 @@ onUnmounted(async () => {
         </div>
         <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:0.75rem">
           <button class="edit-btn" @click="cancelOutlineEdits">取消</button>
-          <button class="edit-btn" :disabled="!(editorInvocation === 'auto' || creatorMode)" @click="confirmOutlineEdits">确认</button>
+          <!-- 允许 manual 调用（手动打开编辑器）确认生成 -->
+          <button class="edit-btn" :disabled="!(editorInvocation === 'auto' || editorInvocation === 'manual' || creatorMode)" @click="confirmOutlineEdits">确认</button>
         </div>
       </div>
     </div>

@@ -115,37 +115,27 @@ const submitToBackend = async () => {
     tags: selectedTags.value,
     idea: idea.value?.trim() || '',
     length: lengthType.value,
-    // 为便于本地测试，暂时强制以创作者模式处理（无论用户在界面选择何种身份）
-    // 注意：这是测试用行为，集成真实后端时可改回 identity.value === 'creator'
-    modifiable: true
+    // 严格遵循 UI 选择：只有当用户选择为创作者时才传 modifiable=true
+    modifiable: identity.value === 'creator'
   }
   try {
     const res = await createWorkOnBackend(payload)
 
-    // 支持两种返回：新格式（game-api.md）和老格式（backendWork）以兼容历史 mock
-    if (res) {
-      if (res.gameworkId) {
-          backendWork.value = {
-            id: res.gameworkId,
-            title: res.title || '',
-            coverUrl: res.coverUrl || '',
-            description: res.description || '',
-            // 后端返回的字段名为 initialAttributes / initialStatuses（参见 game-api.md）
-            initialAttributes: res.initialAttributes || {},
-            initialStatuses: res.initialStatuses || {}
-            ,
-            // 总章节数（后端在创建时会返回 total_chapters）
-            total_chapters: res.total_chapters || res.totalChapters || null
-          }
-      } else if (res.backendWork) {
-        backendWork.value = res.backendWork
-        // attach legacy fields if present
-        if (res.initialAttributes) backendWork.value.initialAttributes = res.initialAttributes
-        if (res.initialStatuses) backendWork.value.initialStatuses = res.initialStatuses
-      } else {
-        // 防御性回退：整个响应可能就是 backendWork
-        backendWork.value = res
+    // 新接口约定：createWorkOnBackend 在完成后应该返回 { gameworkId, backendWork }
+    if (res && res.backendWork) {
+      backendWork.value = res.backendWork
+    } else if (res && res.gameworkId) {
+      // 若实现上出现差异但仍返回 id，则尝试直接拉取详情（兼容性降级）
+      try {
+        const { http } = await import('../service/http.js')
+        const details = await http.get(`/api/gameworks/gameworks/${res.gameworkId}/`)
+        backendWork.value = details?.data || details || null
+      } catch (e) {
+        console.warn('Failed to fetch created work details:', e)
+        throw e
       }
+    } else {
+      throw new Error('createWork returned unexpected format: missing backendWork')
     }
 
     // 缓存封面/标题/标签，供加载页与介绍页使用
@@ -164,33 +154,18 @@ const submitToBackend = async () => {
         selectedTags: selectedTags.value,
         fromCreate: true,
         backendWork: backendWork.value || null,
-        // 若为创作者模式，后端应返回 chapterOutlines（见 API 约定）
-        chapterOutlines: res?.chapterOutlines || null,
+        // 若后端返回大纲（backendWork.outlines 或 res.chapterOutlines），则使用它；否则不写入 chapterOutlines
+        chapterOutlines: (backendWork.value && backendWork.value.outlines) || res?.chapterOutlines || null,
         modifiable: payload.modifiable || false
       }
 
-      // 如果用户选择了创作者模式但后端尚未实现返回大纲（或返回为空），在前端合成一份用于本地测试的 mock 大纲
-      // 这样可以立即触发大纲编辑器，便于本地调试与演示；一旦后端实现，请删除或调整此合成逻辑
-      try {
-        if (createResult.modifiable && (!Array.isArray(createResult.chapterOutlines) || createResult.chapterOutlines.length === 0)) {
-          // 合成 5 章示例大纲（可按需调整数量与内容）
-          createResult.chapterOutlines = [
-            { title: '第一章：意外的相遇', summary: '主角在小镇发生意外，与神秘人物结下缘分，故事由此展开。' },
-            { title: '第二章：秘密与挑战', summary: '主角发现身边隐藏的秘密，被迫面对第一个挑战与抉择。' },
-            { title: '第三章：盟友与背叛', summary: '旧友露出真实面目，新盟友带来转机或陷阱。' },
-            { title: '第四章：黑暗边缘', summary: '冲突升级，主角经历重大损失，世界观逐渐揭露更大的阴谋。' },
-            { title: '第五章：重生与抉择', summary: '进入高潮，主角必须做出影响全局的选择，为结局埋下伏笔。' }
-          ]
-          // 给到后端生成时的用户提示示例，前端会把它一并传给生成接口
-          createResult.userPrompt = '请根据下面的大纲，逐章生成场景与对白，保持叙事风格一致并包含丰富的细节与人物互动：' + JSON.stringify(createResult.chapterOutlines)
-        }
-      } catch (synthErr) {
-        console.warn('合成 createResult.chapterOutlines 失败：', synthErr)
-      }
-
+      // 严格遵循后端：不再合成本地 mock 大纲，createResult.chapterOutlines 只来自后端
       sessionStorage.setItem('createResult', JSON.stringify(createResult))
       return createResult
-    } catch (e) { /* ignore storage errors */ return { backendWork: backendWork.value || null } }
+    } catch (e) {
+      /* ignore storage errors */
+      return { backendWork: backendWork.value || null }
+    }
   } catch (e) {
     console.warn('create-work service 调用失败（将使用本地流程）:', e?.message || e)
     throw e

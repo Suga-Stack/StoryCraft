@@ -37,9 +37,40 @@ export async function createWorkOnBackend(payload = {}) {
     // 如果前端告诉后端 modifiable=true，后端应返回章节大纲（chapterOutlines）而不是直接生成完整章节内容
     modifiable: payload.modifiable === true
   }
-  // 直接按 game-api.md：返回后端原始响应，字段名保持一致（gameworkId, title, coverUrl, description, initialAttributes, statuses）
+  // POST 创建作品，后端应返回 { gameworkId: number }
   const res = await http.post('/api/game/create/', body)
-  return Object.assign({}, res || {})
+
+  // 新接口约定：POST 返回 { gameworkId }，随后需轮询 GET /api/gameworks/gameworks/{id}/
+  if (!res || !res.gameworkId) {
+    // 如果没有按约定返回 id，抛出错误（不再兼容旧格式）
+    const err = new Error('createWork: unexpected response from /api/game/create, missing gameworkId')
+    err.raw = res
+    throw err
+  }
+
+  const id = res.gameworkId
+  const pollIntervalMs = 1500
+  const timeoutMs = 120000 // 最多等待 120s
+  const start = Date.now()
+
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const details = await http.get(`/api/gameworks/gameworks/${id}/`)
+      // 新接口在 ready 时返回 { status: 'ready', data: {...} }
+      if (details && details.status === 'ready') {
+        return { gameworkId: id, backendWork: details.data }
+      }
+    } catch (err) {
+      // 忽略单次轮询错误，继续重试直到超时
+      console.warn('polling gamework details failed, will retry', err)
+    }
+    await new Promise(r => setTimeout(r, pollIntervalMs))
+  }
+
+  // 超时：抛出错误以由调用方处理（前端可展示超时提示）
+  const timeoutError = new Error('createWork: polling gamework details timed out')
+  timeoutError.gameworkId = id
+  throw timeoutError
 }
 
 export default {
