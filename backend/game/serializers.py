@@ -107,15 +107,19 @@ class GameChapterChoiceSerializer(serializers.Serializer):
     attributesDelta = serializers.DictField(
         child=serializers.IntegerField(),
         required=False,
+        allow_null=True,
         default=dict
     )
     statusesDelta = serializers.DictField(
         child=serializers.JSONField(),
         required=False,
+        allow_null=True,
         default=dict
     )
     subsequentDialogues = serializers.ListField(
-        child=serializers.CharField()
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True
     )
 
 class GameChapterDialogueSerializer(serializers.Serializer):

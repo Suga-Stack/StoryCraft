@@ -261,6 +261,7 @@ LOGGING = {
     },
 }
 
-AI_MODEL_FOR_TEXT = "doubao-seed-1-6-flash-250828"
+AI_MODEL_FOR_TEXT = "deepseek-v3-1-terminus"
 AI_MODEL_FOR_IMAGE = "doubao-seedream-3-0-t2i-250415"
 AI_API_KEY = "3f00ab95-6096-4639-a8b0-09c711a63d9c"
+AI_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
