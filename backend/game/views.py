@@ -181,7 +181,10 @@ class GameChapterView(views.APIView):
         chapter_obj, _ = StoryChapter.objects.update_or_create(
             story=story,
             chapter_index=chapterIndex,
-            defaults={"title": chapter_data.get("title")}
+            defaults={
+                "title": chapter_data.get("title"),
+                "status": StoryChapter.ChapterStatus.SAVED  # 标记为已保存
+            }
         )
         chapter_obj.scenes.all().delete()
 

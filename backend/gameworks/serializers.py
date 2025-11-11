@@ -22,6 +22,7 @@ class GameworkSerializer(serializers.ModelSerializer):
     initial_attributes = serializers.SerializerMethodField()
     initial_statuses = serializers.SerializerMethodField()
     outlines = serializers.SerializerMethodField()
+    chapters_status = serializers.SerializerMethodField()
 
     class Meta:
         model = Gamework
@@ -30,7 +31,7 @@ class GameworkSerializer(serializers.ModelSerializer):
             'is_published', 'created_at', 'updated_at', 'published_at',
             'favorite_count', 'average_score', 'rating_count', 'read_count', 'is_favorited',
             'is_complete', 'generated_chapters', 'total_chapters', 'modifiable', 'ai_callable',
-            'initial_attributes', 'initial_statuses', 'outlines'
+            'initial_attributes', 'initial_statuses', 'outlines', 'chapters_status'
         )
 
     def get_image_url(self, obj):
@@ -105,3 +106,25 @@ class GameworkSerializer(serializers.ModelSerializer):
 
     def get_outlines(self, obj):
         return getattr(obj.story, 'outlines', [])
+
+    def get_chapters_status(self, obj):
+        story = getattr(obj, 'story', None)
+        if not story:
+            return []
+        
+        statuses = {ch.chapter_index: ch.status for ch in story.chapters.all()}
+        
+        result = []
+        for i in range(1, story.total_chapters + 1):
+            status = statuses.get(i)
+            
+            if not status:
+                # 检查全局锁，看是否正好是当前正在生成的章节
+                if story.is_generating and story.current_generating_chapter == i:
+                    status = 'generating'
+                else:
+                    status = 'not_generated'
+            
+            result.append({'chapterIndex': i, 'status': status})
+            
+        return result
