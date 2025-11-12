@@ -73,10 +73,8 @@ def _get_system_prompt(gamework: Gamework) -> str:
     outline_text = _get_outlines_text(gamework.story.outlines)
 
     return f"""
-# 任务
-你是一位顶级的文字冒险游戏设计师。共需要为用户生成{total_chapters}章的剧情。
-在剧情结构上，定义主角每一个地点切换为一个"场景(Scene)"，每章至多包含2个场景(Scene)，每个场景包含若干对白和选项，每个场景至多包含一项playerChoices。
-你需要首先对出现的场景画面(backgroundImage)进行简单描述。
+# 任务总览
+- 你是一位顶级的文字冒险游戏设计师。共需要为游戏创作 {total_chapters} 章的剧情。
 
 # 游戏作品信息
 - 标题: {gamework.title}
@@ -86,15 +84,14 @@ def _get_system_prompt(gamework: Gamework) -> str:
 - 主角初始状态：{gamework.story.initial_statuses}
 {outline_text}
 # 生成要求
-- 保证剧情有始有终，结构合理，逻辑通顺，情节跌宕起伏，引人入胜，可以参考热门网文创作手法。
-- 确保每一个Scene的剧情长度尽量长，每一章在3000字左右。
-- 加入场景描写，增强沉浸感。
-- 简介仅仅是游戏剧情的一个小的缩影，可以适当深入挖掘和展开。如有冲突，请谨遵剧情大纲。
-- 每个选项可以导向不同的结果，但这些结果无关剧情主线走向，仅会在几句话的上下文范围内影响剧情，不同选项最终都要收敛到主线剧情。
+- 在剧情结构上，定义主角每一个地点切换为一个"场景(Scene)"，每章至多包含2个场景(Scene)。
+- 每一个场景(Scene)中需包含 10 到 20 句对白。旁白中可加入场景描写，增强沉浸感。
+- 对每个场景(Scene)，你需要首先对出现的场景画面(backgroundImage)进行简单描述。
+- 每章需为玩家提供 1 到 2 次选择的机会。
+- 每个选项可以导向不同的结果，触发不同的后续对话。但这些选项以及后续对话无关章节剧情主线走向，不同选项最终都要收敛到主线剧情。
 - 玩家的选项可能会影响自身属性值(Attributes)，也可能会改变自身状态或获得新状态(Statuses)。
-
-# 数据格式要求
-请不要添加注释，直接生成有效的JSON对象。
+- 保证每一章剧情有始有终，结构合理，逻辑通顺，情节跌宕起伏，引人入胜，可以参考热门网文创作手法。
+- 如有指令冲突，请谨遵最新的剧情大纲。
 """
 
 def _generate_chapter_with_ai(messages) :
@@ -129,7 +126,7 @@ def _generate_backgroundimages_with_ai(img_descriptions: List[str]) -> List[str]
 
     prompt = f"""
 生成一组共{images_count}张连贯插画，核心分别为{'； '.join(img_descriptions)}
-要求：按顺序生成，根据场景描述适度发挥，符合主题风格，统一风格，高精度，真实。2730x1535
+要求：按顺序生成，根据场景描述适度发挥，符合主题风格，统一风格，高精度，真实。生成风景照，画面中不要出现人物。2730x1535
 """
     try:
         response = client.images.generate(
@@ -170,32 +167,35 @@ def _generate_backgroundimages_with_ai(img_descriptions: List[str]) -> List[str]
 def _generate_gamework_details_with_ai(tags: List[str], idea: str, total_chapters: int) -> GameworkDetails:
     """使用AI生成游戏作品的文本详情及大纲"""
     prompt = f"""
-# 任务
-你是一位顶级的文字冒险游戏策划师。请根据用户提供的核心信息，为一款新的文字冒险游戏生成基础设定（中文）。
+# 任务总览
+你是一位顶级的文字冒险游戏策划师。请根据提供的核心信息，为一款新的文字冒险游戏生成基础设定（中文）。
 
-# 用户输入
+# 核心信息
 - 核心标签: {', '.join(tags)}
 - 核心构思: {idea if idea else '无特定构思，请根据标签自由发挥'}
 - 总章节数: {total_chapters}
 
-# 生成要求
+# 生成内容
 请生成以下内容：
 1.  一个吸引人的游戏标题 (title)。
 2.  一段引人入胜的游戏剧情简介 (description)，大约100-150字。
 3.  一套初始玩家属性 (initialAttributes)，包含3-4个核心数值属性，并设定初始值。
-4.  一套初始玩家状态等级 (initialStatuses)，定义主角的初始成长状态，如"修为": "炼气期一层"。
-5.  一个包含 {total_chapters} 章的章节大纲 (chapterOutlines)，每章大纲应简洁明了，概括核心剧情。
-6.  确保剧情有始有终，结构合理完善，情节跌宕起伏，引人入胜，可以参考热门网文创作手法。
+4.  一套初始玩家状态等级 (initialStatuses)，定义主角的初始成长状态。
+5.  一个包含 {total_chapters} 章的章节大纲 (chapterOutlines)。
 
-# 数据格式要求
-请严格按照指定的JSON格式输出，不要添加任何额外解释。
+# 玩家初始属性要求
+- 玩家初始属性应为一套数值合理的，可发展的，可随剧情深入和玩家选择而变化的成长值。
+
+- 剧情大纲要求
+- 
+
 """
     
     try:
         completion = client.beta.chat.completions.parse(
             model=settings.AI_MODEL_FOR_TEXT,
             messages=[
-                {"role": "system", "content": "你是一位专业的文字冒险游戏策划师，请按照用户要求的格式生成内容。"},
+                {"role": "system", "content": "你是一位专业的文字冒险游戏策划师，请按照用户要求生成内容。"},
                 {"role": "user", "content": prompt}
             ],
             response_format=GameworkDetails

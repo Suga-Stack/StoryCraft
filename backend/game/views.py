@@ -17,7 +17,6 @@ from rest_framework.generics import get_object_or_404
 from gameworks.models import Gamework
 from .models import GameSave
 from stories.models import Story, StoryChapter, StoryScene
-from copy import deepcopy
 from rest_framework.parsers import MultiPartParser, FormParser
 import uuid
 from django.core.files.storage import default_storage
