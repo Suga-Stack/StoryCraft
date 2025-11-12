@@ -163,6 +163,7 @@ const showUsernameDialog = ref(false)
 const activeTab = ref('profile') // 默认选中"我的"
 const previewUrl = ref('')
 const defaultAvatar = ref('https://img.yzcdn.cn/vant/cat.jpeg')
+const fileInput = ref(null)
 
 const userInfo = ref({})
 const username = ref('')
@@ -460,11 +461,19 @@ const handleTabChange = (tabName) => {
   padding: 16px;
 }
 
-.avatar {
+.avatar-container {
   width: 100px;
   height: 100px;
-  border: 3px solid #f0f0f0;
+  border-radius: 50%; 
+  overflow: hidden;
   margin-bottom: 12px;
+  border: 3px solid #f0f0f0;
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover; 
 }
 
 .username-container {
