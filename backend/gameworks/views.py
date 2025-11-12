@@ -1,21 +1,104 @@
-from rest_framework import viewsets, generics, permissions, filters
+from rest_framework import viewsets, generics, permissions, filters, status
 from .models import Gamework
 from .serializers import GameworkSerializer
 from interactions.permissions import IsOwnerOrReadOnly
 from rest_framework.response import Response
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-from django.db.models import Count, Q, Avg, F
+from django.db.models import Count, Q, Avg, F, Prefetch
+from interactions.models import Favorite, Rating, ReadRecord
 
-from tags.models import Tag
 
 class GameworkViewSet(viewsets.ModelViewSet):
-    queryset = Gamework.objects.all()
+    """
+    游戏作品视图集：
+    - 已发布作品对所有人可见
+    - 未发布作品仅作者和管理员可见
+    - 自动统计收藏数、评分数、阅读数、平均评分
+    - 返回字段包括是否被当前用户收藏
+    """
     serializer_class = GameworkSerializer
     permission_classes = (permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly)
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
 
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        
+        # 检查初始生成是否完成
+        if not getattr(instance.story, 'initial_generation_complete', False):
+            return Response({"status": "generating"}, status=status.HTTP_200_OK)
+
+        serializer = self.get_serializer(instance)
+        return Response({"status": "ready", "data": serializer.data})
+
+    def get_queryset(self):
+        user = self.request.user
+        base_filter = Q(is_published=True)
+
+        if user.is_authenticated and not user.is_staff:
+            base_filter |= Q(author=user)
+        elif user.is_staff:
+            base_filter = Q()  # 管理员查看全部
+
+        queryset = (
+            Gamework.objects.filter(base_filter)
+            .annotate(
+                favorite_count=Count('favorited_by', distinct=True),
+                average_score=Avg('ratings__score', distinct=True),
+                rating_count=Count('ratings', distinct=True),
+                read_count=Count('read_records__user', distinct=True),
+            )
+            .select_related('author', 'story')
+            .prefetch_related('tags')
+        )
+
+        # 优化 is_favorited 判断
+        if user.is_authenticated:
+            queryset = queryset.prefetch_related(
+                Prefetch(
+                    'favorited_by',
+                    queryset=Favorite.objects.filter(user=user),
+                    to_attr='user_favorites'
+                )
+            )
+
+        return queryset
+
+class PublishGameworkViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="发布作品",
+        operation_description=(
+            "作品发布前对作者和管理员以外不可见。\n\n"
+        ),
+        responses={
+            200: openapi.Response("作品已成功发布", GameworkSerializer(many=True)),
+            404: "作品未找到",
+            403: "您没有权限发布该作品"
+        }
+    )
+
+    def publish(self, request, pk=None):
+        # 获取作品对象
+        try:
+            gamework = Gamework.objects.get(pk=pk)
+        except Gamework.DoesNotExist:
+            return Response({'message': '作品未找到'}, status=status.HTTP_404_NOT_FOUND)
+
+        # 确保用户是作品的作者或管理员
+        if gamework.author != request.user and not request.user.is_staff:
+            return Response({'message': '您没有权限发布该作品'}, status=status.HTTP_403_FORBIDDEN)
+
+        # 设置作品为已发布
+        gamework.is_published = True
+        gamework.save()
+
+        return Response({'message': '作品已成功发布', 'gamework': GameworkSerializer(gamework).data}, status=status.HTTP_200_OK)
+
 
 class GameworkSearchView(generics.ListAPIView):
     """
@@ -24,7 +107,7 @@ class GameworkSearchView(generics.ListAPIView):
     示例：/api/gameworks/search/?q=冒险&author=Alice&tag=3
     """
     serializer_class = GameworkSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
 
     @swagger_auto_schema(
         operation_summary="搜索作品",
@@ -79,7 +162,7 @@ class GameworkSearchView(generics.ListAPIView):
 
     def get_queryset(self):
         """根据查询参数筛选作品"""
-        queryset = Gamework.objects.all()
+        queryset = Gamework.objects.filter(is_published=True)
         q = self.request.query_params.get("q")
         author = self.request.query_params.get("author")
         tag = self.request.query_params.get("tag")
@@ -127,7 +210,7 @@ class RecommendView(generics.ListAPIView):
 
         # 按标签重叠度计算推荐得分
         queryset = (
-            Gamework.objects.filter(tags__in=liked_tags)
+            Gamework.objects.filter(tags__in=liked_tags, is_published=True)
             .exclude(author=user)  # 不推荐自己创作的作品
             .annotate(
                 match_count=Count("tags", filter=Q(tags__in=liked_tags), distinct=True),
@@ -157,7 +240,8 @@ class GameworkFavoriteLeaderboardViewSet(viewsets.ViewSet):
     )
     def list(self, request):
         # 查询作品并按收藏量排序（降序）
-        queryset = Gamework.objects.annotate(favorite_count=Count('favorites')).order_by('-favorite_count')[:10]
+        queryset = (Gamework.objects.filter(is_published=True)
+            .annotate(favorite_count=Count('favorites')).order_by('-favorite_count')[:10])
         
         # 序列化数据
         serializer = GameworkSerializer(queryset, many=True)
@@ -179,7 +263,8 @@ class GameworkRatingLeaderboardViewSet(viewsets.ViewSet):
     )
     def list(self, request):
         # 查询作品并按评分的平均值排序（降序）
-        queryset = Gamework.objects.annotate(average_score=Avg(F('ratings__score') * 2)).order_by('-average_score')[:10]
+        queryset = Gamework.objects(Gamework.objects.filter(is_published=True)
+            .annotate(average_score=Avg(F('ratings__score'))).order_by('-average_score')[:10])
         
         # 序列化数据
         serializer = GameworkSerializer(queryset, many=True)

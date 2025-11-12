@@ -5,6 +5,7 @@ import logging
 import mimetypes
 import uuid
 import requests
+import threading
 from copy import deepcopy
 from typing import List, Dict, Any, Optional, Union
 from pydantic import BaseModel, Field
@@ -40,26 +41,42 @@ class ChapterContent(BaseModel):
     title: str
     scenes: List[Scene]
 
+class ChapterOutline(BaseModel):
+    chapterIndex: int
+    outline: str
+
 class GameworkDetails(BaseModel):
     title: str = Field(description="生成的作品标题")
     description: str = Field(description="生成的作品简介")
     initialAttributes: Dict[str, int] = Field(description="初始属性值")
     initialStatuses: Dict[str, Union[str, bool, int]] = Field(description="当前状态集合，键为状态名，值为状态值")
+    chapterOutlines: List[ChapterOutline] = Field(description="所有章节的大纲")
 
 client = Ark(
-    api_key="3f00ab95-6096-4639-a8b0-09c711a63d9c",
-    base_url="https://ark.cn-beijing.volces.com/api/v3",
+    api_key=settings.AI_API_KEY,
+    base_url=settings.AI_BASE_URL,
 )
+
+def _get_outlines_text(outlines: List[Dict]) -> str:
+    """将大纲列表格式化为文本"""
+    outline_text = ""
+    if outlines:
+        outline_text += "\n# 故事大纲\n"
+        for item in outlines:
+            outline_text += f"- 第{item['chapterIndex']}章: {item['outline']}\n"
+    return outline_text
 
 def _get_system_prompt(gamework: Gamework) -> str:
     """根据游戏标签和总章节数返回SystemPrompt"""
     tags = ', '.join([tag.name for tag in gamework.tags.all()]) if hasattr(gamework, 'tags') else ""
     total_chapters = gamework.story.total_chapters
+    outline_text = _get_outlines_text(gamework.story.outlines)
+
     return f"""
 # 任务
 你是一位顶级的文字冒险游戏设计师。共需要为用户生成{total_chapters}章的剧情。
-在剧情结构上，定义主角每一个地点切换为一个"场景(Scene)"，每章可以包含一个或多个场景(Scene)，每个场景包含若干对白和选项。
-你需要首先对出现的场景画面(backendgroundImage)进行简单描述。
+在剧情结构上，定义主角每一个地点切换为一个"场景(Scene)"，每章至多包含2个场景(Scene)，每个场景包含若干对白和选项，每个场景至多包含一项playerChoices。
+你需要首先对出现的场景画面(backgroundImage)进行简单描述。
 
 # 游戏作品信息
 - 标题: {gamework.title}
@@ -67,11 +84,12 @@ def _get_system_prompt(gamework: Gamework) -> str:
 - 标签: {tags}
 - 主角初始属性：{gamework.story.initial_attributes}
 - 主角初始状态：{gamework.story.initial_statuses}
-
+{outline_text}
 # 生成要求
-- 创建有深度、引人入胜的剧情。确保每一个Scene的剧情长度尽量长，每一章在3000字左右。
+- 保证剧情有始有终，结构合理，逻辑通顺，情节跌宕起伏，引人入胜，可以参考热门网文创作手法。
+- 确保每一个Scene的剧情长度尽量长，每一章在3000字左右。
 - 加入场景描写，增强沉浸感。
-- 简介仅仅是游戏剧情的一个小的缩影，可以适当深入挖掘和展开。请提前规划好剧情大纲。
+- 简介仅仅是游戏剧情的一个小的缩影，可以适当深入挖掘和展开。如有冲突，请谨遵剧情大纲。
 - 每个选项可以导向不同的结果，但这些结果无关剧情主线走向，仅会在几句话的上下文范围内影响剧情，不同选项最终都要收敛到主线剧情。
 - 玩家的选项可能会影响自身属性值(Attributes)，也可能会改变自身状态或获得新状态(Statuses)。
 
@@ -99,13 +117,14 @@ def _generate_chapter_with_ai(messages) :
         logger.error("AI生成剧情出错：%s", e)
 
 def _generate_backgroundimages_with_ai(img_descriptions: List[str]) -> List[str]:
-    """使用豆包API生成一组连贯的背景图片,返回URL(media/gamework_scenes/xxx.jpg)列表"""
+    """使用豆包API生成一组连贯的背景图片,返回绝对URL列表"""
 
     images_count = len(img_descriptions)
     if images_count == 0:
         return []
 
-    placeholder_url = f"{settings.MEDIA_URL}placeholders/scene.jpg"
+    base_url = settings.SITE_DOMAIN
+    placeholder_url = f"{base_url}{settings.MEDIA_URL}placeholders/scene.jpg"
     results: List[str] = []
 
     prompt = f"""
@@ -138,7 +157,7 @@ def _generate_backgroundimages_with_ai(img_descriptions: List[str]) -> List[str]
             guessed_ext = mimetypes.guess_extension(file_resp.headers.get("Content-Type", ""), strict=False) or ".jpg"
             filename = f"gamework_scenes/{uuid.uuid4().hex}{guessed_ext}"
             default_storage.save(filename, ContentFile(file_resp.content))
-            results.append(f"{settings.MEDIA_URL}{filename}")
+            results.append(f"{base_url}{settings.MEDIA_URL}{filename}")
         except Exception as e:  
             logger.error("第 %s 张背景图生成或保存失败: %s", idx + 1, e)
 
@@ -148,8 +167,8 @@ def _generate_backgroundimages_with_ai(img_descriptions: List[str]) -> List[str]
 
     return results
 
-def _generate_gamework_details_with_ai(tags: List[str], idea: str) -> GameworkDetails:
-    """使用AI生成游戏作品的文本详情"""
+def _generate_gamework_details_with_ai(tags: List[str], idea: str, total_chapters: int) -> GameworkDetails:
+    """使用AI生成游戏作品的文本详情及大纲"""
     prompt = f"""
 # 任务
 你是一位顶级的文字冒险游戏策划师。请根据用户提供的核心信息，为一款新的文字冒险游戏生成基础设定（中文）。
@@ -157,6 +176,7 @@ def _generate_gamework_details_with_ai(tags: List[str], idea: str) -> GameworkDe
 # 用户输入
 - 核心标签: {', '.join(tags)}
 - 核心构思: {idea if idea else '无特定构思，请根据标签自由发挥'}
+- 总章节数: {total_chapters}
 
 # 生成要求
 请生成以下内容：
@@ -164,6 +184,8 @@ def _generate_gamework_details_with_ai(tags: List[str], idea: str) -> GameworkDe
 2.  一段引人入胜的游戏剧情简介 (description)，大约100-150字。
 3.  一套初始玩家属性 (initialAttributes)，包含3-4个核心数值属性，并设定初始值。
 4.  一套初始玩家状态等级 (initialStatuses)，定义主角的初始成长状态，如"修为": "炼气期一层"。
+5.  一个包含 {total_chapters} 章的章节大纲 (chapterOutlines)，每章大纲应简洁明了，概括核心剧情。
+6.  确保剧情有始有终，结构合理完善，情节跌宕起伏，引人入胜，可以参考热门网文创作手法。
 
 # 数据格式要求
 请严格按照指定的JSON格式输出，不要添加任何额外解释。
@@ -188,13 +210,15 @@ def _generate_gamework_details_with_ai(tags: List[str], idea: str) -> GameworkDe
             title="AI生成失败的模拟作品",
             description="这是一个在AI生成失败时返回的模拟作品简介。",
             initialAttributes={"灵石": 100, "声望": 0},
-            initialStatuses={"修为": "炼气期三层","线人网络": True,"美食家称号": "新晋美食家"}
+            initialStatuses={"修为": "炼气期三层","线人网络": True,"美食家称号": "新晋美食家"},
+            chapterOutlines=[{"chapterIndex": i, "outline": f"AI生成第 {i} 章大纲失败"} for i in range(1, total_chapters + 1)]
         )
 
 def _generate_cover_image_with_ai(tags: List[str], idea: str) -> str:
-    """使用AI生成封面图片,返回URL(media/gamework_covers/xxx.jpg)"""
+    """使用AI生成封面图片,返回绝对URL"""
 
-    placeholder_url = f"{settings.MEDIA_URL}placeholders/cover.jpg"
+    base_url = settings.SITE_DOMAIN
+    placeholder_url = f"{base_url}{settings.MEDIA_URL}placeholders/cover.jpg"
 
     prompt = f"""
 生成一部小说的封面
@@ -224,7 +248,7 @@ def _generate_cover_image_with_ai(tags: List[str], idea: str) -> str:
         default_storage.save(filename, ContentFile(file_resp.content))
 
         logger.info(f"AI封面生成成功: {filename}")
-        return f"{settings.MEDIA_URL}{filename}"
+        return f"{base_url}{settings.MEDIA_URL}{filename}"
     
     except Exception as e:
         logger.error("AI生成封面图片出错: %s", e)
@@ -265,27 +289,40 @@ def _build_chapter_response(chapter: StoryChapter) -> Dict[str, Any]:
         "scenes": []
     }
     for scene in chapter.scenes.order_by("scene_index"):
+        # 确保返回的backgroundImage是完整的URL
+        bg_image = scene.background_image_url
+        if bg_image and not bg_image.startswith(('http://', 'https://')):
+             bg_image = f"{settings.SITE_DOMAIN}{bg_image}"
+
         payload["scenes"].append({
             "id": scene.scene_index,
-            "backgroundImage": scene.background_image_url,
+            "backgroundImage": bg_image,
             "dialogues": deepcopy(scene.dialogues) if scene.dialogues else []
         })
     return payload
 
-def _generate_chapter(gamework: Gamework, chapter_index: int):
-    story, _ = Story.objects.get_or_create(
-        gamework=gamework,
-        defaults={'total_chapters': 3}
-    )
+def _generate_chapter(gamework: Gamework, chapter_index: int, user_prompt: str = ""):
 
+    story = gamework.story
     chapters = story.chapters.prefetch_related('scenes').order_by('chapter_index')
     messages = [{"role": "system", "content": _get_system_prompt(gamework)}]
+    
+    # 仅添加当前生成章节之前的历史章节作为上下文
     for chapter in chapters:
-        messages.extend([
-            {"role": "user", "content": f"现在请你生成第{chapter.chapter_index}章的内容"},
-            {"role": "assistant", "content": json.dumps(_serialize_chapter_for_ai(chapter), ensure_ascii=False)}
-        ])
-    messages.append({"role": "user", "content": f"现在请你生成第{chapter_index}章的内容"})
+        if chapter.chapter_index < chapter_index:
+            messages.extend([
+                {"role": "user", "content": f"现在请你生成第{chapter.chapter_index}章的内容"},
+                {"role": "assistant", "content": json.dumps(_serialize_chapter_for_ai(chapter), ensure_ascii=False)}
+            ])
+    
+    outline_text = _get_outlines_text(story.outlines)
+    final_user_prompt = f"""
+现在请你生成第{chapter_index}章的内容。
+生成本章时务必遵循最新的故事大纲：
+{outline_text}
+本章的特别要求是：{user_prompt if user_prompt else '无'}
+"""
+    messages.append({"role": "user", "content": final_user_prompt})
 
     chapter_content = _generate_chapter_with_ai(messages)
     if not chapter_content:
@@ -296,14 +333,20 @@ def _generate_chapter(gamework: Gamework, chapter_index: int):
     generated_images_urls = _generate_backgroundimages_with_ai(images_descriptions)
 
     chapter_title = chapter_dict.get("title") or f"第{chapter_index}章"
-    chapter_obj, _ = StoryChapter.objects.update_or_create(
+    
+    chapter_obj, created = StoryChapter.objects.update_or_create(
         story=story,
         chapter_index=chapter_index,
-        defaults={"title": chapter_title}
+        defaults={
+            "title": chapter_title,
+            "status": StoryChapter.ChapterStatus.GENERATED
+        }
     )
-    chapter_obj.scenes.all().delete()
+    # 如果是重新生成，先清空旧场景
+    if not created:
+        chapter_obj.scenes.all().delete()
 
-    placeholder_url = f"{settings.MEDIA_URL}placeholders/scene.jpg"
+    placeholder_url = f"{settings.SITE_DOMAIN}{settings.MEDIA_URL}placeholders/scene.jpg"
     for idx, scene_data in enumerate(chapter_dict.get("scenes", [])):
         dialogues_with_ids = []
         for dialogue in scene_data.get("dialogues", []):
@@ -341,77 +384,220 @@ def _resolve_total_chapters(length: str) -> int:
     min_chapters, max_chapters = ranges.get((length or "").lower().strip(), (6, 10))
     return random.randint(min_chapters, max_chapters)
 
-def create_gamework(user, tags: List[str], idea: str, length: str) -> dict:
+def _generate_all_chapters_async(gamework: Gamework):
+    """后台线程中连续生成所有章节"""
+    gamework_id = gamework.id 
+    def worker():
+        try:
+            gamework_instance = Gamework.objects.select_related('story').get(pk=gamework_id)
+            story = gamework_instance.story
+            story.is_generating = True
+            story.save()
+
+            for chapter_index in range(1, story.total_chapters + 1):
+                story.current_generating_chapter = chapter_index
+                story.save()
+                
+                logger.info(f"开始生成作品ID {gamework_instance.id} 第 {chapter_index} 章")
+                _generate_chapter(gamework_instance, chapter_index)
+                logger.info(f"完成生成作品ID {gamework_instance.id} 第 {chapter_index} 章")
+
+            story.is_generating = False
+            story.is_complete = True
+            story.current_generating_chapter = 0
+            story.save()
+            logger.info(f"作品 {gamework_instance.id} 所有章节生成完成")
+        except Exception as e:
+            logger.error(f"生成作品 {gamework_id} 章节时发生错误: {e}")
+            try:
+                story = Story.objects.get(gamework_id=gamework_id)
+                story.is_generating = False
+                story.save()
+            except:
+                pass
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+
+def _update_gamework_after_generation(gamework_id: int, details: Optional[GameworkDetails] = None, cover_url: Optional[str] = None):
+    """在后台任务完成后，更新Gamework和Story实例。"""
+    try:
+        gamework = Gamework.objects.select_related('story').get(pk=gamework_id)
+        story = gamework.story
+        
+        if details:
+            gamework.title = details.title
+            gamework.description = details.description
+            story.initial_attributes = details.initialAttributes
+            story.initial_statuses = details.initialStatuses
+            
+            outlines_data = details.model_dump().get("chapterOutlines", [])
+            corrected_outlines = []
+            for i in range(story.total_chapters):
+                if i < len(outlines_data) and outlines_data[i].get('outline'):
+                    outline_text = outlines_data[i]['outline']
+                else:
+                    outline_text = f"第 {i + 1} 章大纲待补充"
+                corrected_outlines.append({"chapterIndex": i + 1, "outline": outline_text})
+            story.outlines = corrected_outlines
+
+        if cover_url:
+            gamework.image_url = cover_url
+
+        # 检查是否所有部分都已完成
+        if (details and gamework.image_url and not gamework.image_url.endswith('placeholders/cover.jpg')) or \
+           (cover_url and gamework.title and gamework.title != "作品生成中..."):
+            story.initial_generation_complete = True
+
+        gamework.save()
+        story.save()
+
+        # 如果是读者模式，在初始信息生成后，开始生成所有章节
+        if story.initial_generation_complete and not story.ai_callable:
+            _generate_all_chapters_async(gamework)
+
+    except Gamework.DoesNotExist:
+        logger.error(f"更新作品详情时未找到 Gamework ID: {gamework_id}")
+    except Exception as e:
+        logger.error(f"更新作品详情时发生错误 (Gamework ID: {gamework_id}): {e}", exc_info=True)
+
+def create_gamework(user, tags: List[str], idea: str, length: str, modifiable: bool = False) -> dict:
     """
-    创建新游戏作品的完整流程。
-    1. 调用AI生成文本详情。
-    2. 调用AI生成封面图片。
-    3. 创建并保存Gamework实例。
-    4. 创建关联的Story实例。
-    5. 关联标签Tags。
-    6. 返回生成的数据。
+    启动新游戏作品的创建流程，并立即返回gameworkId。
     """
+    total_chapters = _resolve_total_chapters(length)
 
-    details = _generate_gamework_details_with_ai(tags, idea)
-
-    cover_url = _generate_cover_image_with_ai(tags, idea)
-
+    # 1. 创建占位实例
     gamework = Gamework.objects.create(
         author=user,
-        title=details.title,
-        description=details.description,
-        image_url=cover_url
+        title="作品生成中...",
+        description="AI正在努力创作中，请稍候...",
+        image_url=f"{settings.SITE_DOMAIN}{settings.MEDIA_URL}placeholders/cover.jpg"
     )
-
-    total_chapters = _resolve_total_chapters(length)
     Story.objects.create(
         gamework=gamework,
         total_chapters=total_chapters,
-        initial_attributes=details.initialAttributes,
-        initial_statuses=details.initialStatuses
+        initial_attributes={},
+        initial_statuses={},
+        ai_callable=modifiable,
+        outlines=[]
     )
 
-    # 关联标签
+    # 2. 关联标签
     from tags.models import Tag
-
-    tag_objects = []
-    for tag_name in tags:
-        tag, _ = Tag.objects.get_or_create(name=tag_name)
-        tag_objects.append(tag)
+    tag_objects = [Tag.objects.get_or_create(name=tag_name)[0] for tag_name in tags]
     gamework.tags.set(tag_objects)
 
-    # 返回生成的数据给前端
-    return {
-        "gameworkId": gamework.gamework_id,
-        "title": details.title,
-        "coverUrl": cover_url,
-        "description": details.description,
-        "initialAttributes": details.initialAttributes,
-        "initialStatuses": details.initialStatuses,
-        "total_chapters": total_chapters
-    }
+    # 3. 并行启动后台生成任务
+    def details_worker():
+        details = _generate_gamework_details_with_ai(tags, idea, total_chapters)
+        _update_gamework_after_generation(gamework.id, details=details)
 
-def get_or_generate_chapter(gamework: Gamework, chapter_index: int) -> dict:
-    story, _ = Story.objects.get_or_create(
-        gamework=gamework,
-        defaults={'total_chapters': _resolve_total_chapters("")}
-    )
+    def cover_worker():
+        cover_url = _generate_cover_image_with_ai(tags, idea)
+        _update_gamework_after_generation(gamework.id, cover_url=cover_url)
 
+    threading.Thread(target=details_worker, daemon=True).start()
+    threading.Thread(target=cover_worker, daemon=True).start()
+
+    # 4. 立即返回
+    return {"gameworkId": gamework.id}
+
+def start_single_chapter_generation(gamework: Gamework, chapter_index: int, outlines: List[Dict], user_prompt: str):
+    """为创作者模式启动单章节的异步生成"""
+    story = gamework.story
+    if not story.ai_callable:
+        raise PermissionError("此作品不允许调用AI生成。")
+
+    # 检查是否已有章节正在生成
+    if story.is_generating:
+        raise PermissionError("已有章节正在生成中，请稍候。")
+
+    # 检查前一章是否已保存
+    if chapter_index > 1:
+        try:
+            prev_chapter = StoryChapter.objects.get(story=story, chapter_index=chapter_index - 1)
+            if prev_chapter.status != StoryChapter.ChapterStatus.SAVED:
+                raise PermissionError(f"请先保存第 {chapter_index - 1} 章的内容。")
+        except StoryChapter.DoesNotExist:
+            raise PermissionError(f"请先生成并保存第 {chapter_index - 1} 章。")
+
+    # 检查当前章节是否已保存，已保存则不允许重新生成
+    current_chapter = story.chapters.filter(chapter_index=chapter_index).first()
+    if current_chapter and current_chapter.status == StoryChapter.ChapterStatus.SAVED:
+        raise PermissionError(f"第 {chapter_index} 章已保存，无法使用AI重新生成。")
+
+    # 更新大纲
+    story.outlines = outlines
+    story.save()
+
+    # 删除可能存在的旧章节实例，准备重新生成
+    StoryChapter.objects.filter(story=story, chapter_index=chapter_index).delete()
+
+    # 设置全局生成状态锁，并更新完成状态
+    story.is_generating = True
+    story.current_generating_chapter = chapter_index
+    story.is_complete = False  
+    story.save()
+
+    gamework_id = gamework.id
+    def worker():
+        try:
+            gamework_instance = Gamework.objects.select_related('story').get(pk=gamework_id)
+            logger.info(f"创作者模式：开始生成作品ID {gamework_instance.id} 第 {chapter_index} 章")
+            _generate_chapter(gamework_instance, chapter_index, user_prompt)
+            logger.info(f"创作者模式：完成生成作品ID {gamework_instance.id} 第 {chapter_index} 章")
+        except Exception as e:
+            logger.error(f"生成作品ID {gamework_id} 章节时发生错误: {e}", exc_info=True)
+            # 如果出错，确保没有残留的章节片段
+            StoryChapter.objects.filter(story__gamework_id=gamework_id, chapter_index=chapter_index).delete()
+        finally:
+            # 释放全局锁
+            story_instance = Story.objects.get(gamework_id=gamework_id)
+            story_instance.is_generating = False
+            story_instance.current_generating_chapter = 0
+            story_instance.save()
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+
+def get_chapter_status(gamework: Gamework, chapter_index: int) -> dict:
+    """查询章节生成状态或返回已生成内容。"""
+
+    story = gamework.story
+
+    if chapter_index < 1 or chapter_index > story.total_chapters:
+        return {"status": "error", "message": f"章节索引 {chapter_index} 超出范围"}
+
+    # 1. 检查章节是否已物理存在于数据库
     try:
-        chapter = StoryChapter.objects.prefetch_related('scenes').get(story=story, chapter_index=chapter_index)
-        return _build_chapter_response(chapter)
+        chapter = StoryChapter.objects.prefetch_related('scenes').get(
+            story=story, 
+            chapter_index=chapter_index
+        )
+        return {
+            "status": "ready",
+            "chapter": _build_chapter_response(chapter)
+        }
     except StoryChapter.DoesNotExist:
         pass
+
+    # 2. 如果章节不存在，再检查全局生成锁
+    if story.is_generating and story.current_generating_chapter == chapter_index:
+        return {
+            "status": "generating",
+            "progress": {
+                "currentChapter": story.current_generating_chapter,
+                "totalChapters": story.total_chapters
+            }
+        }
     
-    total_chapters = story.total_chapters
-    if chapter_index > total_chapters:
-        raise ValueError(f"请求的章节索引 {chapter_index} 超出总章节数 {total_chapters}。")
-
-    if chapter_index > 1:
-        if not StoryChapter.objects.filter(story=story, chapter_index=chapter_index - 1).exists():
-            raise ValueError(f"上一章章节索引 {chapter_index - 1} 尚未生成，无法生成当前章节。")
-
-    return _generate_chapter(gamework, chapter_index)
+    # 3. 如果已完成所有章节的生成流程，但仍找不到，说明出错了
+    if story.is_complete:
+        return {"status": "error", "message": "章节应已生成但未找到"}
+    
+    # 4. 否则，就是尚未开始生成
+    return {"status": "pending", "message": "章节尚未开始生成"}
 
 def get_or_generate_report(gamework: Gamework) -> dict:
     """
@@ -496,3 +682,15 @@ def build_settlement_variants(attributes: Dict[str, int], statuses: Dict[str, An
         "reports": variants,
         "debug": {"checked": checked}
     }
+
+def resolve_scene_cover_url(gamework: Gamework, chapter_index: int, scene_index: int) -> Optional[str]:
+    """根据章节与场景索引解析背景图URL"""
+    url = StoryScene.objects.filter(
+        chapter__story__gamework=gamework,
+        chapter__chapter_index=chapter_index,
+        scene_index=scene_index
+    ).values_list('background_image_url', flat=True).first()
+
+    if url and not url.startswith(('http://', 'https://')):
+        return f"{settings.SITE_DOMAIN}{url}"
+    return url
