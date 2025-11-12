@@ -186,16 +186,27 @@ class GameChapterView(views.APIView):
                 "status": StoryChapter.ChapterStatus.SAVED  # 标记为已保存
             }
         )
-        chapter_obj.scenes.all().delete()
-
-        for scene_data in chapter_data.get("scenes", []):
-            StoryScene.objects.create(
-                chapter=chapter_obj,
-                scene_index=scene_data.get("id"), 
-                background_image=scene_data.get("backgroundImage", ""), 
-                background_image_url=scene_data.get("backgroundImage", ""), # 实际 URL
-                dialogues=scene_data.get("dialogues")
-            )
+        
+        # 使用事务确保场景更新的原子性
+        from django.db import transaction
+        with transaction.atomic():
+            # 获取请求中的场景ID列表
+            incoming_scene_ids = {scene_data.get("id") for scene_data in chapter_data.get("scenes", [])}
+            
+            # 删除不在新数据中的场景
+            chapter_obj.scenes.exclude(scene_index__in=incoming_scene_ids).delete()
+            
+            # 更新或创建场景
+            for scene_data in chapter_data.get("scenes", []):
+                StoryScene.objects.update_or_create(
+                    chapter=chapter_obj,
+                    scene_index=scene_data.get("id"),
+                    defaults={
+                        "background_image": scene_data.get("backgroundImage", ""), 
+                        "background_image_url": scene_data.get("backgroundImage", ""), # 实际 URL
+                        "dialogues": scene_data.get("dialogues")
+                    }
+                )
         
         return Response({"ok": True}, status=status.HTTP_200_OK)
 
