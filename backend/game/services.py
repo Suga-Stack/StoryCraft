@@ -57,22 +57,25 @@ client = Ark(
     base_url="https://ark.cn-beijing.volces.com/api/v3",
 )
 
-def _get_system_prompt(gamework: Gamework) -> str:
-    """根据游戏标签和总章节数返回SystemPrompt"""
-    tags = ', '.join([tag.name for tag in gamework.tags.all()]) if hasattr(gamework, 'tags') else ""
-    total_chapters = gamework.story.total_chapters
-    outlines = gamework.story.outlines
-
+def _get_outlines_text(outlines: List[Dict]) -> str:
+    """将大纲列表格式化为文本"""
     outline_text = ""
     if outlines:
         outline_text += "\n# 故事大纲\n"
         for item in outlines:
             outline_text += f"- 第{item['chapterIndex']}章: {item['outline']}\n"
+    return outline_text
+
+def _get_system_prompt(gamework: Gamework) -> str:
+    """根据游戏标签和总章节数返回SystemPrompt"""
+    tags = ', '.join([tag.name for tag in gamework.tags.all()]) if hasattr(gamework, 'tags') else ""
+    total_chapters = gamework.story.total_chapters
+    outline_text = _get_outlines_text(gamework.story.outlines)
 
     return f"""
 # 任务
 你是一位顶级的文字冒险游戏设计师。共需要为用户生成{total_chapters}章的剧情。
-在剧情结构上，定义主角每一个地点切换为一个"场景(Scene)"，每章至多包含3个场景(Scene)，每个场景包含若干对白和选项，每个场景至多包含一项playerChoices。
+在剧情结构上，定义主角每一个地点切换为一个"场景(Scene)"，每章至多包含2个场景(Scene)，每个场景包含若干对白和选项，每个场景至多包含一项playerChoices。
 你需要首先对出现的场景画面(backgroundImage)进行简单描述。
 
 # 游戏作品信息
@@ -86,7 +89,7 @@ def _get_system_prompt(gamework: Gamework) -> str:
 - 保证剧情有始有终，结构合理，逻辑通顺，情节跌宕起伏，引人入胜，可以参考热门网文创作手法。
 - 确保每一个Scene的剧情长度尽量长，每一章在3000字左右。
 - 加入场景描写，增强沉浸感。
-- 简介仅仅是游戏剧情的一个小的缩影，可以适当深入挖掘和展开。请谨遵剧情大纲。
+- 简介仅仅是游戏剧情的一个小的缩影，可以适当深入挖掘和展开。如有冲突，请谨遵剧情大纲。
 - 每个选项可以导向不同的结果，但这些结果无关剧情主线走向，仅会在几句话的上下文范围内影响剧情，不同选项最终都要收敛到主线剧情。
 - 玩家的选项可能会影响自身属性值(Attributes)，也可能会改变自身状态或获得新状态(Statuses)。
 
@@ -312,7 +315,14 @@ def _generate_chapter(gamework: Gamework, chapter_index: int, user_prompt: str =
                 {"role": "assistant", "content": json.dumps(_serialize_chapter_for_ai(chapter), ensure_ascii=False)}
             ])
     
-    messages.append({"role": "user", "content": f"现在请你生成第{chapter_index}章的内容，请注意谨遵剧情大纲。本章特别要求：{user_prompt}"})
+    outline_text = _get_outlines_text(story.outlines)
+    final_user_prompt = f"""
+现在请你生成第{chapter_index}章的内容。
+生成本章时务必遵循最新的故事大纲：
+{outline_text}
+本章的特别要求是：{user_prompt if user_prompt else '无'}
+"""
+    messages.append({"role": "user", "content": final_user_prompt})
 
     chapter_content = _generate_chapter_with_ai(messages)
     if not chapter_content:
@@ -376,9 +386,11 @@ def _resolve_total_chapters(length: str) -> int:
 
 def _generate_all_chapters_async(gamework: Gamework):
     """后台线程中连续生成所有章节"""
+    gamework_id = gamework.id 
     def worker():
         try:
-            story = Story.objects.get(gamework=gamework)
+            gamework_instance = Gamework.objects.select_related('story').get(pk=gamework_id)
+            story = gamework_instance.story
             story.is_generating = True
             story.save()
 
@@ -386,19 +398,19 @@ def _generate_all_chapters_async(gamework: Gamework):
                 story.current_generating_chapter = chapter_index
                 story.save()
                 
-                logger.info(f"开始生成作品ID {gamework.id} 第 {chapter_index} 章")
-                _generate_chapter(gamework, chapter_index)
-                logger.info(f"完成生成作品ID {gamework.id} 第 {chapter_index} 章")
+                logger.info(f"开始生成作品ID {gamework_instance.id} 第 {chapter_index} 章")
+                _generate_chapter(gamework_instance, chapter_index)
+                logger.info(f"完成生成作品ID {gamework_instance.id} 第 {chapter_index} 章")
 
             story.is_generating = False
             story.is_complete = True
             story.current_generating_chapter = 0
             story.save()
-            logger.info(f"作品 {gamework.id} 所有章节生成完成")
+            logger.info(f"作品 {gamework_instance.id} 所有章节生成完成")
         except Exception as e:
-            logger.error(f"生成作品 {gamework.id} 章节时发生错误: {e}")
+            logger.error(f"生成作品 {gamework_id} 章节时发生错误: {e}")
             try:
-                story = Story.objects.get(gamework=gamework)
+                story = Story.objects.get(gamework_id=gamework_id)
                 story.is_generating = False
                 story.save()
             except:
@@ -522,26 +534,29 @@ def start_single_chapter_generation(gamework: Gamework, chapter_index: int, outl
     # 删除可能存在的旧章节实例，准备重新生成
     StoryChapter.objects.filter(story=story, chapter_index=chapter_index).delete()
 
-    # 设置全局生成状态锁
+    # 设置全局生成状态锁，并更新完成状态
     story.is_generating = True
     story.current_generating_chapter = chapter_index
+    story.is_complete = False  
     story.save()
 
+    gamework_id = gamework.id
     def worker():
         try:
-            logger.info(f"创作者模式：开始生成作品ID {gamework.id} 第 {chapter_index} 章")
-            _generate_chapter(gamework, chapter_index, user_prompt)
-            logger.info(f"创作者模式：完成生成作品ID {gamework.id} 第 {chapter_index} 章")
+            gamework_instance = Gamework.objects.select_related('story').get(pk=gamework_id)
+            logger.info(f"创作者模式：开始生成作品ID {gamework_instance.id} 第 {chapter_index} 章")
+            _generate_chapter(gamework_instance, chapter_index, user_prompt)
+            logger.info(f"创作者模式：完成生成作品ID {gamework_instance.id} 第 {chapter_index} 章")
         except Exception as e:
-            logger.error(f"生成作品ID {gamework.id} 章节时发生错误: {e}", exc_info=True)
+            logger.error(f"生成作品ID {gamework_id} 章节时发生错误: {e}", exc_info=True)
             # 如果出错，确保没有残留的章节片段
-            StoryChapter.objects.filter(story__gamework=gamework, chapter_index=chapter_index).delete()
+            StoryChapter.objects.filter(story__gamework_id=gamework_id, chapter_index=chapter_index).delete()
         finally:
             # 释放全局锁
-            story.refresh_from_db()
-            story.is_generating = False
-            story.current_generating_chapter = 0
-            story.save()
+            story_instance = Story.objects.get(gamework_id=gamework_id)
+            story_instance.is_generating = False
+            story_instance.current_generating_chapter = 0
+            story_instance.save()
 
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()

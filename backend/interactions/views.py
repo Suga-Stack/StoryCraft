@@ -1,29 +1,110 @@
-from rest_framework import viewsets, status, permissions
+from rest_framework import viewsets, status, permissions, filters
 from rest_framework.response import Response
-from .models import Favorite, Comment, Rating
-from .serializers import FavoriteSerializer, CommentSerializer, RatingSerializer
+from .models import Favorite, Comment, Rating, FavoriteFolder
+from .serializers import FavoriteSerializer, CommentSerializer, RatingSerializer, FavoriteFolderSerializer
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django.db.models import Avg
+
+class FavoriteFolderViewSet(viewsets.ModelViewSet):
+    """
+    收藏夹管理接口
+    - GET: 获取收藏夹列表
+    - POST: 创建收藏夹
+    - PATCH: 修改收藏夹名称
+    - DELETE: 删除收藏夹
+    """
+    http_method_names = ['get', 'post', 'patch', 'delete']
+    serializer_class = FavoriteFolderSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return FavoriteFolder.objects.filter(user=self.request.user)
+
+    @swagger_auto_schema(
+        operation_summary="创建收藏夹",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'name': openapi.Schema(type=openapi.TYPE_STRING, description='收藏夹名称，可为空，系统自动命名')
+            }
+        ),
+        responses={201: openapi.Response(description="收藏夹创建成功")}
+    )
+    def create(self, request, *args, **kwargs):
+        """创建收藏夹"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        folder = serializer.save()
+        return Response({
+            "code": 201,
+            "message": "收藏夹创建成功",
+            "data": self.get_serializer(folder).data
+        }, status=status.HTTP_201_CREATED)
+
+    @swagger_auto_schema(
+        operation_summary="删除收藏夹",
+        responses={204: openapi.Response(description="收藏夹删除成功，作品转为未分组")}
+    )
+    def destroy(self, request, *args, **kwargs):
+        """删除收藏夹，作品自动转为未分组"""
+        instance = self.get_object()
+        Favorite.objects.filter(folder=instance).update(folder=None)
+        self.perform_destroy(instance)
+        return Response({"code": 204, "message": "收藏夹删除成功"}, status=status.HTTP_204_NO_CONTENT)
+
 
 class FavoriteViewSet(viewsets.ModelViewSet):
     """
     用户收藏作品接口
     - GET: 获取当前用户收藏列表
-    - POST: 收藏作品（传入 id）
+    - POST: 收藏作品（传入 id 与可选收藏夹）
+    - PATCH: 移动收藏到其他收藏夹
     - DELETE: 取消收藏
     """
-    http_method_names = ['get', 'post', 'delete']
+    http_method_names = ['get', 'post', 'patch', 'delete']
     serializer_class = FavoriteSerializer
     permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['gamework__title']
 
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return Favorite.objects.none()
-        return Favorite.objects.filter(user=self.request.user).select_related('gamework')
+        return Favorite.objects.filter(user=self.request.user).select_related('gamework', 'folder')
 
+    @swagger_auto_schema(
+        operation_summary="获取收藏列表（支持按作品标题和收藏夹筛选）",
+        manual_parameters=[
+            openapi.Parameter(
+                'search', openapi.IN_QUERY,
+                description="按作品标题模糊搜索收藏",
+                type=openapi.TYPE_STRING,
+                example="森林"
+            ),
+            openapi.Parameter(
+                'folder', openapi.IN_QUERY,
+                description="筛选所属收藏夹ID（send empty value或为 null 显示未分组，不传显示全部）",
+                type=openapi.TYPE_STRING,
+                example="3",
+                required=False,  # 表示该字段可选
+                allowEmptyValue=True  # Swagger 显示时允许传空字符串
+            )
+        ]
+    )
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
+
+        # 收藏夹筛选
+        folder_param = request.query_params.get('folder')
+        if folder_param == 'null' or folder_param == '':
+            queryset = queryset.filter(folder__isnull=True)
+        elif folder_param:
+            queryset = queryset.filter(folder_id=folder_param)
+
+        # 按标题搜索（DRF SearchFilter 自动处理）
+        queryset = self.filter_queryset(queryset)
+
         page = self.paginate_queryset(queryset)
         serializer = self.get_serializer(page or queryset, many=True)
         data = {
@@ -38,8 +119,12 @@ class FavoriteViewSet(viewsets.ModelViewSet):
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
             required=['id'],
-            properties={'id': openapi.Schema(type=openapi.TYPE_INTEGER, description='作品ID')}
+            properties={
+                'gamework_id': openapi.Schema(type=openapi.TYPE_INTEGER, description='作品ID'),
+                'folder': openapi.Schema(type=openapi.TYPE_INTEGER, description='收藏夹ID，可选')
+            }
         ),
+        responses={201: openapi.Response(description="收藏成功")}
     )
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -51,6 +136,44 @@ class FavoriteViewSet(viewsets.ModelViewSet):
             "data": self.get_serializer(favorite).data
         }, status=status.HTTP_201_CREATED)
 
+    @swagger_auto_schema(
+        operation_summary="移动收藏到其他收藏夹",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'folder': openapi.Schema(type=openapi.TYPE_INTEGER, description='目标收藏夹ID，可为空（移出收藏夹）')
+            }
+        ),
+        responses={200: openapi.Response(description="移动成功")}
+    )
+    def partial_update(self, request, *args, **kwargs):
+        """移动收藏到其他收藏夹或移出收藏夹"""
+        instance = self.get_object()
+        folder_id = request.data.get('folder')
+
+        if folder_id is not None:
+            try:
+                if folder_id == "" or folder_id == "null":
+                    folder = None
+                else:
+                    folder = FavoriteFolder.objects.get(id=folder_id, user=request.user)
+            except FavoriteFolder.DoesNotExist:
+                return Response({"code": 400, "message": "收藏夹不存在"}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            folder = None
+
+        instance.folder = folder
+        instance.save()
+        return Response({
+            "code": 200,
+            "message": "移动收藏成功",
+            "data": self.get_serializer(instance).data
+        }, status=status.HTTP_200_OK)
+
+    @swagger_auto_schema(
+        operation_summary="取消收藏",
+        responses={204: openapi.Response(description="取消收藏成功")}
+    )
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         self.perform_destroy(instance)
@@ -61,39 +184,61 @@ class CommentViewSet(viewsets.ModelViewSet):
     """
     用户评论作品接口
     - GET: 获取评论列表（可筛选 gamework）
-    - POST: 评论作品
+    - POST: 评论作品或回复
+    - DELETE: 删除评论
     """
     http_method_names = ['get', 'post', 'delete']
     serializer_class = CommentSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        qs = Comment.objects.all().select_related('gamework', 'user')
-        gid = self.request.query_params.get('gamework')
-        if gid:
-            qs = qs.filter(gamework__id=gid)
-        return qs
+        gamework_id = self.request.query_params.get('gamework')
+        queryset = Comment.objects.all().select_related('user', 'gamework').prefetch_related('replies__user')
+        if gamework_id:
+            queryset = queryset.filter(gamework_id=gamework_id, parent__isnull=True)  # 顶级评论分页
+        else:
+            queryset = queryset.filter(parent__isnull=True)
+        return queryset.order_by('-created_at')
 
     @swagger_auto_schema(
-        operation_summary="评论作品",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            required=['id', 'content'],
-            properties={
-                'id': openapi.Schema(type=openapi.TYPE_INTEGER, description='作品ID'),
-                'content': openapi.Schema(type=openapi.TYPE_STRING, description='评论内容')
-            }
-        )
+        operation_summary="获取评论列表（分页顶级评论+嵌套回复）",
+        manual_parameters=[
+            openapi.Parameter(
+                'gamework', openapi.IN_QUERY,
+                description="按作品ID筛选评论",
+                type=openapi.TYPE_INTEGER,
+                example=5,
+                required=False
+            )
+        ]
+    )
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page or queryset, many=True)
+
+        data = {
+            "code": 200,
+            "message": "获取评论列表成功",
+            "data": serializer.data
+        }
+        return self.get_paginated_response(data) if page else Response(data)
+
+    @swagger_auto_schema(
+        operation_summary="发表评论或回复",
+        request_body=CommentSerializer,
+        responses={200: CommentSerializer}
     )
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        comment = serializer.save()
+        serializer.save()
         return Response({
             "code": 201,
-            "message": "评论成功",
-            "data": self.get_serializer(comment).data
+            "message": "评论发布成功",
+            "data": serializer.data
         }, status=status.HTTP_201_CREATED)
+
 
 
 class RatingViewSet(viewsets.ModelViewSet):
