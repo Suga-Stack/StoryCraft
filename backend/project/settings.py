@@ -143,20 +143,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # 指定用户模型
 AUTH_USER_MODEL = 'users.User'
 
-"""
-REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework.authentication.SessionAuthentication',
-        'rest_framework.authentication.BasicAuthentication',
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-    ),
-    'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticatedOrReadOnly',
-    ),
-    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 10,
-}
-"""
+# 站点域名，用于在后台任务中构建绝对URL
+SITE_DOMAIN = os.getenv('SITE_DOMAIN', 'http://127.0.0.1:8000')
 
 # 所有功能开启权限验证
 REST_FRAMEWORK = {
@@ -187,7 +175,7 @@ SWAGGER_SETTINGS = {
 }
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),   # 短期访问 token
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),   # 短期访问 token
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),      # 长期刷新 token
 }
 
@@ -275,5 +263,7 @@ LOGGING = {
     },
 }
 
-AI_MODEL_FOR_TEXT = "doubao-seed-1-6-flash-250828"
-AI_MODEL_FOR_IMAGE = "doubao-seedream-4-0-250828"
+AI_MODEL_FOR_TEXT = "deepseek-v3-1-terminus"
+AI_MODEL_FOR_IMAGE = "doubao-seedream-3-0-t2i-250415"
+AI_API_KEY = "3f00ab95-6096-4639-a8b0-09c711a63d9c"
+AI_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"

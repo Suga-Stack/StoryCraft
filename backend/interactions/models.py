@@ -2,10 +2,40 @@ from django.db import models
 from django.conf import settings
 from gameworks.models import Gamework
 
+class FavoriteFolder(models.Model):
+    """收藏夹"""
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='favorite_folders'
+    )
+    name = models.CharField(max_length=100, verbose_name='收藏夹名称', blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'name')  # 同一用户收藏夹名不能重复
+        verbose_name = 'Favorite Folder'
+        verbose_name_plural = 'Favorite Folders'
+
+    def save(self, *args, **kwargs):
+        # 若未命名，则自动命名为“默认收藏夹1/2/3...”
+        if not self.name:
+            existing = FavoriteFolder.objects.filter(
+                user=self.user,
+                name__startswith="默认收藏夹"
+            ).count()
+            self.name = f"默认收藏夹{existing + 1}"
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.user.username} - {self.name}"
+
+
 class Favorite(models.Model):
     """用户收藏作品"""
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='favorites', verbose_name='User')
     gamework = models.ForeignKey(Gamework, on_delete=models.CASCADE, related_name='favorited_by', verbose_name='Gamework')
+    folder = models.ForeignKey(FavoriteFolder, on_delete=models.SET_NULL, null=True, blank=True, related_name='favorites')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='Created at')
 
     class Meta:
@@ -23,7 +53,13 @@ class Comment(models.Model):
     gamework = models.ForeignKey(Gamework, on_delete=models.CASCADE, related_name='comments', verbose_name='Gamework')
     content = models.TextField(verbose_name='Content')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='Created at')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='Updated at')
+    parent = models.ForeignKey(
+        'self',
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name='replies'
+    )
 
     class Meta:
         ordering = ['-created_at']
@@ -31,7 +67,7 @@ class Comment(models.Model):
         verbose_name_plural = 'Comments'
 
     def __str__(self):
-        return f"{self.user} 评论了 {self.gamework}"
+        return f"{self.user.username}: {self.content[:20]}"
 
 
 class Rating(models.Model):
@@ -55,3 +91,16 @@ class Rating(models.Model):
         from django.core.exceptions import ValidationError
         if not (2 <= self.score <= 10):
             raise ValidationError("评分必须在1到5颗星之间！")
+
+class ReadRecord(models.Model):
+    """用户阅读作品记录"""
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='read_records')
+    gamework = models.ForeignKey(Gamework, on_delete=models.CASCADE, related_name='read_records')
+    read_at = models.DateTimeField(auto_now_add=True)  # 阅读时间
+
+    class Meta:
+        unique_together = ('user', 'gamework')  # 同一用户对同一作品只记录一次
+        ordering = ['-read_at']
+
+    def __str__(self):
+        return f"{self.user.username} read {self.gamework.title}"

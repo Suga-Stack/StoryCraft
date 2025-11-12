@@ -5,27 +5,65 @@ from interactions.permissions import IsOwnerOrReadOnly
 from rest_framework.response import Response
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-from django.db.models import Count, Q, Avg, F
+from django.db.models import Count, Q, Avg, F, Prefetch
+from interactions.models import Favorite, Rating, ReadRecord
 
-from tags.models import Tag
 
 class GameworkViewSet(viewsets.ModelViewSet):
-    queryset = Gamework.objects.all()
+    """
+    游戏作品视图集：
+    - 已发布作品对所有人可见
+    - 未发布作品仅作者和管理员可见
+    - 自动统计收藏数、评分数、阅读数、平均评分
+    - 返回字段包括是否被当前用户收藏
+    """
     serializer_class = GameworkSerializer
     permission_classes = (permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly)
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
 
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
 
-    def get_queryset(self):
-        # 只有作者和管理员可以看到未发布作品
-        queryset = Gamework.objects.all()
-        user = self.request.user
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        
+        # 检查初始生成是否完成
+        if not getattr(instance.story, 'initial_generation_complete', False):
+            return Response({"status": "generating"}, status=status.HTTP_200_OK)
 
-        # 只显示已发布的作品或该用户为作品作者或管理员
-        if not user.is_staff:
-            # 过滤条件：显示已发布作品或者是该作品的作者
-            queryset = queryset.filter(is_published=True) | queryset.filter(author=user)
+        serializer = self.get_serializer(instance)
+        return Response({"status": "ready", "data": serializer.data})
+
+    def get_queryset(self):
+        user = self.request.user
+        base_filter = Q(is_published=True)
+
+        if user.is_authenticated and not user.is_staff:
+            base_filter |= Q(author=user)
+        elif user.is_staff:
+            base_filter = Q()  # 管理员查看全部
+
+        queryset = (
+            Gamework.objects.filter(base_filter)
+            .annotate(
+                favorite_count=Count('favorited_by', distinct=True),
+                average_score=Avg('ratings__score', distinct=True),
+                rating_count=Count('ratings', distinct=True),
+                read_count=Count('read_records__user', distinct=True),
+            )
+            .select_related('author', 'story')
+            .prefetch_related('tags')
+        )
+
+        # 优化 is_favorited 判断
+        if user.is_authenticated:
+            queryset = queryset.prefetch_related(
+                Prefetch(
+                    'favorited_by',
+                    queryset=Favorite.objects.filter(user=user),
+                    to_attr='user_favorites'
+                )
+            )
 
         return queryset
 
