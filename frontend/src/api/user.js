@@ -1,4 +1,4 @@
-import http from '@/utils/http'
+import http from '../utils/http'
 
 // 登录接口
 export const login = (username, password) => {

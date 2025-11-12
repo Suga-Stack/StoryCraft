@@ -7,13 +7,88 @@
         placeholder="搜索作品或作者..."
         shape="round"
         background="#f5f5f5"
-        @search="handleSearch"
+        :right-icon="showAdvancedFilter ? 'arrow-up' : 'arrow-down'"
+        @click-right-icon="toggleAdvancedFilter"
+        :show-action="true" 
+        @search="handleSearch" 
+        :left-icon="false"
       >
         <template #left>
           <van-icon name="arrow-left" @click="handleBack" />
         </template>
+
+        <!-- 添加搜索按钮 -->
+        <template #action>
+          <van-button type="text" @click="handleSearch" class="custom-search-btn">搜索</van-button>
+        </template>
       </van-search>
     </div>
+
+    <!-- 高级搜索筛选区 -->
+    <div class="advanced-filter" v-if="showAdvancedFilter">
+      <van-row :gutter="16" class="filter-row">
+        <van-col span="12">
+          <van-field
+            v-model="authorFilter"
+            placeholder="搜索作者名"
+            clearable
+          />
+        </van-col>
+        <van-col span="12">
+          <van-field
+            v-model="selectedTagName"
+            placeholder="选择标签"
+            readonly
+            clickable
+            @click="openTagPopup"
+          />
+        </van-col>
+      </van-row>
+    </div>
+
+      <!-- 标签选择弹窗 -->
+      <van-popup
+        v-model:show="showTagPopup"
+        round
+        position="bottom"
+        :style="{ height: '70%' }"
+      >
+        <div class="tag-popup-header">
+          <span>选择标签</span>
+          <van-button type="text" @click="showTagPopup = false">取消</van-button>
+        </div>
+        <div class="tag-list" @scroll="handleTagListScroll">
+          <van-tag
+            v-for="tag in allTags"
+            :key="tag.id"
+            :color="selectedTagId === tag.id ? '#d4a5a5' : ''"
+            :text-color="selectedTagId === tag.id ? '#fff' : ''"
+            round
+            clickable
+            @click="selectTag(tag)"
+          >
+            {{ tag.name }}
+            <van-loading v-if="!hasMoreTags" size="16" class="tag-loading">
+              没有更多标签了
+            </van-loading>
+          </van-tag>
+        </div>
+        <div class="tag-popup-footer">
+          <van-button 
+            type="primary" 
+            block 
+            @click="confirmTagSelection"
+            :style="{ 
+              background: 'linear-gradient(135deg, #d4a5a5 0%, #b88484 100%)',
+              border: 'none'
+            }"
+          >
+            确定
+          </van-button>
+        </div>
+      </van-popup>
+    
+
 
     <!-- 导航按钮栏 -->
     <div class="nav-buttons" v-if="searchValue === ''">
@@ -121,65 +196,8 @@
             </div>
           </div>
         </div>
-        
-        <!-- 分页控件 -->
-        <div class="pagination">
-          <van-pagination
-            v-model="currentPage"
-            :total-items="totalItems"
-            :items-per-page="pageSize"
-            :show-page-size="false"
-            @change="handlePageChange"
-          />
-
-          <div class="pagination-buttons">
-            <van-button 
-              type="primary" 
-              size="small"
-              class="pre-btn"
-              @click="handlePrevPage"
-              :disabled="currentPage === 1"
-            >
-              上一页
-            </van-button>
-            <van-button 
-              type="primary" 
-              size="small"
-              class="next-btn"
-              @click="handleNextPage"
-              :disabled="currentPage >= totalPages"
-            >
-              下一页
-            </van-button>
-          </div>
-
-          <div class="page-jump">
-            <span class="page-info">
-              {{ currentPage }} / {{ totalPages }}
-            </span>
-            <div class="jump-controls">
-              <van-input
-                v-model="jumpPage"
-                type="number"
-                placeholder="页码"
-                class="page-input"
-                :max="totalPages"
-                :min="1"
-                @keyup.enter="handleJump"
-              />
-              <van-button 
-                type="primary" 
-                size="small"
-                class="jump-btn"
-                @click="handleJump"
-              >
-                跳转
-              </van-button>
-            </div>
-          </div>
-        </div>
       </div>
-    </div>
+        
 
     <!-- 搜索结果区域 -->
     <div class="search-result" v-if="searchValue !== ''">
@@ -219,6 +237,7 @@
       </div>
     </div>
   </div>
+</div>
 </template>
 
 <script setup>
@@ -233,12 +252,24 @@ const router = useRouter()
 const searchValue = ref('')
 const searchHistory = ref([])
 const searchResults = ref([])
+const showTagPopup = ref(false)
+
+// 标签相关变量
+const allTags = ref([]) 
+const selectedTagId = ref('')
+const selectedTagName = ref('')
+const tagFilter = ref('')
+
+const authorFilter = ref('')
+
+const isSearchCompleted = ref(false)
+const searchCurrentPage = ref(1)
+const searchTotalItems = ref(0)
 
 // 排行榜切换相关
 const currentTab = ref('total') // total, month, week, rating
 const currentPage = ref(1)
 const pageSize = ref(20)
-const jumpPage = ref('')
 
 // 生成模拟数据
 const generateRankData = (type, count = 50) => {
@@ -301,17 +332,6 @@ const currentRankList = computed(() => {
   return allData.slice(start, end)
 })
 
-// 计算总条目数
-const totalItems = computed(() => {
-  switch(currentTab.value) {
-    case 'total': return totalRank.value.length
-    case 'month': return monthRank.value.length
-    case 'week': return weekRank.value.length
-    case 'rating': return ratingRank.value.length
-    default: return 0
-  }
-})
-
 // 当前标签页文本
 const currentTabText = computed(() => {
   const texts = {
@@ -329,58 +349,6 @@ const switchTab = (tab) => {
   currentPage.value = 1 // 切换标签时重置到第一页
 }
 
-// 计算总页数
-const totalPages = computed(() => {
-  return Math.ceil(totalItems.value / pageSize.value) || 1
-})
-
-// 上一页
-const handlePrevPage = () => {
-  if (currentPage.value > 1) {
-    currentPage.value--
-    scrollToTop()
-  }
-}
-
-// 下一页
-const handleNextPage = () => {
-  if (currentPage.value < totalPages.value) {
-    currentPage.value++
-    scrollToTop()
-  }
-}
-
-// 提取滚动到顶部的逻辑为共用方法
-const scrollToTop = () => {
-  const listWrapper = document.querySelector('.ranking-list-wrapper')
-  if (listWrapper) {
-    listWrapper.scrollTop = 0
-  }
-}
-
-const handlePageChange = (page) => {
-  currentPage.value = page
-  scrollToTop()
-}
-
-// 处理页码跳转
-const handleJump = () => {
-  // 验证输入的页码是否有效
-  const page = parseInt(jumpPage.value, 10)
-  if (
-    !isNaN(page) && 
-    page >= 1 && 
-    page <= totalPages.value && 
-    page !== currentPage.value
-  ) {
-    currentPage.value = page
-    scrollToTop()
-  } else {
-    showToast('请输入有效的页码')
-  }
-  // 清空输入框
-  jumpPage.value = ''
-}
 
 // 页面挂载时加载搜索历史
 onMounted(() => {
@@ -394,6 +362,30 @@ onMounted(() => {
     }
   }
 })
+
+const openTagPopup = () => {
+  showTagPopup.value = true;
+}
+
+// 选择标签
+const selectTag = (tag) => {
+  selectedTagId.value = tag.id
+  selectedTagName.value = tag.name
+}
+
+// 确认标签选择
+const confirmTagSelection = () => {
+  tagFilter.value = selectedTagId.value
+  showTagPopup.value = false
+}
+
+// 控制高级搜索显示的变量
+const showAdvancedFilter = ref(false)
+
+// 切换显示状态的方法
+const toggleAdvancedFilter = () => {
+  showAdvancedFilter.value = !showAdvancedFilter.value
+}
 
 // 保存搜索历史到本地存储
 const saveHistory = (value) => {
@@ -409,14 +401,46 @@ const saveHistory = (value) => {
 }
 
 // 搜索处理
-const handleSearch = (value) => {
-  if (!value.trim()) return
-  saveHistory(value)
-  // 模拟搜索结果
-  const allItems = [...totalRank.value, ...monthRank.value, ...weekRank.value, ...ratingRank.value]
-  searchResults.value = allItems.filter(
-    item => item.title.includes(value) || item.author.includes(value)
-  )
+// 搜索处理
+const handleSearch = async (value = searchValue.value) => {
+  console.log('value类型：', typeof value, '值：', value); // 新增这行
+  const searchText = (value || '').toString().trim();
+  const authorText = (authorFilter.value || '').toString().trim();
+  const tagText = (tagFilter.value || '').toString().trim();
+
+  // 验证：所有条件都为空时才阻止搜索
+  if (!searchText && !authorText && !tagText) {
+    showToast('请输入搜索内容或选择筛选条件')
+    return
+  }
+  
+  // 保存搜索历史（如果有搜索关键词）
+  if (value.trim()) {
+    saveHistory(value)
+  }
+  
+  // 重置搜索状态
+  isSearchCompleted.value = false
+  searchCurrentPage.value = 1
+  
+  try {
+    const response = await axios.get('/api/gameworks/search/', {
+      params: {
+        q: value,
+        author: authorFilter.value,
+        tag: tagFilter.value,
+        page: searchCurrentPage.value
+      }
+    })
+    
+    searchResults.value = response.data.results
+    searchTotalItems.value = response.data.count
+    isSearchCompleted.value = true
+  } catch (error) {
+    console.error('搜索失败', error)
+    showToast('搜索失败，请稍后重试')
+    isSearchCompleted.value = true
+  }
 }
 
 // 点击历史记录
@@ -455,12 +479,117 @@ const formatNumber = (num) => {
   }
   return num.toString()
 }
+
+// 在标签相关变量区域添加
+const tagCurrentPage = ref(1)
+const tagPageSize = ref(10)
+const hasMoreTags = ref(true)
+
+const fetchTags = async (page = 1) => {
+  try {
+    const newTagsRes = await http.get('/tags/', {
+      params: { page }
+    });
+    
+    if (page === 1) {
+      allTags.value = newTagsRes.data.results;
+    } else {
+      allTags.value = [...allTags.value, ...newTagsRes.data.results];
+    }
+    
+    // 根据next字段是否存在判断判断是否还有更多标签
+    hasMoreTags.value = !!newTagsRes.data.next;
+    tagCurrentPage.value = page;
+  } catch (error) {
+    console.error('获取标签失败', error);
+    showToast('获取标签失败，请稍后重试');
+  }
+}
+
+// 在打开标签弹窗时加载标签
+const toggleTagPopup = () => {
+  showTagPopup.value = true;
+  // 每次打开弹窗时重新加载第一页标签
+  if (allTags.value.length === 0) {
+    fetchTags(1);
+  }
+}
+
+// 添加标签列表滚动加载更多的逻辑
+const loadMoreTags = () => {
+  if (hasMoreTags.value) {
+    fetchTags(tagCurrentPage.value + 1);
+  }
+}
+
+// 处理标签列表滚动加载
+const handleTagListScroll = (e) => {
+  const { scrollTop, scrollHeight, clientHeight } = e.target;
+  // 当滚动到距离底部20px时加载更多
+  if (scrollHeight - scrollTop - clientHeight < 20 && hasMoreTags.value) {
+    fetchTags(tagCurrentPage.value + 1);
+  }
+}
 </script>
 
 <style scoped>
 .search-page {
   background-color: #f5f5f5;
   min-height: 100vh;
+}
+
+.custom-search-btn {
+  border: 2px solid #d4a5a5;
+  background-color: #fff;
+  color: #d4a5a5 !important;
+  border-radius: 8px;
+  padding: 3px 6px;
+}
+
+.custom-search-btn:active {
+  background-color: #fff !important;
+  opacity: 0.9;
+}
+
+.advanced-filter {
+  padding: 10px 16px;
+  background-color: #fff;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.filter-row {
+  margin-bottom: 12px;
+}
+
+.tag-popup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  border-bottom: 1px solid #eee;
+}
+
+.tag-list {
+  padding: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  overflow-y: auto;
+  height: calc(100% - 58px);
+}
+
+.active-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.reset-btn {
+  color: #666;
+  font-size: 12px;
+  padding: 0;
 }
 
 /* 搜索栏样式 */
@@ -654,80 +783,6 @@ const formatNumber = (num) => {
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
-}
-
-/* 分页样式 */
-.pagination-buttons {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.van-button_content{
-  color: white;
-  font-size: 14px;
-  width: 100%;
-  background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
-  border: none;
-}
-
-.pagination {
-  padding: 0 0 10px 0;
-}
-
-::v-deep .pre-btn,
-::v-deep .next-btn {
-  color: white;
-  font-size: 14px;
-  width: 20%;
-  background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
-  border: none;
-}
-
-::v-deep .pre-btn:disabled,
-::v-deep .next-btn:disabled {
-  background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-
-/* 页码跳转区域样式 */
-.page-jump {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 15px;
-  margin-top: 10px;
-  padding: 5px 0;
-}
-
-.page-info {
-  font-size: 14px;
-  color: #666;
-}
-
-.jump-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.page-input {
-  width: 80px;
-  min-height: 32px; 
-}
-
-.jump-btn{
-  color: white;
-  font-size: 14px;
-  width: 50px;
-  background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
-  border: none;
-}
-
-.page-input {
-  width: 80px;
 }
 
 /* 搜索结果样式 */
