@@ -780,7 +780,7 @@ const startReading = () => {
               <span class="empty-icon">💬</span>
               <p>还没有评论，快来抢沙发吧！</p>
             </div>
-            <div v-else style="color:#999;margin-top:0.5rem;">没有更多评论了</div>
+            <div v-else style="color:#999;margin-top:0.5rem;">你看到了我的底线</div>
           </div>
         </div>
       </div>

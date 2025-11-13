@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { loadGameData, refreshSlotInfos, deleteGameData, SLOTS } from '../utils/saveLoad.js'
+import { loadGameData, refreshSlotInfosUtil, deleteGameData, SLOTS } from '../utils/saveLoad.js'
 import { fetchPersonalityReportVariants } from '../service/personality.js'
 
 const router = useRouter()
@@ -638,7 +638,7 @@ const deleteGame = async (slot) => {
 const refreshSlotInfosData = async () => {
   try {
     console.log('🔍 结算页面 - 开始刷新槽位信息, workId:', gameData.value.work.id)
-    const infos = await refreshSlotInfos(gameData.value.work.id, SLOTS)
+    const infos = await refreshSlotInfosUtil(gameData.value.work.id, SLOTS)
     console.log('✅ 结算页面 - 槽位信息刷新成功:', infos)
     slotInfos.value = infos
   } catch (err) {

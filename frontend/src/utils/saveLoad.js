@@ -1,34 +1,10 @@
 // GamePage 存档/读档相关逻辑的复用工具
 
+import { getCurrentUserId, deepClone } from './auth.js'
+
 // ---- 配置项 ----
 const USE_BACKEND_SAVE = true
 const USE_MOCK_SAVE = false
-
-// 获取当前用户 ID
-const getCurrentUserId = () => {
-  try {
-    if (window.__STORYCRAFT_USER__ && window.__STORYCRAFT_USER__.id) return window.__STORYCRAFT_USER__.id
-  } catch (e) {}
-  const key = 'storycraft_user_id'
-  let id = localStorage.getItem(key)
-  if (!id) {
-    id = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
-    localStorage.setItem(key, id)
-  }
-  return id
-}
-
-// 生成UUID
-const generateUUID = () => {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-    const r = Math.random() * 16 | 0
-    const v = c === 'x' ? r : (r & 0x3 | 0x8)
-    return v.toString(16)
-  })
-}
-
-// 深拷贝
-const deepClone = (obj) => JSON.parse(JSON.stringify(obj))
 
 // 本地存档key
 const localSaveKey = (userId, workId, slot = 'default') => `storycraft_save_${userId}_${workId}_${slot}`
@@ -213,7 +189,7 @@ export const loadGameData = async (workId, slot = 'default') => {
 }
 
 // 刷新存档槽位信息
-export const refreshSlotInfos = async (workId, slots = ['slot1', 'slot2', 'slot3', 'slot4', 'slot5', 'slot6']) => {
+export const refreshSlotInfosUtil = async (workId, slots = ['slot1', 'slot2', 'slot3', 'slot4', 'slot5', 'slot6']) => {
   console.log('📦 refreshSlotInfos 调用 - workId:', workId, 'slots:', slots)
   const userId = getCurrentUserId()
   console.log('👤 当前用户ID:', userId)
