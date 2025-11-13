@@ -36,6 +36,10 @@ export const getUserInfo = (id) => {
 }
 
 // 更新用户信息
-export const updateUserInfo = (id, username, profile_picture, gender, liked_tags) => {
-  return http.patch(`/users/admin/${id}/`, {username, profile_picture, gender, liked_tags})
+export const updateUserInfo = (id, data) => {
+  return http.patch(`/users/admin/${id}/`, data)
+}
+
+export const uploadProfilePicture = (file) => {
+  return http.post(`/game/upload-iamge/`, file )
 }

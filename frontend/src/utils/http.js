@@ -22,5 +22,55 @@ http.interceptors.request.use(
   }
 );
 
+// 响应拦截器：处理token过期
+http.interceptors.response.use(
+  response => response,
+  async error => {
+    const originalRequest = error.config;
+    
+    // 如果是401错误且未尝试过刷新token
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+      
+      try {
+        // 使用refreshToken获取新的accessToken
+        const refreshToken = localStorage.getItem('refreshToken');
+        if (!refreshToken) {
+          // 没有刷新令牌，需要重新登录
+          redirectToLogin();
+          return Promise.reject(error);
+        }
+        
+        const res = await axios.post('/api/auth/token/refresh/', {
+          refresh: refreshToken
+        });
+        
+        // 存储新的accessToken
+        if (res.data.access) {
+          localStorage.setItem('token', res.data.access);
+          // 重试原始请求
+          originalRequest.headers.Authorization = `Bearer ${res.data.access}`;
+          return http(originalRequest);
+        }
+      } catch (refreshError) {
+        // 刷新令牌失败，需要重新登录
+        redirectToLogin();
+        return Promise.reject(refreshError);
+      }
+    }
+    
+    return Promise.reject(error);
+  }
+);
+
+// 跳转到登录页的函数
+function redirectToLogin() {
+  // 清除过期的令牌
+  localStorage.removeItem('token');
+  localStorage.removeItem('refreshToken');
+  // 跳转到登录页，可根据实际路由调整
+  window.location.href = '/login';
+}
+
 
 export default http;
