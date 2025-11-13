@@ -154,7 +154,7 @@ import bookCover3 from '../assets/book3.jpg';
 import bookCover4 from '../assets/book4.jpg';
 import { updateUserInfo } from '../api/user';
 import { getUserInfo } from '../api/user';
-import { get } from 'vant/lib/utils';
+import http from '../utils/http';
 
 // 路由实例
 const router = useRouter()
@@ -204,27 +204,33 @@ const fetchUserInfo = async (userId) => {
   try {
     const response = await getUserInfo(userId)
 
-    if (!response.ok) {
-      throw new Error(`获取用户信息失败: ${response.status}`)
+    // 检查业务状态
+    if (response.data.code && response.data.code !== 200) {
+      throw new Error(`业务错误: ${response.data.message || '获取用户信息失败'}`);
     }
 
-    const data = await response.json()
-    return data
+    return response.data;
   } catch (error) {
-    showToast(`接口请求失败: ${error.message}`)
-    throw error
+    const errorMsg = `获取用户信息失败: ${error.message}`;
+    showToast(errorMsg);
+    throw error;
   }
+  
 }
 
 const getUserIdFromStorage = () => {
   // 从 localStorage 读取用户信息
-  const storedUser = localStorage.getItem('userInfo');
-  if (storedUser) {
-    const user = JSON.parse(storedUser);
-    return user.id; // 返回 userId
+  try{
+    const storedUser = localStorage.getItem('userInfo');
+    if (storedUser) {
+      const user = JSON.parse(storedUser);
+      return user.id; // 返回 userId
+    }
+  }catch (err) {
+    console.error('读取本地用户信息失败', err);
+    localStorage.removeItem('userInfo'); // 清除无效数据
   }
-  // 未找到用户信息（未登录），跳转到登录页
-//  router.push('/login');
+  router.push('/login');
   return null;
 };
 
@@ -252,147 +258,99 @@ const handleAvatarClick = () => {
   fileInput.value.click()
 }
 
-const handleFileChange = (e) => {
-  const file = e.target.files[0]; // 获取选中的图片文件
-  if (!file) return;
-
-  // 校验图片格式和大小（可选，提升体验）
-  const isImage = file.type.startsWith('image/');
-  const isLt5M = file.size / 1024 / 1024 < 5; // 限制 5MB 内
-  if (!isImage) {
-    showToast('请选择图片格式文件（JPG/PNG等）');
-    return;
-  }
-  if (!isLt5M) {
-    showToast('图片大小不能超过 5MB');
-    return;
-  }
-
-  // 生成预览图（File -> Base64）
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    previewUrl.value = e.target.result; // 显示预览
-  };
-  reader.readAsDataURL(file);
-
-  getLocalImageUrl(file)
-    .then((localImageUrl) => {
-      previewUrl.value = localImageUrl; // 显示本地预览
-      // 直接调用更新接口，传入本地 URL
-      updateAvatar(localImageUrl);
-    })
-    .catch((err) => {
-      showToast(err.message);
-      previewUrl.value = '';
-    });
-
-  /*
-  // 3. 上传图片到后端/云存储，获取 URI
-  uploadImageToServer(file).then((imageUri) => {
-    // 4. 调用用户信息更新接口，提交头像 URI
-    updateAvatar(imageUri);
-  }).catch((err) => {
-    showToast('图片上传失败：' + err.message);
-    previewUrl.value = ''; // 清空预览
-  });
-  */
-};
-
-/*
-// 上传图片到服务器（获取图片 URI）
-const uploadImageToServer = async (file) => {
-  // 构造 FormData（图片上传常用格式）
+const uploadImage = async (file) => {
   const formData = new FormData();
-  formData.append('image', file); // 后端接收图片的字段名（需与后端协商，如 image）
+  formData.append('file', file); 
 
-  // 调用图片上传接口（假设后端有专门的图片上传接口）
-  // 如果后端要求直接在 updateUser 接口中传文件，可跳过此步，直接在 updateAvatar 中传 FormData
-  const response = await fetch('/api/upload/image', {
-    method: 'POST',
-    body: formData,
-    // 注意：上传文件时不要设置 Content-Type: application/json，浏览器会自动处理
+  const response = await http.post('/game/upload-image/', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
   });
 
-  if (!response.ok) throw new Error('上传失败');
-  const data = await response.json();
-  return data.imageUri; // 假设后端返回 { imageUri: "https://xxx.com/new-avatar.png" }
-};
-*/
-
-const getLocalImageUrl = (file) => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    // 读取文件为 Base64 格式（可直接作为 img 标签的 src）
-    reader.readAsDataURL(file);
-    // 读取成功：返回 Base64 字符串
-    reader.onload = (e) => {
-      resolve(e.target.result); // 结果格式：data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...
-    };
-    // 读取失败：抛出错误
-    reader.onerror = (err) => {
-      reject(new Error('图片读取失败：' + err.message));
-    };
-  });
-};
-
-
-// 调用用户信息更新接口（提交头像 URI）
-// 修改updateAvatar函数的接口调用部分
-const updateAvatar = async (imageUri) => {
-  try {
-    const response = await updateUserInfo(
-      userInfo.value.id,
-      userInfo.value.username,
-      imageUri,
-    ) 
-
-    if (!response.ok) {
-      throw new Error('更新头像失败')
-    }
-
-    const updatedData = await response.json()
-    userInfo.value.profile_picture = updatedData.profile_picture
-    previewUrl.value = '' // 清空预览，使用更新后的值
-    showToast('头像更换成功')
-  } catch (err) {
-    showToast('头像更新失败：' + err.message)
-    previewUrl.value = ''
+  if (response.status === 201) {
+    console.log('上传成功，返回的图片URL：', response.data.imageUrl);
+    return response.data.imageUrl;
+  } else {
+    throw new Error('图片上传失败，服务器返回异常');
   }
 }
 
-// 处理用户名修改
+// 处理用户选择图片的方法
+const handleFileChange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  // 1. 校验图片格式和大小（保持不变）
+  const isImage = file.type.startsWith('image/');
+  const isLt5M = file.size / 1024 / 1024 < 5; // 限制5MB以内
+  if (!isImage) {
+    showToast('请选择图片格式文件（如jpg、png）');
+    return;
+  }
+  if (!isLt5M) {
+    showToast('图片大小不能超过5MB');
+    return;
+  }
+
+  // 2. 生成预览图（可选，提升用户体验）
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    previewUrl.value = e.target.result; // 显示本地预览
+  };
+  reader.readAsDataURL(file);
+
+  // 3. 上传图片并更新头像
+  uploadImage(file)
+    .then((imageUrl) => {
+      // 上传成功后，用返回的URL更新用户信息
+      return updateUserInfo(userInfo.value.id, {
+        profile_picture: imageUrl // 后端要求的字段名，和swagger一致
+      });
+    })
+    .then((userResponse) => {
+      // 4. 更新本地缓存和显示
+      userInfo.value.profile_picture = userResponse.data.profile_picture;
+      const storedUser = JSON.parse(localStorage.getItem('userInfo') || '{}');
+      storedUser.profile_picture = userResponse.data.profile_picture;
+      localStorage.setItem('userInfo', JSON.stringify(storedUser));
+      
+      previewUrl.value = ''; // 清空预览
+      showToast('头像更换成功');
+    })
+    .catch((err) => {
+      // 捕获所有可能的错误（上传失败/更新失败）
+      const errorMsg = err.response?.data?.message || err.message || '头像更新失败';
+      showToast(errorMsg);
+      previewUrl.value = ''; // 清空预览
+    });
+}
+
+
 const handleUsernameChange = async () => {
-  if (!newUsername.value.trim()) {
-    showToast('用户名不能为空')
-    return
+  const trimmedName = newUsername.value.trim();
+  if (!trimmedName) {
+    showToast('用户名不能为空');
+    return;
   }
 
   try {
-    // 调用用户信息更新接口
+    // 只传递需要修改的username字段
     const response = await updateUserInfo(
       userInfo.value.id,
-      newUsername.value, // 新用户名
-      userInfo.value.profile_picture // 保持原有头像不变
-    )
+      { username: trimmedName } 
+    );
 
-    if (!response.ok) {
-      throw new Error('更新用户名失败')
-    }
-
-    const updatedData = await response.json()
-    // 更新本地缓存的用户信息
-    userInfo.value.username = updatedData.username
-    username.value = updatedData.username
-    // 更新localStorage中的用户信息
-    const storedUser = JSON.parse(localStorage.getItem('userInfo') || '{}')
-    storedUser.username = updatedData.username
-    localStorage.setItem('userInfo', JSON.stringify(storedUser))
+    // 更新本地数据
+    userInfo.value.username = response.data.username;
+    username.value = response.data.username;
+    const storedUser = JSON.parse(localStorage.getItem('userInfo') || '{}');
+    storedUser.username = response.data.username;
+    localStorage.setItem('userInfo', JSON.stringify(storedUser));
     
-    showToast('用户名修改成功')
-    showUsernameDialog.value = false // 关闭弹窗
-    newUsername.value = '' // 清空输入框
+    showToast('用户名修改成功');
+    showUsernameDialog.value = false;
+    newUsername.value = '';
   } catch (err) {
-    showToast('用户名更新失败：' + err.message)
+    showToast('用户名更新失败：' + (err.response?.data?.message || err.message));
   }
 }
 
@@ -417,10 +375,31 @@ const navigateToBookDetail = (bookId) => {
 }
 
 // 处理退出登录
-const handleLogout = () => {
-  // 清除登录状态（实际项目中需清除token等）
-  router.push('/login')
-  showToast('已退出登录')
+const handleLogout = async () => {
+  try {
+    const refreshToken = localStorage.getItem('refreshToken');
+    if (refreshToken) {
+      // 调用后端logout接口
+      await http.post('/auth/logout/', {
+        refresh: refreshToken
+      });
+    }
+    
+    // 清除本地登录状态
+    localStorage.removeItem('userInfo');
+    // 可以同时清除其他相关存储，如token等
+    // localStorage.removeItem('token');
+    
+    // 跳转到登录页
+    router.push('/login');
+    showToast('已成功退出登录');
+  } catch (error) {
+    console.error('退出登录失败', error);
+    // 即使接口调用失败也清除本地状态并跳转，保证前端状态一致性
+    localStorage.removeItem('userInfo');
+    router.push('/login');
+    showToast('退出登录失败，请重试');
+  }
 }
 
 

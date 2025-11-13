@@ -78,7 +78,7 @@ const handleLogin = async () => {
         return;
         }
 
-        const { code: businessCode, message: businessMsg, tokens = {} } = res.data || {};
+        const { code: businessCode, message: businessMsg, data = {} } = res.data || {};
 
         if (typeof businessCode !== 'undefined' && businessCode !== 200) {
         showFailToast(businessMsg || '登录失败，业务处理出错');
@@ -86,18 +86,33 @@ const handleLogin = async () => {
         }
 
         // 5. 令牌检查更严谨，增加类型判断
-        if (typeof tokens !== 'object' || !tokens.access) {
+        if (typeof data !== 'object' || !data.access) {
         showFailToast('登录失败，未获取到有效的访问令牌');
         return;
         }
 
-        localStorage.setItem('token', String(tokens.access));
-        if (tokens.refresh) {
-        localStorage.setItem('refreshToken', String(tokens.refresh));
-        }
-        localStorage.setItem('userInfo', JSON.stringify(data.user));
-
         showSuccessToast('登录成功，即将跳转...');
+
+       try {        
+        if (res.data?.data?.user && typeof res.data.data.user === 'object' && !Array.isArray(res.data.data.user)) {
+            localStorage.setItem('userInfo', JSON.stringify(res.data.data.user));
+        } else {
+            console.warn('用户信息格式无效，存储空对象');
+            localStorage.setItem('userInfo', '{}');
+        }
+        } catch (stringifyError) {
+        console.error('用户信息序列化失败:', stringifyError);
+        localStorage.setItem('userInfo', '{}');
+        }
+
+        // 登录成功后补充存储令牌
+        localStorage.setItem('token', data.access);
+        // 如果有refresh token也需要存储
+        if (data.refresh) {
+        localStorage.setItem('refreshToken', data.refresh);
+        }else {
+          console.warn('未获取到刷新令牌，可能导致会话持续问题');
+        }
 
         const preData = await http.get('users/preferences/');
         // 检查是否存在有效的偏好设置
@@ -111,6 +126,13 @@ const handleLogin = async () => {
 
     } catch (error) {
         showFailToast('登录失败，请检查用户名和密码');
+        // 打印错误详情到控制台
+        console.error('登录请求错误:', error);
+        // 如果是HTTP错误，可进一步解析
+        if (error.response) {
+            console.error('响应状态:', error.response.status);
+            console.error('响应数据:', error.response.data);
+        }
     }
 }
 

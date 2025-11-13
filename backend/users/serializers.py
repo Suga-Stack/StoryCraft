@@ -99,9 +99,12 @@ class LoginSerializer(serializers.Serializer):
     def get_tokens_for_user(self, user):
         """生成 JWT token"""
         refresh = RefreshToken.for_user(user)
+        user_serializer = UserSerializer(user) 
+        user_data = user_serializer.data 
         return {
             "access": str(refresh.access_token),
-            "refresh": str(refresh)
+            "refresh": str(refresh),
+            "user": user_data
         }
 
 
