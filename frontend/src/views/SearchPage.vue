@@ -11,7 +11,7 @@
         @click-right-icon="toggleAdvancedFilter"
         :show-action="true" 
         @search="handleSearch" 
-        :left-icon="false"
+        :show-left-icon="false"
       >
         <template #left>
           <van-icon name="arrow-left" @click="handleBack" />
@@ -19,7 +19,7 @@
 
         <!-- 添加搜索按钮 -->
         <template #action>
-          <van-button type="text" @click="handleSearch" class="custom-search-btn">搜索</van-button>
+          <van-button type="text" @click="handleSearch(searchValue)" class="custom-search-btn">搜索</van-button>
         </template>
       </van-search>
     </div>
@@ -36,11 +36,11 @@
         </van-col>
         <van-col span="12">
           <van-field
-            v-model="selectedTagName"
-            placeholder="选择标签"
+            v-model=tagDisplayText
+            placeholder="选择标签（可多选）"
             readonly
-            clickable
-            @click="openTagPopup"
+            :clickable="true"
+            @click="toggleTagPopup"
           />
         </van-col>
       </van-row>
@@ -58,20 +58,33 @@
           <van-button type="text" @click="showTagPopup = false">取消</van-button>
         </div>
         <div class="tag-list" @scroll="handleTagListScroll">
+          <!-- 加载状态 -->
+          <van-loading v-if="isLoadingTags && allTags.length === 0" color="#c78c8c" size="24" class="loading-indicator" />
+          
+          <!-- 错误提示 -->
+          <p class="error-text" v-if="tagsError && allTags.length === 0">{{ tagsError }}</p>
+          
+          <!-- 标签列表 -->
           <van-tag
             v-for="tag in allTags"
             :key="tag.id"
-            :color="selectedTagId === tag.id ? '#d4a5a5' : ''"
-            :text-color="selectedTagId === tag.id ? '#fff' : ''"
+            :color="selectedTagIds.includes(tag.id) ? '#d4a5a5' : ''"
+            :text-color="selectedTagIds.includes(tag.id) ? '#fff' : ''"
             round
             clickable
             @click="selectTag(tag)"
           >
             {{ tag.name }}
-            <van-loading v-if="!hasMoreTags" size="16" class="tag-loading">
-              没有更多标签了
-            </van-loading>
           </van-tag>
+          <!-- 加载更多提示 -->
+          <div v-if="isLoadingTags && allTags.length > 0" class="loading-more">
+            <van-loading size="16" />
+          </div>
+          
+          <!-- 没有更多数据提示 -->
+          <div v-if="!hasMoreTags && !isLoadingTags && allTags.length > 0" class="no-more">
+            没有更多标签了
+          </div>
         </div>
         <div class="tag-popup-footer">
           <van-button 
@@ -120,6 +133,13 @@
       >
         评分榜
       </button>
+      <button 
+        class="primary-btn" 
+        :class="{ active: currentTab === 'collection' }"
+        @click="switchTab('collection')"
+      >
+        收藏榜
+      </button>
     </div>
 
     <!-- 搜索历史 -->
@@ -146,8 +166,8 @@
       <div class="ranking-section">
         <div class="ranking-header">
           <van-icon 
-            :name="currentTab === 'rating' ? 'grade' : 'fire'" 
-            :color="currentTab === 'rating' ? '#ff7d00' : '#ff4d4f'" 
+            :name="currentTab === 'rating' ? 'grade' : currentTab === 'collection' ? 'star' : 'fire'" 
+            :color="currentTab === 'rating' ? '#ff7d00' : currentTab === 'collection' ? '#ffb400' : '#ff4d4f'" 
           />
           <span>{{ currentTabText }}</span>
         </div>
@@ -244,7 +264,8 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-
+import { getFavoriteLeaderboard, search, getRatingLeaderboard } from '../api/user' 
+import http from '../utils/http'
 // 路由实例
 const router = useRouter()
 
@@ -256,9 +277,12 @@ const showTagPopup = ref(false)
 
 // 标签相关变量
 const allTags = ref([]) 
-const selectedTagId = ref('')
-const selectedTagName = ref('')
+const tagDisplayText = ref('') 
 const tagFilter = ref('')
+const selectedTagIds = ref([])  // 新增这一行
+const selectedTagNames = ref([])  // 已存在的行
+const isLoadingTags = ref(false); // 加载状态
+const tagsError = ref(''); // 错误信息
 
 const authorFilter = ref('')
 
@@ -289,24 +313,27 @@ const generateRankData = (type, count = 50) => {
   const tags = ['科幻', '文学', '历史', '科普', '小说', '哲学', '经济', '艺术', '传记', '悬疑']
   const authors = ['作者A', '作者B', '作者C', '作者D', '作者E', '作者F', '作者G', '作者H', '作者I', '作者J']
   const titles = ['作品标题', '经典名著', '畅销书籍', '精选读物', '推荐好书', '热门作品', '高分图书', '必读书目']
-  
+
   return Array.from({ length: count }, (_, i) => {
     const id = i + 1
     const randomBase = Math.random()
     return {
       id: `${type}-${id}`,
-      title: `${titles[Math.floor(Math.random() * titles.length)]} ${id}`,
-      author: authors[Math.floor(Math.random() * authors.length)],
-      cover: baseCovers[Math.floor(Math.random() * baseCovers.length)],
+      // 原有字段保持不变...
       hotScore: Math.floor(randomBase * 100000),
       rating: 3 + randomBase * 2,
+      collectionCount: Math.floor(randomBase * 5000),  // 新增收藏数字段
       tags: [
         tags[Math.floor(Math.random() * tags.length)],
         tags[Math.floor(Math.random() * tags.length)]
       ]
     }
   }).sort((a, b) => {
-    // 评分榜按评分降序，其他按热度降序
+    // 新增收藏榜排序逻辑
+    if (type === 'collection') {
+      return b.collectionCount - a.collectionCount
+    }
+    // 原有排序逻辑保持不变
     return type === 'rating' 
       ? b.rating - a.rating 
       : b.hotScore - a.hotScore
@@ -318,13 +345,15 @@ const totalRank = ref(generateRankData('total'))
 const monthRank = ref(generateRankData('month'))
 const weekRank = ref(generateRankData('week'))
 const ratingRank = ref(generateRankData('rating'))
+const collectionRank = ref(generateRankData('collection'))
 
 // 计算当前显示的排行榜数据
 const currentRankList = computed(() => {
   const allData = currentTab.value === 'total' ? totalRank.value :
                  currentTab.value === 'month' ? monthRank.value :
                  currentTab.value === 'week' ? weekRank.value :
-                 ratingRank.value
+                 currentTab.value === 'rating' ? ratingRank.value :
+                 collectionRank.value 
   
   // 计算分页
   const start = (currentPage.value - 1) * pageSize.value
@@ -338,7 +367,8 @@ const currentTabText = computed(() => {
     total: '总热榜',
     month: '本月热榜',
     week: '本周热榜',
-    rating: '评分榜'
+    rating: '评分榜',
+    collection: '收藏榜'
   }
   return texts[currentTab.value]
 })
@@ -348,6 +378,31 @@ const switchTab = (tab) => {
   currentTab.value = tab
   currentPage.value = 1 // 切换标签时重置到第一页
 }
+
+// 获取收藏榜数据的函数
+const fetchFavoriteLeaderboard = async () => {
+  try {
+    const response = await getFavoriteLeaderboard()
+    // 假设接口返回格式为 { results: [...] }
+    collectionRank.value = response.data.results || [];
+  } catch (error) {
+    console.error('获取收藏榜失败', error);
+    showToast('获取收藏榜失败，请稍后重试');
+  }
+}
+
+// 在script部分添加获取收藏榜数据的函数
+const fetchRatingLeaderboard = async () => {
+  try {
+    const response = await getRatingLeaderboard()
+    // 假设接口返回格式为 { results: [...] }
+    ratingRank.value = response.data.results || [];
+  } catch (error) {
+    console.error('获取评分榜失败', error);
+    showToast('获取评分榜失败，请稍后重试');
+  }
+};
+
 
 
 // 页面挂载时加载搜索历史
@@ -361,21 +416,31 @@ onMounted(() => {
       localStorage.removeItem('searchHistory')
     }
   }
+  fetchRatingLeaderboard()
+  fetchFavoriteLeaderboard()
 })
 
-const openTagPopup = () => {
-  showTagPopup.value = true;
-}
-
-// 选择标签
+// 选择标签（切换选中状态）
 const selectTag = (tag) => {
-  selectedTagId.value = tag.id
-  selectedTagName.value = tag.name
+  const index = selectedTagIds.value.indexOf(tag.id)
+  if (index > -1) {
+    // 已选中则移除
+    selectedTagIds.value.splice(index, 1)
+    selectedTagNames.value.splice(index, 1)
+  } else {
+    // 未选中则添加
+    selectedTagIds.value.push(tag.id)
+    selectedTagNames.value.push(tag.name)
+  }
+
+  // 实时更新显示文本
+  tagDisplayText.value = selectedTagNames.value.join(',')
 }
 
 // 确认标签选择
 const confirmTagSelection = () => {
-  tagFilter.value = selectedTagId.value
+  // 将数组转换为逗号分隔的字符串，适应后端参数格式
+  tagFilter.value = selectedTagIds.value.join(',')
   showTagPopup.value = false
 }
 
@@ -401,9 +466,7 @@ const saveHistory = (value) => {
 }
 
 // 搜索处理
-// 搜索处理
 const handleSearch = async (value = searchValue.value) => {
-  console.log('value类型：', typeof value, '值：', value); // 新增这行
   const searchText = (value || '').toString().trim();
   const authorText = (authorFilter.value || '').toString().trim();
   const tagText = (tagFilter.value || '').toString().trim();
@@ -424,14 +487,13 @@ const handleSearch = async (value = searchValue.value) => {
   searchCurrentPage.value = 1
   
   try {
-    const response = await axios.get('/api/gameworks/search/', {
-      params: {
-        q: value,
-        author: authorFilter.value,
-        tag: tagFilter.value,
-        page: searchCurrentPage.value
-      }
-    })
+    // 改用导入的search接口函数
+    const response = await search(
+      searchCurrentPage.value,  // page参数
+      searchText,               // q参数
+      authorText,               // author参数
+      tagText                   // tag参数
+    )
     
     searchResults.value = response.data.results
     searchTotalItems.value = response.data.count
@@ -439,6 +501,36 @@ const handleSearch = async (value = searchValue.value) => {
   } catch (error) {
     console.error('搜索失败', error)
     showToast('搜索失败，请稍后重试')
+    isSearchCompleted.value = true
+  }
+}
+
+// 加载更多搜索结果
+const loadMoreSearchResults = async () => {
+  if (!hasMoreSearchResults.value || !isSearchCompleted.value) return
+  
+  searchCurrentPage.value += 1
+  isSearchCompleted.value = false
+  
+  try {
+    // 使用新的search接口函数
+    const response = await search(
+      searchCurrentPage.value,
+      searchValue.value,
+      authorFilter.value,
+      tagFilter.value
+    )
+    
+    // 将新结果添加到现有结果中
+    searchResults.value = [...searchResults.value, ...response.data.results]
+    searchTotalItems.value = response.data.count
+    isSearchCompleted.value = true
+    
+    // 判断是否还有更多数据
+    hasMoreSearchResults.value = !!response.data.next
+  } catch (error) {
+    console.error('加载更多失败', error)
+    searchCurrentPage.value -= 1 // 恢复页码
     isSearchCompleted.value = true
   }
 }
@@ -482,43 +574,44 @@ const formatNumber = (num) => {
 
 // 在标签相关变量区域添加
 const tagCurrentPage = ref(1)
-const tagPageSize = ref(10)
 const hasMoreTags = ref(true)
 
+// fetchTags函数
 const fetchTags = async (page = 1) => {
   try {
+    // 显示加载状态（需要在模板中添加加载指示器）
+    isLoadingTags.value = true;
+    tagsError.value = '';
+
     const newTagsRes = await http.get('/tags/', {
       params: { page }
     });
     
     if (page === 1) {
-      allTags.value = newTagsRes.data.results;
+      allTags.value = newTagsRes.data?.results || [];
     } else {
-      allTags.value = [...allTags.value, ...newTagsRes.data.results];
+      allTags.value = [...allTags.value, ...(newTagsRes.data?.results || [])];
     }
     
-    // 根据next字段是否存在判断判断是否还有更多标签
-    hasMoreTags.value = !!newTagsRes.data.next;
+    hasMoreTags.value = !!newTagsRes.data?.next;
     tagCurrentPage.value = page;
   } catch (error) {
     console.error('获取标签失败', error);
-    showToast('获取标签失败，请稍后重试');
+    tagsError.value = error.response?.data?.message || '获取标签失败，请稍后重试';
+    showToast(tagsError.value);
+  } finally {
+    isLoadingTags.value = false;
   }
 }
 
 // 在打开标签弹窗时加载标签
 const toggleTagPopup = () => {
-  showTagPopup.value = true;
-  // 每次打开弹窗时重新加载第一页标签
-  if (allTags.value.length === 0) {
+  // 切换弹窗显示状态（true→false 或 false→true）
+  showTagPopup.value = !showTagPopup.value;
+  console.log('toggleTagPopup called, current showTagPopup:', showTagPopup.value)  
+  // 只有当弹窗被打开，且标签数据为空、没有正在加载时，才加载第一页标签
+  if (showTagPopup.value && allTags.value.length === 0 && !isLoadingTags.value) {
     fetchTags(1);
-  }
-}
-
-// 添加标签列表滚动加载更多的逻辑
-const loadMoreTags = () => {
-  if (hasMoreTags.value) {
-    fetchTags(tagCurrentPage.value + 1);
   }
 }
 
@@ -590,6 +683,38 @@ const handleTagListScroll = (e) => {
   color: #666;
   font-size: 12px;
   padding: 0;
+}
+
+.loading-indicator {
+  text-align: center;
+  padding: 20px 0;
+  width: 100%;
+}
+
+.error-text {
+  color: #ff4d4f;
+  font-size: 14px;
+  text-align: center;
+  padding: 20px 0;
+  width: 100%;
+}
+
+.loading-more {
+  width: 100%;
+  text-align: center;
+  padding: 10px 0;
+}
+
+.no-more {
+  width: 100%;
+  text-align: center;
+  padding: 10px 0;
+  color: #888;
+  font-size: 14px;
+}
+
+.van-popup {
+  z-index: 9999 !important; /* 确保弹窗在最上层 */
 }
 
 /* 搜索栏样式 */
@@ -750,7 +875,6 @@ const handleTagListScroll = (e) => {
 .item-info {
   margin-left: 12px;
   flex-grow: 1;
-  overflow: hidden;
 }
 
 .item-title {
@@ -820,7 +944,6 @@ const handleTagListScroll = (e) => {
 .result-info {
   margin-left: 12px;
   flex-grow: 1;
-  overflow: hidden;
 }
 
 .result-title {

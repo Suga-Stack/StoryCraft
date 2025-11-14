@@ -64,3 +64,14 @@ export const getRecentMyworks = () => {
   return http.get('/users/myworks/recent/'); 
 }
 
+export const search = (page, q, author, tag) => {
+  return http.get('/gameworks/search/', {page, q, author, tag});
+}
+
+export const getFavoriteLeaderboard = () => {
+  return http.get('/gameworks/favorite-leaderboard/');
+}
+
+export const getRatingLeaderboard = () => {
+  return http.get('/gameworks/rating-leaderboard/');
+}
