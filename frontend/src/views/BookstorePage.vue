@@ -73,6 +73,8 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
+import http from '../utils/http';
+import { showToast } from 'vant';
 import {useRouter} from 'vue-router';
 import bookCover1 from '../assets/book1.jpg';  
 import bookCover2 from '../assets/book2.jpg';
@@ -106,57 +108,9 @@ const hotBooks = ref([
 ]);
 
 // 模拟推荐作品数据（根据用户偏好标签）
-const recommendedBooks = ref([
-  {
-    id: 4,
-    title: "青春物语",
-    author: "赵六",
-    cover: bookCover4,
-    tags: ["青春", "校园"]
-  },
-  {
-    id: 5,
-    title: "职场生存指南",
-    author: "钱七",
-    cover: bookCover5,
-    tags: ["职场", "励志"]
-  },
-  {
-    id: 6,
-    title: "科幻世界",
-    author: "孙八",
-    cover: bookCover2,
-    tags: ["科幻", "未来"]
-  },
-  {
-    id: 7,
-    title: "美食日记",
-    author: "周九",
-    cover: bookCover1,
-    tags: ["美食", "生活"]
-  },
-  {
-    id: 8,
-    title: "山间小屋",
-    author: "吴十",
-    cover: bookCover6,
-    tags: ["自然", "散文"]
-  },
-  {
-    id: 9,
-    title: "编程入门指南",
-    author: "郑十一",
-    cover: bookCover7,
-    tags: ["编程", "技术"]
-  },
-  {
-    id: 10,
-    title: "绿植养护大全",
-    author: "冯十二",
-    cover: bookCover8,
-    tags: ["绿植", "园艺"]
-  }
-]);
+const recommendedBooks = ref([]);
+const loading = ref(false);
+const error = ref('');
 
 const tagColorOptions = [
   { backgroundColor: '#e0f2fe', color: '#0284c7' },
@@ -193,13 +147,46 @@ const handleTabChange = (name) => {
       router.push('/profile');
       break;
   }
-};
+}
+
+const fetchRecommendedBooks = async () => {
+  if (loading.value) return;
+  
+  loading.value = true;
+  error.value = '';
+  
+  try {
+    const response = await http.get(`/gameworks/recommend/`);
+    
+    // 注意这里需要先获取response.data，再访问里面的code和data字段
+    const resData = response.data;
+    
+    if (resData.code === 200) {
+      // 正确获取嵌套在data中的数据数组
+      recommendedBooks.value = resData.data;
+      // 如果返回空数组，可以显示提示信息
+      if (recommendedBooks.value.length === 0) {
+        showToast('暂无推荐作品');
+      }
+    } else if (resData.code === 404) {
+      error.value = '您尚未设置喜欢的标签，请先去设置偏好';
+      showToast(error.value);
+    } else {
+      throw new Error(`请求失败: ${resData.message || '未知错误'}`);
+    }
+    
+  } catch (err) {
+    console.error('请求详情:', err);
+    error.value = '获取推荐作品失败，请稍后重试';
+    showToast(error.value);
+  } finally {
+    loading.value = false;
+  }
+}
 
 // 页面加载时获取数据（实际项目中替换为接口请求）
 onMounted(() => {
-  // 示例：从接口获取热门作品和推荐作品
-  // fetchHotBooks();
-  // fetchRecommendedBooks();
+  fetchRecommendedBooks();
 });
 </script>
 
