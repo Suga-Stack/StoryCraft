@@ -41,96 +41,14 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { showToast } from 'vant'
-import bookCover1 from '../assets/book1.jpg';  
-import bookCover2 from '../assets/book2.jpg';
-import bookCover3 from '../assets/book3.jpg';
-import bookCover4 from '../assets/book4.jpg';
-import bookCover5 from '../assets/book5.jpg';
-import bookCover6 from '../assets/book6.jpg';
-import bookCover7 from '../assets/book7.jpg';
-import bookCover8 from '../assets/book8.jpg';
+import { getReadingHistory } from '../api/user'
 
 const router = useRouter()
 const route = useRoute()
-
-// 模拟阅读历史数据（实际项目中可能从API获取）
-const readingHistory = ref([
-  {
-    id: 1,
-    title: '青春物语',
-    cover: bookCover1,
-    author: '李明',
-    description: '这是一本关于青春成长的小说，讲述了主人公在高中时期的点点滴滴...',
-    tags: ['青春', '校园', '成长'],
-    isFavorite: true
-  },
-  {
-    id: 2,
-    title: '职场生存指南',
-    cover: bookCover2,
-    author: '张华',
-    description: '实用的职场技巧分享，帮助新人快速适应职场环境...',
-    tags: ['职场', '技能', '励志'],
-    isFavorite: false
-  },
-  {
-    id: 3,
-    title: '人工智能简史',
-    cover: bookCover3,
-    author: '王教授',
-    description: '从起源到未来，全面解析人工智能的发展历程...',
-    tags: ['科技', 'AI', '科普'],
-    isFavorite: false
-  },
-  {
-    id: 4,
-    title: '旅行日记',
-    cover: bookCover4,
-    author: '旅行者',
-    description: '记录了环游世界的奇妙经历和所见所闻...',
-    tags: ['旅行', '生活', '随笔'],
-    isFavorite: false
-  },
-  {
-    id: 105,
-    title: '星空观测手记',
-    cover: bookCover5,
-    author: '张三', 
-    description: '记录不同季节的星空变化，分享观测技巧与星座故事，带你领略宇宙的浩瀚与浪漫...',
-    tags: ['星空', '天文', '科普'],
-    isFavorite: false
-  },
-  {
-    id: 106,
-    title: '城市漫步指南',
-    cover: bookCover6,
-    author: '王二', 
-    description: '探访城市里的小众角落，记录老街巷的烟火气与人文故事，发现日常中的不寻常...',
-    tags: ['旅行', '城市', '人文'],
-    isFavorite: false
-  },
-  {
-    id: 107,
-    title: '极简手账术',
-    cover: bookCover7,
-    author: '麻子', // 当前用户
-    description: '分享高效实用的手账记录方法，用简单的笔触留住生活点滴，让手账成为生活的调味剂...',
-    tags: ['手账', '生活', '技巧'],
-    isFavorite: false
-  },
-  {
-    id: 108,
-    title: '绿植养护大全',
-    cover: bookCover8,
-    author: '柱子', // 当前用户
-    description: '从入门到精通的绿植养护指南，涵盖常见绿植的浇水、光照、施肥技巧，打造专属绿意空间...',
-    tags: ['绿植', '园艺', '生活'],
-    isFavorite: false
-  }
-])
+const readingHistory = ref([])
 
 const tagColorOptions = [
   { backgroundColor: '#e0f2fe', color: '#0284c7' },
@@ -139,7 +57,28 @@ const tagColorOptions = [
   { backgroundColor: '#fff7ed', color: '#c2410c' },
   { backgroundColor: '#f5f3ff', color: '#6b21a8' },
   { backgroundColor: '#fee2e2', color: '#b91c1c' },
-];
+]
+
+// 在组件挂载时获取阅读历史
+onMounted(() => {
+  fetchReadingHistory()
+})
+
+// 获取当前用户阅读历史的作品列表
+const fetchReadingHistory = async () => {
+  try {
+    const response = await getReadingHistory();
+    
+    if (!response.data.code || response.data.code !== 200) {
+      throw new Error('获取阅读历史失败')
+    }
+    
+    readingHistory.value = response.data.data;
+  } catch (error) {
+    showToast(error.message || '获取数据失败，请稍后重试')
+    console.error('作品列表请求失败:', error)
+  }
+}
 
 
 // 返回上一页
