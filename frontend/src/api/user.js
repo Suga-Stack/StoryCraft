@@ -43,3 +43,7 @@ export const updateUserInfo = (id, data) => {
 export const uploadProfilePicture = (file) => {
   return http.post(`/game/upload-iamge/`, file )
 }
+
+export const recommend = () => {
+  return http.get('/gameworks/recommend/')
+}
