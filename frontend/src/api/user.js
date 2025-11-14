@@ -111,3 +111,13 @@ export const deleteFavorite = (id) => {
 export const moveFavorite = (id, folderId) => {
   return http.patch(`/interactions/favorites/${id}/`, {folderId})
 }
+
+//获取评论
+export const getComments = (page, gamework) => {
+  return http.get('/interactions/comments/', {page, gamework});
+}
+
+//发表评论
+export const postComments = (content, gamework, parent) => {
+  return http.post('/interactions/comments/', {content, gamework, parent});
+}
