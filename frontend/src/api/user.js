@@ -47,3 +47,20 @@ export const uploadProfilePicture = (file) => {
 export const recommend = () => {
   return http.get('/gameworks/recommend/')
 }
+
+export const getReadingHistory = () => {
+  return http.get('/users/read/'); 
+}
+
+export const getRecentReadingHistory = () => {
+  return http.get('/users/read/recent/'); 
+}
+
+export const getMyworks = () => {
+  return http.get('/users/myworks/'); 
+}
+
+export const getRecentMyworks = () => {
+  return http.get('/users/myworks/recent/'); 
+}
+

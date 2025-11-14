@@ -148,13 +148,11 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import bookCover1 from '../assets/book1.jpg';  
-import bookCover2 from '../assets/book2.jpg';
-import bookCover3 from '../assets/book3.jpg';
-import bookCover4 from '../assets/book4.jpg';
 import { updateUserInfo } from '../api/user';
 import { getUserInfo } from '../api/user';
 import http from '../utils/http';
+import { getRecentReadingHistory } from '../api/user';
+import { getRecentMyworks } from '../api/user';
 
 // 路由实例
 const router = useRouter()
@@ -172,32 +170,10 @@ const userGender = ref('')
 const newUsername = ref('')
 
 // 阅读历史数据
-const readingHistory = ref([
-  {
-    id: 1,
-    title: '青春物语',
-    cover: bookCover1
-  },
-  {
-    id: 2,
-    title: '职场生存指南',
-    cover: bookCover2
-  }
-])
+const readingHistory = ref([])
 
 // 我的创作数据
-const myCreations = ref([
-  {
-    id: 101,
-    title: '科幻世界',
-    cover: bookCover3
-  },
-  {
-    id: 102,
-    title: '美食日记',
-    cover: bookCover4
-  }
-])
+const myCreations = ref([])
 
 // 添加用户信息获取接口
 const fetchUserInfo = async (userId) => {
@@ -232,7 +208,39 @@ const getUserIdFromStorage = () => {
   }
   router.push('/login');
   return null;
-};
+}
+
+// 获取阅读历史的函数
+const fetchReadingHistory = async () => {
+  try {
+    const response = await getRecentReadingHistory();
+    // 假设接口返回格式为 { data: [...] }
+    if (response.data.code === 200) {
+      readingHistory.value = response.data.data;
+    } else {
+      throw new Error(response.data.message || '获取阅读历史失败');
+    }
+  } catch (error) {
+    console.error('获取阅读历史失败:', error);
+    showToast(error.message || '加载阅读历史出错');
+  }
+}
+
+// 获取创作作品的函数
+const fetchMyCreations = async () => {
+  try {
+    const response = await getRecentMyworks();
+    // 假设接口返回格式为 { data: [...] }
+    if (response.data.code === 200) {
+      myCreations.value = response.data.data;
+    } else {
+      throw new Error(response.data.message || '获取创作作品失败');
+    }
+  } catch (error) {
+    console.error('获取创作作品失败:', error);
+    showToast(error.message || '加载创作作品出错');
+  }
+}
 
 // 页面挂载时设置当前活跃标签
 onMounted(async () => {
@@ -248,6 +256,9 @@ onMounted(async () => {
     username.value = userData.username
     userPoints.value = userData.user_credits || 0
     userGender.value = userData.gender || '未设置'
+
+    await fetchReadingHistory()
+    await fetchMyCreations()
   } catch (error) {
     console.error('获取用户信息失败', error)
   }
