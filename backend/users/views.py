@@ -213,7 +213,10 @@ class ReadGameworkListView(APIView):
     @swagger_auto_schema(
         operation_summary="获取当前用户读过的作品",
         responses={
-            200: openapi.Response(description="用户读过的作品列表")
+            200: openapi.Response(
+                description="用户读过的作品列表",
+                schema=GameworkSerializer
+            )
         }
     )
     def get(self, request):
@@ -296,15 +299,7 @@ class RecentReadGameworksView(APIView):
         responses={
             200: openapi.Response(
                 description='返回最近两部用户读过的作品',
-                examples={
-                    "application/json": {
-                        "code": 200,
-                        "data": [
-                            {"id": 5, "title": "未来都市"},
-                            {"id": 3, "title": "梦境回廊"}
-                        ]
-                    }
-                }
+                schema=GameworkSerializer
             )
         }
     )
@@ -332,15 +327,7 @@ class MyGameworkListView(APIView):
         responses={
             200: openapi.Response(
                 description='当前用户创作的作品列表',
-                examples={
-                    "application/json": {
-                        "code": 200,
-                        "data": [
-                            {"id": 1, "title": "我的作品A", "image_url": "https://..."},
-                            {"id": 2, "title": "我的作品B", "image_url": "https://..."}
-                        ]
-                    }
-                }
+                schema=GameworkSerializer
             )
         }
     )
@@ -362,15 +349,7 @@ class RecentMyGameworksView(APIView):
         responses={
             200: openapi.Response(
                 description='最近两部创作的作品',
-                examples={
-                    "application/json": {
-                        "code": 200,
-                        "data": [
-                            {"id": 5, "title": "我的作品B", "image_url": "https://..."},
-                            {"id": 3, "title": "我的作品A", "image_url": "https://..."}
-                        ]
-                    }
-                }
+                schema=GameworkSerializer
             )
         }
     )
