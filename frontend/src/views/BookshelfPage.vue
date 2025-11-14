@@ -7,7 +7,7 @@
         <button @click="showSearch = !showSearch" class="icon-btn">
           <i class="search-icon">🔍</i>
         </button>
-        <button @click="openCreateFolderDialog" class="icon-btn" v-if="!currentFolder">
+        <button @click="showCreateFolderPopup = true" class="icon-btn" v-if="!currentFolder">
           <i class="add-folder-icon">+</i>
         </button>
         <button @click="goBack" class="icon-btn" v-if="currentFolder">
@@ -27,6 +27,7 @@
         v-model="searchQuery"
         placeholder="搜索收藏作品..."
         class="search-input"
+        @input="handleSearch"
       >
       <button @click="searchQuery = ''" class="clear-search" v-if="searchQuery">
         ×
@@ -127,7 +128,7 @@
       </div>
     </div>
 
-    <!-- 在模板中添加移除确认对话框 -->
+    <!-- 移除确认对话框 -->
     <div class="dialog-overlay" v-if="showRemoveFromFolderDialog">
       <div class="dialog">
         <h3>从收藏夹移除</h3>
@@ -144,28 +145,37 @@
       </div>
     </div>
 
-    <!-- 创建收藏夹对话框 -->
-    <div class="dialog-overlay" v-if="showCreateFolderDialog">
-      <div class="dialog">
-        <h3>创建新收藏夹</h3>
-        <input
-          type="text"
-          v-model="newFolderName"
-          placeholder="输入收藏夹名称"
-          class="folder-input"
-        >
-        <div class="dialog-buttons">
-          <button @click="showCreateFolderDialog = false" class="cancel-btn">取消</button>
-          <button 
-            @click="createFolder" 
-            class="confirm-btn"
-            :disabled="!newFolderName.trim()"
-          >
-            创建
-          </button>
-        </div>
+    <!-- 创建收藏夹弹窗 -->
+    <van-popup
+      v-model:show="showCreateFolderPopup"
+      round
+      position="bottom"
+      :style="{ height: '30%' }"
+    >
+      <div class="popup-header">
+        <span>创建新收藏夹</span>
+        <van-button type="text" @click="showCreateFolderPopup = false">取消</van-button>
       </div>
-    </div>
+      <van-field
+        v-model="folderName"
+        placeholder="请输入收藏夹名称"
+        clearable
+        class="folder-input"
+      />
+      <div class="popup-footer">
+        <van-button 
+          type="primary" 
+          block 
+          @click="handleCreateFolder"
+          :style="{ 
+            background: 'linear-gradient(135deg, #d4a5a5 0%, #b88484 100%)',
+            border: 'none'
+          }"
+        >
+          创建
+        </van-button>
+      </div>
+    </van-popup>
 
     <!-- 添加到收藏夹对话框 -->
     <div class="dialog-overlay" v-if="showAddToFolderDialog">
@@ -210,117 +220,32 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import bookCover1 from '../assets/book1.jpg';  
-import bookCover2 from '../assets/book2.jpg';
-import bookCover3 from '../assets/book3.jpg';
-import bookCover4 from '../assets/book4.jpg';
-import bookCover5 from '../assets/book5.jpg';
-import bookCover6 from '../assets/book6.jpg';
-import bookCover7 from '../assets/book7.jpg';
-import bookCover8 from '../assets/book8.jpg';
+import { getFolders, createFolders, deleteFolders, searchFavorites, addFavorite, moveFavorite, deleteFavorite } from '../api/user';
+import { Toast } from 'vant';
 
 // 路由实例
 const router = useRouter();
 
-// 状态管理
-const folders = ref([
-  { id: 1, name: '默认收藏夹' }
-]);
-
-const books = ref([
-  { 
-    id: 1, 
-    title: '星辰大海', 
-    author: '张三', 
-    cover: bookCover1,
-    isFavorite: true,
-    folderId: 1
-  },
-  { 
-    id: 2, 
-    title: '时光旅行者', 
-    author: '李四', 
-    cover: bookCover2,
-    isFavorite: true,
-    folderId: 1
-  },
-  { 
-    id: 3, 
-    title: '城市微光', 
-    author: '王五', 
-    cover: bookCover3,
-    isFavorite: true,
-    folderId: null
-  },
-  { 
-    id: 4, 
-    title: '青春物语', 
-    author: '赵六', 
-    cover: bookCover4,
-    isFavorite: true,
-    folderId: null
-  },
-  {
-    id: 5,
-    title: "职场生存指南",
-    author: "钱七",
-    cover: bookCover5,
-    isFavorite: true,
-    folderId: null  
-  },
-  {
-    id: 6,
-    title: "科幻世界",
-    author: "孙八",
-    cover: bookCover2,
-    isFavorite: true,
-    folderId: null  
-  },
-  {
-    id: 7,
-    title: "美食日记",
-    author: "周九",
-    cover: bookCover1,
-    isFavorite: true,
-    folderId: null  
-  },
-  {
-    id: 8,
-    title: "山间小屋",
-    author: "吴十",
-    cover: bookCover6,
-    isFavorite: true,
-    folderId: null
-  },
-  {
-    id: 9,
-    title: "编程入门指南",
-    author: "郑十一",
-    cover: bookCover7,
-    isFavorite: true,
-    folderId: null
-  },
-  {
-    id: 10,
-    title: "绿植养护大全",
-    author: "冯十二",
-    cover: bookCover8,
-    isFavorite: true,
-    folderId: null
-  }
-]);
+// 数据存储
+const folders = ref([]);
+const books = ref([]);
+const folderToDelete = ref(null);
 
 // 交互状态
 const currentFolder = ref(null);
 const showSearch = ref(false);
 const searchQuery = ref('');
-const showCreateFolderDialog = ref(false);
-const newFolderName = ref('');
 const selectedFolderId = ref('');
 const showAddToFolderDialog = ref(false);
 const currentBook = ref(null);
 const isBatchMode = ref(false);
 const selectedBooks = ref([]);
+const showRemoveFromFolderDialog = ref(false);
+const showDeleteFolderDialog = ref(false);
+
+// 收藏夹相关状态
+const folderName = ref('');
+const showCreateFolderPopup = ref(false);
 
 // 底部导航
 const activeTab = ref('bookshelf');
@@ -343,95 +268,260 @@ const handleTabChange = (name) => {
   }
 };
 
-// 从本地存储加载数据
-onMounted(() => {
-  const savedFolders = localStorage.getItem('bookFolders');
-  const savedBooks = localStorage.getItem('books');
-  
-  if (savedFolders) folders.value = JSON.parse(savedFolders);
-  if (savedBooks) books.value = JSON.parse(savedBooks);
-});
-
-// 保存数据到本地存储
-const saveData = () => {
-  localStorage.setItem('bookFolders', JSON.stringify(folders.value));
-  localStorage.setItem('books', JSON.stringify(books.value));
+// 加载收藏作品
+const loadFavoriteBooks = async () => {
+  try {
+    const response = await searchFavorites('', 1);
+    books.value = response.data.results;
+    saveData();
+  } catch (error) {
+    console.error('加载收藏作品失败', error);
+    const savedBooks = localStorage.getItem('favoriteBooks');
+    try {
+      // 解析本地存储时也可能出错，需要捕获
+      books.value = savedBooks ? JSON.parse(savedBooks) : [];
+    } catch (e) {
+      console.error('解析本地书籍数据失败', e);
+      books.value = []; // 确保是数组
+    }
+  }
 };
 
-// 计算属性：过滤后的书籍列表
+// 加载收藏夹数据
+const loadFolders = async () => {
+  try {
+    const response = await getFolders();
+    folders.value = response.data.results;
+    saveData();
+  } catch (error) {
+    console.error('加载收藏夹失败', error);
+    const savedFoldersData = localStorage.getItem('bookFolders'); 
+    if (savedFoldersData) {
+      folders.value = JSON.parse(savedFoldersData); 
+    }
+  }
+};
+
+// 初始化加载数据
+onMounted(() => {
+  loadFolders();
+  loadFavoriteBooks();
+});
+
+// 筛选书籍
 const filteredBooks = computed(() => {
-  let result = [...books.value];
-  
-  // 根据当前目录筛选
+  const bookList = Array.isArray(books.value) ? books.value : [];
+  let result = [...bookList];
+
+  // 根据当前文件夹筛选
   if (currentFolder.value) {
     result = result.filter(book => book.folderId === currentFolder.value.id);
   } else {
-    // 根目录显示未分类的收藏书籍
-    result = result.filter(book => book.isFavorite && book.folderId === null);
+    // 根目录下显示未分类的书籍（folderId为null或空）
+    result = result.filter(book => !book.folderId);
   }
   
-  // 根据搜索关键词筛选
+  // 搜索筛选
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase();
     result = result.filter(book => 
       book.title.toLowerCase().includes(query) || 
-      book.author.toLowerCase().includes(query)
+      (book.author && book.author.toLowerCase().includes(query))
     );
   }
   
   return result;
 });
 
-// 获取收藏夹中的书籍数量
-const getFolderBookCount = (folderId) => {
-  return books.value.filter(book => book.folderId === folderId).length;
-};
+// 搜索防抖处理
+const handleSearch = debounce(() => {
+  // 防抖处理，避免频繁触发筛选
+}, 300);
 
-// 切换书籍收藏状态
-const handleFavorite = (book) => {
-  book.isFavorite = !book.isFavorite;
-  // 如果取消收藏，同时从收藏夹中移除
-  if (!book.isFavorite) {
-    book.folderId = null;
-  }
-  saveData();
-};
+// 防抖函数实现
+function debounce(func, delay = 300) {
+  let timer = null;
+  return function(...args) {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      func.apply(this, args);
+    }, delay);
+  };
+}
 
-
-// 处理收藏夹操作（添加/移除）
-const handleFolderAction = (book) => {
-  if (!book.isFavorite) {
-    alert('请先收藏该书籍');
+// 创建收藏夹
+const handleCreateFolder = async () => {
+  if (!folderName.value.trim()) {
+    // 使用正确的Toast提示方式
+    Toast({ message: '请输入收藏夹名称', type: 'fail' });
     return;
   }
   
-  if (book.folderId) {
-    // 移除出收藏夹 - 改为显示对话框
-    currentBook.value = book;
-    showRemoveFromFolderDialog.value = true; // 新增一个对话框状态
-  } else {
-    // 添加到收藏夹（保持不变）
-    currentBook.value = book;
-    showAddToFolderDialog.value = true;
+  try {
+    // 获取接口返回的新收藏夹完整数据（包含name）
+    const response = await createFolders(folderName.value);
+    const newFolder = response.data; // 接口返回的{id, name, ...}对象
+    
+    // 直接添加到本地列表，实时显示名称
+    folders.value.push(newFolder);
+    
+    // 成功提示
+    Toast({ message: '收藏夹创建成功', type: 'success' });
+    
+    folderName.value = '';
+    showCreateFolderPopup.value = false;
+    saveData(); // 立即保存到本地存储
+    loadFolders();
+  } catch (error) {
+    console.error('创建收藏夹失败', error);
+    // 错误提示
+    Toast({ 
+      message: error.response?.data?.message || '创建收藏夹失败', 
+      type: 'fail' 
+    });
   }
 };
 
-// 确认添加到收藏夹
-const confirmAddToFolder = () => {
+
+// 删除收藏夹
+const confirmDeleteFolder = async () => {
+  if (folderToDelete.value) {
+    try {
+      await deleteFolders(folderToDelete.value);
+      
+      // 将收藏夹中的书籍移回书架
+      books.value.forEach(book => {
+        if (book.folderId === folderToDelete.value) {
+          book.folderId = null;
+        }
+      });
+      
+      // 如果删除当前打开的文件夹，自动返回根目录
+      if (currentFolder.value && currentFolder.value.id === folderToDelete.value) {
+        currentFolder.value = null;
+      }
+      
+      loadFolders();
+      saveData();
+      folderToDelete.value = null;
+      Toast.success('收藏夹已删除');
+    } catch (error) {
+      console.error('删除收藏夹失败', error);
+      Toast.fail(error.response?.data?.message || '删除收藏夹失败');
+    }
+  }
+};
+
+// 打开删除收藏夹对话框
+const openDeleteFolderDialog = (folderId) => {
+  folderToDelete.value = folderId;
+  showDeleteFolderDialog.value = true;
+};
+
+// 单个作品加入收藏夹
+const handleAddToFolder = async (book, folderId) => {
+  try {
+    // 调用moveFavorite接口执行移动操作
+    await moveFavorite(book.id, folderId);
+    // 更新本地数据，标记所属收藏夹
+    book.folderId = folderId;
+    saveData(); // 保存到localStorage
+    Toast.success('已加入收藏夹');
+  } catch (error) {
+    console.error('加入收藏夹失败', error);
+    Toast.fail('操作失败: ' + (error.response?.data?.message || '未知错误'));
+  }
+};
+
+// 批量加入收藏夹（在confirmAddToFolder中修正）
+const confirmAddToFolder = async () => {
   if (!selectedFolderId.value) return;
   
-  if (currentBook.value) {
-    // 单个添加
-    currentBook.value.folderId = selectedFolderId.value;
-  } else if (selectedBooks.value.length) {
-    // 批量添加
-    selectedBooks.value.forEach(book => {
-      book.folderId = selectedFolderId.value;
-    });
+  try {
+    if (currentBook.value) {
+      // 单个移动：使用moveFavorite替代addFavorite
+      await moveFavorite(currentBook.value.id, selectedFolderId.value);
+      currentBook.value.folderId = selectedFolderId.value;
+    } else if (selectedBooks.value.length) {
+      // 批量移动
+      const batchSize = 5;
+      const batches = [];
+      for (let i = 0; i < selectedBooks.value.length; i += batchSize) {
+        batches.push(selectedBooks.value.slice(i, i + batchSize));
+      }
+      
+      for (const batch of batches) {
+        await Promise.all(
+          // 批量调用moveFavorite接口
+          batch.map(book => moveFavorite(book.id, selectedFolderId.value))
+        );
+        batch.forEach(book => {
+          book.folderId = selectedFolderId.value;
+        });
+      }
+      
+      selectedBooks.value = [];
+      isBatchMode.value = false;
+    }
+    
+    saveData();
+    showAddToFolderDialog.value = false;
+    selectedFolderId.value = '';
+    Toast.success('添加成功');
+  } catch (error) {
+    console.error('添加到收藏夹失败', error);
+    Toast.fail('添加失败: ' + (error.response?.data?.message || '未知错误'));
   }
+};
+
+// 单个作品移出收藏夹
+const confirmRemoveFromFolder = async () => {
+  if (currentBook.value) {
+    try {
+      // 移出到根目录本质是移动到"无收藏夹"状态，folderId传空或null
+      await moveFavorite(currentBook.value.id, null);
+      currentBook.value.folderId = null; // 清空所属收藏夹标识
+      saveData();
+      showRemoveFromFolderDialog.value = false;
+      Toast.success('已移出收藏夹');
+    } catch (error) {
+      console.error('从收藏夹移除失败', error);
+      Toast.fail('移除失败: ' + (error.response?.data?.message || '未知错误'));
+    }
+  }
+};
+
+// 批量移出收藏夹
+const removeSelectedFromFolder = async () => {
+  if (selectedBooks.value.length === 0) return;
   
-  showAddToFolderDialog.value = false;
-  saveData();
+  try {
+    // 批量调用moveFavorite，目标folderId为null（根目录）
+    await Promise.all(
+      selectedBooks.value.map(book => moveFavorite(book.id, null))
+    );
+    
+    // 更新本地数据，清空folderId
+    selectedBooks.value.forEach(book => {
+      book.folderId = null;
+    });
+    
+    saveData();
+    selectedBooks.value = [];
+    isBatchMode.value = false;
+    Toast.success('已批量移出');
+  } catch (error) {
+    console.error('批量移出失败', error);
+    Toast.fail('批量移出失败: ' + (error.response?.data?.message || '未知错误'));
+  }
+};
+
+// 获取收藏夹书籍数量
+const getFolderBookCount = (folderId) => {
+  if (!Array.isArray(books.value)) {
+    return 0;
+  }
+  return books.value.filter(book => book.folderId === folderId).length;
 };
 
 // 进入收藏夹
@@ -444,42 +534,6 @@ const enterFolder = (folder) => {
 const goBack = () => {
   currentFolder.value = null;
   searchQuery.value = '';
-};
-
-// 打开创建收藏夹对话框
-const openCreateFolderDialog = () => {
-  showCreateFolderDialog.value = true;
-}
-
-// 创建新收藏夹
-const createFolder = () => {
-  if (!newFolderName.value.trim()) return;
-  
-  const newFolder = {
-    id: Date.now(),
-    name: newFolderName.value.trim()
-  };
-  
-  folders.value.push(newFolder);
-  newFolderName.value = '';
-  showCreateFolderDialog.value = false;
-  saveData();
-};
-
-// 删除收藏夹
-const deleteFolder = (folderId) => {
-  if (confirm('确定要删除这个收藏夹吗？里面的书籍会回到书架。')) {
-    // 将收藏夹中的书籍移回书架
-    books.value.forEach(book => {
-      if (book.folderId === folderId) {
-        book.folderId = null;
-      }
-    });
-    
-    // 删除收藏夹
-    folders.value = folders.value.filter(folder => folder.id !== folderId);
-    saveData();
-  }
 };
 
 // 批量管理相关函数
@@ -504,36 +558,41 @@ const cancelBatchMode = () => {
   selectedBooks.value = [];
 };
 
-const removeSelectedFromFolder = () => {
-  if (confirm(`确定要将选中的${selectedBooks.value.length}本书从收藏夹中移除吗？`)) {
-    selectedBooks.value.forEach(book => {
-      book.folderId = null;
-    });
-    selectedBooks.value = [];
-    saveData();
-  }
-};
-
 // 打开阅读器
 const openReader = (bookId) => {
   router.push(`/reader/${bookId}`);
 };
 
-const showRemoveFromFolderDialog = ref(false);
-
-// 添加确认移除的方法
-const confirmRemoveFromFolder = () => {
-  if (currentBook.value) {
-    currentBook.value.folderId = null;
-    saveData();
-  }
-};
-
-// 在resetFolderDialog中添加重置
+// 重置收藏夹对话框状态
 const resetFolderDialog = () => {
   currentBook.value = null;
   selectedFolderId.value = '';
-  showRemoveFromFolderDialog.value = false; // 新增
+  showRemoveFromFolderDialog.value = false;
+};
+
+// 保存数据到本地存储
+const saveData = () => {
+  localStorage.setItem('favoriteBooks', JSON.stringify(books.value));
+  localStorage.setItem('bookFolders', JSON.stringify(folders.value));
+};
+
+// 处理收藏状态
+const handleFavorite = async (book) => {
+  try {
+    if (book.isFavorite) {
+      await deleteFavorite(book.id);
+      book.isFavorite = false;
+      Toast.success('已取消收藏');
+    } else {
+      await addFavorite(book.gamework_id);
+      book.isFavorite = true;
+      Toast.success('收藏成功');
+    }
+    saveData();
+  } catch (error) {
+    console.error('处理收藏失败', error);
+    Toast.fail(error.response?.data?.message || '操作失败');
+  }
 };
 </script>
 
@@ -659,7 +718,6 @@ const resetFolderDialog = () => {
   color: #777;
 }
 
-/* 同步修改样式 */
 .folder-delete-icon {
   position: absolute;
   top: 5px;
@@ -674,7 +732,7 @@ const resetFolderDialog = () => {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  text-transform: uppercase; /* 确保是小写x的统一显示 */
+  text-transform: uppercase;
 }
 
 .books-grid {
@@ -695,9 +753,9 @@ const resetFolderDialog = () => {
   width: 100%;
   height: 100px;
   border-radius: 8px;
-  background-size: contain; /* 改为contain，确保图片完整显示 */
-  background-repeat: no-repeat; /* 防止图片重复平铺 */
-  background-position: center; /* 图片在容器中居中 */
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
 }
 
 .book-info-grid{
@@ -782,12 +840,6 @@ const resetFolderDialog = () => {
   font-size: 16px;
 }
 
-.dialog-buttons {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
 .dialog-actions {
   display: flex;
   gap: 12px;
@@ -866,6 +918,29 @@ const resetFolderDialog = () => {
   border-radius: 8px;
   overflow: hidden;
   height: 150px;
+}
+
+.popup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  border-bottom: 1px solid #eee;
+}
+
+.folder-input {
+  padding: 0 16px;
+  margin-top: 16px;
+}
+
+.popup-footer {
+  padding: 16px;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background-color: #fff;
+  box-sizing: border-box;
 }
 
 @media (max-width: 768px) {

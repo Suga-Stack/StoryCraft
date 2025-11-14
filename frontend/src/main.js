@@ -1,15 +1,16 @@
 import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'
-import { store } from './store'
-import { useUserStore, useStoryStore } from './store'
+import Vant from 'vant'
+import 'vant/lib/index.css'
+import { useUserStore } from './store'
 
 // 导入Vant组件
 import { 
   Button, Cell, CellGroup, Tabbar, TabbarItem, NavBar, 
   Field, Toast, Tabs, Tab, List, Grid, GridItem, Empty, 
   Icon, RadioGroup, Radio, Tag, Dialog, Search,
-  Swipe, SwipeItem, Divider, Loading, Image, Row, Col, Popup, showToast
+  Swipe, SwipeItem, Divider, Loading, Image, Row, Col, Popup
 } from 'vant'
 import 'vant/lib/index.css'
 
@@ -45,7 +46,7 @@ app.use(Image)
 app.use(Row)
 app.use(Col)
 app.use(Popup)
-app.use(showToast)
+app.use(pinia)
 
 // 2. 注册路由和状态管理
 app.use(router)

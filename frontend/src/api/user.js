@@ -75,3 +75,39 @@ export const getFavoriteLeaderboard = () => {
 export const getRatingLeaderboard = () => {
   return http.get('/gameworks/rating-leaderboard/');
 }
+
+//创建收藏夹
+export const createFolders = (name) => {
+  return http.post('/interactions/favorite-folders/',{name});
+}
+
+//获取所有的收藏夹
+export const getFolders = () => {
+  return http.get('/interactions/favorite-folders/');
+}
+
+
+//删除收藏夹
+export const deleteFolders = (id) => {
+  return http.delete(`/interactions/favorite-folders/${id}/`);
+}
+
+// 获取收藏夹中的作品列表
+export const searchFavorites = (search, page, folder) => {
+  return http.get('/interactions/favorites/',{search, page, folder});//folder筛选所属收藏夹ID（send empty value或为 null 显示未分组，不传显示全部）
+}
+
+// 把作品添加到收藏
+export const addFavorite = (gamework_id, folder) => {
+  return http.post('/interactions/favorites/', {gamework_id, folder});
+}
+
+// 取消收藏
+export const deleteFavorite = (id) => {
+  return http.delete(`/interactions/favorites/${id}/`)
+}
+
+//移动到其他收藏夹
+export const moveFavorite = (id, folderId) => {
+  return http.patch(`/interactions/favorites/${id}/`, {folderId})
+}
