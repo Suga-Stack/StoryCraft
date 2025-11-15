@@ -263,8 +263,7 @@ class GameworkRatingLeaderboardViewSet(viewsets.ViewSet):
     )
     def list(self, request):
         # 查询作品并按评分的平均值排序（降序）
-        queryset = Gamework.objects(Gamework.objects.filter(is_published=True)
-            .annotate(average_score=Avg(F('ratings__score'))).order_by('-average_score')[:10])
+        queryset = Gamework.objects.filter(is_published=True).annotate(average_score=Avg(F('ratings__score'))).order_by('-average_score')[:10]
         
         # 序列化数据
         serializer = GameworkSerializer(queryset, many=True)
