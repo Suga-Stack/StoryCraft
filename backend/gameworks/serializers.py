@@ -2,6 +2,8 @@ from rest_framework import serializers
 from .models import Gamework
 from tags.models import Tag
 from django.db.models import Avg
+from interactions.models import Comment
+from interactions.serializers import CommentSerializer
 
 class GameworkDetailSerializer(serializers.ModelSerializer):
     author = serializers.StringRelatedField(read_only=True)
@@ -24,6 +26,10 @@ class GameworkDetailSerializer(serializers.ModelSerializer):
     outlines = serializers.SerializerMethodField()
     chapters_status = serializers.SerializerMethodField()
 
+    # 作品评论
+    comments_by_time = serializers.SerializerMethodField()
+    comments_by_hot = serializers.SerializerMethodField()
+
     class Meta:
         model = Gamework
         fields = (
@@ -31,7 +37,8 @@ class GameworkDetailSerializer(serializers.ModelSerializer):
             'is_published', 'created_at', 'updated_at', 'published_at',
             'favorite_count', 'average_score', 'rating_count', 'read_count', 'is_favorited',
             'is_complete', 'generated_chapters', 'total_chapters', 'modifiable', 'ai_callable',
-            'initial_attributes', 'initial_statuses', 'outlines', 'chapters_status'
+            'initial_attributes', 'initial_statuses', 'outlines', 'chapters_status',
+            'comments_by_time', 'comments_by_hot'
         )
 
     def get_image_url(self, obj):
@@ -128,6 +135,35 @@ class GameworkDetailSerializer(serializers.ModelSerializer):
             result.append({'chapterIndex': i, 'status': status})
             
         return result
+    
+    def get_comments_by_time(self, obj):
+        """返回该作品的所有顶级评论 + 嵌套回复"""
+        qs = Comment.objects.filter(
+            gamework=obj,
+            parent__isnull=True
+        ).select_related("user").prefetch_related("replies__user")
+        return CommentSerializer(qs, many=True).data
+    
+    def get_comments_by_hot(self, obj):
+        qs = Comment.objects.filter(
+            gamework=obj,
+            parent__isnull=True
+        ).select_related("user").prefetch_related("replies__user", "likes")
+
+        # 手动计算热度：回复数 + 点赞数
+        comment_list = list(qs)
+
+        for c in comment_list:
+            c.reply_count = c.replies.count()
+            c.like_count = c.likes.count()
+            c.hot_score = c.reply_count + c.like_count
+
+        # 按热度倒序排列
+        comment_list.sort(key=lambda c: c.hot_score, reverse=True)
+
+        return CommentSerializer(comment_list, many=True, context=self.context).data
+
+    
     
 class GameworkSimpleSerializer(serializers.ModelSerializer):
     author = serializers.StringRelatedField(read_only=True)

@@ -1,10 +1,11 @@
 from rest_framework import viewsets, status, permissions, filters
 from rest_framework.response import Response
-from .models import Favorite, Comment, Rating, FavoriteFolder
+from rest_framework.decorators import action
+from .models import Favorite, Comment, Rating, FavoriteFolder, CommentLike
 from .serializers import FavoriteSerializer, CommentSerializer, RatingSerializer, FavoriteFolderSerializer
-from drf_yasg.utils import swagger_auto_schema
+from drf_yasg.utils import swagger_auto_schema, no_body
 from drf_yasg import openapi
-from django.db.models import Avg
+from django.db.models import Avg, Count, Prefetch
 
 class FavoriteFolderViewSet(viewsets.ModelViewSet):
     """
@@ -192,8 +193,22 @@ class CommentViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        user = self.request.user
         gamework_id = self.request.query_params.get('gamework')
-        queryset = Comment.objects.all().select_related('user', 'gamework').prefetch_related('replies__user')
+        queryset = (Comment.objects
+            .select_related('user', 'gamework')
+            .annotate(like_count=Count('likes', distinct=True))
+        )
+            
+        if user.is_authenticated:
+            queryset = queryset.prefetch_related(
+                Prefetch(
+                    'likes',
+                    queryset=CommentLike.objects.filter(user=user),
+                    to_attr='user_likes'
+                )
+            )    
+        
         if gamework_id:
             queryset = queryset.filter(gamework_id=gamework_id, parent__isnull=True)  # 顶级评论分页
         else:
@@ -238,6 +253,78 @@ class CommentViewSet(viewsets.ModelViewSet):
             "message": "评论发布成功",
             "data": serializer.data
         }, status=status.HTTP_201_CREATED)
+
+    @swagger_auto_schema(
+        operation_summary="点赞评论",
+        request_body=no_body,
+        responses={
+            200: openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    "code": openapi.Schema(type=openapi.TYPE_INTEGER),
+                    "message": openapi.Schema(type=openapi.TYPE_STRING),
+                    "data": openapi.Schema(
+                        type=openapi.TYPE_OBJECT,
+                        properties={
+                            "liked": openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                            "like_count": openapi.Schema(type=openapi.TYPE_INTEGER),
+                        },
+                    ),
+                },
+            )
+        }
+    )
+    @action(detail=True, methods=['post'])
+    def like(self, request, pk=None):
+        comment = self.get_object()
+        user = request.user
+
+        like, created = CommentLike.objects.get_or_create(user=user, comment=comment)
+
+        return Response({
+            "code": 200,
+            "message": "点赞成功" if created else "已经点赞过",
+            "data": {
+                "liked": True,
+                "like_count": comment.likes.count()
+            }
+        })
+
+    @swagger_auto_schema(
+        operation_summary="取消点赞评论",
+        request_body=no_body,
+        responses={
+            200: openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    "code": openapi.Schema(type=openapi.TYPE_INTEGER),
+                    "message": openapi.Schema(type=openapi.TYPE_STRING),
+                    "data": openapi.Schema(
+                        type=openapi.TYPE_OBJECT,
+                        properties={
+                            "liked": openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                            "like_count": openapi.Schema(type=openapi.TYPE_INTEGER),
+                        },
+                    ),
+                },
+            )
+        }
+    )
+    @action(detail=True, methods=['post'])
+    def unlike(self, request, pk=None):
+        comment = self.get_object()
+        user = request.user
+
+        CommentLike.objects.filter(user=user, comment=comment).delete()
+
+        return Response({
+            "code": 200,
+            "message": "取消点赞成功",
+            "data": {
+                "liked": False,
+                "like_count": comment.likes.count()
+            }
+        })
 
 
 
