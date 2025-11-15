@@ -3,7 +3,7 @@ from .models import Gamework
 from tags.models import Tag
 from django.db.models import Avg
 
-class GameworkSerializer(serializers.ModelSerializer):
+class GameworkDetailSerializer(serializers.ModelSerializer):
     author = serializers.StringRelatedField(read_only=True)
     tags = serializers.PrimaryKeyRelatedField(many=True, read_only=False, queryset=Tag.objects.all())
     image_url = serializers.SerializerMethodField()
@@ -128,3 +128,56 @@ class GameworkSerializer(serializers.ModelSerializer):
             result.append({'chapterIndex': i, 'status': status})
             
         return result
+    
+class GameworkSimpleSerializer(serializers.ModelSerializer):
+    author = serializers.StringRelatedField(read_only=True)
+    tags = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    image_url = serializers.SerializerMethodField()
+    favorite_count = serializers.SerializerMethodField()
+    average_score = serializers.SerializerMethodField()
+    read_count = serializers.SerializerMethodField()
+    is_favorited = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Gamework
+        fields = [
+            'id', 'author', 'title', 'description', 'tags', 'image_url',
+            'is_published', 'published_at',
+            'favorite_count', 'average_score', 'read_count', 'is_favorited'
+        ]
+    def get_image_url(self, obj):
+        request = self.context.get('request')
+        if obj.image_url:
+            if request:
+                return request.build_absolute_uri(obj.image_url)
+            if not obj.image_url.startswith(('http://', 'https://')):
+                from django.conf import settings
+                return f"{settings.SITE_DOMAIN}{obj.image_url}"
+        return obj.image_url
+
+    def get_favorite_count(self, obj):
+        if hasattr(obj, "favorite_count"):
+            return obj.favorite_count
+        return obj.favorited_by.count()
+
+    def get_average_score(self, obj):
+        if hasattr(obj, "average_score"):
+            return round(obj.average_score or 0, 1)
+        avg = obj.ratings.aggregate(avg=Avg('score'))['avg']
+        return round(avg or 0, 1)
+
+    def get_read_count(self, obj):
+        if hasattr(obj, "read_count"):
+            return obj.read_count
+        return obj.read_records.values('user').distinct().count()
+
+    def get_is_favorited(self, obj):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not (user and user.is_authenticated):
+            return False
+
+        if hasattr(obj, 'user_favorites'):
+            return len(obj.user_favorites) > 0
+
+        return obj.favorited_by.filter(user=user).exists()
