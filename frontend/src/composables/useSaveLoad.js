@@ -420,7 +420,24 @@ export function useSaveLoad() {
       
       // 根据选择历史恢复场景的已选标记
       try { 
-        if (_restoreChoiceFlagsFromHistory) _restoreChoiceFlagsFromHistory() 
+        if (_restoreChoiceFlagsFromHistory) {
+          _restoreChoiceFlagsFromHistory()
+          console.log('📍 读档后恢复选项标记完成')
+          // 输出当前场景的状态以便调试
+          if (_currentSceneIndex && _storyScenes && _storyScenes.value) {
+            const curScene = _storyScenes.value[_currentSceneIndex.value]
+            if (curScene) {
+              console.log('📍 当前场景状态:', {
+                sceneId: curScene.id || curScene.sceneId,
+                choiceConsumed: curScene.choiceConsumed,
+                chosenChoiceId: curScene.chosenChoiceId,
+                choiceTriggerIndex: curScene.choiceTriggerIndex,
+                currentDialogueIndex: _currentDialogueIndex ? _currentDialogueIndex.value : null,
+                hasChoices: Array.isArray(curScene.choices) && curScene.choices.length > 0
+              })
+            }
+          }
+        }
       } catch (e) { 
         console.warn('restoreChoiceFlagsFromHistory error:', e) 
       }

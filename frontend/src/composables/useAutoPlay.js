@@ -1,17 +1,20 @@
 import { ref, computed, watch } from 'vue'
 
-export function useAutoPlay(options = {}) {
+export function useAutoPlay(dependencies = {}) {
+  // 🔧 修复：使用 getter 函数来获取依赖，确保总是访问最新的值
+  const getIsLandscapeReady = () => dependencies.isLandscapeReady?.value ?? false
+  const getIsLoading = () => dependencies.isLoading?.value ?? true
+  const getIsFetchingNext = () => dependencies.isFetchingNext?.value ?? false
+  const getIsGeneratingSettlement = () => dependencies.isGeneratingSettlement?.value ?? false
+  const getShowMenu = () => dependencies.showMenu?.value ?? false
+  const getShowText = () => dependencies.showText?.value ?? false
+  const getChoicesVisible = () => dependencies.choicesVisible?.value ?? false
+  const getAnyOverlayOpen = () => dependencies.anyOverlayOpen?.value ?? false
+  const getAutoPlayEnabled = () => autoPlayEnabled.value
+
   const {
-    isLandscapeReady,
-    isLoading,
-    isFetchingNext,
-    isGeneratingSettlement,
-    showMenu,
-    showText,
-    choicesVisible,
-    nextDialogue,
-    anyOverlayOpen
-  } = options
+    nextDialogue
+  } = dependencies
 
   const showSettingsModal = ref(false)
   const autoPlayEnabled = ref(false)
@@ -19,19 +22,61 @@ export function useAutoPlay(options = {}) {
   let autoPlayTimer = null
 
   const canAutoAdvance = computed(() => {
-    return autoPlayEnabled.value &&
-        isLandscapeReady?.value &&
-        !isLoading?.value &&
-        !isFetchingNext?.value &&
-        !isGeneratingSettlement?.value &&
-        !showMenu?.value &&
-        showText?.value &&
-        !choicesVisible?.value
+    // 🔑 关键修复：使用 getter 函数获取最新值
+    const result = getAutoPlayEnabled() &&
+        getIsLandscapeReady() &&
+        !getIsLoading() &&
+        !getIsFetchingNext() &&
+        !getIsGeneratingSettlement() &&
+        !getShowMenu() &&
+        getShowText() &&
+        !getChoicesVisible()
+    
+    // 调试日志 - 总是输出，不只是在 autoPlayEnabled 时
+    console.log('[canAutoAdvance] evaluated', {
+      result,
+      autoPlayEnabled: getAutoPlayEnabled(),
+      isLandscapeReady: getIsLandscapeReady(),
+      isLoading: getIsLoading(),
+      isFetchingNext: getIsFetchingNext(),
+      isGeneratingSettlement: getIsGeneratingSettlement(),
+      showMenu: getShowMenu(),
+      showText: getShowText(),
+      choicesVisible: getChoicesVisible()
+    })
+    
+    return result
   })
 
   const tickAutoPlay = () => {
-    if (canAutoAdvance.value) {
-        try { nextDialogue() } catch (e) { console.warn('auto-play next failed', e) }
+    console.log('[tickAutoPlay] called, canAutoAdvance:', canAutoAdvance.value)
+    if (!canAutoAdvance.value) return
+    
+    // 支持三种形式: 1) 普通函数 2) ref(() => {}) 3) 通过 getNextDialogue getter 传入
+    let fn = null
+    if (typeof nextDialogue === 'function') {
+      console.log('[tickAutoPlay] nextDialogue is a plain function')
+      fn = nextDialogue
+    } else if (nextDialogue && typeof nextDialogue.value === 'function') {
+      console.log('[tickAutoPlay] nextDialogue is a ref with function value')
+      fn = nextDialogue.value
+    } else if (dependencies.getNextDialogue) {
+      console.log('[tickAutoPlay] using getNextDialogue from dependencies')
+      try {
+        const maybe = dependencies.getNextDialogue()
+        if (typeof maybe === 'function') fn = maybe
+      } catch (e) { console.warn('getNextDialogue failed', e) }
+    }
+    
+    console.log('[tickAutoPlay] fn:', fn ? 'found' : 'NOT FOUND')
+    
+    if (fn) {
+      try { 
+        console.log('[tickAutoPlay] executing nextDialogue function')
+        fn() 
+      } catch (e) { console.warn('auto-play next failed', e) }
+    } else {
+      console.warn('[tickAutoPlay] No nextDialogue function available!')
     }
   }
 
@@ -41,11 +86,15 @@ export function useAutoPlay(options = {}) {
   }
 
   const startAutoPlayTimer = () => {
+    console.log('[startAutoPlayTimer] called')
     stopAutoPlayTimer()
-    // 不在弹窗打开时才启动自动播放
     try {
-        if (anyOverlayOpen && anyOverlayOpen.value) return
+        if (getAnyOverlayOpen()) {
+          console.log('[startAutoPlayTimer] overlay is open, not starting')
+          return
+        }
     } catch (e) {}
+    console.log('[startAutoPlayTimer] setting interval with', clampInterval(autoPlayIntervalMs.value), 'ms')
     autoPlayTimer = setInterval(tickAutoPlay, clampInterval(autoPlayIntervalMs.value))
   }
 
@@ -63,7 +112,7 @@ export function useAutoPlay(options = {}) {
     } catch {}
   }
 
-    const loadAutoPlayPrefs = () => {
+  const loadAutoPlayPrefs = () => {
     try {
         const en = JSON.parse(localStorage.getItem('autoPlayEnabled'))
         const ms = JSON.parse(localStorage.getItem('autoPlayIntervalMs'))
@@ -72,14 +121,12 @@ export function useAutoPlay(options = {}) {
     } catch {}
   }
   
-  // 监听设置变化
   watch([autoPlayEnabled, autoPlayIntervalMs], () => {
+    console.log('[watch autoPlayEnabled] changed to:', autoPlayEnabled.value)
     saveAutoPlayPrefs()
     if (autoPlayEnabled.value) {
-        // 如果存在任一弹窗打开，则不要启动自动播放
-        try {
-        if (anyOverlayOpen && anyOverlayOpen.value) return
-        } catch (e) {}
+        // 不管 overlay 是否打开都尝试启动
+        // startAutoPlayTimer 内部会检查条件
         startAutoPlayTimer()
     } else {
         stopAutoPlayTimer()

@@ -26,3 +26,12 @@ export const creatorFeatureEnabled = ref(false)
 // 是否从 createResult/后端标记为可手动编辑（modifiable 字段），用于允许菜单手动进入创作者模式
 export const modifiableFromCreate = ref(false)
 
+// 统一的创作者权限判定：是否可以编辑大纲 / 进入创作者模式
+// 规则：只要是作品作者身份(isCreatorIdentity) 或 创建页标记可修改(modifiableFromCreate) 即允许；
+// creatorFeatureEnabled 代表可用 AI 生成，但不影响是否能进入编辑器（进入后可能是纯手动编辑）。
+export const canEditOutline = () => {
+	try {
+		return !!(isCreatorIdentity.value || modifiableFromCreate.value)
+	} catch (e) { return false }
+}
+
