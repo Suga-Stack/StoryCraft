@@ -4,13 +4,16 @@ import router from './router'
 import Vant from 'vant'
 import 'vant/lib/index.css'
 import { useUserStore } from './store'
+import { createPinia } from 'pinia'
+
+const pinia = createPinia()
 
 // 导入Vant组件
 import { 
   Button, Cell, CellGroup, Tabbar, TabbarItem, NavBar, 
   Field, Toast, Tabs, Tab, List, Grid, GridItem, Empty, 
   Icon, RadioGroup, Radio, Tag, Dialog, Search,
-  Swipe, SwipeItem, Divider, Loading, Image, Row, Col, Popup, showToast
+  Swipe, SwipeItem, Divider, Loading, Image, Row, Col, Popup
 } from 'vant'
 import 'vant/lib/index.css'
 
@@ -50,7 +53,6 @@ app.use(pinia)
 
 // 2. 注册路由和状态管理
 app.use(router)
-app.use(store)
 
 async function initApp() {
   // 暂时注释所有可能出错的代码，只保留挂载逻辑

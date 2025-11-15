@@ -1,7 +1,6 @@
 import { createPinia } from 'pinia'
 import { defineStore } from 'pinia'
 
-// 用户状态管理（仅保留会话级状态）
 export const useUserStore = defineStore('user', {
   state: () => ({
     user: null, // 登录后从后端获取的用户信息
