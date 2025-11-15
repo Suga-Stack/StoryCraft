@@ -47,10 +47,12 @@ import {ref} from 'vue';
 import {useRouter} from 'vue-router';
 import {showLoadingToast, showSuccessToast, showFailToast} from 'vant';
 import http from '../utils/http';
+import { useUserStore } from '../store';
 
 const username = ref('');
 const password = ref('');
 const router = useRouter();
+const userStore = useUserStore();
 
 const handleLogin = async () => {
     if (!username.value){

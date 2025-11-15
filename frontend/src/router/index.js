@@ -1,4 +1,9 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router'
+import HomePage from '../views/HomePage.vue'
+import GameIntroduction from '../views/game_introduction.vue'
+import GamePage from '../views/GamePage.vue'
+import SettlementPage from '../views/SettlementPage.vue'
+import CreateWork from '../views/CreateWork.vue'
 import LoginPage from '../views/LoginPage.vue'
 import RegisterPage from '../views/RegisterPage.vue'
 import PreferencesPage from '../views/PreferencesPage.vue'
@@ -10,6 +15,11 @@ import MyCreationsPage from '../views/MyCreationsPage.vue'
 import ReadingHistoryPage from '../views/ReadinghistoryPage.vue'
 
 const routes = [
+   {
+    path: '/home',
+    name: 'Home',
+    component: HomePage
+  },
   {
     path: '/login',
     name: 'login',
@@ -19,6 +29,26 @@ const routes = [
     path: '/register',
     name: 'register',
     component: RegisterPage
+  },
+  {
+    path: '/works',
+    name: 'Works',
+    component: GameIntroduction
+  },
+  {
+    path: '/create',
+    name: 'Create',
+    component: CreateWork
+  },
+  {
+    path: '/game/:id?',
+    name: 'Game',
+    component: GamePage
+  },
+  {
+    path: '/settlement',
+    name: 'Settlement',
+    component: SettlementPage
   },
   {
     path: '/preferences',
@@ -58,9 +88,8 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHashHistory(), // 使用 Hash 模式（Capacitor 必需）
   routes
 })
 
 export default router
-    

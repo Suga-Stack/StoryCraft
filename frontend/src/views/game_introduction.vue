@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { useRouter } from 'vue-router'
-import { getComments, postComments } from '../api/user' 
+import { http } from '../service/http.js'
 
 const router = useRouter()
 
@@ -19,21 +19,40 @@ try { sessionCreate = JSON.parse(sessionStorage.getItem('createResult')) } catch
 const incomingTags = (state.selectedTags && Array.isArray(state.selectedTags))
   ? state.selectedTags
   : (() => { try { return JSON.parse(sessionStorage.getItem('createRequest'))?.tags } catch { return null } })()
-const backendWork = state.backendWork || sessionCreate?.backendWork || null
+
+// 规范化后端返回的数据字段（兼容 image_url / coverUrl / cover_url 等差异）
+const normalizeBackendWork = (raw) => {
+  if (!raw) return null
+  const coverCandidate = raw.coverUrl || raw.cover_url || raw.image_url || raw.imageUrl || raw.cover || (raw.image && raw.image.url) || ''
+  let cover = coverCandidate || ''
+  if (cover && /^\//.test(cover)) cover = 'http://localhost:8000' + cover
+  // 如果已经是完整 URL，保留原样
+  return {
+    id: raw.id,
+    title: raw.title || raw.name || raw.work_title || '',
+    description: raw.description || raw.desc || raw.summary || '',
+    coverUrl: cover || raw.coverUrl || raw.image_url || '',
+    tags: raw.tags || raw.tag_names || raw.tag_ids || [],
+    favoritesCount: raw.favorite_count || raw.favoritesCount || 0,
+    publishedAt: raw.published_at || raw.publishedAt || null
+  }
+}
+
+let backendWorkRaw = normalizeBackendWork(state.backendWork || sessionCreate?.backendWork || null)
 
 const work = ref({
-  id: backendWork?.id || 1,
-  title: backendWork?.title || '锦瑟深宫',
-  coverUrl: backendWork && backendWork.coverUrl ? ("http://localhost:8000" + backendWork.coverUrl) : 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=800&h=500&fit=crop',
-  authorId: backendWork?.authorId || 'user_12345',
-  tags: incomingTags || backendWork?.tags || ['科幻', '冒险', '太空', '未来'],
-  description: backendWork?.description || `柳晚晚穿越成后宫小透明，她把宫斗当成终身职业来经营。
+  id: backendWorkRaw?.id || 1,
+  title: backendWorkRaw?.title || '锦瑟深宫',
+  coverUrl: backendWorkRaw?.coverUrl || 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=800&h=500&fit=crop',
+  authorId: backendWorkRaw?.authorId || 'user_12345',
+  tags: incomingTags || backendWorkRaw?.tags || ['科幻', '冒险', '太空', '未来'],
+  description: backendWorkRaw?.description || `柳晚晚穿越成后宫小透明，她把宫斗当成终身职业来经营。
 不争宠不夺权，只求平安活到退休。
-
+ 
 别人算计位份，她研究菜谱
 别人争抢赏赐，她核算份例
 在步步惊心的深宫里，她用一口小锅涮出温暖天地。
-
+ 
 皇帝觉得她省心，妃嫔当她没威胁。直到风波来临，众人才发现——这个整天算账吃饭的鹌鹑，早把生存智慧练到满级。
 
 当六宫争得头破血流时，
@@ -45,12 +64,63 @@ const work = ref({
   isFavorite: false
 })
 
+// 如果首次没有传入 backendWork（直接打开 /works 或刷新），尝试在挂载时去后端拉取最新详情并规范化映射
+onMounted(async () => {
+  try {
+    // 每次进入作品介绍页都向后端拉取最新详情，避免展示本地占位内容
+    // 优先使用路由参数 / query 中的 id，其次使用 sessionStorage.createResult 中的 backendWork.id，最后回退到当前 work.value.id
+    let sr = null
+    try { sr = JSON.parse(sessionStorage.getItem('createResult')) } catch (e) { sr = null }
+    const paramId = route.params?.id || route.query?.id || null
+    const candidateId = paramId || sr?.backendWork?.id || new URLSearchParams(window.location.search).get('id') || work.value.id
+
+    if (!candidateId) {
+      console.warn('[game_introduction] no candidate id to fetch')
+      return
+    }
+
+    const details = await http.get(`/api/gameworks/gameworks/${candidateId}/`)
+    // 兼容不同后端返回格式，优先取 data
+    const payload = details?.data || details || null
+    if (!payload) {
+      console.warn('[game_introduction] fetched empty payload for id', candidateId)
+      return
+    }
+
+    const normalized = normalizeBackendWork(payload)
+    if (normalized) {
+      // 完整覆盖界面字段，优先使用后端数据（但保留 tags 若路由/导航传入 overrides）
+      work.value.id = normalized.id || work.value.id
+      work.value.title = normalized.title || work.value.title
+      work.value.coverUrl = normalized.coverUrl || work.value.coverUrl
+      work.value.description = normalized.description || work.value.description
+      work.value.tags = incomingTags || normalized.tags || work.value.tags
+      try { favoritesCount.value = payload.favorite_count || payload.favoritesCount || favoritesCount.value } catch (e) {}
+      try { publishedAt.value = payload.published_at || payload.publishedAt || publishedAt.value } catch (e) {}
+
+      // 将获取到的后端原始数据写回 sessionStorage.createResult，方便其他页面/刷新时复用
+      try {
+        const prev = JSON.parse(sessionStorage.getItem('createResult') || '{}')
+        // 写入后端原始数据到 backendWork，便于其它页面读取；同时保留两个重要标记：modifiable / ai_callable
+        prev.backendWork = payload
+        // 兼容性：将 modifiable 与 ai_callable 同时写回顶级 createResult，便于前端快速判断权限/能力
+        try { prev.modifiable = !!payload.modifiable } catch (e) {}
+        try { prev.ai_callable = typeof payload.ai_callable !== 'undefined' ? !!payload.ai_callable : (payload.data && typeof payload.data.ai_callable !== 'undefined' ? !!payload.data.ai_callable : undefined) } catch (e) {}
+        sessionStorage.setItem('createResult', JSON.stringify(prev))
+      } catch (e) { console.warn('failed to write createResult to sessionStorage', e) }
+    }
+
+  } catch (e) {
+    console.warn('fetch work details failed:', e)
+  }
+})
+
 // 切换收藏状态
 const toggleFavorite = () => {
   work.value.isFavorite = !work.value.isFavorite
 }
 // 收藏数（示例初始值或来自后端）
-const favoritesCount = ref(backendWork?.favoritesCount || 124)
+const favoritesCount = ref(backendWorkRaw?.favoritesCount || 124)
 
 // 修改切换收藏以维护收藏计数
 const toggleFavoriteWithCount = () => {
@@ -58,7 +128,7 @@ const toggleFavoriteWithCount = () => {
   favoritesCount.value += work.value.isFavorite ? 1 : -1
 }
 // 发表时间（来自后端或默认当前时间）
-const publishedAt = ref(backendWork?.publishedAt || backendWork?.publishedDate || new Date().toISOString())
+const publishedAt = ref(backendWorkRaw?.publishedAt || backendWorkRaw?.publishedDate || new Date().toISOString())
 
 const publicationDisplay = computed(() => {
   try {
@@ -91,99 +161,51 @@ const newComment = ref('')
 const replyingTo = ref(null) // 正在回复的评论ID
 const sortBy = ref('latest') // 排序方式: 'latest' 或 'likes'
 
-const comments = ref([])
-const totalComments = ref(0) // 总评论数
-const isLoading = ref(false)
-const error = ref(null)
-
-// 加载评论函数
-const loadComments = async () => {
-  isLoading.value = true
-  error.value = null
-  try {
-    // 调用接口获取评论，work.value.id 为当前作品ID
-    const response = await getComments(commentPage.value, work.value.id)
-    if (commentPage.value === 1) {
-      comments.value = response.results // 第一页清空现有数据
-    } else {
-      comments.value = [...comments.value, ...response.results] // 分页加载追加数据
-    }
-    totalComments.value = response.count // 总评论数
-    return response.results.length // 返回当前页加载数量
-  } catch (err) {
-    error.value = '加载评论失败，请重试'
-    console.error('评论加载失败:', err)
-    return 0
-  } finally {
-    isLoading.value = false
-  }
-}
-
-// 在组件挂载时加载第一页评论
-onMounted(() => {
-  loadComments()
-})
-
-// 提交评论
-const submitComment = async () => {
-  if (!newComment.value.trim()) return
-  
-  isLoading.value = true
-  error.value = null
-  try {
-    // 构造请求参数
-    const params = {
-      content: newComment.value.trim(),
-      gamework: work.value.id,
-      parent: replyingTo.value || null // 回复时传递父评论ID，新评论为null
-    }
-    
-    // 调用发表评论接口
-    const newCommentData = await postComments(
-      params.content,
-      params.gamework,
-      params.parent
-    )
-    
-    // 处理接口返回的新评论
-    if (replyingTo.value) {
-      // 处理回复逻辑：找到父评论并添加回复
-      const findAndAddReply = (commentsArr) => {
-        for (const comment of commentsArr) {
-          if (comment.id === replyingTo.value) {
-            if (!comment.replies) comment.replies = []
-            comment.replies.push(newCommentData)
-            return true
-          }
-          if (comment.replies && findAndAddReply(comment.replies)) {
-            return true
-          }
-        }
-        return false
-      }
-      findAndAddReply(comments.value)
-      replyingTo.value = null
-    } else {
-      // 新评论添加到列表顶部
-      comments.value.unshift(newCommentData)
-      totalComments.value += 1
-    }
-    
-    newComment.value = '' // 清空输入框
-  } catch (err) {
-    error.value = '发表评论失败，请重试'
-    console.error('评论提交失败:', err)
-  } finally {
-    isLoading.value = false
-  }
-}
-
-// 修改加载更多评论逻辑
-const loadMoreComments = async () => {
-  if (isLoading.value || displayedCount.value >= totalComments.value) return
-  commentPage.value += 1
-  await loadComments()
-}
+const comments = ref([
+  { id: 1, author: 'user_001', text: '这个作品太棒了！期待后续更新！', time: '2小时前', timestamp: Date.now() - 2 * 60 * 60 * 1000, likes: 15, isLiked: false,
+    replies: [
+      { id: 101, author: 'user_004', text: '同感！已经追更好几天了', time: '1小时前', timestamp: Date.now() - 1 * 60 * 60 * 1000, likes: 3, isLiked: false },
+      { id: 102, author: 'user_005', text: '我更喜欢主角的设定，希望加强世界观', time: '50分钟前', timestamp: Date.now() - 50 * 60 * 1000, likes: 6, isLiked: false },
+      { id: 103, author: 'user_006', text: '情节推进有点慢，但人物刻画不错', time: '30分钟前', timestamp: Date.now() - 30 * 60 * 1000, likes: 1, isLiked: false },
+      { id: 104, author: 'user_007', text: '怎么没有番外？', time: '10分钟前', timestamp: Date.now() - 10 * 60 * 1000, likes: 0, isLiked: false }
+    ] },
+  { id: 2, author: 'user_002', text: '故事情节很吸引人，写得很不错。', time: '5小时前', timestamp: Date.now() - 5 * 60 * 60 * 1000, likes: 8, isLiked: false,
+    replies: [ { id: 201, author: 'user_008', text: '我觉得第二章高潮部分很精彩', time: '4小时前', timestamp: Date.now() - 4 * 60 * 60 * 1000, likes: 2, isLiked: false } ] },
+  { id: 3, author: 'user_003', text: '设定很有创意，支持作者！', time: '1天前', timestamp: Date.now() - 24 * 60 * 60 * 1000, likes: 23, isLiked: false,
+    replies: [ { id: 301, author: 'user_009', text: '这个设定让我想到了某部经典作品', time: '23小时前', timestamp: Date.now() - 23 * 60 * 60 * 1000, likes: 10, isLiked: false },
+               { id: 302, author: 'user_010', text: '完全同意，期待下一章', time: '22小时前', timestamp: Date.now() - 22 * 60 * 60 * 1000, likes: 5, isLiked: false },
+               { id: 303, author: 'user_011', text: '作者大大加油！', time: '20小时前', timestamp: Date.now() - 20 * 60 * 60 * 1000, likes: 2, isLiked: false } ] },
+  { id: 4, author: 'user_012', text: '节奏感很好，人物关系把握得当。', time: '3天前', timestamp: Date.now() - 3 * 24 * 60 * 60 * 1000, likes: 5, isLiked: false, replies: [] },
+  { id: 5, author: 'user_013', text: '不太懂为什么某个设定会存在，希望出设定说明。', time: '6天前', timestamp: Date.now() - 6 * 24 * 60 * 60 * 1000, likes: 2, isLiked: false,
+    replies: [ { id: 501, author: 'user_014', text: '可以去看作者之前的笔记，有些线索在里面', time: '5天前', timestamp: Date.now() - 5 * 24 * 60 * 60 * 1000, likes: 1, isLiked: false } ] },
+  { id: 6, author: 'user_015', text: '文笔细腻，氛围感抓得很好。', time: '1周前', timestamp: Date.now() - 7 * 24 * 60 * 60 * 1000, likes: 12, isLiked: false,
+    replies: [ { id: 601, author: 'user_016', text: '确实，这段描写很打动我', time: '6天前', timestamp: Date.now() - 6 * 24 * 60 * 60 * 1000, likes: 4, isLiked: false },
+               { id: 602, author: 'user_017', text: '学习了文笔写法', time: '5天前', timestamp: Date.now() - 5 * 24 * 60 * 60 * 1000, likes: 3, isLiked: false } ] },
+  { id: 7, author: 'user_018', text: '喜欢人物的反转设定，期待后续发展。', time: '8天前', timestamp: Date.now() - 8 * 24 * 60 * 60 * 1000, likes: 20, isLiked: false,
+    replies: [ { id: 701, author: 'user_019', text: '反转太精彩了！', time: '7天前', timestamp: Date.now() - 7 * 24 * 60 * 60 * 1000, likes: 8, isLiked: false },
+               { id: 702, author: 'user_020', text: '这一点真的出乎我意料', time: '6天前', timestamp: Date.now() - 6 * 24 * 60 * 60 * 1000, likes: 6, isLiked: false },
+               { id: 703, author: 'user_021', text: '作者就是这样留悬念', time: '5天前', timestamp: Date.now() - 5 * 24 * 60 * 60 * 1000, likes: 2, isLiked: false } ] },
+  { id: 8, author: 'user_022', text: '有些设定逻辑上不通，但总体还不错。', time: '9天前', timestamp: Date.now() - 9 * 24 * 60 * 60 * 1000, likes: 1, isLiked: false, replies: [] },
+  { id: 9, author: 'user_023', text: '最喜欢主角的成长线！', time: '10天前', timestamp: Date.now() - 10 * 24 * 60 * 60 * 1000, likes: 30, isLiked: false,
+    replies: [ { id: 901, author: 'user_024', text: '成长线写得太好了', time: '9天前', timestamp: Date.now() - 9 * 24 * 60 * 60 * 1000, likes: 12, isLiked: false } ] },
+  { id: 10, author: 'user_025', text: '配角塑造也很成功。', time: '11天前', timestamp: Date.now() - 11 * 24 * 60 * 60 * 1000, likes: 4, isLiked: false, replies: [] },
+  { id: 11, author: 'user_026', text: '期待番外和设定集。', time: '12天前', timestamp: Date.now() - 12 * 24 * 60 * 60 * 1000, likes: 7, isLiked: false,
+    replies: [ { id: 1101, author: 'user_027', text: '番外要来！', time: '11天前', timestamp: Date.now() - 11 * 24 * 60 * 60 * 1000, likes: 3, isLiked: false } ] },
+  { id: 12, author: 'user_028', text: '节奏稍慢，希望加快。', time: '13天前', timestamp: Date.now() - 13 * 24 * 60 * 60 * 1000, likes: 2, isLiked: false, replies: [] },
+  { id: 13, author: 'user_029', text: '画面感很强，细节很喜欢。', time: '14天前', timestamp: Date.now() - 14 * 24 * 60 * 60 * 1000, likes: 9, isLiked: false,
+    replies: [ { id: 1301, author: 'user_030', text: '细节控表示满意', time: '13天前', timestamp: Date.now() - 13 * 24 * 60 * 60 * 1000, likes: 2, isLiked: false },
+               { id: 1302, author: 'user_031', text: '画面感太强了', time: '12天前', timestamp: Date.now() - 12 * 24 * 60 * 60 * 1000, likes: 1, isLiked: false } ] },
+  { id: 14, author: 'user_032', text: '没看懂第三章的伏笔。', time: '15天前', timestamp: Date.now() - 15 * 24 * 60 * 60 * 1000, likes: 0, isLiked: false, replies: [] },
+  { id: 15, author: 'user_033', text: '人物对白太生动了。', time: '16天前', timestamp: Date.now() - 16 * 24 * 60 * 60 * 1000, likes: 11, isLiked: false, replies: [] },
+  { id: 16, author: 'user_034', text: '背景设定能否详细说明一下？', time: '17天前', timestamp: Date.now() - 17 * 24 * 60 * 60 * 1000, likes: 3, isLiked: false,
+    replies: [ { id: 1601, author: 'user_035', text: '后台资料见作者置顶', time: '16天前', timestamp: Date.now() - 16 * 24 * 60 * 60 * 1000, likes: 1, isLiked: false } ] },
+  { id: 17, author: 'user_036', text: '伏笔很多，希望结局不要崩。', time: '18天前', timestamp: Date.now() - 18 * 24 * 60 * 60 * 1000, likes: 6, isLiked: false, replies: [] },
+  { id: 18, author: 'user_037', text: '配乐好像也很适合这个故事，想要BGM', time: '19天前', timestamp: Date.now() - 19 * 24 * 60 * 60 * 1000, likes: 8, isLiked: false, replies: [] },
+  { id: 19, author: 'user_038', text: '翻译质量也不错（若有外文）', time: '20天前', timestamp: Date.now() - 20 * 24 * 60 * 60 * 1000, likes: 1, isLiked: false, replies: [] },
+  { id: 20, author: 'user_039', text: '感谢作者，支持番外！', time: '21天前', timestamp: Date.now() - 21 * 24 * 60 * 60 * 1000, likes: 14, isLiked: false,
+    replies: [ { id: 2001, author: 'user_040', text: '支持！', time: '20天前', timestamp: Date.now() - 20 * 24 * 60 * 60 * 1000, likes: 5, isLiked: false },
+               { id: 2002, author: 'user_041', text: '同求番外～', time: '19天前', timestamp: Date.now() - 19 * 24 * 60 * 60 * 1000, likes: 3, isLiked: false } ] }
+])
 
 // 可见回复计数（按顶层评论 id）
 const visibleReplies = ref({})
@@ -219,11 +241,15 @@ const toggleDescription = () => {
 const sortedComments = computed(() => {
   const commentsCopy = [...comments.value]
   if (sortBy.value === 'likes') {
-    // 注意：这里假设接口返回的评论有likes字段，如果没有需要调整排序逻辑
-    return commentsCopy.sort((a, b) => (b.likes || 0) - (a.likes || 0))
+    // 最热排序：同时考虑点赞数与被回复数（综合分 = likes + replies.length）
+    return commentsCopy.sort((a, b) => (b.likes + (b.replies?.length || 0)) - (a.likes + (a.replies?.length || 0)))
   }
-  // 按创建时间排序（最新的在前）
-  return commentsCopy.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+  return commentsCopy.sort((a, b) => b.timestamp - a.timestamp)
+})
+
+// 包含回复的评论总数（用于标签显示与空状态判断）
+const totalCommentsCount = computed(() => {
+  return comments.value.reduce((acc, c) => acc + 1 + (Array.isArray(c.replies) ? c.replies.length : 0), 0)
 })
 
 // 评分系统（切换评论区为评分分页）
@@ -248,6 +274,11 @@ const touchStartY = ref(null)
 const pullDistance = ref(0)
 const pullTriggered = ref(false)
 
+const loadMoreComments = () => {
+  if (displayedCount.value < sortedComments.value.length) {
+    commentPage.value += 1
+  }
+}
 
 const onPullStart = (e) => {
   if (!e.touches || !e.touches.length) return
@@ -336,7 +367,49 @@ const showFilterDropdown = ref(false)
 const toggleFilter = () => { showFilterDropdown.value = !showFilterDropdown.value }
 const selectFilter = (opt) => { sortBy.value = opt; showFilterDropdown.value = false }
 
-
+// 提交评论
+const submitComment = () => {
+  if (newComment.value.trim()) {
+    if (replyingTo.value) {
+      // 回复评论（支持回复顶层评论或回复下的回复）
+      let parentComment = comments.value.find(c => c.id === replyingTo.value)
+      if (!parentComment) {
+        // 在每个 comment.replies 中查找 id，找到所属的顶层 parent
+        for (const c of comments.value) {
+          if (Array.isArray(c.replies) && c.replies.some(r => r.id === replyingTo.value)) {
+            parentComment = c
+            break
+          }
+        }
+      }
+      if (parentComment) {
+        parentComment.replies.push({
+          id: Date.now(),
+          author: 'current_user',
+          text: newComment.value,
+          time: '刚刚',
+          timestamp: Date.now(),
+          likes: 0,
+          isLiked: false
+        })
+      }
+      replyingTo.value = null
+    } else {
+      // 发表新评论
+      comments.value.unshift({
+        id: Date.now(),
+        author: 'current_user',
+        text: newComment.value,
+        time: '刚刚',
+        timestamp: Date.now(),
+        likes: 0,
+        isLiked: false,
+        replies: []
+      })
+    }
+    newComment.value = ''
+  }
+}
 
 // 点赞评论
 const toggleLike = (comment) => {
@@ -707,7 +780,7 @@ const startReading = () => {
               <span class="empty-icon">💬</span>
               <p>还没有评论，快来抢沙发吧！</p>
             </div>
-            <div v-else style="color:#999;margin-top:0.5rem;">没有更多评论了</div>
+            <div v-else style="color:#999;margin-top:0.5rem;">你看到了我的底线</div>
           </div>
         </div>
       </div>

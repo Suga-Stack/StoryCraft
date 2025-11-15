@@ -1,12 +1,12 @@
 import { createApp } from 'vue'
+import { createPinia } from 'pinia'
+import './style.css'
 import App from './App.vue'
 import router from './router'
 import Vant from 'vant'
 import 'vant/lib/index.css'
 import { useUserStore } from './store'
 import { createPinia } from 'pinia'
-
-const pinia = createPinia()
 
 // 导入Vant组件
 import { 
@@ -17,8 +17,8 @@ import {
 } from 'vant'
 import 'vant/lib/index.css'
 
-// 创建应用实例
 const app = createApp(App)
+const pinia = createPinia()
 
 // 1. 注册所有需要的Vant组件
 app.use(Button)
@@ -62,3 +62,7 @@ async function initApp() {
 // 启动应用初始化流程
 initApp()
 
+app.use(pinia)
+app.use(router)
+app.use(Vant)
+app.mount('#app')

@@ -1,45 +1,48 @@
-import { createPinia } from 'pinia'
 import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'
 
-export const useUserStore = defineStore('user', {
-  state: () => ({
-    user: null, // 登录后从后端获取的用户信息
-    isLoggedIn: false, // 登录状态标记
-    preferences: null // 用户偏好（从后端获取）
-  }),
-  actions: {
-    // 登录成功后保存用户信息
-    setLoginUser(userData) {
-      this.user = userData
-      this.isLoggedIn = true
-    },
-    // 退出登录时清空状态
-    logout() {
-      this.user = null
-      this.isLoggedIn = false
-      localStorage.removeItem('token') // 清除token
-    },
-    // 更新用户偏好
-    setPreferences(prefs) {
-      this.preferences = prefs
-    }
+export const useUserStore = defineStore('user', () => {
+  // 状态
+  const user = ref(null)
+  const isLoggedIn = ref(false)
+  const token = ref(localStorage.getItem('token') || '')
+
+  // 初始化时检查登录状态
+  if (token.value) {
+    isLoggedIn.value = true
+  }
+
+  // 计算属性
+  const userInfo = computed(() => user.value)
+  const isAuthenticated = computed(() => isLoggedIn.value && !!token.value)
+
+  // 方法
+  const login = (userData, authToken) => {
+    user.value = userData
+    token.value = authToken
+    isLoggedIn.value = true
+    localStorage.setItem('token', authToken)
+  }
+
+  const logout = () => {
+    user.value = null
+    token.value = ''
+    isLoggedIn.value = false
+    localStorage.removeItem('token')
+  }
+
+  const updateUser = (userData) => {
+    user.value = { ...user.value, ...userData }
+  }
+
+  return {
+    user,
+    isLoggedIn,
+    token,
+    userInfo,
+    isAuthenticated,
+    login,
+    logout,
+    updateUser
   }
 })
-
-// 故事/作品状态（仅存储当前会话所需数据）
-export const useStoryStore = defineStore('story', {
-  state: () => ({
-    currentStory: null, // 当前阅读的故事
-    bookshelf: [] // 书架数据（从后端获取）
-  }),
-  actions: {
-    setCurrentStory(story) {
-      this.currentStory = story
-    },
-    setBookshelf(data) {
-      this.bookshelf = data
-    }
-  }
-})
-
-export const store = createPinia()

@@ -53,8 +53,8 @@ class GameworkDetails(BaseModel):
     chapterOutlines: List[ChapterOutline] = Field(description="所有章节的大纲")
 
 client = Ark(
-    api_key=settings.AI_API_KEY,
-    base_url=settings.AI_BASE_URL,
+    api_key="d62d3ca8-3892-446f-9400-e2164e441bee",
+    base_url="https://ark.cn-beijing.volces.com/api/v3",
 )
 
 def _get_outlines_text(outlines: List[Dict]) -> str:
