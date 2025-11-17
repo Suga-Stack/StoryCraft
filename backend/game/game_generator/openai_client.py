@@ -32,6 +32,7 @@ def invoke(prompt: str) -> str:
         }
     ]
     )
+    logger.info("Invoke Result:\n%s",response.choices[0].message.content)
     return response.choices[0].message.content
 
 def generate_single_image(prompt: str, size: str ="1920x1080") -> str:
@@ -65,7 +66,7 @@ def generate_single_image(prompt: str, size: str ="1920x1080") -> str:
         return f"{base_url}{settings.MEDIA_URL}{filename}"
     
     except Exception as e:
-        logger.error("AI生成封面图片出错: %s", e)
+        logger.error("AI生成封面图片出错:\n %s", e)
         return placeholder_url     
 
 
@@ -88,7 +89,7 @@ def generate_multi_images(prompt: str, images_count: int, size: str ="1920x1080"
         )
         data = response.data or []
     except Exception as e:
-        logger.error("AI生成背景图片组出错: %s", e)
+        logger.error("AI生成背景图片组出错:\n %s", e)
         return [placeholder_url] * images_count
 
     for idx in range(images_count):
@@ -104,7 +105,7 @@ def generate_multi_images(prompt: str, images_count: int, size: str ="1920x1080"
             default_storage.save(filename, ContentFile(file_resp.content))
             results.append(f"{base_url}{settings.MEDIA_URL}{filename}")
         except Exception as e:  
-            logger.error("第 %s 张背景图生成或保存失败: %s", idx + 1, e)
+            logger.error("第 %s 张背景图生成或保存失败:\n %s", idx + 1, e)
 
     # 补足占位图
     while len(results) < images_count:

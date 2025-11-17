@@ -1,6 +1,7 @@
 """
 章节文本解析工具
 """
+
 import re
 import spacy
 nlp = spacy.load("zh_core_web_sm")
@@ -87,23 +88,6 @@ def _chunk_narrations(text: str, min_len: int = 25, max_len: int = 60) -> list[s
     # 统一规范化每个 narration
     return [_normalize_block(c) for c in adjusted if _normalize_block(c)]
 
-def _collect_reaction_line(lines: list[str], start_idx: int) -> tuple[str, int]:
-    """
-    仅提取选项后的下一行原始即时反应文本（可能为空），不做长度处理。
-    返回 (raw_line, new_index)
-    """
-    i = start_idx
-    if i >= len(lines):
-        return ("", i)
-    candidate = lines[i]
-    # 空行直接跳过
-    if not candidate.strip():
-        return ("", i + 1)
-    # 若下一行仍是选项行，视为无反应
-    if _choice_line_re.match(candidate):
-        return ("", i)
-    return (candidate.strip(), i + 1)
-
 def _chunk_reaction(text: str, min_len: int = 25, max_len: int = 60) -> list[str]:
     """
     将即时反应文本按句切分并聚合为 25-60 字的块。
@@ -139,8 +123,55 @@ def _chunk_reaction(text: str, min_len: int = 25, max_len: int = 60) -> list[str
         # 尝试与前块合并（不再校验 max_len，若超过也接受）
         chunks[-2] += chunks[-1]
         chunks.pop()
-    # 新增：规范化 reaction 块
+    # 规范化 reaction 块
     return [_normalize_block(c) for c in chunks if _normalize_block(c)]
+
+def _smart_quotes(text: str) -> str:
+    """将英文直引号替换为中文引号，成对分配，避免 JSON 中出现转义的 \" """
+    if not text:
+        return text
+    res = []
+    d_open = True  # 双引号开/关
+    s_open = True  # 单引号开/关
+    for ch in text:
+        if ch == '"':
+            res.append('“' if d_open else '”')
+            d_open = not d_open
+        elif ch == "'":
+            res.append('‘' if s_open else '’')
+            s_open = not s_open
+        else:
+            res.append(ch)
+    return "".join(res)
+
+def _apply_smart_quotes_to_dialogues(dialogues: list[dict]) -> list[dict]:
+    """对 narration / playerChoices 文本统一应用中文引号替换"""
+    for d in dialogues:
+        d["narration"] = _smart_quotes(d.get("narration", ""))
+        pcs = d.get("playerChoices")
+        if isinstance(pcs, list):
+            for ch in pcs:
+                ch["text"] = _smart_quotes(ch.get("text", ""))
+                subs = ch.get("subsequentDialogues") or []
+                ch["subsequentDialogues"] = [_smart_quotes(x) for x in subs]
+    return dialogues
+
+def _collect_reaction_line(lines: list[str], start_idx: int) -> tuple[str, int]:
+    """
+    仅提取选项后的下一行原始即时反应文本（可能为空），不做长度处理。
+    返回 (raw_line, new_index)
+    """
+    i = start_idx
+    if i >= len(lines):
+        return ("", i)
+    candidate = lines[i]
+    # 空行直接跳过
+    if not candidate.strip():
+        return ("", i + 1)
+    # 若下一行仍是选项行，视为无反应
+    if _choice_line_re.match(candidate):
+        return ("", i)
+    return (candidate.strip(), i + 1)
 
 def _iter_choice_groups(text: str) -> list[dict]:
     """扫描文本，定位选项组；允许被空行隔开的连续选项继续归为同一组。"""
@@ -273,25 +304,14 @@ def parse_raw_chapter(raw_content: str, ranges: list[int]) -> dict:
                 if n:  # 跳过空
                     seg_dialogues.append({"narration": n, "playerChoices": None})
             if narrs:
-                last_n = narrs[-1]
                 seg_dialogues.append({
-                    "narration": last_n if last_n else "",
-                    "playerChoices": [
-                        {
-                            **choice,
-                            "subsequentDialogues": [d for d in choice["subsequentDialogues"] if d]
-                        } for choice in g["choices"]
-                    ]
+                    "narration": narrs[-1],
+                    "playerChoices": g["choices"]
                 })
             else:
                 seg_dialogues.append({
                     "narration": "",
-                    "playerChoices": [
-                        {
-                            **choice,
-                            "subsequentDialogues": [d for d in choice["subsequentDialogues"] if d]
-                        } for choice in g["choices"]
-                    ]
+                    "playerChoices": g["choices"]
                 })
             pos = g["end"]
 
@@ -301,7 +321,9 @@ def parse_raw_chapter(raw_content: str, ranges: list[int]) -> dict:
                 if n:
                     seg_dialogues.append({"narration": n, "playerChoices": None})
 
+        # 对白与选项文本应用中文引号，避免 \" 转义
+        seg_dialogues = _apply_smart_quotes_to_dialogues(seg_dialogues)
+
         scenes.append({"id": i, "dialogues": seg_dialogues})
 
     return {"chapterIndex": chapter_index, "title": chapter_title, "scenes": scenes}
-

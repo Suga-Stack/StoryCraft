@@ -1,6 +1,4 @@
-import openai
 import re
-import os
 from typing import List
 
 def build_core_seed_prompt(

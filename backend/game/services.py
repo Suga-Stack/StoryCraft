@@ -9,10 +9,10 @@ from django.db import close_old_connections
 from django.conf import settings
 from stories.models import Story, StoryChapter, StoryScene
 from gameworks.models import Gamework
-from utils import parse_raw_chapter
-from game_generator.architecture import generate_core_seed, generate_architecture
-from game_generator.chapter import generate_chapter_content
-from game_generator.images import generate_cover_image, generate_scene_images
+from .utils import parse_raw_chapter
+from .game_generator.architecture import generate_core_seed, generate_architecture
+from .game_generator.chapter import generate_chapter_content
+from .game_generator.images import generate_cover_image, generate_scene_images
 logger = logging.getLogger('django')
 
 def _build_chapter_response(chapter: StoryChapter) -> Dict[str, Any]:
@@ -56,7 +56,6 @@ def _generate_chapter(gamework_id: int, chapter_index: int, user_prompt: str = "
     )
     story.global_summary = updated_global_summary
     story.save()
-    logger.info("AI生成章节原始文本:\n%s", raw_chapter_content)
 
     # 生成场景图片 (根据整章内容自动切分)
     scene_ranges, scene_urls = generate_scene_images(raw_chapter_content)

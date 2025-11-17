@@ -1,5 +1,5 @@
-from openai_client import invoke
-from prompts import(
+from .openai_client import invoke
+from .prompts import(
     build_chapter_prompt,
     update_summary_prompt
 )
@@ -14,7 +14,7 @@ def generate_chapter_content(
     previous_chapter_content: str = None,
     global_summary: str = "",
     user_prompt: str = ""
-) -> tuple:
+):
     """生成章节文本 + 更新摘要"""
     base_prompt = build_chapter_prompt(
         chapter_index=chapter_index,

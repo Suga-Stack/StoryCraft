@@ -1,6 +1,6 @@
 import re
-from openai_client import invoke, generate_single_image,generate_multi_images
-from prompts import build_cover_image_prompt_prompt,build_scene_image_prompt_prompt
+from .openai_client import invoke, generate_single_image,generate_multi_images
+from .prompts import build_cover_image_prompt_prompt,build_scene_image_prompt_prompt
 
 
 def generate_cover_image(core_seed: str, size: str ="1920x1080") :

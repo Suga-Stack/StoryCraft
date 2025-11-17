@@ -1,5 +1,5 @@
-from openai_client import invoke
-from prompts import (
+from .openai_client import invoke
+from .prompts import (
     build_core_seed_prompt,
     build_attribute_prompt,
     build_character_dynamics_prompt,
