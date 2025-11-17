@@ -1,4 +1,4 @@
-from .views import GameworkViewSet, PublishGameworkViewSet, GameworkSearchView, RecommendView, GameworkFavoriteLeaderboardViewSet, GameworkRatingLeaderboardViewSet
+from .views import GameworkViewSet, PublishGameworkViewSet, GameworkSearchView, RecommendView, GameworkFavoriteLeaderboardViewSet, GameworkRatingLeaderboardViewSet, GameworkHotLeaderboardViewSet
 from django.urls import path
 
 urlpatterns = [
@@ -8,4 +8,5 @@ urlpatterns = [
     path("recommend/", RecommendView.as_view(), name="gamework-recommend"),
     path('favorite-leaderboard/', GameworkFavoriteLeaderboardViewSet.as_view({'get': 'list'}), name='gamework-leaderboard'),
     path('rating-leaderboard/', GameworkRatingLeaderboardViewSet.as_view({'get': 'list'}), name='gamework-rating-leaderboard'),
+    path('hot-leaderboard/', GameworkHotLeaderboardViewSet.as_view({'get': 'list'}), name='gamework-hot-leaderboard'),
 ]
