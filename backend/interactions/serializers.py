@@ -73,10 +73,30 @@ class RecursiveField(serializers.Serializer):
 class CommentSerializer(serializers.ModelSerializer):
     user = serializers.StringRelatedField(read_only=True)
     replies = RecursiveField(many=True, read_only=True)
+    like_count = serializers.SerializerMethodField()
+    is_liked = serializers.SerializerMethodField()
 
     class Meta:
         model = Comment
-        fields = ('id', 'user', 'content', 'gamework', 'created_at', 'replies', 'parent')
+        fields = ('id', 'user', 'content', 'gamework', 'created_at', 'replies', 'parent', 'like_count', 'is_liked')
+
+    def get_like_count(self, obj):
+        # 如果在 queryset 里注入了 like_count，则不重复统计
+        if hasattr(obj, "like_count"):
+            return obj.like_count
+        return obj.likes.count()
+
+    def get_is_liked(self, obj):
+        request = self.context.get('request')
+        user = getattr(request, "user", None)
+        if not (user and user.is_authenticated):
+            return False
+
+        # 如果预取了 user_likes（to_attr），直接判断
+        if hasattr(obj, 'user_likes'):
+            return len(obj.user_likes) > 0
+
+        return obj.likes.filter(user=user).exists()
 
     def create(self, validated_data):
         validated_data['user'] = self.context['request'].user
