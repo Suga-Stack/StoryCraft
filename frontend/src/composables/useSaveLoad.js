@@ -181,7 +181,9 @@ export function useSaveLoad() {
         currentSceneIndex: _currentSceneIndex ? _currentSceneIndex.value : 0,
         attributes: attributes.value,
         statuses: statuses.value,
-        choiceHistory: _choiceHistory ? _choiceHistory.value : []
+        choiceHistory: _choiceHistory ? _choiceHistory.value : [],
+        // 添加缩略图：优先使用当前背景图，回退到作品封面
+        thumbnail: (_currentBackground && _currentBackground.value) ? _currentBackground.value : (_effectiveCoverUrl && _effectiveCoverUrl.value) ? _effectiveCoverUrl.value : (work.value && work.value.coverUrl) ? work.value.coverUrl : null
       }
   
       // 使用 saveLoad.js 中的统一存档函数
@@ -276,7 +278,9 @@ export function useSaveLoad() {
         currentSceneIndex: _currentSceneIndex ? _currentSceneIndex.value : 0,
         attributes: attributes.value,
         statuses: statuses.value,
-        choiceHistory: _choiceHistory ? _choiceHistory.value : []
+        choiceHistory: _choiceHistory ? _choiceHistory.value : [],
+        // 添加缩略图：优先使用当前背景图，回退到作品封面
+        thumbnail: (_currentBackground && _currentBackground.value) ? _currentBackground.value : (_effectiveCoverUrl && _effectiveCoverUrl.value) ? _effectiveCoverUrl.value : (work.value && work.value.coverUrl) ? work.value.coverUrl : null
       }
   
       // 使用 saveLoad.js 中的统一存档函数
@@ -418,7 +422,33 @@ export function useSaveLoad() {
       // 恢复选择历史
       if (_choiceHistory) _choiceHistory.value = deepClone(remote.choiceHistory || [])
       
+      console.log('📍 读档状态详情:', {
+        chapterIndex: _currentChapterIndex ? _currentChapterIndex.value : null,
+        sceneIndex: _currentSceneIndex ? _currentSceneIndex.value : null,
+        dialogueIndex: _currentDialogueIndex ? _currentDialogueIndex.value : null,
+        totalScenes: _storyScenes ? _storyScenes.value.length : 0,
+        choiceHistoryCount: _choiceHistory ? _choiceHistory.value.length : 0,
+        choiceHistory: _choiceHistory ? _choiceHistory.value : []
+      })
+      
+      // 输出当前场景的初始状态（在调用 restoreChoiceFlagsFromHistory 之前）
+      if (_currentSceneIndex && _storyScenes && _storyScenes.value) {
+        const curScene = _storyScenes.value[_currentSceneIndex.value]
+        if (curScene) {
+          console.log('📍 读档前当前场景状态:', {
+            sceneId: curScene.id || curScene.sceneId,
+            choiceConsumed: curScene.choiceConsumed,
+            chosenChoiceId: curScene.chosenChoiceId,
+            choiceTriggerIndex: curScene.choiceTriggerIndex,
+            currentDialogueIndex: _currentDialogueIndex ? _currentDialogueIndex.value : null,
+            hasChoices: Array.isArray(curScene.choices) && curScene.choices.length > 0,
+            choicesCount: Array.isArray(curScene.choices) ? curScene.choices.length : 0
+          })
+        }
+      }
+      
       // 根据选择历史恢复场景的已选标记
+      // 🔑 修复：确保在恢复标记前所有索引都已正确设置
       try { 
         if (_restoreChoiceFlagsFromHistory) {
           _restoreChoiceFlagsFromHistory()
@@ -427,13 +457,14 @@ export function useSaveLoad() {
           if (_currentSceneIndex && _storyScenes && _storyScenes.value) {
             const curScene = _storyScenes.value[_currentSceneIndex.value]
             if (curScene) {
-              console.log('📍 当前场景状态:', {
+              console.log('📍 读档后当前场景状态:', {
                 sceneId: curScene.id || curScene.sceneId,
                 choiceConsumed: curScene.choiceConsumed,
                 chosenChoiceId: curScene.chosenChoiceId,
                 choiceTriggerIndex: curScene.choiceTriggerIndex,
                 currentDialogueIndex: _currentDialogueIndex ? _currentDialogueIndex.value : null,
-                hasChoices: Array.isArray(curScene.choices) && curScene.choices.length > 0
+                hasChoices: Array.isArray(curScene.choices) && curScene.choices.length > 0,
+                choicesCount: Array.isArray(curScene.choices) ? curScene.choices.length : 0
               })
             }
           }
@@ -443,8 +474,8 @@ export function useSaveLoad() {
       }
   
       // 恢复显示状态
-      // 抑制自动展示选项,要求用户再点击一次以显示（避免读档后选项丢失）
-      try { if (_suppressAutoShowChoices) _suppressAutoShowChoices.value = true } catch (e) {}
+      // 🔑 修复：读档后先不显示选项，让 watch 根据当前状态判断是否应该显示
+      try { if (_suppressAutoShowChoices) _suppressAutoShowChoices.value = false } catch (e) {}
       if (_showText) _showText.value = true
       if (_choicesVisible) _choicesVisible.value = false
       lastSaveInfo.value = deepClone(remote)

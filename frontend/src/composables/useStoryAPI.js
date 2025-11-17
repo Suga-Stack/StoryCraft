@@ -44,7 +44,17 @@ export function useStoryAPI() {
     const item = scene.dialogues?.[idx]
     if (item == null) return null
     if (typeof item === 'string') return { text: item }
-    if (typeof item === 'object') return { text: item.text ?? '', backgroundImage: item.backgroundImage, speaker: item.speaker }
+    // 🔑 关键修复：保持对话对象的完整结构
+    // - 如果有 text 字段，使用 text
+    // - 如果有 narration 字段但没有 text，使用 narration
+    // - 同时保留 backgroundImage、speaker 等其他字段
+    if (typeof item === 'object') {
+      const text = item.text ?? item.narration ?? ''
+      const result = { text }
+      if (item.backgroundImage) result.backgroundImage = item.backgroundImage
+      if (item.speaker) result.speaker = item.speaker
+      return result
+    }
     return null
   }
   
@@ -537,31 +547,56 @@ export function useStoryAPI() {
   
   const restoreChoiceFlagsFromHistory = () => {
     try {
+      console.log('[restoreChoiceFlagsFromHistory] 开始恢复选项标记')
+      console.log('[restoreChoiceFlagsFromHistory] 当前场景数:', storyScenes.value ? storyScenes.value.length : 0)
+      console.log('[restoreChoiceFlagsFromHistory] 选择历史数:', choiceHistory.value ? choiceHistory.value.length : 0)
+      console.log('[restoreChoiceFlagsFromHistory] 当前场景索引:', currentSceneIndex.value)
+      console.log('[restoreChoiceFlagsFromHistory] 当前对话索引:', currentDialogueIndex.value)
+      
       if (Array.isArray(storyScenes.value)) {
         storyScenes.value.forEach(s => {
           try { if (s) { s.choiceConsumed = false; s.chosenChoiceId = null } } catch (e) {}
         })
       }
       if (Array.isArray(choiceHistory.value)) {
-        choiceHistory.value.forEach(h => {
+        console.log('[restoreChoiceFlagsFromHistory] 处理选择历史记录...')
+        choiceHistory.value.forEach((h, idx) => {
           try {
             const sid = h.sceneId || h.sceneId
             const psid = String(sid)
-            const idx = Array.isArray(storyScenes.value) ? storyScenes.value.findIndex(s => s && (String(s.id) === psid || String(s.sceneId) === psid)) : -1
-            if (idx >= 0 && storyScenes.value[idx]) {
-              try { storyScenes.value[idx].chosenChoiceId = h.choiceId || h.choiceId } catch (e) {}
-              try { storyScenes.value[idx].choiceConsumed = true } catch (e) {}
-              console.log('[restoreChoiceFlagsFromHistory] 恢复场景选项标记:', idx, '选项ID:', h.choiceId)
+            const foundIdx = Array.isArray(storyScenes.value) ? storyScenes.value.findIndex(s => s && (String(s.id) === psid || String(s.sceneId) === psid)) : -1
+            console.log(`[restoreChoiceFlagsFromHistory] 历史记录 ${idx}: sceneId=${sid}, 找到场景索引=${foundIdx}, choiceId=${h.choiceId}, triggerIndex=${h.choiceTriggerIndex}`)
+            if (foundIdx >= 0 && storyScenes.value[foundIdx]) {
+              const scene = storyScenes.value[foundIdx]
+              try { scene.chosenChoiceId = h.choiceId || h.choiceId } catch (e) {}
+              try { 
+                scene.choiceConsumed = true
+                // 保存历史记录中的 choiceTriggerIndex 到场景对象，用于后续判断
+                if (typeof h.choiceTriggerIndex === 'number') {
+                  scene.historyChoiceTriggerIndex = h.choiceTriggerIndex
+                  // 🔑 修复：如果场景没有 choiceTriggerIndex，使用历史记录中的值
+                  if (typeof scene.choiceTriggerIndex !== 'number') {
+                    scene.choiceTriggerIndex = h.choiceTriggerIndex
+                    console.log(`[restoreChoiceFlagsFromHistory] 场景 ${foundIdx} 没有 choiceTriggerIndex，使用历史记录值: ${h.choiceTriggerIndex}`)
+                  }
+                }
+              } catch (e) {}
+              console.log('[restoreChoiceFlagsFromHistory] 恢复场景选项标记:', foundIdx, '选项ID:', h.choiceId, '触发索引:', h.choiceTriggerIndex, 
+                '场景有choices:', Array.isArray(scene.choices), '场景有choiceTriggerIndex:', typeof scene.choiceTriggerIndex === 'number')
+            } else {
+              console.warn(`[restoreChoiceFlagsFromHistory] 未找到 sceneId=${sid} 对应的场景`)
             }
-          } catch (e) {}
+          } catch (e) {
+            console.warn('[restoreChoiceFlagsFromHistory] 处理历史记录出错:', e)
+          }
         })
       }
       // 对当前场景的特殊处理：
-      // 只有当前对话索引确实小于历史记录中的触发索引时，才清除 choiceConsumed 标记
-      // 这样可以正确处理读档到选项之后的情况
+      // 只有当读档位置确实在选项触发点之前时，才清除 choiceConsumed 标记
+      // 如果读档位置在选项触发点或之后，则保持 choiceConsumed = true（选项不应再次显示）
       try {
         const cur = storyScenes.value && storyScenes.value[currentSceneIndex.value]
-        if (cur && cur.choiceConsumed) {
+        if (cur) {
           // 查找当前场景在 choiceHistory 中的记录
           const historyRecord = choiceHistory.value.find(h => {
             const sid = String(h.sceneId)
@@ -569,30 +604,71 @@ export function useStoryAPI() {
             return sid === curId
           })
           
-          // 如果找到了历史记录，使用历史记录中的 choiceTriggerIndex
-          // 如果当前对话索引小于历史记录的触发索引，说明读档到了选项之前，应清除标记
+          // 确定选项的触发索引（优先使用历史记录中的，其次使用场景自身的）
+          let triggerIndex = null
           if (historyRecord && typeof historyRecord.choiceTriggerIndex === 'number') {
-            if (typeof currentDialogueIndex.value === 'number' && currentDialogueIndex.value < historyRecord.choiceTriggerIndex) {
-              try { 
-                cur.choiceConsumed = false
-                cur.chosenChoiceId = null 
-              } catch (e) {}
-              console.log('[restoreChoiceFlagsFromHistory] 当前场景位置在选项触发点之前,清除choiceConsumed标记')
+            triggerIndex = historyRecord.choiceTriggerIndex
+          } else if (typeof cur.choiceTriggerIndex === 'number') {
+            triggerIndex = cur.choiceTriggerIndex
+          }
+          
+          // 如果能确定触发索引，根据当前对话位置决定选项状态
+          if (triggerIndex !== null && typeof currentDialogueIndex.value === 'number') {
+            // 🔑 关键修复：根据读档位置和选择历史决定选项状态
+            if (currentDialogueIndex.value < triggerIndex) {
+              // 读档位置在触发点之前，清除选项标记（用户还未到达选项）
+              if (historyRecord) {
+                // 如果历史中有这个场景的选择记录，但读档位置在触发点之前，
+                // 说明是回到了选择之前的状态，应清除标记
+                try { 
+                  cur.choiceConsumed = false
+                  cur.chosenChoiceId = null 
+                } catch (e) {}
+                console.log('[restoreChoiceFlagsFromHistory] 读档位置(' + currentDialogueIndex.value + ')在选项触发点(' + triggerIndex + ')之前，清除选项标记')
+              }
+            } else if (currentDialogueIndex.value === triggerIndex) {
+              // 读档位置正好在触发点
+              if (historyRecord) {
+                // 🔑 关键修复：确保 choiceConsumed = true（用户已经选过了）
+                try {
+                  cur.choiceConsumed = true
+                  cur.chosenChoiceId = historyRecord.choiceId
+                } catch (e) {}
+                console.log('[restoreChoiceFlagsFromHistory] ✅ 读档位置(' + currentDialogueIndex.value + ')等于触发点(' + triggerIndex + ')，且已有选择记录，确保choiceConsumed=true')
+              } else {
+                // 如果历史中没有选择记录，说明用户可能存档在触发点但还未选择，清除标记
+                try { 
+                  cur.choiceConsumed = false
+                  cur.chosenChoiceId = null 
+                } catch (e) {}
+                console.log('[restoreChoiceFlagsFromHistory] 读档位置(' + currentDialogueIndex.value + ')等于触发点(' + triggerIndex + ')，但无选择记录，清除选项标记')
+              }
             } else {
-              console.log('[restoreChoiceFlagsFromHistory] 当前场景位置在选项触发点之后或等于,保持choiceConsumed标记')
+              // 读档位置在触发点之后
+              if (historyRecord) {
+                // 🔑 关键修复：确保 choiceConsumed = true（选项已被选过）
+                try {
+                  cur.choiceConsumed = true
+                  cur.chosenChoiceId = historyRecord.choiceId
+                } catch (e) {}
+                console.log('[restoreChoiceFlagsFromHistory] ✅ 读档位置(' + currentDialogueIndex.value + ')在触发点(' + triggerIndex + ')之后，且已有选择记录，确保choiceConsumed=true')
+              } else {
+                // 如果历史中没有选择记录但位置在触发点之后，这是异常情况
+                // 为安全起见，标记为已消费，不显示选项
+                try {
+                  cur.choiceConsumed = true
+                } catch (e) {}
+                console.warn('[restoreChoiceFlagsFromHistory] ⚠️ 读档位置(' + currentDialogueIndex.value + ')在触发点(' + triggerIndex + ')之后，但无选择记录（异常），强制设置choiceConsumed=true')
+              }
             }
-          } else {
-            // 如果历史记录中没有 choiceTriggerIndex，使用场景自身的 choiceTriggerIndex（向后兼容）
-            if (typeof cur.choiceTriggerIndex === 'number' && typeof currentDialogueIndex.value === 'number' && currentDialogueIndex.value < cur.choiceTriggerIndex) {
-              try { 
-                cur.choiceConsumed = false
-                cur.chosenChoiceId = null 
-              } catch (e) {}
-              console.log('[restoreChoiceFlagsFromHistory] 当前场景尚未到选项触发点(使用场景自身触发索引),清除choiceConsumed标记')
-            }
+          } else if (!historyRecord && !cur.choiceConsumed) {
+            // 如果当前场景在历史中没有记录，且 choiceConsumed 为 false，保持原状
+            console.log('[restoreChoiceFlagsFromHistory] 当前场景无选择历史记录，保持原状')
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn('[restoreChoiceFlagsFromHistory] 处理当前场景状态时出错:', e)
+      }
     } catch (e) {
       console.warn('restoreChoiceFlagsFromHistory failed', e)
     }

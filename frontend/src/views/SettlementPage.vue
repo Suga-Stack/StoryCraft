@@ -1,8 +1,8 @@
-<script setup>
+﻿<script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { loadGameData, refreshSlotInfosUtil, deleteGameData, SLOTS } from '../utils/saveLoad.js'
 import { fetchPersonalityReportVariants } from '../service/personality.js'
+import { getScenes, getWorkInfo } from '../service/story.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -24,9 +24,87 @@ const getGameDataFromSession = () => {
 
 const sessionData = getGameDataFromSession()
 
+// 尝试从多个来源获取 workId
+const getWorkId = () => {
+  // 优先级：sessionData > history.state > route.params > sessionStorage.lastWorkMeta
+  if (sessionData?.work?.id) {
+    console.log('[Settlement] workId 来自 sessionData.work.id:', sessionData.work.id)
+    return sessionData.work.id
+  }
+  if (history.state?.work?.id) {
+    console.log('[Settlement] workId 来自 history.state.work.id:', history.state.work.id)
+    return history.state.work.id
+  }
+  if (route.params?.id) {
+    console.log('[Settlement] workId 来自 route.params.id:', route.params.id)
+    return parseInt(route.params.id)
+  }
+  
+  // 尝试从 sessionStorage 获取最后一次游戏的作品信息
+  try {
+    const lastWorkMeta = JSON.parse(sessionStorage.getItem('lastWorkMeta'))
+    if (lastWorkMeta?.id) {
+      console.log('[Settlement] workId 来自 lastWorkMeta:', lastWorkMeta.id)
+      return lastWorkMeta.id
+    }
+  } catch (e) {
+    console.warn('Failed to parse lastWorkMeta:', e)
+  }
+  
+  console.error('[Settlement] 无法获取 workId，将使用默认值 1')
+  return 1
+}
+
+const workId = getWorkId()
+
+// 从多个来源获取完整的 work 对象
+const getWorkObject = () => {
+  // 优先从 sessionData 获取完整的 work 对象
+  if (sessionData?.work && typeof sessionData.work === 'object') {
+    console.log('[Settlement] work 对象来自 sessionData:', sessionData.work)
+    // 确保 work 对象包含 id
+    return {
+      id: sessionData.work.id || workId,
+      ...sessionData.work
+    }
+  }
+  
+  // 其次从 history.state 获取
+  if (history.state?.work && typeof history.state.work === 'object') {
+    console.log('[Settlement] work 对象来自 history.state:', history.state.work)
+    // 确保 work 对象包含 id
+    return {
+      id: history.state.work.id || workId,
+      ...history.state.work
+    }
+  }
+  
+  // 尝试从 lastWorkMeta 获取
+  try {
+    const lastWorkMeta = JSON.parse(sessionStorage.getItem('lastWorkMeta'))
+    if (lastWorkMeta && typeof lastWorkMeta === 'object') {
+      console.log('[Settlement] work 对象来自 lastWorkMeta:', lastWorkMeta)
+      // 确保 work 对象包含 id
+      return {
+        id: lastWorkMeta.id || workId,
+        ...lastWorkMeta
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to parse lastWorkMeta:', e)
+  }
+  
+  // 如果都没有，构造一个基本的 work 对象
+  console.warn('[Settlement] 无法获取完整 work 对象，使用基本信息构造')
+  return {
+    id: workId,
+    title: sessionData?.work?.title || history.state?.work?.title || '未知作品'
+  }
+}
+
 // 从多个来源获取游戏数据，优先级：sessionStorage > history.state > 默认值
 const gameData = ref({
-  work: sessionData?.work || history.state?.work || { title: '青云剑心录', id: 1 },
+  work: getWorkObject(),
   choiceHistory: sessionData?.choiceHistory || history.state?.choiceHistory || [],
   finalAttributes: sessionData?.finalAttributes || history.state?.finalAttributes || {},
   finalStatuses: sessionData?.finalStatuses || history.state?.finalStatuses || {},
@@ -34,6 +112,8 @@ const gameData = ref({
   currentSceneIndex: sessionData?.currentSceneIndex || history.state?.currentSceneIndex || 0,
   currentDialogueIndex: sessionData?.currentDialogueIndex || history.state?.currentDialogueIndex || 0
 })
+
+console.log('[Settlement] 使用的 workId:', workId, '完整 work 信息:', gameData.value.work)
 
 // 如果没有传递真实的属性数据，才使用默认值（用于调试）
 // NOTE: Removed local mock defaults so settlement page uses backend-provided data for testing.
@@ -51,12 +131,7 @@ console.log('SettlementPage - Final Game Data:', gameData.value) // 调试日志
 
 // UI 状态
 const showAttributesModal = ref(false)
-const showLoadModal = ref(false)
 const currentView = ref('overview') // overview, branching, personality
-
-// 存档/读档相关状态
-const slotInfos = ref({ slot1: null, slot2: null, slot3: null, slot4: null, slot5: null, slot6: null })
-const loadToast = ref('')
 
 // 分支探索图状态
 const branchingGraph = ref({ nodes: [], edges: [] })
@@ -230,9 +305,55 @@ const personalityTemplates = [
 // 默认个性报告
 const defaultPersonalityReport = {
   title: '谨慎新人',
-  content: '你小心翼翼，每一步都走得格外谨慎。虽然还在适应星际生活，但你的谨慎和观察力将会是你在太空中生存的重要武器。',
+  content: '你小心翼翼,每一步都走得格外谨慎。虽然还在适应星际生活,但你的谨慎和观察力将会是你在太空中生存的重要武器。',
   traits: ['小心谨慎', '善于观察', '稳重内敛', '厚积薄发'],
   scores: { 谨慎: 85, 观察力: 80, 适应力: 75, 潜力: 82 }
+}
+
+// 缓存章节数据,避免重复请求
+const chapterDataCache = ref({})
+
+// 获取指定章节的数据(包括背景图等)
+const fetchChapterData = async (workId, chapterIndex) => {
+  const cacheKey = `${workId}_${chapterIndex}`
+  
+  // 如果已缓存,直接返回
+  if (chapterDataCache.value[cacheKey]) {
+    return chapterDataCache.value[cacheKey]
+  }
+  
+  try {
+    console.log(`[Settlement] 获取章节 ${chapterIndex} 的数据...`)
+    const data = await getScenes(workId, chapterIndex, { maxRetries: 1 })
+    
+    // 提取第一个场景的背景图作为章节代表图
+    let backgroundImage = null
+    if (data && data.scenes && data.scenes.length > 0) {
+      backgroundImage = data.scenes[0].backgroundImage || null
+    }
+    
+    const result = {
+      chapterIndex: data?.chapterIndex || chapterIndex,
+      title: data?.title || `第${chapterIndex}章`,
+      backgroundImage: backgroundImage,
+      scenes: data?.scenes || []
+    }
+    
+    // 缓存结果
+    chapterDataCache.value[cacheKey] = result
+    console.log(`[Settlement] 章节 ${chapterIndex} 数据获取成功:`, result)
+    
+    return result
+  } catch (error) {
+    console.warn(`[Settlement] 获取章节 ${chapterIndex} 数据失败:`, error)
+    // 返回默认数据
+    return {
+      chapterIndex: chapterIndex,
+      title: `第${chapterIndex}章`,
+      backgroundImage: null,
+      scenes: []
+    }
+  }
 }
 
 // 生成分支探索图
@@ -242,17 +363,68 @@ const defaultPersonalityReport = {
 // - 未选择的选项连接到一个问号节点“?”；
 // - 所有节点标题限制为前6个字符；
 // - 尝试在末端显示“故事完结”或“主线”汇合节点。
-const generateBranchingGraph = () => {
+const generateBranchingGraph = async () => {
   const nodes = []
   const edges = []
   let nodeId = 0
+
+  // 确保使用有效的 workId
+  const currentWorkId = gameData.value.work?.id || workId
+  if (!currentWorkId || currentWorkId <= 0) {
+    console.warn('[Settlement] 无法生成分支图: 缺少有效的 workId，当前值:', currentWorkId)
+    branchingGraph.value = { nodes: [], edges: [] }
+    return
+  }
+  
+  console.log('[Settlement] 生成分支图，使用 workId:', currentWorkId)
+
+  // 收集所有需要获取的章节索引
+  const chaptersToFetch = new Set([1]) // 始终获取第一章
+  gameData.value.choiceHistory.forEach((userChoice) => {
+    const chapterIdx = userChoice.chapterIndex
+    if (chapterIdx != null && chapterIdx > 0) {
+      chaptersToFetch.add(chapterIdx)
+    }
+  })
+  
+  // 批量获取所有章节数据
+  console.log('[Settlement] 需要获取的章节:', Array.from(chaptersToFetch))
+  const chapterDataPromises = Array.from(chaptersToFetch).map(idx => 
+    fetchChapterData(currentWorkId, idx)
+  )
+  await Promise.all(chapterDataPromises)
+  console.log('[Settlement] 所有章节数据已加载完成')
 
   // 起始节点：优先使用后端传来的第一章标题作为起始节点名称（例如“第一章 标题”），
   // 如果没有可用章节数据则回退到默认标题
   const firstChapter = (gameData.value.storyScenes && gameData.value.storyScenes.length > 0) ? gameData.value.storyScenes[0] : null
   let startTitle = '初入深宫'
   let startDescription = '故事开始，初入宫闱'
-  if (firstChapter) {
+  let startImage = null
+  
+  // 从缓存中获取第一章数据 - 使用 currentWorkId
+  const cacheKey1 = `${currentWorkId}_1`
+  const chapter1Data = chapterDataCache.value[cacheKey1]
+  if (chapter1Data) {
+    startTitle = chapter1Data.title || startTitle
+    startDescription = chapter1Data.title || startDescription
+    startImage = chapter1Data.backgroundImage || null
+    
+    // 如果缓存中的标题为空，尝试从第一个场景的 dialogue 获取
+    if (!startDescription || startDescription === chapter1Data.title) {
+      if (chapter1Data.scenes && chapter1Data.scenes.length > 0) {
+        const firstScene = chapter1Data.scenes[0]
+        if (Array.isArray(firstScene.dialogues) && firstScene.dialogues.length > 0) {
+          const raw = firstScene.dialogues[0]
+          const txt = raw && (raw.text ?? raw.narration ?? '')
+          const stripped = stripDecorative(txt)
+          if (stripped) startDescription = stripped
+        }
+      }
+    }
+  } 
+  // 如果缓存中没有数据，再使用 firstChapter（来自 gameData）
+  else if (firstChapter) {
     const idx = firstChapter.chapterIndex || 1
     const chapterLabel = idx === 1 ? '第一章' : `第${idx}章`
     startTitle = `${chapterLabel} ${firstChapter.title || ''}`.trim()
@@ -266,17 +438,20 @@ const generateBranchingGraph = () => {
   }
 
   // 起始节点的粗体标题只显示章节编号（例如：第1章），完整章节名放在 description 中
-  const startShortTitle = firstChapter && (firstChapter.chapterIndex || firstChapter.chapterIndex === 0) ? `第${firstChapter.chapterIndex}章` : '第1章'
+  const startShortTitle = '第1章'
   {
-    // 优先使用第一章第一个场景的背景图作为起始缩略图；如果章节对象本身就是一个场景或含有 backgroundImage，则回退使用它
-    let startImage = null
-    if (firstChapter) {
-      if (Array.isArray(firstChapter.scenes) && firstChapter.scenes.length > 0) {
-        startImage = firstChapter.scenes[0].backgroundImage || null
-      } else if (firstChapter.backgroundImage) {
-        startImage = firstChapter.backgroundImage || null
-      } else if (firstChapter.scene && firstChapter.scene.backgroundImage) {
-        startImage = firstChapter.scene.backgroundImage || null
+    // 如果还没有图片，尝试从 chapter1Data 或 firstChapter 获取（作为后备）
+    if (!startImage) {
+      if (chapter1Data && chapter1Data.scenes && chapter1Data.scenes.length > 0) {
+        startImage = chapter1Data.scenes[0].backgroundImage || null
+      } else if (firstChapter) {
+        if (Array.isArray(firstChapter.scenes) && firstChapter.scenes.length > 0) {
+          startImage = firstChapter.scenes[0].backgroundImage || null
+        } else if (firstChapter.backgroundImage) {
+          startImage = firstChapter.backgroundImage || null
+        } else if (firstChapter.scene && firstChapter.scene.backgroundImage) {
+          startImage = firstChapter.scene.backgroundImage || null
+        }
       }
     }
     const layout = computeNodeLayout(startShortTitle, startDescription, { imageW: THUMB_W, imageH: THUMB_H })
@@ -301,66 +476,167 @@ const generateBranchingGraph = () => {
 
   // 根据用户的选择历史按顺序生成分支图
   gameData.value.choiceHistory.forEach((userChoice, historyIndex) => {
-    // 先尝试通过记录的 sceneIndex 定位场景（更可靠，能避免后端每章复用相同 sceneId 导致的歧义）
+    // 首先确定章节索引
+    let chapterIdx = null
+    if (userChoice && userChoice.chapterIndex) {
+      chapterIdx = userChoice.chapterIndex
+    }
+    const fallbackIdx = historyIndex + 1
+    const displayIdx = chapterIdx != null ? chapterIdx : fallbackIdx
+    
+    // 从缓存中获取该章节的完整数据（包括scenes和choices）
+    const cacheKey = `${currentWorkId}_${displayIdx}`
+    const cachedChapterData = chapterDataCache.value[cacheKey]
+    
     let scene = null
-    try {
-      if (typeof userChoice.sceneIndex === 'number' && Array.isArray(gameData.value.storyScenes)) {
-        scene = gameData.value.storyScenes[userChoice.sceneIndex] || null
+    
+    // 优先从缓存的章节数据中获取场景（包括choices、dialogues等完整数据）
+    if (cachedChapterData && cachedChapterData.scenes && cachedChapterData.scenes.length > 0) {
+      // 查找具有 choices 的场景（通常是第一个有选择的场景）
+      const sceneWithChoices = cachedChapterData.scenes.find(s => s.choices && s.choices.length > 0)
+      if (sceneWithChoices) {
+        // 直接使用缓存中的场景数据，确保获取到正确的选项文本
+        console.log(`[Settlement] 使用缓存的章节 ${displayIdx} 场景数据，包含 ${sceneWithChoices.choices.length} 个选项`)
+        scene = sceneWithChoices
       }
-    } catch (e) { scene = null }
-
-    // 回退到按 id/sceneId 查找（兼容旧保存格式）
+    }
+    
+    // 如果缓存中没有找到，才尝试从 gameData.value.storyScenes 获取（可能已被覆盖，不推荐）
     if (!scene) {
-      scene = gameData.value.storyScenes.find(s => {
-        try { return String(s?.id) === String(userChoice.sceneId) || String(s?.sceneId) === String(userChoice.sceneId) } catch (e) { return false }
-      })
+      console.log(`[Settlement] 警告：章节 ${displayIdx} 没有缓存数据，尝试从 gameData 获取（可能不准确）`)
+      
+      // 先尝试通过记录的 sceneIndex 定位场景
+      try {
+        if (typeof userChoice.sceneIndex === 'number' && Array.isArray(gameData.value.storyScenes)) {
+          scene = gameData.value.storyScenes[userChoice.sceneIndex] || null
+        }
+      } catch (e) { scene = null }
+
+      // 回退到按 id/sceneId 查找（兼容旧保存格式）
+      if (!scene) {
+        scene = gameData.value.storyScenes.find(s => {
+          try { return String(s?.id) === String(userChoice.sceneId) || String(s?.sceneId) === String(userChoice.sceneId) } catch (e) { return false }
+        })
+      }
     }
 
     // 如果仍未找到（例如前端在生成结算数据时没有把完整场景保存到 session），生成一个轻量的占位场景
     if (!scene) {
+      console.log(`[Settlement] 为章节 ${displayIdx} 生成占位场景数据`)
+      
+      // 🔑 关键修复：从 userChoice 中提取所有可用的选项信息
+      // userChoice 可能包含 allChoices 或 choices 字段，优先使用
+      let choicesForScene = []
+      
+      // 1. 优先尝试从 userChoice.allChoices 获取完整选项列表
+      if (userChoice.allChoices && Array.isArray(userChoice.allChoices) && userChoice.allChoices.length > 0) {
+        console.log(`[Settlement] 从 userChoice.allChoices 获取到 ${userChoice.allChoices.length} 个选项`)
+        choicesForScene = userChoice.allChoices
+      }
+      // 2. 其次尝试从 userChoice.choices 获取
+      else if (userChoice.choices && Array.isArray(userChoice.choices) && userChoice.choices.length > 0) {
+        console.log(`[Settlement] 从 userChoice.choices 获取到 ${userChoice.choices.length} 个选项`)
+        choicesForScene = userChoice.choices
+      }
+      // 3. 如果都没有，至少用用户实际选择的选项构造一个基本的选项列表
+      else if (userChoice.choiceId) {
+        console.log(`[Settlement] 仅从用户选择构造单个选项`)
+        choicesForScene = [{ 
+          id: userChoice.choiceId, 
+          text: userChoice.choiceText || '已选择',
+          choiceId: userChoice.choiceId
+        }]
+      }
+      
       scene = {
         id: userChoice.sceneId || (`stub-${historyIndex}`),
         sceneId: userChoice.sceneId || null,
         title: userChoice.sceneTitle || `第${(userChoice.chapterIndex || historyIndex + 1)}章`,
         backgroundImage: (gameData.value.storyScenes && typeof userChoice.sceneIndex === 'number' && gameData.value.storyScenes[userChoice.sceneIndex]) ? (gameData.value.storyScenes[userChoice.sceneIndex].backgroundImage || null) : null,
-        // 如果没有可用的选择列表，则至少用用户选择构造一个选项，保证分支图能展示该节点
-        choices: (userChoice.choiceId ? [{ id: userChoice.choiceId, text: userChoice.choiceText || '已选择' }] : [])
+        choices: choicesForScene,
+        // 标记用户实际选择的选项ID
+        chosenChoiceId: userChoice.choiceId || null
       }
+      
+      console.log(`[Settlement] 占位场景包含 ${scene.choices.length} 个选项`)
     }
 
-    // 如果没有任何 choices，则仍然继续（展示问号分支）
-    if (!scene || !scene.choices) scene.choices = scene.choices || []
+    // 确保 scene.choices 至少是一个空数组
+    if (!scene.choices) {
+      console.warn(`[Settlement] 场景 ${displayIdx} 没有choices，设置为空数组`)
+      scene.choices = []
+    }
+    
+    // 🔑 关键修复：如果场景中没有choices但userChoice中有选项信息，从userChoice恢复
+    if (scene.choices.length === 0 && userChoice) {
+      console.log(`[Settlement] 场景 ${displayIdx} 的 choices 为空，尝试从 userChoice 恢复`)
+      
+      // 尝试从 userChoice 的各种可能字段中提取选项
+      if (userChoice.allChoices && Array.isArray(userChoice.allChoices) && userChoice.allChoices.length > 0) {
+        scene.choices = userChoice.allChoices
+        console.log(`[Settlement] 从 userChoice.allChoices 恢复了 ${scene.choices.length} 个选项`)
+      } else if (userChoice.choices && Array.isArray(userChoice.choices) && userChoice.choices.length > 0) {
+        scene.choices = userChoice.choices
+        console.log(`[Settlement] 从 userChoice.choices 恢复了 ${scene.choices.length} 个选项`)
+      } else if (userChoice.choiceId) {
+        // 至少构造用户选择的那个选项
+        scene.choices = [{ 
+          id: userChoice.choiceId, 
+          text: userChoice.choiceText || '已选择',
+          choiceId: userChoice.choiceId
+        }]
+        console.log(`[Settlement] 从 userChoice 构造了单个选项`)
+      }
+      
+      // 标记用户实际选择的选项
+      if (!scene.chosenChoiceId && userChoice.choiceId) {
+        scene.chosenChoiceId = userChoice.choiceId
+      }
+    }
 
   // 场景节点（选择发生的地方）
     const sceneNodeId = nodeId++
     // 场景节点：粗体（title）只显示章节编号，如 "第1章"；浅色描述（description）显示完整章节标题
-    let chapterIdx = null
     let chapterTitle = ''
-    if (scene && (scene.chapterIndex || scene.chapterIndex === 0)) {
-      chapterIdx = scene.chapterIndex
-    } else if (userChoice && userChoice.chapterIndex) {
-      chapterIdx = userChoice.chapterIndex
-    }
-    if (scene && (scene.chapterTitle || scene.title)) {
+    
+    // 优先从缓存的章节数据获取标题
+    if (cachedChapterData && cachedChapterData.title) {
+      chapterTitle = cachedChapterData.title
+    } else if (scene && (scene.chapterTitle || scene.title)) {
       chapterTitle = scene.chapterTitle || scene.title || ''
     } else if (userChoice && userChoice.sceneTitle) {
       chapterTitle = userChoice.sceneTitle
     }
 
-    const fallbackIdx = historyIndex + 1
-    const displayIdx = chapterIdx != null ? chapterIdx : fallbackIdx
     const sceneShortTitle = `第${displayIdx}章`
-    // 若没有显式的 chapterTitle，则尝试从场景第一个 dialogue 提取（例如 '———— 第一章：破产的修仙生涯 ————'）
+    // 若没有显式的 chapterTitle，则尝试从缓存的章节数据或场景第一个 dialogue 提取
     let sceneFullTitle = chapterTitle || `第${displayIdx}章`
-    if ((!chapterTitle || chapterTitle === '') && Array.isArray(scene.dialogues) && scene.dialogues.length > 0) {
-      const raw = scene.dialogues[0]
-      const txt = raw && (raw.text ?? raw.narration ?? '')
-      const stripped = stripDecorative(txt)
-      if (stripped) sceneFullTitle = stripped
+    
+    // 优先从缓存的章节数据中获取 dialogue
+    if (!chapterTitle || chapterTitle === '') {
+      // 先尝试从缓存的章节数据获取
+      if (cachedChapterData && cachedChapterData.scenes && cachedChapterData.scenes.length > 0) {
+        const firstCachedScene = cachedChapterData.scenes[0]
+        if (Array.isArray(firstCachedScene.dialogues) && firstCachedScene.dialogues.length > 0) {
+          const raw = firstCachedScene.dialogues[0]
+          const txt = raw && (raw.text ?? raw.narration ?? '')
+          const stripped = stripDecorative(txt)
+          if (stripped) sceneFullTitle = stripped
+        }
+      }
+      // 如果缓存中没有，再从 scene 获取
+      else if (Array.isArray(scene.dialogues) && scene.dialogues.length > 0) {
+        const raw = scene.dialogues[0]
+        const txt = raw && (raw.text ?? raw.narration ?? '')
+        const stripped = stripDecorative(txt)
+        if (stripped) sceneFullTitle = stripped
+      }
     }
 
     {
-      const image = scene && scene.backgroundImage ? scene.backgroundImage : null
+      // 从缓存中获取当前章节的背景图
+      const image = cachedChapterData?.backgroundImage || (scene && scene.backgroundImage) || null
+      
       const layout = computeNodeLayout(sceneShortTitle, sceneFullTitle, { imageW: THUMB_W, imageH: THUMB_H })
       nodes.push({
         id: sceneNodeId,
@@ -387,16 +663,21 @@ const generateBranchingGraph = () => {
     })
 
     // 为这个场景的所有选项创建节点
-  const choiceSpacing = 240 // 增加水平间距以匹配缩略图宽度
+    const choiceSpacing = 240 // 增加水平间距以匹配缩略图宽度
     const startX = 400 - (scene.choices.length - 1) * choiceSpacing / 2
+    
+    console.log(`[Settlement] 章节 ${displayIdx} 有 ${scene.choices.length} 个选项`)
 
     scene.choices.forEach((choice, choiceIndex) => {
       const choiceX = startX + choiceIndex * choiceSpacing
       const choiceY = currentY + 120
 
+      // 🔑 关键修复：兼容选项的 id 或 choiceId 字段
+      const currentChoiceId = choice.id || choice.choiceId
+      
       // 判断是否是用户实际选择的选项
       const selectedChoiceId = userChoice && userChoice.choiceId ? userChoice.choiceId : (scene && scene.chosenChoiceId ? scene.chosenChoiceId : null)
-      const isUserChoice = selectedChoiceId != null && choice.id === selectedChoiceId
+      const isUserChoice = selectedChoiceId != null && currentChoiceId === selectedChoiceId
 
       const optLetter = String.fromCharCode(65 + choiceIndex) // A, B, C...
       const choiceShortTitle = `选项${optLetter}`
@@ -404,7 +685,9 @@ const generateBranchingGraph = () => {
       if (isUserChoice) {
         // 显示带缩略图的用户选择节点
         const choiceNodeId = nodeId++
-        const img = scene && scene.backgroundImage ? scene.backgroundImage : null
+        // 从缓存中获取当前章节的背景图（已在外层获取）
+        const img = cachedChapterData?.backgroundImage || (scene && scene.backgroundImage) || null
+        
         const layout = computeNodeLayout(choiceShortTitle, (choice.text || '').toString(), { imageW: THUMB_W, imageH: THUMB_H })
         nodes.push({
           id: choiceNodeId,
@@ -439,7 +722,7 @@ const generateBranchingGraph = () => {
           width: layoutMain.width,
           height: layoutMain.height,
           descLines: layoutMain.descLines,
-          image: scene && scene.backgroundImage ? scene.backgroundImage : null,
+          image: img, // 使用与选项节点相同的图片
           imageW: layoutMain.imageW || 0,
           imageH: layoutMain.imageH || 0
         })
@@ -447,7 +730,7 @@ const generateBranchingGraph = () => {
         edges.push({ from: choiceNodeId, to: mainlineNodeId, label: '', isSelected: true })
         lastNodeId = mainlineNodeId
       } else {
-        // 未选择的选项直接显示问号节点（不显示背景图）
+        // 未选择的选项直接显示问号节点（不显示背景图和具体选项文本）
         const questionNodeId = nodeId++
         const layoutQ = computeNodeLayout('?', '未探索的分支')
         nodes.push({
@@ -541,9 +824,10 @@ const generatePersonalityReport = async () => {
   try {
     const attrs = gameData.value.finalAttributes || {}
     const statuses = gameData.value.finalStatuses || {}
-  console.log('Fetching personality report variants... attrs/statuses:', attrs, statuses)
-  const workId = gameData.value.work?.id || null
-  const variants = await fetchPersonalityReportVariants(workId, attrs, statuses)
+    // 确保使用有效的 workId
+    const currentWorkId = gameData.value.work?.id || workId
+    console.log('Fetching personality report variants... workId:', currentWorkId, 'attrs/statuses:', attrs, statuses)
+    const variants = await fetchPersonalityReportVariants(currentWorkId, attrs, statuses)
     console.log('Variants received:', variants)
 
     const matched = (Array.isArray(variants) ? variants.find(v => variantMatches(v, attrs, statuses)) : null)
@@ -590,70 +874,6 @@ const startDrag = (event, node) => {
   }
 }
 
-// 读档相关
-const loadGame = async (slot) => {
-  try {
-    const result = await loadGameData(gameData.value.work.id, slot)
-    if (result.success) {
-      // 跳转回游戏页面并传递加载的数据
-      router.push({
-        path: `/game/${gameData.value.work.id}`,
-        state: {
-          loadedData: result.data,
-          title: gameData.value.work.title,
-          coverUrl: gameData.value.work.coverUrl
-        }
-      })
-    } else {
-      alert(result.message)
-    }
-  } catch (err) {
-    console.error('读档失败:', err)
-    alert('读档失败：' + err.message)
-  }
-}
-
-const deleteGame = async (slot) => {
-  if (!confirm(`确定要删除 ${slot.toUpperCase()} 的存档吗？此操作不可撤销。`)) {
-    return
-  }
-  
-  try {
-    const result = await deleteGameData(gameData.value.work.id, slot)
-    if (result.success) {
-      loadToast.value = result.message
-      setTimeout(() => (loadToast.value = ''), 2000)
-      // 刷新槽位信息
-      await refreshSlotInfosData()
-    } else {
-      alert(result.message)
-    }
-  } catch (err) {
-    console.error('删除存档失败:', err)
-    alert('删除存档失败：' + err.message)
-  }
-}
-
-// 刷新槽位信息
-const refreshSlotInfosData = async () => {
-  try {
-    console.log('🔍 结算页面 - 开始刷新槽位信息, workId:', gameData.value.work.id)
-    const infos = await refreshSlotInfosUtil(gameData.value.work.id, SLOTS)
-    console.log('✅ 结算页面 - 槽位信息刷新成功:', infos)
-    slotInfos.value = infos
-  } catch (err) {
-    console.error('❌ 结算页面 - 刷新槽位信息失败:', err)
-  }
-}
-
-// 打开读档弹窗
-const openLoadModal = async () => {
-  showLoadModal.value = true
-  await refreshSlotInfosData()
-}
-
-const closeLoadModal = () => { showLoadModal.value = false }
-
 // 返回游戏或主页
 const goBack = () => {
   router.push('/works')
@@ -682,9 +902,21 @@ onMounted(async () => {
   console.log('SettlementPage mounted with data:', gameData.value)
   console.log('Final Attributes:', gameData.value.finalAttributes)
   console.log('Final Statuses:', gameData.value.finalStatuses)
-  generateBranchingGraph()
+  
+  // 获取作品详情，更新作品标题
+  try {
+    const workInfo = await getWorkInfo(workId)
+    if (workInfo && workInfo.title) {
+      gameData.value.work.title = workInfo.title
+      console.log('[Settlement] 成功获取作品详情:', workInfo.title)
+    }
+  } catch (error) {
+    console.warn('[Settlement] 获取作品详情失败:', error)
+    // 保持使用原有的 title，不影响页面渲染
+  }
+  
+  await generateBranchingGraph()
   await generatePersonalityReport()
-  refreshSlotInfosData()
   
   // 清理sessionStorage中的临时数据
   setTimeout(() => {
@@ -708,7 +940,6 @@ onMounted(async () => {
       
       <div class="quick-actions">
         <button class="nav-btn" @click="showAttributesModal = true">属性</button>
-        <button class="nav-btn" @click="openLoadModal">读档</button>
       </div>
     </div>
 
@@ -979,44 +1210,6 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- 读档弹窗 -->
-    <div v-if="showLoadModal" class="modal-backdrop" @click.self="closeLoadModal">
-      <div class="modal-panel save-load-modal">
-        <div class="modal-header">
-          <h3>选择读档槽位</h3>
-          <button class="modal-close" @click="closeLoadModal">×</button>
-        </div>
-        
-        <div class="slot-list">
-          <div v-for="slot in SLOTS" :key="slot" class="slot-card">
-            <div class="slot-title">{{ slot.toUpperCase() }}</div>
-            <div v-if="slotInfos[slot]">
-              <div class="slot-thumb" v-if="(slotInfos[slot].thumbnailData || slotInfos[slot].thumbnail || (slotInfos[slot].game_state && (slotInfos[slot].game_state.thumbnailData || slotInfos[slot].game_state.thumbnail)))">
-                <img :src="slotInfos[slot].thumbnailData || slotInfos[slot].thumbnail || (slotInfos[slot].game_state && (slotInfos[slot].game_state.thumbnailData || slotInfos[slot].game_state.thumbnail))" alt="thumb" />
-                <div class="thumb-meta">
-                  <div class="meta-time">{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}</div>
-                </div>
-              </div>
-              <div class="slot-meta" v-else>
-                <div>时间：{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}</div>
-              </div>
-            </div>
-            <div class="slot-meta empty" v-else>空槽位</div>
-            <div class="slot-actions">
-              <button :disabled="!slotInfos[slot]" @click="loadGame(slot)">读取 {{ slot.toUpperCase() }}</button>
-              <button v-if="slotInfos[slot]" @click="deleteGame(slot)" class="delete-btn">删除</button>
-            </div>
-          </div>
-        </div>
-        
-        <div class="modal-actions">
-          <button @click="closeLoadModal">关闭</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Toast 提示 -->
-    <div v-if="loadToast" class="toast load-toast">{{ loadToast }}</div>
   </div>
 </template>
 
@@ -1617,145 +1810,6 @@ onMounted(async () => {
   background: rgba(212,165,165,0.15); 
   color:#fff; 
   border:1px solid rgba(212,165,165,0.3);
-}
-
-/* 存/读档弹窗样式 */
-.save-load-modal {
-  width: min(88vw, 720px);
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.slot-list { 
-  display:grid; 
-  grid-template-columns: repeat(3, 1fr); 
-  gap: 0.5rem; 
-  margin-top: 0.5rem; 
-  flex: 1 1 auto; 
-  overflow-y: auto; 
-  min-height: 0; 
-  padding-right: 0.25rem; 
-}
-
-.slot-card { 
-  background:#ffffff; 
-  border:1px solid rgba(212,165,165,0.2); 
-  border-radius:8px; 
-  padding:0.5rem; 
-  display:flex; 
-  flex-direction:column; 
-  gap:0.5rem;
-}
-
-.slot-title { 
-  font-weight:700; 
-  color:#8B7355; 
-  letter-spacing: 0.08em; 
-}
-
-.slot-meta { 
-  font-size: 0.9rem; 
-  color:#555; 
-  line-height:1.4;
-}
-
-.slot-meta.empty { 
-  color:#aaa;
-}
-
-.slot-actions { 
-  display:flex; 
-  justify-content:flex-end; 
-}
-
-.slot-actions button { 
-  padding:0.4rem 0.8rem; 
-  border-radius:6px; 
-  cursor:pointer; 
-  background: rgba(212,165,165,0.15); 
-  color:#2c1810; 
-  border:1px solid rgba(212,165,165,0.35);
-}
-
-.slot-actions button:hover { 
-  background: rgba(212,165,165,0.22);
-}
-
-.slot-actions button.delete-btn {
-  background: rgba(220, 53, 69, 0.15);
-  color: #dc3545;
-  border: 1px solid rgba(220, 53, 69, 0.35);
-  margin-left: 0.5rem;
-}
-
-.slot-actions button.delete-btn:hover {
-  background: rgba(220, 53, 69, 0.25);
-}
-
-.slot-actions button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.slot-actions button:disabled:hover {
-  background: rgba(212,165,165,0.15);
-}
-
-/* 缩略图样式：用于在存档槽位显示保存时的背景图缩略 */
-.slot-thumb {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  overflow: hidden;
-  border-radius: 6px;
-  background: #f6f6f6;
-}
-.slot-thumb img {
-  width: 100%;
-  height: 80px;
-  object-fit: cover;
-  display: block;
-  border-radius: 6px 6px 0 0;
-}
-
-.thumb-meta { 
-  width: 100%; 
-  background: rgba(0, 0, 0, 0.5); 
-  color: white; 
-  padding: 0.4rem; 
-  text-align: left; 
-  border-radius: 0 0 6px 6px; 
-}
-.thumb-meta .meta-time { font-size: 0.78rem; color: white; }
-
-@media (max-width: 720px) {
-  .slot-list { grid-template-columns: 1fr; }
-  .slot-thumb img { height: 70px }
-}
-
-/* Toast 提示 */
-.toast { 
-  position: fixed; 
-  right: 1rem; 
-  bottom: 1rem; 
-  background: rgba(0,0,0,0.8); 
-  color: #fff; 
-  padding: 0.6rem 1rem; 
-  border-radius: 6px; 
-  z-index: 11000;
-}
-
-.save-toast { 
-  background: linear-gradient(90deg,#d4a574,#f5e6d3); 
-  color:#2c1810;
-}
-
-.load-toast { 
-  background: linear-gradient(90deg,#a5d4a5,#d3f5d3); 
-  color:#183a12;
 }
 
 /* 响应式设计 */

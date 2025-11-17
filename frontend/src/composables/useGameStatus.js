@@ -32,6 +32,7 @@ export function useGameState(dependencies = {}) {
     // 添加缺失的依赖
     creatorMode,
     allowAdvance,
+    editingDialogue,  // 🔑 关键修复：添加编辑状态
     creatorFeatureEnabled,
     isCreatorIdentity,
     modifiableFromCreate,
@@ -47,7 +48,8 @@ export function useGameState(dependencies = {}) {
     pendingNextChapter,
     AUTO_SAVE_SLOT,
     autoSaveToSlot,
-    previewSnapshot
+    previewSnapshot,
+    waitingForClickToShowChoices  // 🔑 新增：等待用户点击显示选项的标记
   } = dependencies
 
   // 状态定义
@@ -191,6 +193,12 @@ export function useGameState(dependencies = {}) {
             if (remote) {
                 // 保留后端返回的结算数据，但确保包含本地的 choiceHistory / storyScenes / attributes/statuses
                 settlementData = Object.assign({}, remote)
+                
+                // 🔑 关键修复：确保 work 信息始终存在
+                if (!settlementData.work) {
+                    try { settlementData.work = deepClone(work.value) } catch (e) { settlementData.work = work.value }
+                }
+                
                 if (!Array.isArray(settlementData.choiceHistory) || settlementData.choiceHistory.length === 0) {
                 try { settlementData.choiceHistory = Array.isArray(choiceHistory.value) ? deepClone(choiceHistory.value) : [] } catch (e) { settlementData.choiceHistory = [] }
                 }
@@ -207,18 +215,36 @@ export function useGameState(dependencies = {}) {
             } catch (e) { console.warn('fetchReport failed in handleGameEnd:', e) }
 
             if (!settlementData) {
-            settlementData = {
-                work: work.value,
-                choiceHistory: choiceHistory.value,
-                finalAttributes: attributes.value,
-                finalStatuses: statuses.value,
-                storyScenes: storyScenes.value,
-                currentSceneIndex: currentSceneIndex.value,
-                currentDialogueIndex: currentDialogueIndex.value
+                settlementData = {
+                    work: work.value,
+                    choiceHistory: choiceHistory.value,
+                    finalAttributes: attributes.value,
+                    finalStatuses: statuses.value,
+                    storyScenes: storyScenes.value,
+                    currentSceneIndex: currentSceneIndex.value,
+                    currentDialogueIndex: currentDialogueIndex.value
+                }
             }
+            
+            // 最后再次检查确保 work 信息存在（双重保险）
+            if (!settlementData.work) {
+                console.warn('handleGameEnd: settlementData 缺少 work，使用当前 work')
+                settlementData.work = work.value
             }
-
-            try { sessionStorage.setItem('settlementData', JSON.stringify(settlementData)) } catch (e) { console.warn('set settlementData failed', e) }
+            
+            // 详细调试日志
+            console.log('[handleGameEnd] 当前 work 对象:', work.value)
+            console.log('[handleGameEnd] settlementData.work:', settlementData.work)
+            console.log('[handleGameEnd] 完整的 settlementData:', settlementData)
+            
+            try { 
+                sessionStorage.setItem('settlementData', JSON.stringify(settlementData))
+                console.log('[handleGameEnd] settlementData 已保存到 sessionStorage')
+            } catch (e) { 
+                console.error('[handleGameEnd] 保存 settlementData 到 sessionStorage 失败:', e) 
+            }
+            
+            console.log('跳转到结算页面，结算数据:', settlementData)
             router.push('/settlement')
         }
         
@@ -279,8 +305,10 @@ export function useGameState(dependencies = {}) {
     const chooseOption = async (choice) => {
         try {
             console.log('[chooseOption] 选择了选项:', choice)
+            console.log('[chooseOption] 当前是否在手动编辑模式:', creatorMode?.value)
             console.log('[chooseOption] 原始 attributesDelta:', choice.attributesDelta)
             console.log('[chooseOption] 原始 statusesDelta:', choice.statusesDelta)
+            console.log('[chooseOption] subsequentDialogues:', choice.subsequentDialogues)
             
             // 🔑 关键修复：交叉检查并修正 delta
             const { attributesDelta, statusesDelta } = normalizeDeltas(
@@ -293,52 +321,141 @@ export function useGameState(dependencies = {}) {
             if (scene) {
                 scene.choiceConsumed = true
                 scene.chosenChoiceId = choice.id
+                
+                // 🔑 关键修复：如果选项有 subsequentDialogues，插入到当前场景的对话列表中
+                // 保持 subsequentDialogues 的原始格式，不转换为 narration
+                if (Array.isArray(choice.subsequentDialogues) && choice.subsequentDialogues.length > 0) {
+                    console.log('[chooseOption] 插入 subsequentDialogues:', choice.subsequentDialogues)
+                    // 获取当前触发点的位置
+                    const triggerIndex = scene.choiceTriggerIndex || currentDialogueIndex.value
+                    // 在触发点之后插入 subsequentDialogues
+                    const insertIndex = triggerIndex + 1
+                    
+                    // 🔑 关键修复：规范化 subsequentDialogues，保持其原始格式
+                    // subsequentDialogues 中的每一项都按原样插入，不做格式转换
+                    // - 如果是字符串，保持为字符串（会被 getDialogueItem 转换为 { text: string }）
+                    // - 如果是对象（包含 text/narration/speaker/backgroundImage 等），保持完整结构
+                    // 🔑 关键修复：添加标记以便在保存时识别这些对话来自哪个选项
+                    const normalizedSubsequent = choice.subsequentDialogues.map((item, idx) => {
+                        let normalized
+                        // 如果是字符串，转换为对象以便添加标记
+                        if (typeof item === 'string') {
+                            normalized = {
+                                text: item,
+                                _fromChoiceId: choice.id,
+                                _fromChoiceIndex: idx
+                            }
+                        }
+                        // 如果是对象，保持其完整结构并添加标记
+                        else if (item && typeof item === 'object') {
+                            normalized = {
+                                ...item,
+                                _fromChoiceId: choice.id,
+                                _fromChoiceIndex: idx
+                            }
+                        }
+                        // 其他情况转为字符串再转对象
+                        else {
+                            normalized = {
+                                text: String(item),
+                                _fromChoiceId: choice.id,
+                                _fromChoiceIndex: idx
+                            }
+                        }
+                        return normalized
+                    })
+                    
+                    scene.dialogues.splice(insertIndex, 0, ...normalizedSubsequent)
+                    console.log('[chooseOption] 插入后的对话列表:', scene.dialogues)
+                    console.log('[chooseOption] 插入后的对话列表长度:', scene.dialogues.length)
+                }
             }
             
-            // 记录选择历史
-            choiceHistory.value.push({
-                sceneId: scene?.id,
-                choiceId: choice.id,
-                choiceText: choice.text,
-                timestamp: Date.now()
-            })
+            // 🔑 关键：只有在非手动编辑模式下才记录选择历史
+            if (!creatorMode?.value) {
+                // 🔑 关键修复：记录选择历史时，保存所有可选项以供分支图使用
+                // 从当前场景获取所有选项
+                const allChoices = scene?.choices || []
+                
+                // 记录选择历史（包含 choiceTriggerIndex 用于读档恢复）
+                choiceHistory.value.push({
+                    sceneId: scene?.id || scene?.sceneId,
+                    sceneIndex: currentSceneIndex?.value,
+                    sceneTitle: scene?.title || scene?.chapterTitle,
+                    choiceId: choice.id,
+                    choiceText: choice.text,
+                    choiceTriggerIndex: scene?.choiceTriggerIndex || currentDialogueIndex.value,
+                    chapterIndex: currentChapterIndex?.value || 1,
+                    timestamp: Date.now(),
+                    // 🔑 保存所有可选项，用于生成分支探索图
+                    allChoices: allChoices.map(c => ({
+                        id: c.id || c.choiceId,
+                        choiceId: c.id || c.choiceId,
+                        text: c.text
+                    }))
+                })
+                console.log('[chooseOption] ✅ 记录选择历史（正常游戏模式），包含', allChoices.length, '个可选项')
+            } else {
+                console.log('[chooseOption] ⚠️ 手动编辑模式下不记录选择历史')
+            }
+            
+            // 更新最后选择时间戳
+            if (lastChoiceTimestamp) {
+                lastChoiceTimestamp.value = Date.now()
+            }
             
             // 隐藏选项
             choicesVisible.value = false
             
-            // 应用属性和状态变化（使用修正后的 delta）
-            if (attributesDelta && Object.keys(attributesDelta).length > 0) {
-                console.log('[chooseOption] 调用 applyAttributesDelta（修正后）')
-                applyAttributesDelta(attributesDelta)
+            // 🔑 清除等待点击显示选项的标记
+            if (waitingForClickToShowChoices) {
+                waitingForClickToShowChoices.value = false
+            }
+            
+            // 🔑 关键：只有在非手动编辑模式下才应用属性和状态变化
+            if (!creatorMode?.value) {
+                // 应用属性和状态变化（使用修正后的 delta）
+                if (attributesDelta && Object.keys(attributesDelta).length > 0) {
+                    console.log('[chooseOption] 调用 applyAttributesDelta（修正后）')
+                    applyAttributesDelta(attributesDelta)
+                } else {
+                    console.log('[chooseOption] 没有 attributesDelta 需要应用')
+                }
+                
+                if (statusesDelta && Object.keys(statusesDelta).length > 0) {
+                    console.log('[chooseOption] 调用 applyStatusesDelta（修正后）')
+                    applyStatusesDelta(statusesDelta)
+                } else {
+                    console.log('[chooseOption] 没有 statusesDelta 需要应用')
+                }
             } else {
-                console.log('[chooseOption] 没有 attributesDelta 需要应用')
+                console.log('[chooseOption] ⚠️ 手动编辑模式下不应用属性和状态变化')
             }
             
-            if (statusesDelta && Object.keys(statusesDelta).length > 0) {
-                console.log('[chooseOption] 调用 applyStatusesDelta（修正后）')
-                applyStatusesDelta(statusesDelta)
-            } else {
-                console.log('[chooseOption] 没有 statusesDelta 需要应用')
+            // 🔑 修复：安全地访问 autoPlayEnabled 和 startAutoPlayTimer
+            try {
+                if (autoPlayEnabled && autoPlayEnabled.value && startAutoPlayTimer) {
+                    startAutoPlayTimer()
+                }
+            } catch (e) {
+                console.warn('[chooseOption] 启动自动播放失败:', e)
             }
             
-            // 继续播放
-            if (autoPlayEnabled.value) {
-                startAutoPlayTimer()
-            }
-            
-            // 前进到下一句对话将由 nextDialogue 函数处理
-            // 这里只是更新当前对话索引
+            // 🔑 关键修复：前进到下一句对话（选项触发点的下一句，可能是 subsequentDialogues 的第一句）
             showText.value = false
             setTimeout(() => {
+                // 如果选项有 subsequentDialogues，前进到下一句会显示这些对话
                 if (currentDialogueIndex.value < scene.dialogues.length - 1) {
                     currentDialogueIndex.value++
                     showText.value = true
+                    console.log('[chooseOption] 前进到下一句对话，索引:', currentDialogueIndex.value)
                 } else {
                     // 场景结束，移动到下一个场景
                     if (currentSceneIndex.value < storyScenes.value.length - 1) {
                         currentSceneIndex.value++
                         currentDialogueIndex.value = 0
                         showText.value = true
+                        console.log('[chooseOption] 场景结束，移动到下一个场景')
                     }
                 }
             }, 500)
@@ -384,6 +501,9 @@ export function useGameState(dependencies = {}) {
         }
     }
 
+    // 进度条定时器引用
+    let progressTimer = null
+
     // 模拟加载到100%
     const simulateLoadTo100 = async () => {
         for (let i = loadingProgress.value; i <= 100; i += 5) {
@@ -392,14 +512,40 @@ export function useGameState(dependencies = {}) {
         }
     }
 
-    // 开始加载
+    // 开始加载 - 匀速前进到90%
     const startLoading = () => {
         isLoading.value = true
         loadingProgress.value = 0
+        
+        // 清除之前的定时器
+        if (progressTimer) {
+            clearInterval(progressTimer)
+            progressTimer = null
+        }
+        
+        // 匀速增加进度到90%，假设30秒内完成
+        // 每100ms增加0.3%，大约30秒到达90%
+        progressTimer = setInterval(() => {
+            if (loadingProgress.value < 90) {
+                loadingProgress.value = Math.min(90, loadingProgress.value + 0.3)
+            }
+        }, 100)
     }
 
     // 停止加载
     const stopLoading = async () => {
+        // 清除进度定时器
+        if (progressTimer) {
+            clearInterval(progressTimer)
+            progressTimer = null
+        }
+        
+        // 如果还没到90%，直接跳到90%
+        if (loadingProgress.value < 90) {
+            loadingProgress.value = 90
+        }
+        
+        // 然后快速完成到100%
         await simulateLoadTo100()
         isLoading.value = false
     }
@@ -614,7 +760,7 @@ export function useGameState(dependencies = {}) {
   
   // 点击屏幕进入下一段对话
   const nextDialogue = async () => {
-  console.log('[nextDialogue] called, showMenu:', showMenu.value, 'choicesVisible:', choicesVisible.value)
+  console.log('[nextDialogue] called, showMenu:', showMenu.value, 'choicesVisible:', choicesVisible.value, 'editingDialogue:', editingDialogue?.value)
   
   if (showMenu.value) {
     // 如果菜单显示，点击不做任何事
@@ -622,13 +768,25 @@ export function useGameState(dependencies = {}) {
     return
   }
 
+  // 🔑 关键修复：如果正在编辑对话，完全阻止任何对话切换
+  if (editingDialogue?.value) {
+    console.log('[nextDialogue] 正在编辑对话，阻止切换到下一句')
+    return
+  }
+
+  // 🔑 新增：如果等待用户点击显示选项，此时用户点击了，就显示选项
+  if (waitingForClickToShowChoices && waitingForClickToShowChoices.value) {
+    console.log('[nextDialogue] 检测到等待点击显示选项标记，现在显示选项')
+    waitingForClickToShowChoices.value = false
+    choicesVisible.value = true
+    stopAutoPlayTimer()
+    return
+  }
+
   // 🔑 关键修复：如果当前显示选项，必须选择后才能继续，阻止任何前进
   if (choicesVisible.value) {
     console.log('[nextDialogue] 选项正在显示，必须先选择选项才能继续')
     // 可以添加一个视觉提示，告诉用户需要选择
-    try {
-      if (showNotice) showNotice('请先选择一个选项再继续', 1500)
-    } catch (e) {}
     return
   }
 
@@ -639,26 +797,82 @@ export function useGameState(dependencies = {}) {
     if (typeof scene.choiceTriggerIndex === 'number' && 
         currentDialogueIndex.value === scene.choiceTriggerIndex &&
         !scene.choiceConsumed) {
-      console.log('[nextDialogue] 到达选项触发点，应该显示选项而不是前进')
-      // 触发选项显示
-      choicesVisible.value = true
+      console.log('[nextDialogue] 到达选项触发点，设置等待用户再次点击的标记')
+      // 🔑 修改：不再立即显示选项，而是设置等待标记
+      if (waitingForClickToShowChoices) {
+        waitingForClickToShowChoices.value = true
+      }
       stopAutoPlayTimer()
       return
     }
   }
 
   // 在从存档/读档恢复后，我们可能抑制了自动展示选项（suppressAutoShowChoices）
+  // 🔑 修复：只有当选项未被消费且当前正好在触发点时才显示选项
   try {
     if (suppressAutoShowChoices.value && scene) {
+      // 清除抑制标记，让 watch 来决定是否显示选项
+      suppressAutoShowChoices.value = false
+      
+      // 🔑 智能检查选择历史：只有当用户已经通过选项触发点时才拒绝
+      const sceneId = String(scene.id || scene.sceneId)
+      const historyRecord = choiceHistory.value.find(h => String(h.sceneId) === sceneId)
+      
+      if (historyRecord) {
+        // 确定触发索引
+        const triggerIndex = typeof scene.choiceTriggerIndex === 'number' 
+          ? scene.choiceTriggerIndex 
+          : (typeof historyRecord.choiceTriggerIndex === 'number' ? historyRecord.choiceTriggerIndex : null)
+        
+        // 🔑 关键判断：只有当当前对话位置大于触发点时，才拒绝显示
+        if (triggerIndex !== null && currentDialogueIndex.value > triggerIndex) {
+          console.log('[nextDialogue] ⛔ 智能拒绝：用户已通过选项触发点 - 场景ID:', sceneId, '当前位置:', currentDialogueIndex.value, '触发点:', triggerIndex)
+          // 确保标记为已消费
+          if (!scene.choiceConsumed) {
+            scene.choiceConsumed = true
+            scene.chosenChoiceId = historyRecord.choiceId
+            if (typeof historyRecord.choiceTriggerIndex === 'number' && typeof scene.choiceTriggerIndex !== 'number') {
+              scene.choiceTriggerIndex = historyRecord.choiceTriggerIndex
+            }
+            console.log('[nextDialogue] ⛔ 已自动标记场景为已消费')
+          }
+          choicesVisible.value = false
+          return
+        } else {
+          console.log('[nextDialogue] ✅ 允许：用户还未通过触发点 - 场景ID:', sceneId, '当前位置:', currentDialogueIndex.value, '触发点:', triggerIndex)
+          // 用户还未通过触发点，清除可能错误的标记
+          if (scene.choiceConsumed && currentDialogueIndex.value < triggerIndex) {
+            scene.choiceConsumed = false
+            scene.chosenChoiceId = null
+            console.log('[nextDialogue] ✅ 清除错误的消费标记')
+          }
+        }
+      }
+      
+      // 只有在以下情况下才显示选项：
+      // 1. 场景有有效的选项配置
+      // 2. 选项未被消费过
+      // 3. 当前对话索引正好等于触发索引（而不是大于等于）
+      // 4. 选择历史中没有该场景的记录（上面已检查）
+      // 🔑 修改：不再立即显示选项，而是设置等待标记
       if (scene && Array.isArray(scene.choices) && typeof scene.choiceTriggerIndex === 'number' && 
-          currentDialogueIndex.value >= scene.choiceTriggerIndex && 
+          currentDialogueIndex.value === scene.choiceTriggerIndex && 
           !scene.choiceConsumed &&
           !choicesVisible.value) {
-        console.log('[nextDialogue] suppressAutoShowChoices active, showing choices')
-        choicesVisible.value = true
-        suppressAutoShowChoices.value = false
+        console.log('[nextDialogue] suppressAutoShowChoices active, 设置等待用户点击标记')
+        if (waitingForClickToShowChoices) {
+          waitingForClickToShowChoices.value = true
+        }
         stopAutoPlayTimer()
         return
+      } else {
+        console.log('[nextDialogue] suppressAutoShowChoices cleared, but not showing choices:', {
+          hasChoices: Array.isArray(scene.choices),
+          triggerIndex: scene.choiceTriggerIndex,
+          currentIndex: currentDialogueIndex.value,
+          choiceConsumed: scene.choiceConsumed,
+          shouldShow: currentDialogueIndex.value === scene.choiceTriggerIndex
+        })
       }
     }
   } catch (e) { console.warn('suppressAutoShowChoices check failed', e) }
@@ -698,8 +912,10 @@ export function useGameState(dependencies = {}) {
   if (Array.isArray(scene.choices) && scene.choices.length > 0 && !scene.choiceConsumed) {
     if (typeof scene.choiceTriggerIndex === 'number' && 
         currentDialogueIndex.value >= scene.choiceTriggerIndex) {
-      console.log('[nextDialogue] 有未消费的选项，应该显示选项而不是前进')
-      choicesVisible.value = true
+      console.log('[nextDialogue] 有未消费的选项，设置等待用户点击标记')
+      if (waitingForClickToShowChoices) {
+        waitingForClickToShowChoices.value = true
+      }
       stopAutoPlayTimer()
       return
     }
@@ -742,18 +958,21 @@ export function useGameState(dependencies = {}) {
         if (isChapterEndScene && atLastDialogue && !eventSource && !storyEndSignaled.value && !creatorMode.value) {
           console.log('[nextDialogue] Chapter end reached — fetching next chapter')
           
-          if (creatorFeatureEnabled.value) {
+          // 检查当前章节是否已保存（对所有模式都进行检查）
+          if (creatorFeatureEnabled.value || isCreatorIdentity.value || modifiableFromCreate.value) {
             try {
               await getWorkDetails(work.value.id)
               const chapterStatus = getChapterStatus(currentChapterIndex.value)
-              console.log('[nextDialogue] 创作者章节切换检查 - 章节:', currentChapterIndex.value, '状态:', chapterStatus)
+              console.log('[nextDialogue] 章节切换检查 - 章节:', currentChapterIndex.value, '状态:', chapterStatus)
               
               if (chapterStatus !== 'saved') {
-                showNotice('当前章节尚未保存，请先确认并保存本章内容后再继续。')
+                showNotice('当前章节尚未保存，请先确认并保存本章内容后再继续。', 5000)
                 return
               }
             } catch (e) {
-              console.warn('[nextDialogue] 检查创作者章节状态失败:', e)
+              console.warn('[nextDialogue] 检查章节状态失败:', e)
+              showNotice('无法确认章节保存状态，请先保存本章内容后再继续。', 5000)
+              return
             }
           }
           
@@ -798,8 +1017,10 @@ export function useGameState(dependencies = {}) {
               return
             }
             
-            const isLastChapter = totalChapters.value && Number(currentChapterIndex.value - 1) === Number(totalChapters.value)
-            console.log('[nextDialogue] 章节已保存，检查是否为末章 - 当前章:', currentChapterIndex.value - 1, '总章数:', totalChapters.value, '是否末章:', isLastChapter)
+            // 检查是否为最后一章：当前章索引-1（刚读完的章节）应该等于总章数
+            const completedChapter = currentChapterIndex.value - 1
+            const isLastChapter = totalChapters.value && Number(completedChapter) === Number(totalChapters.value)
+            console.log('[nextDialogue] 章节已保存，检查是否为末章 - 已完成章节:', completedChapter, '总章数:', totalChapters.value, '是否末章:', isLastChapter)
             
             if (isLastChapter) {
               console.log('[nextDialogue] 已完成末章，准备进入结算')
@@ -807,7 +1028,7 @@ export function useGameState(dependencies = {}) {
               handleGameEnd()
               return
             } else {
-              console.log('[nextDialogue] 非末章已完成，准备弹出下一章大纲编辑器')
+              console.log('[nextDialogue] 非末章已完成，准备弹出下一章大纲编辑器 - 下一章:', currentChapterIndex.value)
               
               try {
                 startLoading()
@@ -1041,6 +1262,14 @@ export function useGameState(dependencies = {}) {
     simulateLoadTo100,
     startLoading,
     stopLoading,
+    
+    // 清理方法
+    cleanup: () => {
+      if (progressTimer) {
+        clearInterval(progressTimer)
+        progressTimer = null
+      }
+    },
     
     // 属性/状态管理方法
     applyAttributesDelta,

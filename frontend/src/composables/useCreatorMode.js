@@ -29,6 +29,7 @@ export function useCreatorMode(dependencies = {}) {
   const creatorMode = ref(false)
   const showOutlineEditor = ref(false)
   const outlineEdits = ref([])
+  const outlineCurrentPage = ref(0)  // 新增：当前显示的章节页码
   const outlineUserPrompt = ref('')
   const originalOutlineSnapshot = ref([])
   const editingDialogue = ref(false)
@@ -88,13 +89,28 @@ export function useCreatorMode(dependencies = {}) {
             const idx = Number(k)
             if (!isNaN(idx) && storyScenes.value[sIdx].dialogues && idx < storyScenes.value[sIdx].dialogues.length) {
               const orig = storyScenes.value[sIdx].dialogues[idx]
-              if (typeof orig === 'string') storyScenes.value[sIdx].dialogues[idx] = ov.dialogues[k]
-              else if (typeof orig === 'object') storyScenes.value[sIdx].dialogues[idx] = { ...orig, text: ov.dialogues[k] }
+              // 🔑 关键修复：无论原始对话是字符串还是对象，都用覆盖的文本直接替换
+              // 如果是字符串，直接替换
+              if (typeof orig === 'string') {
+                storyScenes.value[sIdx].dialogues[idx] = ov.dialogues[k]
+              }
+              // 如果是对象，创建新对象只保留必要属性，避免原始对象中的文本字段干扰
+              else if (typeof orig === 'object' && orig !== null) {
+                storyScenes.value[sIdx].dialogues[idx] = { 
+                  text: ov.dialogues[k],  // 只使用覆盖后的文本
+                  backgroundImage: orig.backgroundImage,  // 保留背景图
+                  speaker: orig.speaker,  // 保留说话者
+                  _fromChoiceId: orig._fromChoiceId,  // 保留选项追踪信息
+                  _fromChoiceIndex: orig._fromChoiceIndex,  // 保留选项追踪信息
+                  // 不复制任何其他可能包含文本的字段（如 narration、content 等）
+                }
+              }
             }
           }
         }
       }
       try {
+        // 强制刷新场景数据
         storyScenes.value = JSON.parse(JSON.stringify(storyScenes.value || []))
         try { showText.value = false; setTimeout(() => { showText.value = true }, 40) } catch (e) {}
       } catch (e) { console.warn('force refresh after applyOverridesToScenes failed', e) }
@@ -129,9 +145,9 @@ export function useCreatorMode(dependencies = {}) {
             }
           }
         }
-        if (_creatorFeatureEnabled && !_creatorFeatureEnabled.value) {
-          if (showNotice) showNotice('进入手动编辑：当前作品未开启 AI 自动生成，仅支持人工调整后保存。')
-        }
+        // if (_creatorFeatureEnabled && !_creatorFeatureEnabled.value) {
+        //   if (showNotice) showNotice('进入手动编辑：当前作品未开启 AI 自动生成，仅支持人工调整后保存。')
+        // }
         // 进入创作者模式时停止自动播放
         if (_stopAutoPlayTimer) {
           try { _stopAutoPlayTimer() } catch (e) {}
@@ -195,6 +211,7 @@ export function useCreatorMode(dependencies = {}) {
       }
       outlineUserPrompt.value = createRaw?.userPrompt || ''
       try { originalOutlineSnapshot.value = JSON.parse(JSON.stringify(outlineEdits.value || [])) } catch(e) { originalOutlineSnapshot.value = (outlineEdits.value || []).slice() }
+      outlineCurrentPage.value = 0  // 初始化为第一页
       editorInvocation.value = 'manual'
       pendingOutlineTargetChapter.value = start
       showOutlineEditor.value = true
@@ -289,7 +306,7 @@ export function useCreatorMode(dependencies = {}) {
       generationLocks.value[lockKey] = true
       try {
         await generateChapter(workId, targetChapter, { chapterOutlines: payloadOutlines, userPrompt: outlineUserPrompt.value })
-        showNotice?.('已提交大纲，开始生成中…')
+        // showNotice?.('已提交大纲，开始生成中…')
         // 轮询作品详情，直到目标章节状态为 generated/saved
         try {
           await pollWorkStatus?.(workId, targetChapter, { interval: 1500, timeout: 120000 })
@@ -418,27 +435,33 @@ export function useCreatorMode(dependencies = {}) {
       
       const sid = (scene._uid || scene.sceneId || scene.id || `idx_${_currentSceneIndex.value}`)
       
-      try {
-        const sceneIdx = _currentSceneIndex.value
-        const curScene = _storyScenes.value[sceneIdx]
-        const curItem = curScene && Array.isArray(curScene.dialogues) ? curScene.dialogues[_currentDialogueIndex.value] : null
-        if (curItem && typeof curItem === 'object' && curItem._fromChoiceId != null) {
-          try {
-            const cid = curItem._fromChoiceId
-            const cidx = Number(curItem._fromChoiceIndex)
-            const ch = curScene.choices && curScene.choices.find(cc => String(cc.id) === String(cid))
-            if (ch) {
-              ch.subsequentDialogues = ch.subsequentDialogues || []
-              ch.subsequentDialogues[cidx] = editableText.value
-            }
-          } catch (e) { console.warn('sync back to choice.subsequentDialogues failed', e) }
-        }
-      } catch (e) { console.warn('finishEdit sync check failed', e) }
+      // 🔑 关键修复：移除同步到选项后续对话的代码，这会导致重复
+      // 这段代码会错误地将编辑后的文本同时写入原始场景和overrides，导致重复显示
+      // try {
+      //   const sceneIdx = _currentSceneIndex.value
+      //   const curScene = _storyScenes.value[sceneIdx]
+      //   const curItem = curScene && Array.isArray(curScene.dialogues) ? curScene.dialogues[_currentDialogueIndex.value] : null
+      //   if (curItem && typeof curItem === 'object' && curItem._fromChoiceId != null) {
+      //     try {
+      //       const cid = curItem._fromChoiceId
+      //       const cidx = Number(curItem._fromChoiceIndex)
+      //       const ch = curScene.choices && curScene.choices.find(cc => String(cc.id) === String(cid))
+      //       if (ch) {
+      //         ch.subsequentDialogues = ch.subsequentDialogues || []
+      //         ch.subsequentDialogues[cidx] = editableText.value
+      //       }
+      //     } catch (e) { console.warn('sync back to choice.subsequentDialogues failed', e) }
+      //   }
+      // } catch (e) { console.warn('finishEdit sync check failed', e) }
 
       _overrides.value.scenes = _overrides.value.scenes || {}
       _overrides.value.scenes[sid] = _overrides.value.scenes[sid] || { dialogues: {} }
       _overrides.value.scenes[sid].dialogues = _overrides.value.scenes[sid].dialogues || {}
+      
+      // 🔑 关键修复：直接存储编辑后的文本，不保留原始结构
+      // 确保只存储纯文本，避免对象嵌套导致的重复
       _overrides.value.scenes[sid].dialogues[_currentDialogueIndex.value] = editableText.value
+      
       if (_saveOverrides) _saveOverrides(work.value.id)
       if (_applyOverridesToScenes) _applyOverridesToScenes(_showText)
       
@@ -648,6 +671,7 @@ export function useCreatorMode(dependencies = {}) {
     creatorMode,
     showOutlineEditor,
     outlineEdits,
+    outlineCurrentPage,  // 新增：导出分页状态
     outlineUserPrompt,
     originalOutlineSnapshot,
     editingDialogue,

@@ -124,6 +124,7 @@ export const saveGameData = async (gameData, slot = 'default') => {
   const payload = {
     title: `存档 ${new Date().toLocaleString()}`,
     timestamp: Date.now(),
+    thumbnail: gameData.thumbnail || null,
     state: {
       chapterIndex: deriveChapterIndex(),
       sceneId: deriveSceneId(),
@@ -204,14 +205,18 @@ export const refreshSlotInfosUtil = async (workId, slots = ['slot1', 'slot2', 's
         let d = result.data
         console.log(`✅ ${slot} 原始数据:`, d)
         
+        // 保存顶层的 thumbnail/cover_url 字段（兼容前端发送和后端返回）
+        const topLevelThumbnail = d.thumbnail || d.cover_url || null
+        const topLevelTimestamp = d.timestamp || Date.now()
+        
         // 处理后端返回的嵌套结构: {game_state: {...}, timestamp: ...}
-        // 或新格式: {state: {...}, timestamp: ...}
+        // 或新格式: {state: {...}, timestamp: ..., thumbnail: ...}
         if (d.game_state) {
           console.log(`🔄 ${slot} 检测到 game_state 字段，展开嵌套结构`)
-          d = { ...d.game_state, timestamp: d.timestamp }
+          d = { ...d.game_state, timestamp: topLevelTimestamp, thumbnail: topLevelThumbnail }
         } else if (d.state && typeof d.state === 'object') {
           console.log(`🔄 ${slot} 检测到 state 字段，展开嵌套结构`)
-          d = { ...d.state, timestamp: d.timestamp }
+          d = { ...d.state, timestamp: topLevelTimestamp, thumbnail: topLevelThumbnail }
         }
         
         console.log(`✅ ${slot} 处理后数据:`, d)
@@ -228,8 +233,8 @@ export const refreshSlotInfosUtil = async (workId, slots = ['slot1', 'slot2', 's
           // 兼容旧字段：某些代码仍会读取 currentSceneIndex/currentDialogueIndex
           currentSceneIndex: (typeof d.currentSceneIndex === 'number') ? d.currentSceneIndex : null,
           currentDialogueIndex: (typeof d.currentDialogueIndex === 'number') ? d.currentDialogueIndex : (d.dialogueIndex != null ? d.dialogueIndex : 0),
-          // 缩略图字段
-          thumbnail: d.thumbnail || null,
+          // 缩略图字段 - 兼容后端的 cover_url 和前端的 thumbnail
+          thumbnail: d.thumbnail || d.cover_url || null,
           thumbnailData: d.thumbnailData || null,
           // 不再包含 sceneTitle（因存档不再携带 storyScenes）
           sceneTitle: null

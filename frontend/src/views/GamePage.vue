@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import './GamePage.css'
 import { useRouter, useRoute } from 'vue-router'
@@ -142,6 +142,7 @@ const {
   creatorMode,
   showOutlineEditor,
   outlineEdits,
+  outlineCurrentPage,
   outlineUserPrompt,
   originalOutlineSnapshot,
   editingDialogue,
@@ -182,71 +183,47 @@ const {
 // 先定义 showSettingsModal，因为它被 anyOverlayOpen 使用
 const showSettingsModal = ref(false)
 
-// 先定义几个基础的游戏状态变量，因为它们被 useAutoPlay 依赖
-// 注意：这些是临时的 ref，稍后会被 gameStateResult 中的引用替换
-let isLoading = ref(true)
-let loadingProgress = ref(0)
-let isLandscapeReady = ref(false)
-let showText = ref(false)
-let showMenu = ref(false)
-let choicesVisible = ref(false)
-
-// 计算任意弹窗是否打开 - 需要在 useAutoPlay 之前定义
-const anyOverlayOpen = computed(() =>
-  showMenu.value ||
-  showSaveModal.value ||
-  showLoadModal.value ||
-  showAttributesModal.value ||
-  showSettingsModal.value ||
-  showOutlineEditor.value
-)
-
-// 创建一个可响应的 nextDialogue 引用，稍后会被真实的实现替换（使用 ref 以便自动播放在替换后得到最新函数）
-const nextDialogue = ref(() => {})
+// 🔑 新增：标记是否等待用户点击以显示选项
+// 当用户阅读到带有选项的narration时，不立即显示选项，而是等待用户再点击一次
+const waitingForClickToShowChoices = ref(false)
 
 // 定义 fetchReport 函数（需要在 useGameState 之前定义）
 // 最后一章结束后,向后端请求个性化报告：POST /api/settlement/report/:workId/
 const fetchReport = async (workId) => {
   try {
-    const url = `/api/settlement/report/${encodeURIComponent(workId)}/`
-    const headers = { 'Accept': 'application/json', 'Content-Type': 'application/json' }
-    // 优先使用 window 注入的 token，其次从 localStorage 获取
-    const token = localStorage.getItem('token')
-    if (token) headers['Authorization'] = `Bearer ${token}`
-    const body = JSON.stringify({ attributes: attributes.value || {}, statuses: statuses.value || {} })
-    const res = await fetch(url, { method: 'POST', headers, body, credentials: 'include' })
-    if (!res.ok) return null
-    const data = await res.json()
-    try { sessionStorage.setItem('settlementData', JSON.stringify(data)) } catch {}
+    console.log('[GamePage] fetchReport 被调用 - workId:', workId)
+    
+    // 🔑 关键重构：使用 story.js 服务层的网络请求
+    const data = await storyService.fetchSettlementReport(workId, {
+      attributes: attributes.value || {},
+      statuses: statuses.value || {}
+    })
+    
+    if (!data) {
+      console.warn('[GamePage] fetchReport 返回空数据')
+      return null
+    }
+    
+    // 🔑 关键修复：确保后端返回的数据包含 work 信息
+    if (!data.work) {
+      console.warn('[GamePage] fetchReport 返回的数据缺少 work 信息，添加当前 work')
+      data.work = work.value
+    }
+    
+    try { 
+      sessionStorage.setItem('settlementData', JSON.stringify(data))
+      console.log('[GamePage] fetchReport 保存 settlementData 到 sessionStorage:', data)
+    } catch (e) {
+      console.error('[GamePage] 保存 settlementData 失败:', e)
+    }
+    
     return data
-  } catch (e) { console.warn('fetchReport failed', e); return null }
+  } catch (e) { 
+    console.error('[GamePage] fetchReport 失败:', e)
+    return null 
+  }
 }
 
-// 🔧 修复：使用原始创建顺序，但 useAutoPlay 内部使用 getter 函数访问依赖
-// 使用 useAutoPlay，传递依赖对象（useAutoPlay 内部会用 getter 访问最新值）
-const autoPlayAPI = useAutoPlay({
-  isLandscapeReady,
-  isLoading,
-  isFetchingNext,
-  isGeneratingSettlement,
-  showMenu,
-  showText,
-  choicesVisible,
-  anyOverlayOpen,
-  nextDialogue
-})
-
-// ⚠️ 重要：立即解构 autoPlayAPI，因为 gameStateAPI 需要使用这些变量
-const {
-  showSettingsModal: _showSettingsModal_temp, // 临时忽略，因为 showSettingsModal 已经定义
-  autoPlayEnabled,
-  autoPlayIntervalMs,
-  autoPlayTimer,
-  startAutoPlayTimer,
-  stopAutoPlayTimer,
-  saveAutoPlayPrefs,
-  loadAutoPlayPrefs
-} = autoPlayAPI
 
 // 现在创建 gameState - 传递所有需要的依赖
 const gameStateAPI = useGameState({
@@ -278,63 +255,82 @@ const gameStateAPI = useGameState({
   // 添加缺失的依赖
   creatorMode,
   allowAdvance,
+  editingDialogue,  // 🔑 关键修复：添加编辑状态依赖
   creatorFeatureEnabled,
   isCreatorIdentity,
   modifiableFromCreate,
   USE_MOCK_STORY,
   isNativeApp,
-  autoPlayEnabled,
-  anyOverlayOpen,
-  startAutoPlayTimer,
-  stopAutoPlayTimer,
   showNotice,
   deepClone,
   fetchReport,
   pendingNextChapter,
   AUTO_SAVE_SLOT,
   autoSaveToSlot,
-  previewSnapshot
+  previewSnapshot,
+  waitingForClickToShowChoices  // 🔑 新增：传递等待点击显示选项的标记
 })
 
-// 解构 gameState 返回的方法和状态，用返回的引用替换之前的临时定义
+// 解构 gameState 返回的方法和状态
 const gameStateResult = gameStateAPI
 
-// ⚠️ 关键修复：直接替换引用，而不是赋值
-isLoading = gameStateResult.isLoading
-loadingProgress = gameStateResult.loadingProgress
-isLandscapeReady = gameStateResult.isLandscapeReady
-showText = gameStateResult.showText
-showMenu = gameStateResult.showMenu
-choicesVisible = gameStateResult.choicesVisible
-
-// 更新 nextDialogue 引用（由于是 ref，赋值给 value，自动播放可获取最新实现）
-nextDialogue.value = gameStateResult.nextDialogue
-
 const {
+  isLoading,
+  loadingProgress,
+  isLandscapeReady,
+  showText,
+  showMenu,
+  choicesVisible,
   readingProgress,
   isLastDialogue,
   toggleMenu,
   goBack,
+  nextDialogue,
   chooseOption,
   requestLandscape,
   simulateLoadTo100,
   startLoading,
   stopLoading,
-  handleGameEnd
+  handleGameEnd,
+  cleanup: cleanupGameState
 } = gameStateResult
+
+// 计算任意弹窗是否打开 - 在 showMenu 解构之后定义
+const anyOverlayOpen = computed(() =>
+  showMenu.value ||
+  showSaveModal.value ||
+  showLoadModal.value ||
+  showAttributesModal.value ||
+  showSettingsModal.value ||
+  showOutlineEditor.value
+)
+
+// 初始化自动播放功能 - 在 gameState 之后创建，使用 getter 获取 nextDialogue
+const autoPlayAPI = useAutoPlay({
+  getNextDialogue: () => nextDialogue,
+  isLandscapeReady,
+  isLoading,
+  isFetchingNext,
+  isGeneratingSettlement,
+  showMenu,
+  showText,
+  choicesVisible,
+  anyOverlayOpen
+})
+
+const {
+  showSettingsModal: autoPlaySettingsModal,
+  autoPlayEnabled,
+  autoPlayIntervalMs,
+  startAutoPlayTimer,
+  stopAutoPlayTimer,
+  saveAutoPlayPrefs,
+  loadAutoPlayPrefs
+} = autoPlayAPI
 
 // 本地引用，允许在运行时替换为 mock 实现
 let didLoadInitialMock = false
 let creatorEditorHandled = false
-
-// 注意: isLoading, loadingProgress, isLandscapeReady, showText, showMenu, choicesVisible
-// 已经在前面声明并通过 gameStateResult 更新
-// readingProgress, isLastDialogue, toggleMenu, goBack, nextDialogue, chooseOption,
-// requestLandscape, simulateLoadTo100, startLoading, stopLoading, handleGameEnd
-// 也已从 gameStateResult 解构获得
-
-// anyOverlayOpen 已在前面定义，此处不再重复定义
-// autoPlayEnabled, autoPlayIntervalMs 等已从 autoPlayAPI 解构（在创建 gameStateAPI 之前）
 
 // 新增初始化函数
 const initializeGame = async () => {
@@ -862,14 +858,8 @@ onMounted(async () => {
       // 后台：暂停自动播放，避免后台计时推进
       stopAutoPlayTimer()
       autoSaveToSlot()
-    } else {
-      // 回到前台：如当前设置开启自动播放且没有弹窗打开，则恢复计时器
-      try {
-        if (autoPlayEnabled.value && !(anyOverlayOpen && anyOverlayOpen.value)) startAutoPlayTimer()
-      } catch (e) {
-        if (autoPlayEnabled.value) startAutoPlayTimer()
-      }
     }
+    // 回到前台时,自动播放会通过内部 watch 自动恢复,不需要手动启动
   }
   document.addEventListener('visibilitychange', onVisibility)
   // 卸载/刷新前的本地快速存档
@@ -884,22 +874,16 @@ onMounted(async () => {
   })
 })
 
+
+
 onUnmounted(() => {
   // 关闭 SSE
   try { if (eventSource) eventSource.close() } catch (e) {}
   stopAutoPlayTimer()
 })
 
-
-
-// 打开菜单时暂停自动播放；关闭菜单后若开启则恢复
-watch(showMenu, (open) => {
-  if (open) {
-    stopAutoPlayTimer()
-  } else if (autoPlayEnabled.value) {
-    startAutoPlayTimer()
-  }
-})
+// 打开菜单时会自动暂停,关闭菜单后会自动恢复(由 useAutoPlay 内部的 watch 处理)
+// 不需要额外的 watch
 
 // 注意：其它弹窗的监听需放在相关 ref 定义之后（见下文）
 
@@ -944,9 +928,81 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       return
     }
 
+    // 🔑 关键修复：首先应用 overrides 中的编辑到 storyScenes
+    // 这样后续的 normalizeDialogue 才能正确处理编辑后的内容
+    const scenesWithOverrides = storyScenes.value.map(scene => {
+      const sceneId = String(scene._uid ?? scene.sceneId ?? scene.id ?? '')
+      const ov = overrides.value?.scenes?.[sceneId]
+      if (!ov) return scene
+      
+      // 克隆场景以避免修改原始数据
+      const clonedScene = JSON.parse(JSON.stringify(scene))
+      
+      // 应用背景图覆盖
+      if (ov.backgroundImage) {
+        clonedScene.backgroundImage = ov.backgroundImage
+      }
+      
+      // 应用对话覆盖
+      if (ov.dialogues) {
+        for (const k in ov.dialogues) {
+          const idx = Number(k)
+          if (!isNaN(idx) && idx < clonedScene.dialogues.length) {
+            const orig = clonedScene.dialogues[idx]
+            const overrideText = ov.dialogues[k]
+            
+            // 🔑 关键修复：检查这个对话是否来自 subsequentDialogues
+            if (typeof orig === 'object' && orig._fromChoiceId != null && orig._fromChoiceIndex != null) {
+              // 找到对应的选项，更新其 subsequentDialogues
+              const choiceId = orig._fromChoiceId
+              const choiceIdx = orig._fromChoiceIndex
+              
+              if (Array.isArray(clonedScene.choices)) {
+                const choice = clonedScene.choices.find(c => String(c.id) === String(choiceId))
+                if (choice && Array.isArray(choice.subsequentDialogues)) {
+                  // 直接更新 subsequentDialogues 中的对应项
+                  choice.subsequentDialogues[choiceIdx] = overrideText
+                  console.log(`[persistCurrentChapterEdits] 更新选项 ${choiceId} 的 subsequentDialogues[${choiceIdx}]`)
+                }
+              }
+              // 更新对话本身的显示文本
+              if (typeof orig === 'string') {
+                clonedScene.dialogues[idx] = overrideText
+              } else {
+                clonedScene.dialogues[idx] = {
+                  ...orig,
+                  text: overrideText
+                }
+              }
+            } else {
+              // 普通对话，直接替换
+              if (typeof orig === 'string') {
+                clonedScene.dialogues[idx] = overrideText
+              } else if (typeof orig === 'object') {
+                clonedScene.dialogues[idx] = {
+                  text: overrideText,
+                  backgroundImage: orig.backgroundImage,
+                  speaker: orig.speaker
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      return clonedScene
+    })
+
     // 构建对话数据的规范化函数
     const normalizeDialogue = (d, scene, dIdx) => {
       try {
+        // 🔑 关键修复：如果对话标记为来自 subsequentDialogues，则跳过它
+        // 因为它已经被更新到对应选项的 subsequentDialogues 中了
+        if (typeof d === 'object' && d._fromChoiceId != null && d._fromChoiceIndex != null) {
+          // 返回 null 表示这个对话不应该作为独立的 narration 输出
+          return null
+        }
+        
         // 如果是字符串，包装为 narration
         if (typeof d === 'string') {
           const playerChoicesFromScene = (scene && Array.isArray(scene.choices) && Number(scene.choiceTriggerIndex) === Number(dIdx)) ? scene.choices.map((c, idx) => {
@@ -990,12 +1046,15 @@ const persistCurrentChapterEdits = async (opts = {}) => {
     }
 
     // 构建场景数据
-    const scenesPayload = storyScenes.value.map((s, idx) => {
+    const scenesPayload = scenesWithOverrides.map((s, idx) => {
       let sid = Number(s.sceneId ?? s.id)
       if (!Number.isInteger(sid) || sid <= 0) sid = idx + 1
       const bg = (s.backgroundImage || s.background_image || s.background || '')
       const rawDialogues = Array.isArray(s.dialogues) ? s.dialogues : []
-      const dialogues = rawDialogues.map((d, dIdx) => normalizeDialogue(d, s, dIdx))
+      // 🔑 关键修复：过滤掉 null 值（来自 subsequentDialogues 的对话）
+      const dialogues = rawDialogues
+        .map((d, dIdx) => normalizeDialogue(d, s, dIdx))
+        .filter(d => d !== null)
       return { id: Number(sid), backgroundImage: bg || '', dialogues }
     })
 
@@ -1154,51 +1213,54 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           
           console.log('保存后检查章节状态 - 已读到章末:', isAtChapterEnd, '当前场景:', currentSceneIndex.value, '总场景数:', storyScenes.value.length)
           
-          if (isAtChapterEnd) {
-            // 检查当前章是否为末章
-            const isLastChapter = totalChapters.value && Number(chapterIndex) === Number(totalChapters.value)
-            console.log('保存后检查是否为末章 - 当前章:', chapterIndex, '总章数:', totalChapters.value, '是否末章:', isLastChapter)
-            
-            if (isLastChapter) {
-              // 是末章，跳转到结算页面
-              console.log('已完成末章并保存，准备进入结算')
+          // 检查当前章是否为末章
+          const isLastChapter = totalChapters.value && Number(chapterIndex) === Number(totalChapters.value)
+          console.log('保存后检查是否为末章 - 当前章:', chapterIndex, '总章数:', totalChapters.value, '是否末章:', isLastChapter)
+          
+          if (isLastChapter) {
+            // 是末章，如果已读完就跳转到结算页面
+            if (isAtChapterEnd) {
+              console.log('末章已保存并读完，准备进入结算')
               showNotice('作品已完结，即将进入结算页面', 3000)
               setTimeout(() => {
                 storyEndSignaled.value = true
                 handleGameEnd()
               }, 3000)
             } else {
-              // 不是末章，弹出下一章的大纲编辑器（通过 fetchNextChapter 的自动编辑器流程）
-              console.log('非末章已保存并读完，准备弹出下一章大纲编辑器 - 下一章:', chapterIndex + 1)
-              showNotice('即将进入下一章的大纲编辑', 2000)
-              
-              setTimeout(async () => {
-                try {
-                  // 章节索引+1，准备加载下一章
-                  currentChapterIndex.value = chapterIndex + 1
-                  startLoading()
-                  
-                  // 调用 fetchNextChapter 来处理下一章的大纲编辑和生成
-                  // fetchNextChapter 会自动检查章节状态，如果是 not_generated 则弹出大纲编辑器
-                  await fetchNextChapter(workId, currentChapterIndex.value, { replace: true, suppressAutoEditor: false })
-                  await stopLoading()
-                  
-                  // 加载成功后，重置场景和对话索引
-                  currentSceneIndex.value = 0
-                  currentDialogueIndex.value = 0
-                  choicesVisible.value = false
-                  showText.value = false
-                  setTimeout(() => {
-                    showText.value = true
-                    console.log('已切换到下一章:', currentChapterIndex.value)
-                  }, 300)
-                } catch (e) {
-                  console.error('加载下一章失败:', e)
-                  showNotice('加载下一章时出错，请刷新页面重试。')
-                  await stopLoading()
-                }
-              }, 2000)
+              console.log('末章已保存但未读完，提示用户读完后将进入结算')
+              showNotice('最后一章已保存，读完后将进入结算页面', 3000)
             }
+          } else if (isAtChapterEnd) {
+            // 不是末章，且已读完，弹出下一章的大纲编辑器
+            console.log('非末章已保存并读完，准备弹出下一章大纲编辑器 - 下一章:', chapterIndex + 1)
+            showNotice('即将进入下一章的大纲编辑', 2000)
+            
+            setTimeout(async () => {
+              try {
+                // 章节索引+1，准备加载下一章
+                currentChapterIndex.value = chapterIndex + 1
+                startLoading()
+                
+                // 调用 fetchNextChapter 来处理下一章的大纲编辑和生成
+                // fetchNextChapter 会自动检查章节状态，如果是 not_generated 则弹出大纲编辑器
+                await fetchNextChapter(workId, currentChapterIndex.value, { replace: true, suppressAutoEditor: false })
+                await stopLoading()
+                
+                // 加载成功后，重置场景和对话索引
+                currentSceneIndex.value = 0
+                currentDialogueIndex.value = 0
+                choicesVisible.value = false
+                showText.value = false
+                setTimeout(() => {
+                  showText.value = true
+                  console.log('已切换到下一章:', currentChapterIndex.value)
+                }, 300)
+              } catch (e) {
+                console.error('加载下一章失败:', e)
+                showNotice('加载下一章时出错，请刷新页面重试。')
+                await stopLoading()
+              }
+            }, 2000)
           }
         } catch (e) {
           console.warn('保存后检查章节状态失败:', e)
@@ -1238,9 +1300,50 @@ onUnmounted(() => {
 watch(creatorMode, (val) => {
   if (val) {
     try {
+      // 🔑 进入手动编辑模式：保存完整的状态快照
+      console.log('进入手动编辑模式 - 保存状态快照')
       creatorEntry.sceneIndex = currentSceneIndex.value
-      // 修改：记录进入时的对话索引，而不是强制设为0
       creatorEntry.dialogueIndex = currentDialogueIndex.value
+      
+      // 🔑 关键：保存选择历史的快照，退出时恢复
+      try {
+        creatorEntry.choiceHistorySnapshot = deepClone(choiceHistory.value || [])
+        console.log('保存选择历史快照，长度:', creatorEntry.choiceHistorySnapshot.length)
+      } catch (e) {
+        creatorEntry.choiceHistorySnapshot = JSON.parse(JSON.stringify(choiceHistory.value || []))
+      }
+      
+      // 🔑 保存场景的 choiceConsumed 状态快照
+      try {
+        creatorEntry.scenesChoiceStateSnapshot = {}
+        storyScenes.value.forEach((scene, idx) => {
+          if (scene) {
+            creatorEntry.scenesChoiceStateSnapshot[idx] = {
+              choiceConsumed: scene.choiceConsumed || false,
+              chosenChoiceId: scene.chosenChoiceId || null
+            }
+          }
+        })
+        console.log('保存场景选项状态快照')
+      } catch (e) {
+        console.warn('保存场景选项状态快照失败:', e)
+      }
+      
+      // 🔑 保存属性和状态的快照
+      try {
+        creatorEntry.attributesSnapshot = deepClone(attributes.value || {})
+        creatorEntry.statusesSnapshot = deepClone(statuses.value || {})
+        console.log('保存属性快照:', Object.keys(creatorEntry.attributesSnapshot).length, '个属性')
+        console.log('保存状态快照:', Object.keys(creatorEntry.statusesSnapshot).length, '个状态')
+      } catch (e) {
+        try {
+          creatorEntry.attributesSnapshot = JSON.parse(JSON.stringify(attributes.value || {}))
+          creatorEntry.statusesSnapshot = JSON.parse(JSON.stringify(statuses.value || {}))
+        } catch (e2) {
+          console.warn('保存属性和状态快照失败:', e2)
+        }
+      }
+      
       allowAdvance.value = false
       // 暂停自动播放
       try { stopAutoPlayTimer() } catch (e) {}
@@ -1259,15 +1362,81 @@ watch(creatorMode, (val) => {
           } catch (e) { console.warn('persistCurrentChapterEdits on exit creatorMode failed', e) }
         })()
       } catch (e) { console.warn('trigger persist on exit creatorMode failed', e) }
+      
+      // 🔑 退出手动编辑模式：恢复进入时的位置和状态
+      console.log('退出手动编辑模式 - 恢复状态快照')
+      
+      // 🔑 关键：恢复选择历史，撤销手动编辑模式中的所有选择
+      if (creatorEntry.choiceHistorySnapshot) {
+        try {
+          choiceHistory.value = deepClone(creatorEntry.choiceHistorySnapshot)
+          console.log('恢复选择历史快照，长度:', choiceHistory.value.length)
+          // 恢复后需要重新应用选择标记
+          try { restoreChoiceFlagsFromHistory() } catch (e) { console.warn('restoreChoiceFlagsFromHistory failed:', e) }
+        } catch (e) {
+          choiceHistory.value = JSON.parse(JSON.stringify(creatorEntry.choiceHistorySnapshot))
+          try { restoreChoiceFlagsFromHistory() } catch (e) {}
+        }
+        creatorEntry.choiceHistorySnapshot = null
+      }
+      
+      // 🔑 恢复场景的 choiceConsumed 状态
+      if (creatorEntry.scenesChoiceStateSnapshot) {
+        try {
+          Object.keys(creatorEntry.scenesChoiceStateSnapshot).forEach(idx => {
+            const sceneIdx = parseInt(idx)
+            if (storyScenes.value[sceneIdx]) {
+              const savedState = creatorEntry.scenesChoiceStateSnapshot[idx]
+              storyScenes.value[sceneIdx].choiceConsumed = savedState.choiceConsumed
+              storyScenes.value[sceneIdx].chosenChoiceId = savedState.chosenChoiceId
+            }
+          })
+          console.log('恢复场景选项状态快照')
+        } catch (e) {
+          console.warn('恢复场景选项状态快照失败:', e)
+        }
+        creatorEntry.scenesChoiceStateSnapshot = null
+      }
+      
+      // 🔑 恢复属性和状态
+      if (creatorEntry.attributesSnapshot) {
+        try {
+          attributes.value = deepClone(creatorEntry.attributesSnapshot)
+          console.log('恢复属性快照:', Object.keys(attributes.value).length, '个属性')
+        } catch (e) {
+          try {
+            attributes.value = JSON.parse(JSON.stringify(creatorEntry.attributesSnapshot))
+          } catch (e2) {
+            console.warn('恢复属性快照失败:', e2)
+          }
+        }
+        creatorEntry.attributesSnapshot = null
+      }
+      
+      if (creatorEntry.statusesSnapshot) {
+        try {
+          statuses.value = deepClone(creatorEntry.statusesSnapshot)
+          console.log('恢复状态快照:', Object.keys(statuses.value).length, '个状态')
+        } catch (e) {
+          try {
+            statuses.value = JSON.parse(JSON.stringify(creatorEntry.statusesSnapshot))
+          } catch (e2) {
+            console.warn('恢复状态快照失败:', e2)
+          }
+        }
+        creatorEntry.statusesSnapshot = null
+      }
+      
+      // 恢复位置
       if (creatorEntry.sceneIndex != null) {
         currentSceneIndex.value = creatorEntry.sceneIndex
-        // 修改：恢复到进入时记录的对话索引
         currentDialogueIndex.value = creatorEntry.dialogueIndex != null ? creatorEntry.dialogueIndex : 0
         showText.value = true
+        console.log('恢复位置 - 场景:', currentSceneIndex.value, '对话:', currentDialogueIndex.value)
       }
+      
       allowAdvance.value = true
-      // 恢复自动播放（如果之前开启）
-      try { if (autoPlayEnabled.value) startAutoPlayTimer() } catch (e) {}
+      // 自动播放会自动恢复,不需要手动启动
       // 如果之前在创作者模式中到达了本章末并保存了待加载章节，则在退出创作者模式后触发加载
       try {
         if (pendingNextChapter.value != null) {
@@ -1374,56 +1543,8 @@ storyAPI.setDependencies({
   loadingProgress
 })
 
-watch(anyOverlayOpen, (open) => {
-  if (open) {
-    stopAutoPlayTimer()
-  } else if (autoPlayEnabled.value) {
-    startAutoPlayTimer()
-  }
-})
-
-// 🔧 修复：监听关键状态变化，确保自动播放在条件满足时启动
-watch([showText, isLandscapeReady, isLoading, choicesVisible], ([text, landscape, loading, choices]) => {
-  console.log('[watch critical states]', { 
-    showText: text, 
-    isLandscapeReady: landscape, 
-    isLoading: loading, 
-    choicesVisible: choices,
-    autoPlayEnabled: autoPlayEnabled.value,
-    anyOverlayOpen: anyOverlayOpen.value
-  })
-  
-  // 当所有条件都满足时，如果自动播放开启且没有弹窗，重新启动定时器
-  if (autoPlayEnabled.value && text && landscape && !loading && !choices && !anyOverlayOpen.value) {
-    console.log('[watch critical states] conditions met, restarting auto-play')
-    // 延迟一点，确保状态稳定（特别是 nextDialogue 中的 200ms setTimeout）
-    setTimeout(() => {
-      if (autoPlayEnabled.value && showText.value && !anyOverlayOpen.value && !choicesVisible.value) {
-        startAutoPlayTimer()
-      }
-    }, 100)
-  }
-}, { immediate: false })
-
-// 🔧 额外保障：当 showText 从 false 变为 true 时（显示新对话），确保自动播放继续
-watch(showText, (newVal, oldVal) => {
-  if (newVal && !oldVal && autoPlayEnabled.value) {
-    console.log('[watch showText] text shown, checking auto-play conditions')
-    // 短暂延迟后检查条件并启动
-    setTimeout(() => {
-      if (autoPlayEnabled.value && 
-          showText.value && 
-          isLandscapeReady.value && 
-          !isLoading.value && 
-          !choicesVisible.value && 
-          !anyOverlayOpen.value) {
-        console.log('[watch showText] restarting auto-play after text shown')
-        startAutoPlayTimer()
-      }
-    }, 250) // 略大于 nextDialogue 中的 200ms 延迟
-  }
-})
-
+// 自动播放的启动/停止已由 useAutoPlay 内部自动处理,不需要额外的 watch
+// useAutoPlay 会监听所有关键状态(showText, anyOverlayOpen, choicesVisible 等)的变化
 
 // 控制选项展示（在某句阅读结束后出现）
 
@@ -1452,18 +1573,76 @@ watch([currentSceneIndex, currentDialogueIndex], () => {
     console.log('[watch] 场景选项已消费,不显示选项 - 场景:', currentSceneIndex.value, 
       '对话:', currentDialogueIndex.value, 
       '选项触发点:', scene.choiceTriggerIndex,
-      '已选ID:', scene.chosenChoiceId)
+      '已选ID:', scene.chosenChoiceId,
+      '场景有choices:', Array.isArray(scene.choices),
+      '场景有choiceTriggerIndex:', typeof scene.choiceTriggerIndex === 'number')
     choicesVisible.value = false
     return
   }
   
+  // 🔑 智能检查：检查选择历史，但要考虑当前阅读位置
+  // 只有当用户已经通过了选项触发点（选过或跳过）时，才拒绝显示选项
+  try {
+    const sceneId = String(scene.id || scene.sceneId)
+    const historyRecord = choiceHistory.value.find(h => String(h.sceneId) === sceneId)
+    if (historyRecord) {
+      // 确定触发索引
+      const triggerIndex = typeof scene.choiceTriggerIndex === 'number' 
+        ? scene.choiceTriggerIndex 
+        : (typeof historyRecord.choiceTriggerIndex === 'number' ? historyRecord.choiceTriggerIndex : null)
+      
+      // 🔑 关键判断：只有当当前对话位置大于触发点时，才说明用户已经"通过"了选项
+      // 如果当前位置等于触发点，说明用户正好在这里，可能是从前面阅读过来的，应该显示选项
+      // 如果当前位置小于触发点，说明用户还没到，肯定要显示选项
+      if (triggerIndex !== null && currentDialogueIndex.value > triggerIndex) {
+        console.log('[watch] ⛔ 智能拒绝：用户已通过选项触发点，不再显示 - 场景ID:', sceneId, 
+          '当前位置:', currentDialogueIndex.value,
+          '触发点:', triggerIndex,
+          '历史记录:', historyRecord)
+        choicesVisible.value = false
+        // 同时标记场景为已消费，避免后续再次检查
+        if (!scene.choiceConsumed) {
+          scene.choiceConsumed = true
+          scene.chosenChoiceId = historyRecord.choiceId
+          if (typeof historyRecord.choiceTriggerIndex === 'number' && typeof scene.choiceTriggerIndex !== 'number') {
+            scene.choiceTriggerIndex = historyRecord.choiceTriggerIndex
+          }
+          console.log('[watch] ⛔ 已自动标记场景为已消费')
+        }
+        return
+      } else if (triggerIndex !== null && currentDialogueIndex.value === triggerIndex) {
+        // 当前正好在触发点，如果历史中有记录，说明是从后面回退的，应该拒绝
+        // 但如果是从前面阅读过来的，应该允许显示
+        // 可以通过检查是否刚完成读档来判断
+        console.log('[watch] 🤔 在触发点检测到历史记录，但用户可能从前面阅读过来 - 场景ID:', sceneId, 
+          '当前位置:', currentDialogueIndex.value,
+          '触发点:', triggerIndex)
+        // 这里不做拦截，让后续逻辑决定是否显示（可能是用户从前面正常阅读过来的）
+      } else {
+        console.log('[watch] ✅ 允许：用户还未到达触发点，允许显示选项 - 场景ID:', sceneId, 
+          '当前位置:', currentDialogueIndex.value,
+          '触发点:', triggerIndex)
+        // 用户还未到达触发点，清除可能错误的标记
+        if (scene.choiceConsumed) {
+          scene.choiceConsumed = false
+          scene.chosenChoiceId = null
+          console.log('[watch] ✅ 清除错误的消费标记，允许用户正常阅读到选项')
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[watch] 检查选择历史时出错:', e)
+  }
+  
   // 🔑 关键修复：检查是否有有效的选项配置
+  // 注意：即使场景没有 choices 配置，如果它被标记为 choiceConsumed=true，
+  // 上面的检查已经阻止了选项显示，所以这里只需要检查是否有可显示的选项
   const hasValidChoices = Array.isArray(scene.choices) && 
                           scene.choices.length > 0 && 
                           typeof scene.choiceTriggerIndex === 'number'
   
   if (!hasValidChoices) {
-    console.log('[watch] 场景无有效选项配置，隐藏选项')
+    console.log('[watch] 场景无有效选项配置，隐藏选项 - choiceConsumed:', scene.choiceConsumed)
     choicesVisible.value = false
     return
   }
@@ -1474,7 +1653,8 @@ watch([currentSceneIndex, currentDialogueIndex], () => {
                             !suppressAutoShowChoices.value
   
   if (shouldShowChoices) {
-    console.log('[watch] 显示选项 - 场景:', currentSceneIndex.value, 
+    // 🔑 修改：不立即显示选项，而是设置标记，等待用户点击
+    console.log('[watch] 到达选项触发点 - 场景:', currentSceneIndex.value, 
       '对话:', currentDialogueIndex.value, 
       '触发索引:', scene.choiceTriggerIndex,
       '选项数:', scene.choices.length,
@@ -1485,13 +1665,17 @@ watch([currentSceneIndex, currentDialogueIndex], () => {
       attributesDelta: c.attributesDelta,
       statusesDelta: c.statusesDelta
     })))
-    choicesVisible.value = true
+    console.log('[watch] 设置等待用户点击标记，不立即显示选项')
+    waitingForClickToShowChoices.value = true
+    choicesVisible.value = false
     // 自动播放遇到选项时暂停
     stopAutoPlayTimer()
   } else {
     // 只在不是触发点时隐藏选项
     if (currentDialogueIndex.value !== scene.choiceTriggerIndex) {
       choicesVisible.value = false
+      // 🔑 清除等待标记（当离开触发点时）
+      waitingForClickToShowChoices.value = false
     }
     console.log('[watch] 选项未触发 - suppressAuto:', suppressAutoShowChoices.value, 
       'dialogueIdx:', currentDialogueIndex.value, 
@@ -1500,25 +1684,18 @@ watch([currentSceneIndex, currentDialogueIndex], () => {
   }
 }, { immediate: false }) // 🔑 不立即执行，避免初始化时误触发
 
-// 监听选项框的显示/隐藏，处理自动播放的启停
-watch(choicesVisible, (visible) => {
-  if (visible) {
-    // 显示选项时停止自动播放
-    stopAutoPlayTimer()
-    console.log('[watch choicesVisible] 选项显示，停止自动播放')
-  } else if (autoPlayEnabled.value && !anyOverlayOpen.value) {
-    // 选项关闭时，如果启用了自动播放且没有其他弹窗，则重新启动
-    startAutoPlayTimer()
-    console.log('[watch choicesVisible] 选项关闭，重新启动自动播放')
-  }
-})
-
-
+// 选项的显示/隐藏已由 useAutoPlay 内部自动处理,不需要额外的 watch
 
 // 页面卸载时解锁屏幕方向
 onUnmounted(async () => {
   // 停止自动播放计时器
   stopAutoPlayTimer()
+  
+  // 清理游戏状态的进度定时器
+  if (cleanupGameState) {
+    cleanupGameState()
+  }
+  
   try {
     // 卸载前自动存档
     await autoSaveToSlot(AUTO_SAVE_SLOT)
@@ -1627,8 +1804,8 @@ onUnmounted(async () => {
       <!-- 遮罩层（让文字更清晰） -->
       <div class="overlay-layer"></div>
       
-      <!-- 点击区域（点击进入下一句） - 需要修改点击处理 -->
-      <div class="click-area" @click="nextDialogue"></div>
+      <!-- 点击区域（点击进入下一句） - 🔑 修复：编辑状态下阻止点击事件 -->
+      <div class="click-area" @click="editingDialogue ? null : nextDialogue"></div>
 
       <!-- 选项区域（如果当前场景包含 choices） - 放在 text-box 之外，避免被裁剪 -->
       <div 
@@ -1646,15 +1823,16 @@ onUnmounted(async () => {
         </div>
       </div>
       
-      <!-- 文字栏 -->
-      <div class="text-box" :class="{ editing: editingDialogue, 'creator-mode': creatorMode }" @click="nextDialogue">
+      <!-- 文字栏 - 🔑 修复：编辑状态下阻止点击触发对话切换 -->
+      <div class="text-box" :class="{ editing: editingDialogue, 'creator-mode': creatorMode }" @click="editingDialogue ? $event.stopPropagation() : nextDialogue()">
         <!-- 说话人标签（可选） -->
         <div v-if="currentSpeaker" class="speaker-badge">{{ currentSpeaker }}</div>
         <transition name="text-fade">
           <!-- 非编辑态显示当前对话 -->
           <p v-if="!editingDialogue && showText" class="dialogue-text">{{ currentDialogue }}</p>
-          <!-- 编辑态：contenteditable，编辑内容保存在 editableText -->
+          <!-- 编辑态：contenteditable，编辑内容保存在 editableText - 🔑 修复：阻止点击事件冒泡 -->
     <div v-else-if="editingDialogue" ref="editableDiv" class="dialogue-text" contenteditable="true"
+      @click.stop
       @input="onEditableInput"
       @compositionstart="onCompositionStart"
       @compositionend="onCompositionEnd"
@@ -1922,41 +2100,82 @@ onUnmounted(async () => {
   <div class="toast notice-toast" v-if="noticeToast">{{ noticeToast }}</div>
   <!-- 创作者专用：手动打开大纲编辑器按钮（浮动） -->
   <!--
-    改动说明：将按钮从仅在 isCreatorIdentity 下显示改为在 creatorFeatureEnabled 下显示，
-    使得当 createResult.modifiable 且 后端 ai_callable 可用时，阅读界面始终显示该按钮，方便在章节内随时触发 AI 生成/编辑。
+    修复说明：只在创作者身份（isCreatorIdentity）下显示编辑大纲按钮，
+    阅读者身份不应该看到此按钮。
   -->
   <button 
-    v-if="(isCreatorIdentity || modifiableFromCreate) && getChapterStatus(currentChapterIndex) !== 'saved'"
+    v-if="isCreatorIdentity && getChapterStatus(currentChapterIndex) !== 'saved'"
     @click="openOutlineEditorManual()"
     class="creator-outline-btn" 
-    title="编辑/生成章节大纲" 
-    style="position:fixed; right:1rem; bottom:6.4rem; z-index:1200; background:#ff8c42; color:#fff; border:none; padding:0.5rem 0.75rem; border-radius:6px; box-shadow:0 2px 6px rgba(0,0,0,0.2)">
-    编辑/生成章节大纲
+    title="编辑/生成章节大纲">
+    📝 编辑大纲
   </button>
 
   <!-- 创作者专用：当当前章节已由 AI 生成（generated）时，可确认并保存本章，标记为 saved -->
-  <button v-if="creatorFeatureEnabled && (getChapterStatus(currentChapterIndex) === 'generated' || lastLoadedGeneratedChapter === currentChapterIndex)" @click="persistCurrentChapterEdits({ auto: false, allowSaveGenerated: true })" class="creator-confirm-btn" title="确认并保存本章" style="position:fixed; right:1rem; bottom:10.4rem; z-index:1200; background:#3bbf6a; color:#fff; border:none; padding:0.5rem 0.75rem; border-radius:6px; box-shadow:0 2px 6px rgba(0,0,0,0.2)">确认并保存本章</button>
+  <button 
+    v-if="creatorFeatureEnabled && getChapterStatus(currentChapterIndex) === 'generated'" 
+    @click="persistCurrentChapterEdits({ auto: false, allowSaveGenerated: true })" 
+    class="creator-confirm-btn" 
+    title="确认并保存本章">
+    ✓ 确认保存
+  </button>
 
   <!-- 创作者大纲编辑器模态（当 createResult.modifiable 且有 chapterOutlines 时显示） -->
   <div v-if="showOutlineEditor" class="modal-backdrop">
-      <div class="modal-panel">
-        <h3 style="margin-top:0;">编辑章节大纲（创作者模式）</h3>
-  <p style="color:#666;">后端返回的章节大纲可在此处微调。编辑完成后点击“确认”以让后端基于此大纲生成章节内容；若取消，则按原始大纲继续生成或按默认流程加载章节。</p>
-        <div style="max-height: 50vh; overflow:auto; margin-top:0.5rem;">
-            <div v-for="(ch, idx) in outlineEdits" :key="ch.chapterIndex" style="margin-bottom:0.6rem;">
-            <div style="font-weight:700; margin-bottom:0.25rem">第 {{ ch.chapterIndex }} 章 大纲</div>
-            <textarea v-model="outlineEdits[idx].outline" rows="2" style="width:100%; background: var(--textarea-bg, white);"></textarea>
+      <div class="modal-panel outline-editor-panel">
+        <h3 class="outline-editor-title">✨ 编辑章节大纲</h3>
+        <p class="outline-editor-desc">编辑完成后点击"确认"可以基于此大纲生成章节内容哦~</p>
+        
+        <!-- 分页章节显示 -->
+        <div class="outline-chapters-container">
+          <div v-if="outlineEdits[outlineCurrentPage]" class="outline-chapter-item">
+            <div class="chapter-label">📖 第 {{ outlineEdits[outlineCurrentPage].chapterIndex }} 章 大纲</div>
+            <textarea 
+              v-model="outlineEdits[outlineCurrentPage].outline" 
+              rows="3" 
+              class="outline-textarea" 
+              placeholder="请输入该章节的大纲内容...">
+            </textarea>
           </div>
         </div>
-        <div style="margin-top:0.6rem">
-          <div style="font-weight:700; margin-bottom:0.25rem">（可选）为本章生成提供额外指令（userPrompt）</div>
-          <textarea v-model="outlineUserPrompt" rows="2" style="width:100%;"></textarea>
+
+        <!-- 分页控制 -->
+        <div class="outline-pagination">
+          <button 
+            class="pagination-btn" 
+            @click="outlineCurrentPage = Math.max(0, outlineCurrentPage - 1)"
+            :disabled="outlineCurrentPage === 0">
+            ← 上一章
+          </button>
+          <span class="pagination-info">{{ outlineCurrentPage + 1 }} / {{ outlineEdits.length }}</span>
+          <button 
+            class="pagination-btn" 
+            @click="outlineCurrentPage = Math.min(outlineEdits.length - 1, outlineCurrentPage + 1)"
+            :disabled="outlineCurrentPage === outlineEdits.length - 1">
+            下一章 →
+          </button>
         </div>
-        <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:0.75rem">
-          <!-- 取消按钮仅在手动打开时显示，章节前自动弹出的编辑器不允许取消 -->
-          <button v-if="editorInvocation !== 'auto'" class="edit-btn" @click="cancelOutlineEdits">取消</button>
-          <!-- 允许 manual 或 auto 调用确认生成（creatorMode 也允许） -->
-          <button class="edit-btn" :disabled="!(editorInvocation === 'auto' || editorInvocation === 'manual' || creatorMode)" @click="confirmOutlineEdits({ startLoading, stopLoading })">确认</button>
+
+        <!-- 额外指令 -->
+        <div class="outline-prompt-section">
+          <div class="chapter-label">💡 指令 (可选)</div>
+          <textarea 
+            v-model="outlineUserPrompt" 
+            rows="2" 
+            class="outline-textarea outline-textarea-small" 
+            placeholder="为本章生成提出您的指令吧...">
+          </textarea>
+        </div>
+
+        <!-- 操作按钮 -->
+        <div class="outline-editor-actions">
+          <button v-if="editorInvocation !== 'auto'" class="edit-btn btn-cancel" @click="cancelOutlineEdits">取消</button>
+          <button 
+            class="edit-btn btn-confirm" 
+            :disabled="!(editorInvocation === 'auto' || editorInvocation === 'manual' || creatorMode)" 
+            @click="confirmOutlineEdits({ startLoading, stopLoading })">
+            确认生成
+          </button>
         </div>
       </div>
     </div>

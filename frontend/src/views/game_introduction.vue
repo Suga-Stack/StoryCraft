@@ -34,7 +34,12 @@ const normalizeBackendWork = (raw) => {
     coverUrl: cover || raw.coverUrl || raw.image_url || '',
     tags: raw.tags || raw.tag_names || raw.tag_ids || [],
     favoritesCount: raw.favorite_count || raw.favoritesCount || 0,
-    publishedAt: raw.published_at || raw.publishedAt || null
+    publishedAt: raw.published_at || raw.publishedAt || null,
+    isFavorited: raw.is_favorited || false,
+    averageScore: raw.average_score || 0,
+    ratingCount: raw.rating_count || 0,
+    wordCount: raw.word_count || null,
+    readCount: raw.read_count || 0
   }
 }
 
@@ -61,7 +66,7 @@ const work = ref({
 
 在这吃人的后宫，不想争宠的干饭人，
 正在悄悄苟成最后赢家。`,
-  isFavorite: false
+  isFavorite: backendWorkRaw?.isFavorited || false
 })
 
 // 如果首次没有传入 backendWork（直接打开 /works 或刷新），尝试在挂载时去后端拉取最新详情并规范化映射
@@ -95,8 +100,17 @@ onMounted(async () => {
       work.value.coverUrl = normalized.coverUrl || work.value.coverUrl
       work.value.description = normalized.description || work.value.description
       work.value.tags = incomingTags || normalized.tags || work.value.tags
-      try { favoritesCount.value = payload.favorite_count || payload.favoritesCount || favoritesCount.value } catch (e) {}
-      try { publishedAt.value = payload.published_at || payload.publishedAt || publishedAt.value } catch (e) {}
+      work.value.isFavorite = normalized.isFavorited
+      
+      // 更新统计数据
+      favoritesCount.value = normalized.favoritesCount
+      publishedAt.value = normalized.publishedAt || publishedAt.value
+      averageScore.value = normalized.averageScore
+      ratingCount.value = normalized.ratingCount
+      readCount.value = normalized.readCount
+      if (normalized.wordCount !== null) {
+        backendWordCount.value = normalized.wordCount
+      }
 
       // 将获取到的后端原始数据写回 sessionStorage.createResult，方便其他页面/刷新时复用
       try {
@@ -120,7 +134,7 @@ const toggleFavorite = () => {
   work.value.isFavorite = !work.value.isFavorite
 }
 // 收藏数（示例初始值或来自后端）
-const favoritesCount = ref(backendWorkRaw?.favoritesCount || 124)
+const favoritesCount = ref(backendWorkRaw?.favoritesCount || 0)
 
 // 修改切换收藏以维护收藏计数
 const toggleFavoriteWithCount = () => {
@@ -129,6 +143,12 @@ const toggleFavoriteWithCount = () => {
 }
 // 发表时间（来自后端或默认当前时间）
 const publishedAt = ref(backendWorkRaw?.publishedAt || backendWorkRaw?.publishedDate || new Date().toISOString())
+
+// 评分数据（从后端获取）
+const averageScore = ref(backendWorkRaw?.averageScore || 0)
+const ratingCount = ref(backendWorkRaw?.ratingCount || 0)
+const readCount = ref(backendWorkRaw?.readCount || 0)
+const backendWordCount = ref(backendWorkRaw?.wordCount || null)
 
 const publicationDisplay = computed(() => {
   try {
@@ -317,8 +337,11 @@ const pagedRatings = computed(() => {
   return ratings.value.slice(start, start + ratingPageSize)
 })
 
-// 字数（按字符数统计，去除换行）
+// 字数（优先使用后端返回的 word_count，否则按字符数统计）
 const wordCount = computed(() => {
+  if (backendWordCount.value !== null) {
+    return backendWordCount.value
+  }
   const d = work.value.description || ''
   return d.replace(/\n/g, '').length
 })
@@ -346,11 +369,21 @@ const submitRating = () => {
   ratingPage.value = 1
 }
 
-// 平均分（10分制），根据已有 ratings 中的 score10（若不存在则用 stars*2）
+// 平均分（10分制），优先使用后端返回的 averageScore，否则根据已有 ratings 中的 score10（若不存在则用 stars*2）
 const averageRating10 = computed(() => {
+  // 优先使用后端返回的评分
+  if (averageScore.value > 0) {
+    return averageScore.value
+  }
+  // 否则使用本地 ratings 计算
   if (!ratings.value.length) return 0
   const sum = ratings.value.reduce((s, r) => s + ((r.score10 !== undefined) ? r.score10 : (r.stars || 0) * 2), 0)
   return sum / ratings.value.length
+})
+
+// 评分人数（优先使用后端返回的 ratingCount）
+const totalRatingCount = computed(() => {
+  return ratingCount.value > 0 ? ratingCount.value : ratings.value.length
 })
 
 const prevRatingPage = () => {
@@ -514,7 +547,7 @@ const startReading = () => {
             <div class="meta-value">{{ favoritesCount }}</div>
           </div>
           <div class="meta-item">
-              <div class="meta-label">{{ ratings.length ? (ratings.length + ' 人已评分') : '0 人已评分' }}</div>
+              <div class="meta-label">{{ totalRatingCount > 0 ? (totalRatingCount + ' 人已评分') : '0 人已评分' }}</div>
               <div class="meta-value rating-inline">
                 <span class="rating-text">{{ averageRating10 > 0 ? (averageRating10).toFixed(1) : '—' }}</span>
               </div>
@@ -572,12 +605,12 @@ const startReading = () => {
               </button>
               <button class="tab-btn" :class="{ active: showingRatings }" @click="showingRatings = true" style="flex:1;justify-content:center;">
                 <div class="tab-label">评分</div>
-                <div class="tab-count">{{ ratings.length }} <span class="tab-unit">人</span></div>
+                <div class="tab-count">{{ totalRatingCount }} <span class="tab-unit">人</span></div>
               </button>
             </div>
 
             <!-- 平铺的平均评分显示（仅在评分 tab 激活时显示） -->
-            <div class="avg-rating" v-if="showingRatings && ratings.length > 0" style="display:flex;align-items:center;gap:0.5rem;">
+            <div class="avg-rating" v-if="showingRatings && totalRatingCount > 0" style="display:flex;align-items:center;gap:0.5rem;">
               <div class="avg-stars">
                 <span v-for="n in 5" :key="n" class="star" :class="{ filled: n <= Math.round(averageRating) }">★</span>
               </div>
@@ -648,7 +681,7 @@ const startReading = () => {
 
             <!-- 分页显示评分列表 -->
             <div class="ratings-list" style="width:100%;margin-top:0.5rem;">
-              <div v-if="ratings.length === 0" class="empty-comments">
+              <div v-if="totalRatingCount === 0" class="empty-comments">
                 <p>还没有评分，快来评分吧！</p>
               </div>
               <div v-else>
