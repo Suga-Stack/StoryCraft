@@ -20,6 +20,12 @@ class FavoriteFolderViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return FavoriteFolder.objects.none()
+        
+        if not self.request.user.is_authenticated:
+            return FavoriteFolder.objects.none()
+        
         return FavoriteFolder.objects.filter(user=self.request.user)
 
     @swagger_auto_schema(
@@ -179,6 +185,66 @@ class FavoriteViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         self.perform_destroy(instance)
         return Response({"code": 204, "message": "取消收藏成功"}, status=status.HTTP_204_NO_CONTENT)
+
+    @swagger_auto_schema(
+        operation_summary="批量移动收藏到指定收藏夹",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['favorite_ids'],
+            properties={
+                'favorite_ids': openapi.Schema(
+                    type=openapi.TYPE_ARRAY,
+                    items=openapi.Items(type=openapi.TYPE_INTEGER),
+                    description='要移动的收藏记录ID列表'
+                ),
+                'folder': openapi.Schema(
+                    type=openapi.TYPE_INTEGER,
+                    description='目标收藏夹ID，可为空（移出收藏夹）'
+                )
+            }
+        ),
+        responses={
+            200: openapi.Response(
+                description="批量移动成功",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "code": openapi.Schema(type=openapi.TYPE_INTEGER),
+                        "message": openapi.Schema(type=openapi.TYPE_STRING),
+                        "data": openapi.Schema(
+                            type=openapi.TYPE_ARRAY,
+                            items=openapi.Items(type=openapi.TYPE_OBJECT)
+                        )
+                    }
+                )
+            ),
+            400: openapi.Response(description="参数错误")
+        }
+    )
+    @action(detail=False, methods=['post'])
+    def move_to_folder(self, request):
+        favorite_ids = request.data.get('favorite_ids', [])
+        folder_id = request.data.get('folder')
+
+        if not isinstance(favorite_ids, list) or not all(isinstance(i, int) for i in favorite_ids):
+            return Response({"code": 400, "message": "favorite_ids 必须是整数列表"}, status=400)
+
+        folder = None
+        if folder_id not in (None, "", "null"):
+            try:
+                folder = FavoriteFolder.objects.get(id=folder_id, user=request.user)
+            except FavoriteFolder.DoesNotExist:
+                return Response({"code": 400, "message": "收藏夹不存在"}, status=400)
+
+        favorites = Favorite.objects.filter(user=request.user, id__in=favorite_ids)
+        favorites.update(folder=folder)
+
+        serializer = self.get_serializer(favorites, many=True)
+        return Response({
+            "code": 200,
+            "message": "批量移动收藏成功",
+            "data": serializer.data
+        })
 
 
 class CommentViewSet(viewsets.ModelViewSet):
