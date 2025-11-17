@@ -261,7 +261,10 @@ LOGGING = {
     },
 }
 
-AI_MODEL_FOR_TEXT = "deepseek-v3-1-terminus"
+AI_MODEL_FOR_TEXT = "DeepSeek-V3.2-Exp"
+AI_API_KEY_FOR_TEXT = "sk-PAF8gzAL93s9xKlaybzSQw"
+AI_BASE_URL_FOR_TEXT = "https://llmapi.paratera.com/v1/"
+
 AI_MODEL_FOR_IMAGE = "doubao-seedream-3-0-t2i-250415"
-AI_API_KEY = "3f00ab95-6096-4639-a8b0-09c711a63d9c"
-AI_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
+AI_API_KEY_FOR_IMAGE = "3f00ab95-6096-4639-a8b0-09c711a63d9c"
+AI_BASE_URL_FOR_IMAGE = "https://ark.cn-beijing.volces.com/api/v3"
