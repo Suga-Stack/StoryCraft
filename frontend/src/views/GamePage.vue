@@ -171,6 +171,10 @@ const {
   onEditableInput,
   onCompositionStart,
   onCompositionEnd,
+  // Narration 功能
+  addNarration,
+  deleteNarration,
+  isNarration,
   
   loadOverrides,
   saveOverrides,
@@ -179,6 +183,31 @@ const {
   setupCreatorModeWatch,
   setDependencies: setCreatorModeDependencies
 } = creatorModeAPI
+
+// 当前对话对象（可能是字符串或对象）
+const currentDialogueObject = computed(() => {
+  try {
+    const scene = storyScenes.value[currentSceneIndex.value]
+    if (!scene || !Array.isArray(scene.dialogues)) return null
+    const idx = currentDialogueIndex.value
+    if (idx < 0 || idx >= scene.dialogues.length) return null
+    return scene.dialogues[idx]
+  } catch (e) { return null }
+})
+
+// 是否为旁白
+const currentIsNarration = computed(() => {
+  try { return isNarration(currentDialogueObject.value) } catch (e) { return false }
+})
+
+// 尝试删除旁白：若不满足条件则给出提示
+const attemptDeleteNarration = () => {
+  try {
+    if (!creatorMode.value) { showNotice('尚未进入创作者模式'); return }
+    if (!currentIsNarration.value) { showNotice('当前不是旁白，无法删除'); return }
+    deleteNarration()
+  } catch (e) { console.warn('attemptDeleteNarration failed', e) }
+}
 
 // 先定义 showSettingsModal，因为它被 anyOverlayOpen 使用
 const showSettingsModal = ref(false)
@@ -1846,6 +1875,9 @@ onUnmounted(async () => {
             <button class="edit-btn" title="编辑文本" @click.stop="startEdit()">编辑</button>
             <button class="edit-btn" title="替换当前背景" @click.stop="triggerImagePicker">替换图片</button>
             <button class="edit-btn" title="播放下一句" @click.stop="playNextAfterEdit">播放下一句</button>
+            <!-- 🔧 新增旁白功能按钮 -->
+            <button class="edit-btn" title="在当前后插入旁白" @click.stop="addNarration()">新增旁白</button>
+            <button class="edit-btn" :class="{ disabled: !currentIsNarration }" :title="currentIsNarration ? '删除当前旁白' : '当前不是旁白'" @click.stop="attemptDeleteNarration">删除旁白</button>
           </template>
           <template v-else>
             <button class="edit-btn" title="确认编辑" @click.stop="finishEdit()">确认</button>

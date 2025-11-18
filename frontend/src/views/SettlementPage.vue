@@ -359,10 +359,10 @@ const fetchChapterData = async (workId, chapterIndex) => {
 // 生成分支探索图
 // 规则：
 // - 每个选择场景都会展示所有选项；
-// - 用户实际选择的选项用高亮标记，并连接到“主线继续”节点；
-// - 未选择的选项连接到一个问号节点“?”；
+// - 用户实际选择的选项用高亮标记，并连接到"主线继续"节点；
+// - 未选择的选项连接到一个问号节点"?"；
 // - 所有节点标题限制为前6个字符；
-// - 尝试在末端显示“故事完结”或“主线”汇合节点。
+// - 尝试在末端显示"故事完结"或"主线"汇合节点。
 const generateBranchingGraph = async () => {
   const nodes = []
   const edges = []
@@ -395,7 +395,7 @@ const generateBranchingGraph = async () => {
   await Promise.all(chapterDataPromises)
   console.log('[Settlement] 所有章节数据已加载完成')
 
-  // 起始节点：优先使用后端传来的第一章标题作为起始节点名称（例如“第一章 标题”），
+  // 起始节点：优先使用后端传来的第一章标题作为起始节点名称（例如"第一章 标题"），
   // 如果没有可用章节数据则回退到默认标题
   const firstChapter = (gameData.value.storyScenes && gameData.value.storyScenes.length > 0) ? gameData.value.storyScenes[0] : null
   let startTitle = '初入深宫'
@@ -484,137 +484,64 @@ const generateBranchingGraph = async () => {
     const fallbackIdx = historyIndex + 1
     const displayIdx = chapterIdx != null ? chapterIdx : fallbackIdx
     
-    // 从缓存中获取该章节的完整数据（包括scenes和choices）
+    // 🔑 关键修复：从缓存中获取该章节的完整数据
     const cacheKey = `${currentWorkId}_${displayIdx}`
     const cachedChapterData = chapterDataCache.value[cacheKey]
     
-    let scene = null
+    console.log(`[Settlement] 处理章节 ${displayIdx}，缓存数据:`, cachedChapterData)
     
-    // 优先从缓存的章节数据中获取场景（包括choices、dialogues等完整数据）
+    // 🔑 关键修复：优先使用缓存的章节数据中的选项列表
+    let choicesForThisChapter = []
+    
+    // 从缓存的章节数据中提取所有选项
     if (cachedChapterData && cachedChapterData.scenes && cachedChapterData.scenes.length > 0) {
       // 查找具有 choices 的场景（通常是第一个有选择的场景）
       const sceneWithChoices = cachedChapterData.scenes.find(s => s.choices && s.choices.length > 0)
-      if (sceneWithChoices) {
-        // 直接使用缓存中的场景数据，确保获取到正确的选项文本
-        console.log(`[Settlement] 使用缓存的章节 ${displayIdx} 场景数据，包含 ${sceneWithChoices.choices.length} 个选项`)
-        scene = sceneWithChoices
+      if (sceneWithChoices && sceneWithChoices.choices) {
+        choicesForThisChapter = sceneWithChoices.choices
+        console.log(`[Settlement] 章节 ${displayIdx} 从缓存获取到 ${choicesForThisChapter.length} 个选项:`, choicesForThisChapter)
       }
     }
     
-    // 如果缓存中没有找到，才尝试从 gameData.value.storyScenes 获取（可能已被覆盖，不推荐）
-    if (!scene) {
-      console.log(`[Settlement] 警告：章节 ${displayIdx} 没有缓存数据，尝试从 gameData 获取（可能不准确）`)
+    // 如果缓存中没有找到选项，尝试从 userChoice 中恢复
+    if (choicesForThisChapter.length === 0) {
+      console.log(`[Settlement] 警告：章节 ${displayIdx} 缓存中无选项，尝试从 userChoice 恢复`)
       
-      // 先尝试通过记录的 sceneIndex 定位场景
-      try {
-        if (typeof userChoice.sceneIndex === 'number' && Array.isArray(gameData.value.storyScenes)) {
-          scene = gameData.value.storyScenes[userChoice.sceneIndex] || null
-        }
-      } catch (e) { scene = null }
-
-      // 回退到按 id/sceneId 查找（兼容旧保存格式）
-      if (!scene) {
-        scene = gameData.value.storyScenes.find(s => {
-          try { return String(s?.id) === String(userChoice.sceneId) || String(s?.sceneId) === String(userChoice.sceneId) } catch (e) { return false }
-        })
-      }
-    }
-
-    // 如果仍未找到（例如前端在生成结算数据时没有把完整场景保存到 session），生成一个轻量的占位场景
-    if (!scene) {
-      console.log(`[Settlement] 为章节 ${displayIdx} 生成占位场景数据`)
-      
-      // 🔑 关键修复：从 userChoice 中提取所有可用的选项信息
-      // userChoice 可能包含 allChoices 或 choices 字段，优先使用
-      let choicesForScene = []
-      
-      // 1. 优先尝试从 userChoice.allChoices 获取完整选项列表
       if (userChoice.allChoices && Array.isArray(userChoice.allChoices) && userChoice.allChoices.length > 0) {
-        console.log(`[Settlement] 从 userChoice.allChoices 获取到 ${userChoice.allChoices.length} 个选项`)
-        choicesForScene = userChoice.allChoices
-      }
-      // 2. 其次尝试从 userChoice.choices 获取
-      else if (userChoice.choices && Array.isArray(userChoice.choices) && userChoice.choices.length > 0) {
-        console.log(`[Settlement] 从 userChoice.choices 获取到 ${userChoice.choices.length} 个选项`)
-        choicesForScene = userChoice.choices
-      }
-      // 3. 如果都没有，至少用用户实际选择的选项构造一个基本的选项列表
-      else if (userChoice.choiceId) {
-        console.log(`[Settlement] 仅从用户选择构造单个选项`)
-        choicesForScene = [{ 
-          id: userChoice.choiceId, 
-          text: userChoice.choiceText || '已选择',
-          choiceId: userChoice.choiceId
-        }]
-      }
-      
-      scene = {
-        id: userChoice.sceneId || (`stub-${historyIndex}`),
-        sceneId: userChoice.sceneId || null,
-        title: userChoice.sceneTitle || `第${(userChoice.chapterIndex || historyIndex + 1)}章`,
-        backgroundImage: (gameData.value.storyScenes && typeof userChoice.sceneIndex === 'number' && gameData.value.storyScenes[userChoice.sceneIndex]) ? (gameData.value.storyScenes[userChoice.sceneIndex].backgroundImage || null) : null,
-        choices: choicesForScene,
-        // 标记用户实际选择的选项ID
-        chosenChoiceId: userChoice.choiceId || null
-      }
-      
-      console.log(`[Settlement] 占位场景包含 ${scene.choices.length} 个选项`)
-    }
-
-    // 确保 scene.choices 至少是一个空数组
-    if (!scene.choices) {
-      console.warn(`[Settlement] 场景 ${displayIdx} 没有choices，设置为空数组`)
-      scene.choices = []
-    }
-    
-    // 🔑 关键修复：如果场景中没有choices但userChoice中有选项信息，从userChoice恢复
-    if (scene.choices.length === 0 && userChoice) {
-      console.log(`[Settlement] 场景 ${displayIdx} 的 choices 为空，尝试从 userChoice 恢复`)
-      
-      // 尝试从 userChoice 的各种可能字段中提取选项
-      if (userChoice.allChoices && Array.isArray(userChoice.allChoices) && userChoice.allChoices.length > 0) {
-        scene.choices = userChoice.allChoices
-        console.log(`[Settlement] 从 userChoice.allChoices 恢复了 ${scene.choices.length} 个选项`)
+        choicesForThisChapter = userChoice.allChoices
+        console.log(`[Settlement] 从 userChoice.allChoices 恢复了 ${choicesForThisChapter.length} 个选项`)
       } else if (userChoice.choices && Array.isArray(userChoice.choices) && userChoice.choices.length > 0) {
-        scene.choices = userChoice.choices
-        console.log(`[Settlement] 从 userChoice.choices 恢复了 ${scene.choices.length} 个选项`)
+        choicesForThisChapter = userChoice.choices
+        console.log(`[Settlement] 从 userChoice.choices 恢复了 ${choicesForThisChapter.length} 个选项`)
       } else if (userChoice.choiceId) {
         // 至少构造用户选择的那个选项
-        scene.choices = [{ 
+        choicesForThisChapter = [{ 
           id: userChoice.choiceId, 
           text: userChoice.choiceText || '已选择',
           choiceId: userChoice.choiceId
         }]
         console.log(`[Settlement] 从 userChoice 构造了单个选项`)
       }
-      
-      // 标记用户实际选择的选项
-      if (!scene.chosenChoiceId && userChoice.choiceId) {
-        scene.chosenChoiceId = userChoice.choiceId
-      }
     }
 
-  // 场景节点（选择发生的地方）
+    // 场景节点（选择发生的地方）
     const sceneNodeId = nodeId++
+    
     // 场景节点：粗体（title）只显示章节编号，如 "第1章"；浅色描述（description）显示完整章节标题
     let chapterTitle = ''
     
     // 优先从缓存的章节数据获取标题
     if (cachedChapterData && cachedChapterData.title) {
       chapterTitle = cachedChapterData.title
-    } else if (scene && (scene.chapterTitle || scene.title)) {
-      chapterTitle = scene.chapterTitle || scene.title || ''
     } else if (userChoice && userChoice.sceneTitle) {
       chapterTitle = userChoice.sceneTitle
     }
 
     const sceneShortTitle = `第${displayIdx}章`
-    // 若没有显式的 chapterTitle，则尝试从缓存的章节数据或场景第一个 dialogue 提取
     let sceneFullTitle = chapterTitle || `第${displayIdx}章`
     
-    // 优先从缓存的章节数据中获取 dialogue
+    // 若没有显式的 chapterTitle，则尝试从缓存的章节数据或场景第一个 dialogue 提取
     if (!chapterTitle || chapterTitle === '') {
-      // 先尝试从缓存的章节数据获取
       if (cachedChapterData && cachedChapterData.scenes && cachedChapterData.scenes.length > 0) {
         const firstCachedScene = cachedChapterData.scenes[0]
         if (Array.isArray(firstCachedScene.dialogues) && firstCachedScene.dialogues.length > 0) {
@@ -624,19 +551,12 @@ const generateBranchingGraph = async () => {
           if (stripped) sceneFullTitle = stripped
         }
       }
-      // 如果缓存中没有，再从 scene 获取
-      else if (Array.isArray(scene.dialogues) && scene.dialogues.length > 0) {
-        const raw = scene.dialogues[0]
-        const txt = raw && (raw.text ?? raw.narration ?? '')
-        const stripped = stripDecorative(txt)
-        if (stripped) sceneFullTitle = stripped
-      }
     }
 
+    // 从缓存中获取当前章节的背景图
+    const sceneImage = cachedChapterData?.backgroundImage || null
+    
     {
-      // 从缓存中获取当前章节的背景图
-      const image = cachedChapterData?.backgroundImage || (scene && scene.backgroundImage) || null
-      
       const layout = computeNodeLayout(sceneShortTitle, sceneFullTitle, { imageW: THUMB_W, imageH: THUMB_H })
       nodes.push({
         id: sceneNodeId,
@@ -648,7 +568,7 @@ const generateBranchingGraph = async () => {
         width: layout.width,
         height: layout.height,
         descLines: layout.descLines,
-        image: image,
+        image: sceneImage,
         imageW: layout.imageW || 0,
         imageH: layout.imageH || 0
       })
@@ -662,31 +582,31 @@ const generateBranchingGraph = async () => {
       isSelected: true
     })
 
-    // 为这个场景的所有选项创建节点
-    const choiceSpacing = 240 // 增加水平间距以匹配缩略图宽度
-    const startX = 400 - (scene.choices.length - 1) * choiceSpacing / 2
+    // 🔑 关键修复：为这个章节的所有选项创建节点（使用正确的选项列表）
+    const choiceSpacing = 240
+    const startX = 400 - (choicesForThisChapter.length - 1) * choiceSpacing / 2
     
-    console.log(`[Settlement] 章节 ${displayIdx} 有 ${scene.choices.length} 个选项`)
+    console.log(`[Settlement] 章节 ${displayIdx} 渲染 ${choicesForThisChapter.length} 个选项`)
 
-    scene.choices.forEach((choice, choiceIndex) => {
+    choicesForThisChapter.forEach((choice, choiceIndex) => {
       const choiceX = startX + choiceIndex * choiceSpacing
       const choiceY = currentY + 120
 
-      // 🔑 关键修复：兼容选项的 id 或 choiceId 字段
+      // 兼容选项的 id 或 choiceId 字段
       const currentChoiceId = choice.id || choice.choiceId
       
       // 判断是否是用户实际选择的选项
-      const selectedChoiceId = userChoice && userChoice.choiceId ? userChoice.choiceId : (scene && scene.chosenChoiceId ? scene.chosenChoiceId : null)
+      const selectedChoiceId = userChoice && userChoice.choiceId ? userChoice.choiceId : null
       const isUserChoice = selectedChoiceId != null && currentChoiceId === selectedChoiceId
 
       const optLetter = String.fromCharCode(65 + choiceIndex) // A, B, C...
       const choiceShortTitle = `选项${optLetter}`
 
+      console.log(`[Settlement] 章节 ${displayIdx} 选项 ${choiceIndex}: choiceId=${currentChoiceId}, isUserChoice=${isUserChoice}, text="${choice.text}"`)
+
       if (isUserChoice) {
         // 显示带缩略图的用户选择节点
         const choiceNodeId = nodeId++
-        // 从缓存中获取当前章节的背景图（已在外层获取）
-        const img = cachedChapterData?.backgroundImage || (scene && scene.backgroundImage) || null
         
         const layout = computeNodeLayout(choiceShortTitle, (choice.text || '').toString(), { imageW: THUMB_W, imageH: THUMB_H })
         nodes.push({
@@ -700,7 +620,7 @@ const generateBranchingGraph = async () => {
           height: layout.height,
           descLines: layout.descLines,
           isSelected: true,
-          image: img,
+          image: sceneImage, // 使用场景的背景图
           imageW: layout.imageW || 0,
           imageH: layout.imageH || 0
         })
@@ -722,7 +642,7 @@ const generateBranchingGraph = async () => {
           width: layoutMain.width,
           height: layoutMain.height,
           descLines: layoutMain.descLines,
-          image: img, // 使用与选项节点相同的图片
+          image: sceneImage, // 使用场景的背景图
           imageW: layoutMain.imageW || 0,
           imageH: layoutMain.imageH || 0
         })

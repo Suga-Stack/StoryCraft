@@ -96,13 +96,17 @@ export function useCreatorMode(dependencies = {}) {
               }
               // 如果是对象，创建新对象只保留必要属性，避免原始对象中的文本字段干扰
               else if (typeof orig === 'object' && orig !== null) {
-                storyScenes.value[sIdx].dialogues[idx] = { 
-                  text: ov.dialogues[k],  // 只使用覆盖后的文本
-                  backgroundImage: orig.backgroundImage,  // 保留背景图
-                  speaker: orig.speaker,  // 保留说话者
-                  _fromChoiceId: orig._fromChoiceId,  // 保留选项追踪信息
-                  _fromChoiceIndex: orig._fromChoiceIndex,  // 保留选项追踪信息
-                  // 不复制任何其他可能包含文本的字段（如 narration、content 等）
+                // 保留原始的 type / 旁白标记，避免 isNarration 识别失败
+                const preservedType = orig.type
+                const preservedNarrationFlag = orig.__narration === true
+                storyScenes.value[sIdx].dialogues[idx] = {
+                  text: ov.dialogues[k],
+                  type: preservedType, // 如果原来是 narration 会有 type:'narration'
+                  __narration: preservedNarrationFlag || (preservedType === 'narration'),
+                  backgroundImage: orig.backgroundImage,
+                  speaker: orig.speaker,
+                  _fromChoiceId: orig._fromChoiceId,
+                  _fromChoiceIndex: orig._fromChoiceIndex,
                 }
               }
             }
@@ -479,6 +483,157 @@ export function useCreatorMode(dependencies = {}) {
       }
     } catch (e) {}
   }
+
+  // 辅助：判断一条对话是否为旁白（narration）
+  const isNarration = (item) => {
+    try {
+      if (!item) return false
+      if (typeof item === 'object') {
+        if (item.type === 'narration' || item.__narration === true) return true
+        // 兜底：没有 speaker 且没有选择分支标记，且是对象，视为旁白
+        if (!item.speaker && item._fromChoiceId == null && item._fromChoiceIndex == null && typeof item.text === 'string') {
+          return true
+        }
+      }
+      return false
+    } catch (e) { return false }
+  }
+
+  // 新增：插入一条旁白
+  const addNarration = async (params = {}) => {
+    const _work = params.work || work
+    const _checkCurrentChapterSaved = params.checkCurrentChapterSaved || checkCurrentChapterSaved
+    const _currentScene = params.currentScene || dependencies.currentScene
+    const _currentSceneIndex = params.currentSceneIndex || currentSceneIndex
+    const _currentDialogueIndex = params.currentDialogueIndex || currentDialogueIndex
+    const _storyScenes = params.storyScenes || storyScenes
+    const _overrides = params.overrides || overrides
+    const _saveOverrides = params.saveOverrides || saveOverrides
+    const _applyOverridesToScenes = params.applyOverridesToScenes || applyOverridesToScenes
+    const _showText = params.showText || dependencies.showText
+
+    try {
+      if (!creatorMode.value) {
+        showNotice?.('请先进入创作者模式')
+        return
+      }
+      // 已保存章节校验（若需要）
+      if (_work?.value?.ai_callable !== false) {
+        if (_checkCurrentChapterSaved) {
+          const isSaved = await _checkCurrentChapterSaved()
+          if (!isSaved) {
+            showNotice?.('当前章节未保存，不能新增旁白')
+            return
+          }
+        }
+      }
+
+      const scene = _currentScene?.value || _currentScene
+      if (!scene) { showNotice?.('无法确定当前场景'); return }
+      scene.dialogues = Array.isArray(scene.dialogues) ? scene.dialogues : []
+      // 插入位置：当前对话后一位；若当前索引越界则插入末尾
+      let insertIndex = (_currentDialogueIndex?.value != null) ? (_currentDialogueIndex.value + 1) : scene.dialogues.length
+      if (insertIndex < 0 || insertIndex > scene.dialogues.length) insertIndex = scene.dialogues.length
+
+      const newText = params.text || '（新增旁白，请编辑内容）'
+  const narrationObj = { text: newText, type: 'narration', __narration: true, speaker: null }
+      scene.dialogues.splice(insertIndex, 0, narrationObj)
+
+      // 更新 overrides：对话索引后移
+      const sid = (scene._uid || scene.sceneId || scene.id || `idx_${_currentSceneIndex.value}`)
+      _overrides.value.scenes = _overrides.value.scenes || {}
+      _overrides.value.scenes[sid] = _overrides.value.scenes[sid] || { dialogues: {} }
+      const od = _overrides.value.scenes[sid].dialogues || {}
+      // 先将需要后移的索引从末尾向后移动，避免覆盖
+      const existingKeys = Object.keys(od).map(k => Number(k)).filter(k => !isNaN(k)).sort((a,b) => b - a)
+      for (const k of existingKeys) {
+        if (k >= insertIndex) {
+          od[k + 1] = od[k]
+          delete od[k]
+        }
+      }
+      od[insertIndex] = newText
+      _overrides.value.scenes[sid].dialogues = od
+
+      if (_saveOverrides) _saveOverrides(_work.value.id)
+      if (_applyOverridesToScenes) _applyOverridesToScenes(_showText)
+
+      // 将当前编辑索引跳到新旁白
+      try { _currentDialogueIndex.value = insertIndex } catch (e) {}
+      showNotice?.('已插入旁白')
+    } catch (e) {
+      console.warn('addNarration failed', e)
+      showNotice?.('插入旁白失败')
+    }
+  }
+
+  // 新增：删除当前旁白
+  const deleteNarration = (params = {}) => {
+    const _currentScene = params.currentScene || dependencies.currentScene
+    const _currentSceneIndex = params.currentSceneIndex || currentSceneIndex
+    const _currentDialogueIndex = params.currentDialogueIndex || currentDialogueIndex
+    const _storyScenes = params.storyScenes || storyScenes
+    const _overrides = params.overrides || overrides
+    const _saveOverrides = params.saveOverrides || saveOverrides
+    const _applyOverridesToScenes = params.applyOverridesToScenes || applyOverridesToScenes
+    const _showText = params.showText || dependencies.showText
+
+    try {
+      if (!creatorMode.value) { showNotice?.('尚未进入创作者模式'); return }
+      const scene = _currentScene?.value || _currentScene
+      if (!scene) { showNotice?.('无法确定当前场景'); return }
+      const idx = _currentDialogueIndex?.value ?? 0
+      if (!Array.isArray(scene.dialogues) || idx < 0 || idx >= scene.dialogues.length) { showNotice?.('当前对话索引无效'); return }
+      const target = scene.dialogues[idx]
+      if (!isNarration(target)) { showNotice?.('当前项不是旁白，无法删除'); return }
+
+      // 删除
+      scene.dialogues.splice(idx, 1)
+
+      // 更新 overrides：重建索引映射，保持其它被编辑的文本
+      const sid = (scene._uid || scene.sceneId || scene.id || `idx_${_currentSceneIndex.value}`)
+      _overrides.value.scenes = _overrides.value.scenes || {}
+      _overrides.value.scenes[sid] = _overrides.value.scenes[sid] || { dialogues: {} }
+      const oldMap = _overrides.value.scenes[sid].dialogues || {}
+      const newMap = {}
+      for (let i = 0; i < scene.dialogues.length; i++) {
+        // 原索引：若新索引 >= 删除位置，则对应旧索引 i+1；否则 i
+        const oldIdx = (i >= idx) ? (i + 1) : i
+        // 直接根据 scene 当前内容生成覆盖文本（更稳健）
+        const item = scene.dialogues[i]
+        let txt = ''
+        if (typeof item === 'string') txt = item
+        else if (item && typeof item === 'object') txt = item.text || item.narration || item.content || ''
+        // 如果旧映射中存在编辑记录优先使用旧编辑文本
+        if (oldMap && typeof oldMap[oldIdx] !== 'undefined') {
+          txt = oldMap[oldIdx]
+        }
+        newMap[i] = txt
+      }
+
+      // 若删空，保留一个占位旁白，避免空数组导致前端逻辑异常
+      if (scene.dialogues.length === 0) {
+        const placeholder = { text: '（场景已空，自动添加占位旁白）', type: 'narration' }
+        scene.dialogues.push(placeholder)
+        newMap[0] = placeholder.text
+        _currentDialogueIndex.value = 0
+      } else {
+        // 调整当前索引
+        if (_currentDialogueIndex.value >= scene.dialogues.length) {
+          _currentDialogueIndex.value = scene.dialogues.length - 1
+        }
+      }
+
+      _overrides.value.scenes[sid].dialogues = newMap
+      if (_saveOverrides) _saveOverrides(work.value.id)
+      if (_applyOverridesToScenes) _applyOverridesToScenes(_showText)
+
+      showNotice?.('已删除旁白')
+    } catch (e) {
+      console.warn('deleteNarration failed', e)
+      showNotice?.('删除旁白失败')
+    }
+  }
   
   const triggerImagePicker = async (params = {}) => {
     // 🔑 修复：优先使用 params，如果没有则从依赖中获取
@@ -701,6 +856,10 @@ export function useCreatorMode(dependencies = {}) {
     onEditableInput,
     onCompositionStart,
     onCompositionEnd,
+  // Narration 新增功能
+  addNarration,
+  deleteNarration,
+  isNarration,
     
     // Overrides 相关
     loadOverrides,
