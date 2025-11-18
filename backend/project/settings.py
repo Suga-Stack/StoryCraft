@@ -168,20 +168,6 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # 指定用户模型
 AUTH_USER_MODEL = 'users.User'
 
-"""
-REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework.authentication.SessionAuthentication',
-        'rest_framework.authentication.BasicAuthentication',
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-    ),
-    'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticatedOrReadOnly',
-    ),
-    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 10,
-}
-"""
 
 # 完全关闭权限验证
 REST_FRAMEWORK = {
@@ -300,9 +286,6 @@ LOGGING = {
     },
 }
 
-AI_MODEL_FOR_TEXT = "doubao-seed-1-6-vision-250815"
-AI_MODEL_FOR_IMAGE = "doubao-seedream-4-0-250828"
-
 # ============================================
 # CORS配置
 # ============================================
@@ -359,3 +342,10 @@ CSRF_TRUSTED_ORIGINS = [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
 ]
+AI_MODEL_FOR_TEXT = "DeepSeek-V3.2-Exp"
+AI_API_KEY_FOR_TEXT = "sk-PAF8gzAL93s9xKlaybzSQw"
+AI_BASE_URL_FOR_TEXT = "https://llmapi.paratera.com/v1/"
+
+AI_MODEL_FOR_IMAGE = "doubao-seedream-3-0-t2i-250415"
+AI_API_KEY_FOR_IMAGE = "3f00ab95-6096-4639-a8b0-09c711a63d9c"
+AI_BASE_URL_FOR_IMAGE = "https://ark.cn-beijing.volces.com/api/v3"
