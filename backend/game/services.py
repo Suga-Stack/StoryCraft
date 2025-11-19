@@ -56,6 +56,7 @@ def _generate_chapter(gamework_id: int, chapter_index: int, user_prompt: str = "
     )
     story.global_summary = updated_global_summary
     story.save()
+    logger.info(f"写入全局摘要：length={len(updated_global_summary)} content_preview=\n{updated_global_summary[:120]}")
 
     # 生成场景图片 (根据整章内容自动切分)
     scene_ranges, scene_urls = generate_scene_images(raw_chapter_content)

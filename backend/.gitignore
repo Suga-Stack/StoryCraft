@@ -1,6 +1,4 @@
 docs/
-game/test.py
-game/text.json
 db.sqlite3
 logs/
 media/

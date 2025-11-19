@@ -9,6 +9,9 @@ nlp = spacy.load("zh_core_web_sm")
 
 def _extract_chapter_title(raw: str) -> tuple[int, str]:
     """提取章节序号与标题"""
+    lines = raw.strip().splitlines()
+    if not lines:
+        return (0, "未命名章节")
     m = re.search(r"^第(\d+)章\s*-\s*(.+)", raw.strip().splitlines()[0])
     if not m:
         return 0, "未命名章节"
