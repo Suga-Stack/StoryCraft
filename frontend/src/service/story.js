@@ -4,6 +4,7 @@
  */
 
 import { http, getUserId } from './http.js'
+import { STORY_MAX_RETRIES, STORY_RETRY_INTERVAL_MS } from '../config/polling.js'
 
 /**
  * 获取指定章节的剧情场景
@@ -26,8 +27,9 @@ import { http, getUserId } from './http.js'
  */
 export async function getScenes(workId, chapterIndex = 1, options = {}) {
   const {
-    maxRetries = 60,  // 最大重试次数（增加到60次，约5分钟）
-    retryInterval = 5000,  // 重试间隔(5秒)
+    // 默认更耐心：约 10 分钟（120 次 * 5 秒）
+    maxRetries = STORY_MAX_RETRIES,
+    retryInterval = STORY_RETRY_INTERVAL_MS,
     onProgress  // 进度回调函数
   } = options
 

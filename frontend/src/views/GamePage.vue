@@ -13,6 +13,7 @@ import { useAutoPlay } from '../composables/useAutoPlay.js'
 import { useStoryAPI } from '../composables/useStoryAPI.js'
 import { useCreatorMode } from '../composables/useCreatorMode.js'
 import { useGameState } from '../composables/useGameStatus.js'
+import { INITIAL_SCENES_MAX_RETRIES } from '../config/polling.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -526,7 +527,8 @@ const initializeGame = async () => {
       // 如果没有场景数据，才进入等待循环
       console.log('[initializeGame] 场景数据未加载，进入等待循环')
       let retryCount = 0
-      const maxRetries = 120 // 增加重试次数，因为轮询可能需要更长时间
+      // 采用全局轮询配置，延长等待时间（默认约 5 分钟）
+      const maxRetries = INITIAL_SCENES_MAX_RETRIES
       
       while ((!Array.isArray(storyScenes.value) || storyScenes.value.length === 0) && retryCount < maxRetries) {
         await new Promise(resolve => setTimeout(resolve, 1000)) // 每秒检查一次
@@ -711,7 +713,15 @@ const initFromCreateResult = async (opts = {}) => {
             else if (obj.data && Array.isArray(obj.data.outlines) && obj.data.outlines.length > 0) rawOutlines = obj.data.outlines
 
             if (rawOutlines.length > 0) {
-              outlineEdits.value = rawOutlines.map((ch, i) => ({ chapterIndex: (ch.chapterIndex || i + 1), outline: ch.outline || ch.summary || ch.title || JSON.stringify(ch) }))
+              // 合并标题与大纲正文：title + 空行 + outline/summary
+              const mapped = rawOutlines.map((ch, i) => {
+                const ci = (ch && (ch.chapterIndex ?? ch.chapter_index)) || (i + 1)
+                const title = (ch && (ch.title ?? ch.chapter_title)) || ''
+                const body = (ch && (ch.outline ?? ch.summary)) || ''
+                const combined = (title && body) ? `${title}\n\n${body}` : (title || body || JSON.stringify(ch))
+                return { chapterIndex: Number(ci), outline: combined }
+              })
+              outlineEdits.value = mapped
             } else {
               // 不再合成本地 mock：如果后端未返回大纲，则使用空数组，让编辑器呈现空状态由用户或后端生成
               outlineEdits.value = []
@@ -1172,7 +1182,12 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           try {
             if (Array.isArray(rawOutlines) && rawOutlines.length) {
               const found = rawOutlines.find(x => Number(x.chapterIndex) === Number(nextChap)) || rawOutlines[nextChap - 1]
-              if (found && (found.outline || found.summary || found.title)) nextOutlineText = found.outline || found.summary || found.title
+              if (found) {
+                const title = (found && (found.title ?? found.chapter_title)) || ''
+                const body = (found && (found.outline ?? found.summary)) || ''
+                const combined = (title && body) ? `${title}\n\n${body}` : (title || body)
+                if (combined) nextOutlineText = combined
+              }
             }
           } catch (e) { console.warn('prepare next outline failed', e) }
 
@@ -1184,7 +1199,12 @@ const persistCurrentChapterEdits = async (opts = {}) => {
             try {
               if (Array.isArray(rawOutlines) && rawOutlines.length) {
                 const foundC = rawOutlines.find(x => Number(x.chapterIndex) === Number(c)) || rawOutlines[c - 1]
-                if (foundC && (foundC.outline || foundC.summary || foundC.title)) text = foundC.outline || foundC.summary || foundC.title
+                if (foundC) {
+                  const title = (foundC && (foundC.title ?? foundC.chapter_title)) || ''
+                  const body = (foundC && (foundC.outline ?? foundC.summary)) || ''
+                  const combined = (title && body) ? `${title}\n\n${body}` : (title || body)
+                  if (combined) text = combined
+                }
               }
             } catch (e) { console.warn('prepare outline for chapter', c, 'failed', e) }
             outlinesToShow.push({ chapterIndex: c, outline: text })
@@ -2135,8 +2155,9 @@ onUnmounted(async () => {
     修复说明：只在创作者身份（isCreatorIdentity）下显示编辑大纲按钮，
     阅读者身份不应该看到此按钮。
   -->
+
   <button 
-    v-if="isCreatorIdentity && getChapterStatus(currentChapterIndex) !== 'saved'"
+    v-if="creatorFeatureEnabled && getChapterStatus(currentChapterIndex) === 'generated'"
     @click="openOutlineEditorManual()"
     class="creator-outline-btn" 
     title="编辑/生成章节大纲">

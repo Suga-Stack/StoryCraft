@@ -199,7 +199,12 @@ export function useCreatorMode(dependencies = {}) {
             else if (ch && (typeof ch.chapter_index !== 'undefined')) ci = Number(ch.chapter_index)
             else ci = i + 1
           } catch (e) { ci = i + 1 }
-          outlinesMap[ci] = (ch && (ch.summary || ch.title || ch.outline)) ? (ch.summary || ch.title || ch.outline) : JSON.stringify(ch)
+          // 合并标题与大纲正文：title + 空行 + outline/summary
+          try {
+            const title = (ch && (ch.title ?? ch.chapter_title)) || ''
+            const body  = (ch && (ch.outline ?? ch.summary)) || ''
+            outlinesMap[ci] = (title && body) ? `${title}\n\n${body}` : (title || body || JSON.stringify(ch))
+          } catch (e) { outlinesMap[ci] = JSON.stringify(ch) }
           if (ci > maxIdx) maxIdx = ci
         }
       }
