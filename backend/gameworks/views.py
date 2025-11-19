@@ -101,6 +101,35 @@ class PublishGameworkViewSet(viewsets.ViewSet):
 
         return Response({'message': '作品已成功发布', 'gamework': GameworkSimpleSerializer(gamework).data}, status=status.HTTP_200_OK)
 
+    @swagger_auto_schema(
+        operation_summary="取消发布作品",
+        operation_description="将作品标记为未发布。未发布的作品只对作者本人和管理员可见。",
+        responses={
+            200: openapi.Response("作品已成功取消发布", GameworkSimpleSerializer),
+            404: "作品未找到",
+            403: "您没有权限取消发布该作品"
+        }
+    )
+    def unpublish(self, request, pk=None):
+        # 获取作品对象
+        try:
+            gamework = Gamework.objects.get(pk=pk)
+        except Gamework.DoesNotExist:
+            return Response({'message': '作品未找到'}, status=status.HTTP_404_NOT_FOUND)
+
+        # 权限检查（作者或管理员）
+        if gamework.author != request.user and not request.user.is_staff:
+            return Response({'message': '您没有权限取消发布该作品'}, status=status.HTTP_403_FORBIDDEN)
+
+        # 设置为未发布
+        gamework.is_published = False
+        gamework.save()
+
+        return Response(
+            {'message': '作品已成功取消发布', 'gamework': GameworkSimpleSerializer(gamework).data},
+            status=status.HTTP_200_OK
+        )
+
 
 class GameworkSearchView(generics.ListAPIView):
     """
