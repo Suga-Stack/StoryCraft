@@ -41,7 +41,7 @@ class UserViewSet(viewsets.ModelViewSet):
         普通用户仅能查看自己，管理员可查看所有
         """
         user = self.request.user
-        if user.is_staff:
+        if user.is_staff or user.is_superuser:
             return User.objects.all()
         return User.objects.filter(id=user.id)
     
@@ -50,6 +50,9 @@ class UserViewSet(viewsets.ModelViewSet):
         查看用户列表
         普通用户只能看到自己，管理员可以看到所有用户
         """
+        queryset = self.get_queryset()
+        if not request.user.is_staff and queryset.count() > 1:
+            return Response({'detail': '您没有权限查看其他用户的数据。'}, status=status.HTTP_403_FORBIDDEN)
         return super().list(request, *args, **kwargs)
 
     def retrieve(self, request, *args, **kwargs):

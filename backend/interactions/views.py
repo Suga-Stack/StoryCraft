@@ -1,10 +1,11 @@
 from rest_framework import viewsets, status, permissions, filters
 from rest_framework.response import Response
-from .models import Favorite, Comment, Rating, FavoriteFolder
+from rest_framework.decorators import action
+from .models import Favorite, Comment, Rating, FavoriteFolder, CommentLike
 from .serializers import FavoriteSerializer, CommentSerializer, RatingSerializer, FavoriteFolderSerializer
-from drf_yasg.utils import swagger_auto_schema
+from drf_yasg.utils import swagger_auto_schema, no_body
 from drf_yasg import openapi
-from django.db.models import Avg
+from django.db.models import Avg, Count, Prefetch
 
 class FavoriteFolderViewSet(viewsets.ModelViewSet):
     """
@@ -19,6 +20,12 @@ class FavoriteFolderViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return FavoriteFolder.objects.none()
+        
+        if not self.request.user.is_authenticated:
+            return FavoriteFolder.objects.none()
+        
         return FavoriteFolder.objects.filter(user=self.request.user)
 
     @swagger_auto_schema(
@@ -179,6 +186,66 @@ class FavoriteViewSet(viewsets.ModelViewSet):
         self.perform_destroy(instance)
         return Response({"code": 204, "message": "取消收藏成功"}, status=status.HTTP_204_NO_CONTENT)
 
+    @swagger_auto_schema(
+        operation_summary="批量移动收藏到指定收藏夹",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['favorite_ids'],
+            properties={
+                'favorite_ids': openapi.Schema(
+                    type=openapi.TYPE_ARRAY,
+                    items=openapi.Items(type=openapi.TYPE_INTEGER),
+                    description='要移动的收藏记录ID列表'
+                ),
+                'folder': openapi.Schema(
+                    type=openapi.TYPE_INTEGER,
+                    description='目标收藏夹ID，可为空（移出收藏夹）'
+                )
+            }
+        ),
+        responses={
+            200: openapi.Response(
+                description="批量移动成功",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "code": openapi.Schema(type=openapi.TYPE_INTEGER),
+                        "message": openapi.Schema(type=openapi.TYPE_STRING),
+                        "data": openapi.Schema(
+                            type=openapi.TYPE_ARRAY,
+                            items=openapi.Items(type=openapi.TYPE_OBJECT)
+                        )
+                    }
+                )
+            ),
+            400: openapi.Response(description="参数错误")
+        }
+    )
+    @action(detail=False, methods=['post'])
+    def move_to_folder(self, request):
+        favorite_ids = request.data.get('favorite_ids', [])
+        folder_id = request.data.get('folder')
+
+        if not isinstance(favorite_ids, list) or not all(isinstance(i, int) for i in favorite_ids):
+            return Response({"code": 400, "message": "favorite_ids 必须是整数列表"}, status=400)
+
+        folder = None
+        if folder_id not in (None, "", "null"):
+            try:
+                folder = FavoriteFolder.objects.get(id=folder_id, user=request.user)
+            except FavoriteFolder.DoesNotExist:
+                return Response({"code": 400, "message": "收藏夹不存在"}, status=400)
+
+        favorites = Favorite.objects.filter(user=request.user, id__in=favorite_ids)
+        favorites.update(folder=folder)
+
+        serializer = self.get_serializer(favorites, many=True)
+        return Response({
+            "code": 200,
+            "message": "批量移动收藏成功",
+            "data": serializer.data
+        })
+
 
 class CommentViewSet(viewsets.ModelViewSet):
     """
@@ -192,8 +259,22 @@ class CommentViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        user = self.request.user
         gamework_id = self.request.query_params.get('gamework')
-        queryset = Comment.objects.all().select_related('user', 'gamework').prefetch_related('replies__user')
+        queryset = (Comment.objects
+            .select_related('user', 'gamework')
+            .annotate(like_count=Count('likes', distinct=True))
+        )
+            
+        if user.is_authenticated:
+            queryset = queryset.prefetch_related(
+                Prefetch(
+                    'likes',
+                    queryset=CommentLike.objects.filter(user=user),
+                    to_attr='user_likes'
+                )
+            )    
+        
         if gamework_id:
             queryset = queryset.filter(gamework_id=gamework_id, parent__isnull=True)  # 顶级评论分页
         else:
@@ -238,6 +319,78 @@ class CommentViewSet(viewsets.ModelViewSet):
             "message": "评论发布成功",
             "data": serializer.data
         }, status=status.HTTP_201_CREATED)
+
+    @swagger_auto_schema(
+        operation_summary="点赞评论",
+        request_body=no_body,
+        responses={
+            200: openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    "code": openapi.Schema(type=openapi.TYPE_INTEGER),
+                    "message": openapi.Schema(type=openapi.TYPE_STRING),
+                    "data": openapi.Schema(
+                        type=openapi.TYPE_OBJECT,
+                        properties={
+                            "liked": openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                            "like_count": openapi.Schema(type=openapi.TYPE_INTEGER),
+                        },
+                    ),
+                },
+            )
+        }
+    )
+    @action(detail=True, methods=['post'])
+    def like(self, request, pk=None):
+        comment = self.get_object()
+        user = request.user
+
+        like, created = CommentLike.objects.get_or_create(user=user, comment=comment)
+
+        return Response({
+            "code": 200,
+            "message": "点赞成功" if created else "已经点赞过",
+            "data": {
+                "liked": True,
+                "like_count": comment.likes.count()
+            }
+        })
+
+    @swagger_auto_schema(
+        operation_summary="取消点赞评论",
+        request_body=no_body,
+        responses={
+            200: openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    "code": openapi.Schema(type=openapi.TYPE_INTEGER),
+                    "message": openapi.Schema(type=openapi.TYPE_STRING),
+                    "data": openapi.Schema(
+                        type=openapi.TYPE_OBJECT,
+                        properties={
+                            "liked": openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                            "like_count": openapi.Schema(type=openapi.TYPE_INTEGER),
+                        },
+                    ),
+                },
+            )
+        }
+    )
+    @action(detail=True, methods=['post'])
+    def unlike(self, request, pk=None):
+        comment = self.get_object()
+        user = request.user
+
+        CommentLike.objects.filter(user=user, comment=comment).delete()
+
+        return Response({
+            "code": 200,
+            "message": "取消点赞成功",
+            "data": {
+                "liked": False,
+                "like_count": comment.likes.count()
+            }
+        })
 
 
 

@@ -5,9 +5,11 @@ from interactions.permissions import IsOwnerOrReadOnly
 from rest_framework.response import Response
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-from django.db.models import Count, Q, Avg, F, Prefetch
-from interactions.models import Favorite, Rating, ReadRecord
-
+from django.db.models import Count, Q, Avg, F, Prefetch, IntegerField, OuterRef, Subquery
+from django.db.models.functions import Coalesce
+from interactions.models import Favorite, Comment
+from django.utils import timezone
+from datetime import timedelta
 
 class GameworkViewSet(viewsets.ModelViewSet):
     """
@@ -98,6 +100,35 @@ class PublishGameworkViewSet(viewsets.ViewSet):
         gamework.save()
 
         return Response({'message': '作品已成功发布', 'gamework': GameworkSimpleSerializer(gamework).data}, status=status.HTTP_200_OK)
+
+    @swagger_auto_schema(
+        operation_summary="取消发布作品",
+        operation_description="将作品标记为未发布。未发布的作品只对作者本人和管理员可见。",
+        responses={
+            200: openapi.Response("作品已成功取消发布", GameworkSimpleSerializer),
+            404: "作品未找到",
+            403: "您没有权限取消发布该作品"
+        }
+    )
+    def unpublish(self, request, pk=None):
+        # 获取作品对象
+        try:
+            gamework = Gamework.objects.get(pk=pk)
+        except Gamework.DoesNotExist:
+            return Response({'message': '作品未找到'}, status=status.HTTP_404_NOT_FOUND)
+
+        # 权限检查（作者或管理员）
+        if gamework.author != request.user and not request.user.is_staff:
+            return Response({'message': '您没有权限取消发布该作品'}, status=status.HTTP_403_FORBIDDEN)
+
+        # 设置为未发布
+        gamework.is_published = False
+        gamework.save()
+
+        return Response(
+            {'message': '作品已成功取消发布', 'gamework': GameworkSimpleSerializer(gamework).data},
+            status=status.HTTP_200_OK
+        )
 
 
 class GameworkSearchView(generics.ListAPIView):
@@ -271,3 +302,76 @@ class GameworkRatingLeaderboardViewSet(viewsets.ViewSet):
             "message": "作品评分排行榜",
             "data": serializer.data
         })
+    
+class GameworkHotLeaderboardViewSet(viewsets.ViewSet):
+    """
+    获取基于热度的作品排行榜
+    - GET: 返回按热度排序的作品排行榜（回复数*2 + 收藏数*1）
+    - 支持时间维度：总榜、月榜、周榜
+    """
+
+    @swagger_auto_schema(
+        operation_summary="作品热度排行榜",
+        operation_description=(
+            "返回热度最高的10部作品，热度计算公式：\n"
+            "热度 = 回复数 × 2 + 收藏数 × 1\n"
+            "可通过 ?range=total|month|week 指定时间范围，默认 total（总榜）"
+        ),
+        manual_parameters=[
+            openapi.Parameter(
+                name='range',
+                in_=openapi.IN_QUERY,
+                type=openapi.TYPE_STRING,
+                description='排行榜时间范围，可选 total, month, week',
+                required=False
+            )
+        ]
+    )
+    def list(self, request):
+        time_range = request.query_params.get('range', 'total')
+        now = timezone.now()
+
+        # 根据 range 计算时间边界
+        start_time = None
+        if time_range == 'month':
+            start_time = now - timedelta(days=30)
+        elif time_range == 'week':
+            start_time = now - timedelta(days=7)
+        elif time_range != 'total':
+            return Response({
+                "message": "无效的 range 参数，可选值: total, month, week"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 评论子查询
+        comments_qs = Comment.objects.filter(gamework=OuterRef('pk'))
+        if start_time:
+            comments_qs = comments_qs.filter(created_at__gte=start_time)
+        comments_subquery = comments_qs.values('gamework').annotate(c=Count('id')).values('c')
+
+        # 收藏子查询
+        favorites_qs = Favorite.objects.filter(gamework=OuterRef('pk'))
+        if start_time:
+            favorites_qs = favorites_qs.filter(created_at__gte=start_time)
+        favorites_subquery = favorites_qs.values('gamework').annotate(f=Count('id')).values('f')
+
+        # 主查询
+        queryset = (
+            Gamework.objects.filter(is_published=True)
+            .annotate(
+                reply_count=Coalesce(Subquery(comments_subquery, output_field=IntegerField()), 0),
+                favorite_count=Coalesce(Subquery(favorites_subquery, output_field=IntegerField()), 0)
+            )
+            .annotate(
+                hot_score=F('reply_count') * 2 + F('favorite_count') * 1
+            )
+            .order_by('-hot_score')[:10]
+        )
+
+        # 序列化
+        serializer = GameworkSimpleSerializer(queryset, many=True, context={'request': request})
+
+        return Response({
+            "message": f"作品热度排行榜（{time_range}）",
+            "data": serializer.data
+        }, status=status.HTTP_200_OK)
