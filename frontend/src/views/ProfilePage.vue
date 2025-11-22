@@ -75,7 +75,7 @@
           @click="navigateToBookDetail(book.id)"
         >
           <van-image 
-            :src="book.cover" 
+            :src="book.image_url" 
             class="book-cover" 
             fit="cover"
           />
@@ -103,7 +103,7 @@
           @click="navigateToBookDetail(book.id)"
         >
           <van-image 
-            :src="book.cover" 
+            :src="book.image_url" 
             class="book-cover" 
             fit="cover"
           />
@@ -396,10 +396,7 @@ const handleLogout = async () => {
       });
     }
     
-    // 清除本地登录状态
-    localStorage.removeItem('userInfo');
-    // 可以同时清除其他相关存储，如token等
-    // localStorage.removeItem('token');
+    logout();
     
     // 跳转到登录页
     router.push('/login');

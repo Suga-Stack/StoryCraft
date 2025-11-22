@@ -10,7 +10,7 @@
         @click="navigateToBookDetail(book.id)"
       >
         <van-image 
-          :src="book.cover" 
+          :src="book.image_url" 
           class="book-cover" 
           fit="cover"
         />
@@ -45,6 +45,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { showToast } from 'vant'
 import { getReadingHistory } from '../api/user'
+import { addFavorite, deleteFavorite } from '../api/user'
 
 const router = useRouter()
 const route = useRoute()
@@ -99,11 +100,25 @@ const navigateToBookDetail = (bookId) => {
 };
 
 // 收藏功能
-const handleFavorite = (book) => {
-  // 切换收藏状态
-  book.isFavorite = !book.isFavorite;
-  // 显示相应提示
-  showToast(book.isFavorite ? '已收藏' : '取消收藏');
+const handleFavorite = async (book) => {
+  try {
+    if (!book.isFavorite) {
+      // 添加收藏
+      await addFavorite(book.id); // 这里的文件夹名称可根据实际需求调整或从参数获取
+      book.isFavorite = true;
+      showToast('已收藏');
+    } else {
+      // 取消收藏 - 假设book对象包含收藏记录的id(favoriteId)，如果没有需要调整接口参数
+      await deleteFavorite(book.favoriteId); 
+      book.isFavorite = false;
+      showToast('取消收藏');
+    }
+  } catch (error) {
+    console.error('收藏操作失败:', error);
+    showToast('操作失败，请稍后重试');
+    // 失败时回滚状态
+    book.isFavorite = !book.isFavorite;
+  }
 };
 </script>
 

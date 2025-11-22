@@ -10,7 +10,7 @@
         @click="navigateToBookDetail(book.id)"
       >
         <van-image 
-          :src="book.cover" 
+          :src="book.image_url" 
           class="book-cover" 
           fit="cover"
         />
@@ -29,12 +29,6 @@
             </van-tag>
           </div>
         </div>
-        <van-icon 
-          :name="book.isFavorite ? 'star' : 'star-o'" 
-          class="favorite-icon"
-          :class="{ active: book.isFavorite }"
-          @click.stop="handleFavorite(book)"
-        />
          <van-icon 
           :name="book.isPublished ? 'eye' : 'eye-o'" 
           class="visibility-icon"
@@ -50,7 +44,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { getMyworks} from '../api/user'
+import { getMyworks, publishWorks} from '../api/user'
 
 
 const router = useRouter()
@@ -103,18 +97,44 @@ const navigateToBookDetail = (bookId) => {
   router.push(`/book-detail/${bookId}`)
 };
 
-// 收藏功能
-const handleFavorite = (book) => {
-  // 切换收藏状态
-  book.isFavorite = !book.isFavorite;
-  // 显示相应提示
-  showToast(book.isFavorite ? '已收藏' : '取消收藏');
-};
 
 // 发布/隐藏功能
-const handlePublish = (book) => {
-  book.isPublished = !book.isPublished;
-  showToast(book.isPublished ? '作品已发布' : '作品已隐藏');
+const handlePublish = async (book) => {
+  try {
+    // 如果当前是未发布状态，则调用发布接口
+    if (!book.isPublished) {
+      const response = await publishWorks(book.id);
+      
+      // 假设接口返回200时表示发布成功
+      if (response.status === 200) {
+        book.isPublished = true;
+        showToast('作品已发布');
+        fetchMyWorks();
+      } else {
+        showToast('发布失败：' + (response.data.message || '未知错误'));
+      }
+    } else {
+      // 如果需要实现取消发布功能，这里可以调用取消发布接口
+      // 假设取消发布接口为 /gameworks/unpublish/${id}
+      // const response = await unpublishWorks(book.id);
+      book.isPublished = false;
+      showToast('作品已隐藏');
+    }
+  } catch (error) {
+    // 处理接口调用失败的情况
+    console.error('发布操作失败:', error);
+    // 恢复状态（因为接口调用失败，前端状态不应该改变）
+    book.isPublished = !book.isPublished;
+    
+    // 根据错误类型显示不同提示
+    if (error.response && error.response.status === 403) {
+      showToast('您没有权限发布该作品');
+    } else if (error.response && error.response.status === 404) {
+      showToast('作品未找到');
+    } else {
+      showToast('操作失败，请稍后重试');
+    }
+  }
 };
 </script>
 
@@ -200,9 +220,5 @@ const handlePublish = (book) => {
   color: #888;
   margin-left: 12px;
   flex-shrink: 0;
-}
-
-.visibility-icon.active {
-  color: #b88484;  
 }
 </style>

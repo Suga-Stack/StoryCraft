@@ -7,7 +7,11 @@
         <button @click="showSearch = !showSearch" class="icon-btn">
           <i class="search-icon">🔍</i>
         </button>
-        <button @click="showCreateFolderPopup = true" class="icon-btn" v-if="!currentFolder">
+        <button 
+          @click="() => { showCreateFolderDialog = true }" 
+          class="icon-btn" 
+          v-if="!currentFolder"
+        >
           <i class="add-folder-icon">+</i>
         </button>
         <button @click="goBack" class="icon-btn" v-if="currentFolder">
@@ -146,36 +150,30 @@
     </div>
 
     <!-- 创建收藏夹弹窗 -->
-    <van-popup
-      v-model:show="showCreateFolderPopup"
-      round
-      position="bottom"
-      :style="{ height: '30%' }"
-    >
-      <div class="popup-header">
-        <span>创建新收藏夹</span>
-        <van-button type="text" @click="showCreateFolderPopup = false">取消</van-button>
+    <div class="dialog-overlay" v-if="showCreateFolderDialog">
+      <div class="dialog">
+        <h3>创建新收藏夹</h3>
+        <van-field
+          v-model="folderName"
+          placeholder="请输入收藏夹名称"
+          clearable
+          class="folder-input"
+        />
+        <div class="dialog-actions">
+          <button @click="showCreateFolderDialog = false" class="cancel-btn">取消</button>
+          <button 
+            @click="handleCreateFolder"
+            class="confirm-btn"
+            :style="{ 
+              background: 'linear-gradient(135deg, #d4a5a5 0%, #b88484 100%)',
+              border: 'none'
+            }"
+          >
+            创建
+          </button>
+        </div>
       </div>
-      <van-field
-        v-model="folderName"
-        placeholder="请输入收藏夹名称"
-        clearable
-        class="folder-input"
-      />
-      <div class="popup-footer">
-        <van-button 
-          type="primary" 
-          block 
-          @click="handleCreateFolder"
-          :style="{ 
-            background: 'linear-gradient(135deg, #d4a5a5 0%, #b88484 100%)',
-            border: 'none'
-          }"
-        >
-          创建
-        </van-button>
-      </div>
-    </van-popup>
+    </div>
 
     <!-- 添加到收藏夹对话框 -->
     <div class="dialog-overlay" v-if="showAddToFolderDialog">
@@ -238,7 +236,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { getFolders, createFolders, deleteFolders, searchFavorites, addFavorite, moveFavorite, deleteFavorite } from '../api/user';
-import { Toast } from 'vant';
+import { showToast } from 'vant';
 
 // 路由实例
 const router = useRouter();
@@ -262,7 +260,7 @@ const showDeleteFolderDialog = ref(false);
 
 // 收藏夹相关状态
 const folderName = ref('');
-const showCreateFolderPopup = ref(false);
+const showCreateFolderDialog = ref(false);
 
 // 底部导航
 const activeTab = ref('bookshelf');
@@ -289,7 +287,20 @@ const handleTabChange = (name) => {
 const loadFavoriteBooks = async () => {
   try {
     const response = await searchFavorites('', 1);
-    books.value = response.data.results;
+    // 1. 提取后端返回的书籍数组（response.data.results.data）
+    const rawBooks = response.data.results.data || [];
+    
+    // 2. 映射为前端需要的结构
+    books.value = rawBooks.map(book => ({
+      id: book.id,
+      gameworkId: book.gamework_detail.id,  // 书籍ID
+      title: book.gamework_detail.title,  // 标题
+      author: book.gamework_detail.author,  // 作者
+      cover: book.gamework_detail.cover || '默认封面图地址',  // 封面（处理null情况）
+      folderId: book.folder ? book.folder.id : null,  // 收藏夹ID（后端folder对应前端folderId）
+      isFavorite: true  // 收藏状态（默认true，因为是从收藏列表获取的）
+    }));
+    
     saveData();
   } catch (error) {
     console.error('加载收藏作品失败', error);
@@ -369,8 +380,7 @@ function debounce(func, delay = 300) {
 // 创建收藏夹
 const handleCreateFolder = async () => {
   if (!folderName.value.trim()) {
-    // 使用正确的Toast提示方式
-    Toast({ message: '请输入收藏夹名称', type: 'fail' });
+    showToast({ message: '请输入收藏夹名称', type: 'fail' });
     return;
   }
   
@@ -383,16 +393,16 @@ const handleCreateFolder = async () => {
     folders.value.push(newFolder);
     
     // 成功提示
-    Toast({ message: '收藏夹创建成功', type: 'success' });
+    showToast({ message: '收藏夹创建成功', type: 'success' });
     
     folderName.value = '';
-    showCreateFolderPopup.value = false;
+    showCreateFolderDialog.value = false;
     saveData(); // 立即保存到本地存储
     loadFolders();
   } catch (error) {
     console.error('创建收藏夹失败', error);
     // 错误提示
-    Toast({ 
+    showToast({ 
       message: error.response?.data?.message || '创建收藏夹失败', 
       type: 'fail' 
     });
@@ -421,10 +431,10 @@ const confirmDeleteFolder = async () => {
       loadFolders();
       saveData();
       folderToDelete.value = null;
-      Toast.success('收藏夹已删除');
+      showToast('收藏夹已删除');
     } catch (error) {
       console.error('删除收藏夹失败', error);
-      Toast.fail(error.response?.data?.message || '删除收藏夹失败');
+      showToast(error.response?.data?.message || '删除收藏夹失败');
     }
   }
 };
@@ -435,22 +445,21 @@ const openDeleteFolderDialog = (folderId) => {
   showDeleteFolderDialog.value = true;
 };
 
-// 单个作品加入收藏夹
-const handleAddToFolder = async (book, folderId) => {
-  try {
-    // 调用moveFavorite接口执行移动操作
-    await moveFavorite(book.id, folderId);
-    // 更新本地数据，标记所属收藏夹
-    book.folderId = folderId;
-    saveData(); // 保存到localStorage
-    Toast.success('已加入收藏夹');
-  } catch (error) {
-    console.error('加入收藏夹失败', error);
-    Toast.fail('操作失败: ' + (error.response?.data?.message || '未知错误'));
+// 处理书籍的收藏夹操作（加入或移出）
+const handleFolderAction = (book) => {
+  if (book.folderId) {
+    // 如果已在收藏夹中，显示移除确认对话框
+    currentBook.value = book;
+    showRemoveFromFolderDialog.value = true;
+  } else {
+    // 如果不在收藏夹中，显示添加到收藏夹对话框
+    currentBook.value = book;
+    showAddToFolderDialog.value = true;
   }
 };
 
-// 批量加入收藏夹（在confirmAddToFolder中修正）
+
+// 批量加入收藏夹
 const confirmAddToFolder = async () => {
   if (!selectedFolderId.value) return;
   
@@ -484,10 +493,10 @@ const confirmAddToFolder = async () => {
     saveData();
     showAddToFolderDialog.value = false;
     selectedFolderId.value = '';
-    Toast.success('添加成功');
+    showToast('添加成功');
   } catch (error) {
     console.error('添加到收藏夹失败', error);
-    Toast.fail('添加失败: ' + (error.response?.data?.message || '未知错误'));
+    showToast('添加失败: ' + (error.response?.data?.message || '未知错误'));
   }
 };
 
@@ -500,10 +509,10 @@ const confirmRemoveFromFolder = async () => {
       currentBook.value.folderId = null; // 清空所属收藏夹标识
       saveData();
       showRemoveFromFolderDialog.value = false;
-      Toast.success('已移出收藏夹');
+      showToast('已移出收藏夹');
     } catch (error) {
       console.error('从收藏夹移除失败', error);
-      Toast.fail('移除失败: ' + (error.response?.data?.message || '未知错误'));
+      showToast('移除失败: ' + (error.response?.data?.message || '未知错误'));
     }
   }
 };
@@ -526,10 +535,10 @@ const removeSelectedFromFolder = async () => {
     saveData();
     selectedBooks.value = [];
     isBatchMode.value = false;
-    Toast.success('已批量移出');
+    showToast('已批量移出');
   } catch (error) {
     console.error('批量移出失败', error);
-    Toast.fail('批量移出失败: ' + (error.response?.data?.message || '未知错误'));
+    showToast('批量移出失败: ' + (error.response?.data?.message || '未知错误'));
   }
 };
 
@@ -553,41 +562,6 @@ const goBack = () => {
   searchQuery.value = '';
 };
 
-// 打开创建收藏夹对话框
-const openCreateFolderDialog = () => {
-  showCreateFolderDialog.value = true;
-}
-
-// 创建新收藏夹
-const createFolder = () => {
-  if (!newFolderName.value.trim()) return;
-  
-  const newFolder = {
-    id: Date.now(),
-    name: newFolderName.value.trim()
-  };
-  
-  folders.value.push(newFolder);
-  newFolderName.value = '';
-  showCreateFolderDialog.value = false;
-  saveData();
-};
-
-// 删除收藏夹
-const deleteFolder = (folderId) => {
-  if (confirm('确定要删除这个收藏夹吗？里面的书籍会回到书架。')) {
-    // 将收藏夹中的书籍移回书架
-    books.value.forEach(book => {
-      if (book.folderId === folderId) {
-        book.folderId = null;
-      }
-    });
-    
-    // 删除收藏夹
-    folders.value = folders.value.filter(folder => folder.id !== folderId);
-    saveData();
-  }
-};
 
 // 批量管理相关函数
 const toggleBatchMode = () => {
@@ -629,22 +603,30 @@ const saveData = () => {
   localStorage.setItem('bookFolders', JSON.stringify(folders.value));
 };
 
-// 处理收藏状态
+// 在取消收藏时从列表中移除书籍
 const handleFavorite = async (book) => {
   try {
     if (book.isFavorite) {
+      // 取消收藏：调用删除接口并从列表中移除
       await deleteFavorite(book.id);
-      book.isFavorite = false;
-      Toast.success('已取消收藏');
+      
+      // 从books数组中移除该书籍
+      const index = books.value.findIndex(b => b.id === book.id);
+      if (index !== -1) {
+        books.value.splice(index, 1);
+      }
+      
+      showToast('已取消收藏');
     } else {
-      await addFavorite(book.gamework_id);
+      // 添加收藏逻辑保持不变
+      await addFavorite(book.gameworkId);
       book.isFavorite = true;
-      Toast.success('收藏成功');
+      showToast('收藏成功');
     }
-    saveData();
+    saveData(); // 保存最新状态到本地存储
   } catch (error) {
     console.error('处理收藏失败', error);
-    Toast.fail(error.response?.data?.message || '操作失败');
+    showToast(error.response?.data?.message || '操作失败');
   }
 };
 </script>
@@ -830,6 +812,7 @@ const handleFavorite = async (book) => {
 
 .book-title {
   font-size: 14px;
+  width: 100px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

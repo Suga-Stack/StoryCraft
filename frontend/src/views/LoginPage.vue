@@ -95,26 +95,10 @@ const handleLogin = async () => {
 
         showSuccessToast('登录成功，即将跳转...');
 
-       try {        
-        if (res.data?.data?.user && typeof res.data.data.user === 'object' && !Array.isArray(res.data.data.user)) {
-            localStorage.setItem('userInfo', JSON.stringify(res.data.data.user));
-        } else {
-            console.warn('用户信息格式无效，存储空对象');
-            localStorage.setItem('userInfo', '{}');
-        }
-        } catch (stringifyError) {
-        console.error('用户信息序列化失败:', stringifyError);
-        localStorage.setItem('userInfo', '{}');
-        }
-
-        // 登录成功后补充存储令牌
-        localStorage.setItem('token', data.access);
-        // 如果有refresh token也需要存储
-        if (data.refresh) {
-        localStorage.setItem('refreshToken', data.refresh);
-        }else {
-          console.warn('未获取到刷新令牌，可能导致会话持续问题');
-        }
+        userStore.handleLoginSuccess(res.data.data.user, {
+            access: data.access,
+            refresh: data.refresh
+        })
 
         const preData = await http.get('users/preferences/');
         // 检查是否存在有效的偏好设置

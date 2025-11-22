@@ -39,7 +39,7 @@
           @click="$router.push(`/reader/${book.id}`)"
         > 
             <van-image 
-                :src="book.cover" 
+                :src="book.image_url" 
                 class="book-cover"
                 fit="cover"
             />
@@ -84,6 +84,7 @@ import bookCover5 from '../assets/book5.jpg';
 import bookCover6 from '../assets/book6.jpg'; 
 import bookCover7 from '../assets/book7.jpg'; 
 import bookCover8 from '../assets/book8.jpg';
+import { recommendWorks } from '../api/user';
 
 // 模拟热门作品数据
 const hotBooks = ref([
@@ -156,9 +157,8 @@ const fetchRecommendedBooks = async () => {
   error.value = '';
   
   try {
-    const response = await http.get(`/gameworks/recommend/`);
-    
-    // 注意这里需要先获取response.data，再访问里面的code和data字段
+    const response = await recommendWorks(1);
+
     const resData = response.data;
     
     if (resData.code === 200) {

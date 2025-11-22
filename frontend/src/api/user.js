@@ -114,10 +114,18 @@ export const moveFavorite = (id, folderId) => {
 
 //获取评论
 export const getComments = (page, gamework) => {
-  return http.get('/interactions/comments/', {page, gamework});
+  return http.get('/interactions/comments/', {page, gamework})
 }
 
 //发表评论
 export const postComments = (content, gamework, parent) => {
-  return http.post('/interactions/comments/', {content, gamework, parent});
+  return http.post('/interactions/comments/', {content, gamework, parent})
+}
+
+export const recommendWorks = (page) => {
+  return http.get('/gameworks/recommend/', page)
+}
+
+export const publishWorks = (id) => {
+  return http.post(`/gameworks/publish/${id}/`)
 }

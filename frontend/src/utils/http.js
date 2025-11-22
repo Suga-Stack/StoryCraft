@@ -69,7 +69,7 @@ function redirectToLogin() {
   localStorage.removeItem('token');
   localStorage.removeItem('refreshToken');
   // 跳转到登录页，可根据实际路由调整
-  window.location.href = '/login';
+  router.push('/login');
 }
 
 
