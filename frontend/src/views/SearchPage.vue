@@ -199,7 +199,9 @@
                 <p class="item-author">作者: {{ item.author }}</p>
                 <div class="item-meta">
                   <span class="meta-tag">
-                    {{ currentTab === 'rating' ? '评分: ' + item.rating.toFixed(1) : '热度: ' + formatNumber(item.hotScore) }}
+                    {{ currentTab === 'rating' ? '评分: ' + item.rating.toFixed(1) : 
+                    currentTab === 'collection' ? '收藏: ' + formatNumber(item.collectionCount) : 
+                    '热度: ' + formatNumber(item.hotScore) }}
                   </span>
                   <div class="tags">
                     <van-tag 
@@ -265,6 +267,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { getFavoriteLeaderboard, search, getRatingLeaderboard } from '../api/user' 
+import { getTagsName } from '../api/tags'
 import http from '../utils/http'
 // 路由实例
 const router = useRouter()
@@ -383,25 +386,54 @@ const switchTab = (tab) => {
 const fetchFavoriteLeaderboard = async () => {
   try {
     const response = await getFavoriteLeaderboard()
-    // 假设接口返回格式为 { results: [...] }
-    collectionRank.value = response.data.results || [];
+    // 转换接口返回数据为统一格式（与周榜保持一致）
+    collectionRank.value = response.data.data.map(item => ({
+      id: item.id.toString(),  // 统一转为字符串ID
+      title: item.title,
+      author: item.author,
+      cover: item.image_url,  // 映射到cover字段
+      // 转换标签ID为标签名称显示
+      tags: item.tags.map(tagId => {
+        const tagInfo = allTags.value.find(t => t.id === tagId);
+        return tagInfo ? tagInfo.name : `未知标签(${tagId})`; // 优化默认提示
+      }),
+      hotScore: item.read_count,  // 热度使用阅读量
+      rating: item.average_score, // 评分
+      collectionCount: item.favorite_count  // 收藏数
+    })).sort((a, b) => b.collectionCount - a.collectionCount)  // 按收藏数排序
+    
   } catch (error) {
     console.error('获取收藏榜失败', error);
     showToast('获取收藏榜失败，请稍后重试');
   }
 }
 
-// 在script部分添加获取收藏榜数据的函数
+// 修改fetchRatingLeaderboard函数，适配新接口格式
 const fetchRatingLeaderboard = async () => {
   try {
     const response = await getRatingLeaderboard()
-    // 假设接口返回格式为 { results: [...] }
-    ratingRank.value = response.data.results || [];
+    // 转换接口返回数据为统一格式
+    ratingRank.value = response.data.data.map(item => ({
+      id: item.id.toString(),  // 统一转为字符串ID
+      title: item.title,
+      author: item.author,
+      cover: item.image_url,  // 映射到cover字段
+      tags: item.tags.map(tagId => {
+        // 这里可以根据实际标签ID与名称的映射关系转换
+        // 如果有标签列表，可通过allTags查找标签名，示例：
+        const tagInfo = allTags.value.find(t => t.id === tagId)
+        return tagInfo ? tagInfo.name : `标签${tagId}`
+      }),
+      hotScore: item.read_count,  // 热度使用阅读量
+      rating: item.average_score, // 评分
+      collectionCount: item.favorite_count  // 收藏数
+    })).sort((a, b) => b.rating - a.rating)  // 按评分排序
+    
   } catch (error) {
-    console.error('获取评分榜失败', error);
-    showToast('获取评分榜失败，请稍后重试');
+    console.error('获取评分评分榜失败', error);
+    showToast('获取评分评分榜失败，请稍后重试');
   }
-};
+}
 
 
 
@@ -561,7 +593,7 @@ const handleBack = () => {
 
 // 跳转到作品详情
 const navigateToDetail = (id) => {
-  router.push(`/book-detail/${id}`)
+  router.push(`/works/${id}`)
 }
 
 // 数字格式化
