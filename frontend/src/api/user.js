@@ -112,8 +112,8 @@ export const moveFavorite = (id, folderId) => {
 }
 
 //获取评论
-export const getComments = (page, gamework) => {
-  return http.get('/interactions/comments/', {page, gamework})
+export const getComments = (page, gameworkId) => {
+  return http.get('/interactions/comments/', {page, gameworkId})
 }
 
 //发表评论

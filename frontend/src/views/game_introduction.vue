@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { http } from '../service/http.js'
+import { addFavorite, deleteFavorite, getComments } from '../api/user.js'
 
 const router = useRouter()
 
@@ -29,12 +30,14 @@ const normalizeBackendWork = (raw) => {
   // 如果已经是完整 URL，保留原样
   return {
     id: raw.id,
+    author: raw.author,
     title: raw.title || raw.name || raw.work_title || '',
     description: raw.description || raw.desc || raw.summary || '',
     coverUrl: cover || raw.coverUrl || raw.image_url || '',
     tags: raw.tags || raw.tag_names || raw.tag_ids || [],
     favoritesCount: raw.favorite_count || raw.favoritesCount || 0,
-    publishedAt: raw.published_at || raw.publishedAt || null
+    publishedAt: raw.published_at || raw.publishedAt || null,
+    isFavorite: raw.is_favorited || false
   }
 }
 
@@ -91,10 +94,12 @@ onMounted(async () => {
     if (normalized) {
       // 完整覆盖界面字段，优先使用后端数据（但保留 tags 若路由/导航传入 overrides）
       work.value.id = normalized.id || work.value.id
+      work.value.authorId = normalized.author || work.value.authorId
       work.value.title = normalized.title || work.value.title
       work.value.coverUrl = normalized.coverUrl || work.value.coverUrl
       work.value.description = normalized.description || work.value.description
       work.value.tags = incomingTags || normalized.tags || work.value.tags
+      work.value.isFavorite = normalized.isFavorite || work.value.isFavorite
       try { favoritesCount.value = payload.favorite_count || payload.favoritesCount || favoritesCount.value } catch (e) {}
       try { publishedAt.value = payload.published_at || payload.publishedAt || publishedAt.value } catch (e) {}
 
@@ -109,6 +114,7 @@ onMounted(async () => {
         sessionStorage.setItem('createResult', JSON.stringify(prev))
       } catch (e) { console.warn('failed to write createResult to sessionStorage', e) }
     }
+    await fetchComments(1, true)
 
   } catch (e) {
     console.warn('fetch work details failed:', e)
@@ -123,10 +129,25 @@ const toggleFavorite = () => {
 const favoritesCount = ref(backendWorkRaw?.favoritesCount || 124)
 
 // 修改切换收藏以维护收藏计数
-const toggleFavoriteWithCount = () => {
-  work.value.isFavorite = !work.value.isFavorite
-  favoritesCount.value += work.value.isFavorite ? 1 : -1
+const toggleFavoriteWithCount = async () => {
+  try {
+    // 如果当前是未收藏状态，调用收藏接口
+    if (!work.value.isFavorite) {
+      await addFavorite(work.value.id); // 这里的收藏夹可以根据实际需求修改或让用户选择
+      work.value.isFavorite = true;
+      favoritesCount.value += 1;
+    } else {
+      await deleteFavorite(work.value.id);
+      work.value.isFavorite = false;
+      favoritesCount.value -= 1;
+    }
+  } catch (e) {
+    console.error('收藏操作失败:', e);
+    // 操作失败时回滚状态
+    work.value.isFavorite = !work.value.isFavorite;
+  }
 }
+
 // 发表时间（来自后端或默认当前时间）
 const publishedAt = ref(backendWorkRaw?.publishedAt || backendWorkRaw?.publishedDate || new Date().toISOString())
 
@@ -160,7 +181,6 @@ const isDescriptionExpanded = ref(false)
 const newComment = ref('')
 const replyingTo = ref(null) // 正在回复的评论ID
 const sortBy = ref('latest') // 排序方式: 'latest' 或 'likes'
-
 const comments = ref([
   { id: 1, author: 'user_001', text: '这个作品太棒了！期待后续更新！', time: '2小时前', timestamp: Date.now() - 2 * 60 * 60 * 1000, likes: 15, isLiked: false,
     replies: [
@@ -206,6 +226,7 @@ const comments = ref([
     replies: [ { id: 2001, author: 'user_040', text: '支持！', time: '20天前', timestamp: Date.now() - 20 * 24 * 60 * 60 * 1000, likes: 5, isLiked: false },
                { id: 2002, author: 'user_041', text: '同求番外～', time: '19天前', timestamp: Date.now() - 19 * 24 * 60 * 60 * 1000, likes: 3, isLiked: false } ] }
 ])
+
 
 // 可见回复计数（按顶层评论 id）
 const visibleReplies = ref({})
@@ -294,7 +315,7 @@ const onPullMove = (e) => {
   // 如果拉动超过 80px 且还未触发，则触发加载
   if (pullDistance.value > 80 && !pullTriggered.value) {
     pullTriggered.value = true
-    loadMoreComments()
+    loadMoreComments() // 调用新的加载更多函数
   }
 }
 
@@ -410,7 +431,6 @@ const submitComment = () => {
     newComment.value = ''
   }
 }
-
 // 点赞评论
 const toggleLike = (comment) => {
   comment.isLiked = !comment.isLiked
