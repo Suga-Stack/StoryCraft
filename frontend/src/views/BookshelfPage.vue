@@ -86,7 +86,7 @@
           class="book-item" 
           v-for="book in filteredBooks" 
           :key="book.id"
-          @click="isBatchMode ? toggleSelectBook(book) : openReader(book.id)"
+          @click="isBatchMode ? toggleSelectBook(book) : openReader(book.gameworkId)"
         >
           <!-- 批量选择框 -->
           <div class="batch-select" v-if="isBatchMode">
