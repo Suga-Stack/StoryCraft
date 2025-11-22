@@ -98,7 +98,8 @@
             >
           </div>
           
-          <div class="book-cover" :style="{ backgroundImage: `url(${book.cover})` }"></div>
+          <div class="book-cover" 
+            :style="{ backgroundImage: `url(${book.cover})` }"></div>
             <div class="book-info-grid">
               <div class="book-info">
                 <div class="book-title">{{ book.title }}</div>
@@ -601,7 +602,7 @@ const cancelBatchMode = () => {
 
 // 打开阅读器
 const openReader = (bookId) => {
-  router.push(`/reader/${bookId}`);
+  router.push(`/works/${bookId}`);
 };
 
 // 重置收藏夹对话框状态

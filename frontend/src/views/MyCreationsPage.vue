@@ -94,7 +94,7 @@ const getRandomTagStyle = () => {
 
 // 导航到书籍详情页
 const navigateToBookDetail = (bookId) => {
-  router.push(`/book-detail/${bookId}`)
+  router.push(`/works/${bookId}`)
 };
 
 

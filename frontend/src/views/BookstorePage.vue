@@ -5,9 +5,12 @@
     <div class="hot-books-carousel">
       <van-swipe :autoplay="3000" indicator-color="#d4a5a5">
         <van-swipe-item v-for="book in hotBooks" :key="book.id">
-          <div class="carousel-item" :style="{ backgroundImage: `url(${book.cover})` }">
+          <div class="carousel-item" 
+            :style="{ backgroundImage: `url(${book.cover})` }"
+             @click="$router.push(`/works/${book.id}`)"  
+          >
             <div class="book-info">
-              <h3>{{ book.title }}</h3>
+              <h3 @click="$router.push(`/works/${book.id}`)">{{ book.title }}</h3>
               <p>{{ book.author }}</p>
             </div>
           </div>
@@ -36,14 +39,17 @@
           class="book-card" 
           v-for="book in recommendedBooks" 
           :key="book.id"
-          @click="$router.push(`/reader/${book.id}`)"
+          @click="$router.push(`/works/${book.id}`)"
         > 
             <van-image 
                 :src="book.image_url" 
                 class="book-cover"
                 fit="cover"
             />
-            <span class="book-title">{{ book.title }}</span>
+            <span class="book-title"
+              @click="$router.push(`/works/${book.id}`)">
+              {{ book.title }}
+            </span>
             <div class="author-tags">
                 <p class="book-author">{{ book.author }}</p>
                 <div class="book-tags">
@@ -79,11 +85,6 @@ import {useRouter} from 'vue-router';
 import bookCover1 from '../assets/book1.jpg';  
 import bookCover2 from '../assets/book2.jpg';
 import bookCover3 from '../assets/book3.jpg';
-import bookCover4 from '../assets/book4.jpg';
-import bookCover5 from '../assets/book5.jpg';
-import bookCover6 from '../assets/book6.jpg'; 
-import bookCover7 from '../assets/book7.jpg'; 
-import bookCover8 from '../assets/book8.jpg';
 import { recommendWorks } from '../api/user';
 
 // 模拟热门作品数据

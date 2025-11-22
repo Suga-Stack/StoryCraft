@@ -86,7 +86,6 @@ export const getFolders = () => {
   return http.get('/interactions/favorite-folders/');
 }
 
-
 //删除收藏夹
 export const deleteFolders = (id) => {
   return http.delete(`/interactions/favorite-folders/${id}/`);
