@@ -68,7 +68,7 @@
           <van-tag
             v-for="tag in allTags"
             :key="tag.id"
-            :color="selectedTagIds.includes(tag.id) ? '#d4a5a5' : ''"
+            :color="getTagColorById(tag.id)"
             :text-color="selectedTagIds.includes(tag.id) ? '#fff' : ''"
             round
             clickable
@@ -155,6 +155,7 @@
           closeable
           @click="handleHistoryClick(item)"
           @close="deleteHistory(index)"
+          
         >
           {{ item }}
         </van-tag>
@@ -205,12 +206,13 @@
                   </span>
                   <div class="tags">
                     <van-tag 
-                      v-for="tag in item.tags.slice(0, 2)" 
-                      :key="tag"
+                      v-for="tagId in item.tags.slice(0, 2)" 
+                      :key="tagId"
+                      :color="getTagColorById(tagId)"
                       size="mini"
                       round
                     >
-                      {{ tag }}
+                      {{ tagId }}
                     </van-tag>
                   </div>
                 </div>
@@ -243,12 +245,13 @@
             <p class="result-author">作者: {{ item.author }}</p>
             <div class="result-tags">
               <van-tag 
-                v-for="tag in item.tags" 
-                :key="tag"
+                v-for="(tagId, index) in item.tags.slice(0, 2)"
+                :key="tagId"
+                :color="getTagColorById(tagId)"
                 size="small"
                 round
               >
-                {{ tag }}
+                {{ tagId }}
               </van-tag>
             </div>
           </div>
@@ -267,10 +270,12 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { getFavoriteLeaderboard, search, getRatingLeaderboard } from '../api/user' 
-import { getTagsName } from '../api/tags'
+import { useTags } from '../composables/useTags';
 import http from '../utils/http'
 // 路由实例
 const router = useRouter()
+
+const { convertTagIdsToNames, getTagColorById } = useTags();
 
 // 搜索相关数据
 const searchValue = ref('')
@@ -386,24 +391,23 @@ const switchTab = (tab) => {
 const fetchFavoriteLeaderboard = async () => {
   try {
     const response = await getFavoriteLeaderboard()
-    // 转换接口返回数据为统一格式（与周榜保持一致）
-    collectionRank.value = response.data.data.map(item => ({
-      id: item.id.toString(),  // 统一转为字符串ID
-      title: item.title,
-      author: item.author,
-      cover: item.image_url,  // 映射到cover字段
-      // 转换标签ID为标签名称显示
-      tags: item.tags.map(tagId => {
-        const tagInfo = allTags.value.find(t => t.id === tagId);
-        return tagInfo ? tagInfo.name : `未知标签(${tagId})`; // 优化默认提示
-      }),
-      hotScore: item.read_count,  // 热度使用阅读量
-      rating: item.average_score, // 评分
-      collectionCount: item.favorite_count  // 收藏数
-    })).sort((a, b) => b.collectionCount - a.collectionCount)  // 按收藏数排序
+    const itemsWithTags = await Promise.all(
+      response.data.data.map(async (item) => ({
+        id: item.id.toString(),  // 统一转为字符串ID
+        title: item.title,
+        author: item.author,
+        cover: item.image_url,  // 映射到cover字段
+        tags: await convertTagIdsToNames(item.tags),
+        hotScore: item.read_count,  // 热度使用阅读量
+        rating: item.average_score, // 评分
+        collectionCount: item.favorite_count  // 收藏数
+      }))
+    )
+    // 按收藏数排序
+    collectionRank.value = itemsWithTags.sort((a, b) => b.collectionCount - a.collectionCount)
     
   } catch (error) {
-    console.error('获取收藏榜失败', error);
+    console.error('获取收藏收藏榜失败', error);
     showToast('获取收藏榜失败，请稍后重试');
   }
 }
@@ -413,22 +417,21 @@ const fetchRatingLeaderboard = async () => {
   try {
     const response = await getRatingLeaderboard()
     // 转换接口返回数据为统一格式
-    ratingRank.value = response.data.data.map(item => ({
-      id: item.id.toString(),  // 统一转为字符串ID
-      title: item.title,
-      author: item.author,
-      cover: item.image_url,  // 映射到cover字段
-      tags: item.tags.map(tagId => {
-        // 这里可以根据实际标签ID与名称的映射关系转换
-        // 如果有标签列表，可通过allTags查找标签名，示例：
-        const tagInfo = allTags.value.find(t => t.id === tagId)
-        return tagInfo ? tagInfo.name : `标签${tagId}`
-      }),
-      hotScore: item.read_count,  // 热度使用阅读量
-      rating: item.average_score, // 评分
-      collectionCount: item.favorite_count  // 收藏数
-    })).sort((a, b) => b.rating - a.rating)  // 按评分排序
-    
+    if (response.data) {
+      const itemsWithTags = await Promise.all(
+        response.data.data.map(async (item) => ({
+          id: item.id.toString(),  // 统一转为字符串ID
+          title: item.title,
+          author: item.author,
+          cover: item.image_url,  // 映射到cover字段
+          tags: await convertTagIdsToNames(item.tags), // 等待标签名称解析完成
+          rating: item.average_score, // 评分
+          collectionCount: item.favorite_count  // 收藏数
+        }))
+      )
+      ratingRank.value = itemsWithTags.sort((a, b) => b.average_score - a.average_score);
+    }
+
   } catch (error) {
     console.error('获取评分评分榜失败', error);
     showToast('获取评分评分榜失败，请稍后重试');
