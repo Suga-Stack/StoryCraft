@@ -31,7 +31,7 @@ const routes = [
     component: RegisterPage
   },
   {
-    path: '/works',
+    path: '/works/:id',
     name: 'Works',
     component: GameIntroduction
   },

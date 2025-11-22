@@ -153,9 +153,11 @@ import { getUserInfo } from '../api/user';
 import http from '../utils/http';
 import { getRecentReadingHistory } from '../api/user';
 import { getRecentMyworks } from '../api/user';
+import { useUserStore } from '../store';
 
 // 路由实例
 const router = useRouter()
+const userStore = useUserStore()
 
 const showUsernameDialog = ref(false)
 const activeTab = ref('profile') // 默认选中"我的"
@@ -396,7 +398,7 @@ const handleLogout = async () => {
       });
     }
     
-    logout();
+    userStore.logout();
     
     // 跳转到登录页
     router.push('/login');

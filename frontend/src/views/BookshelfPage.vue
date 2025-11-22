@@ -241,6 +241,7 @@ import { showToast } from 'vant';
 // 路由实例
 const router = useRouter();
 
+
 // 数据存储
 const folders = ref([]);
 const books = ref([]);
@@ -458,18 +459,23 @@ const handleFolderAction = (book) => {
   }
 };
 
-
 // 批量加入收藏夹
 const confirmAddToFolder = async () => {
   if (!selectedFolderId.value) return;
   
   try {
-    if (currentBook.value) {
-      // 单个移动：使用moveFavorite替代addFavorite
-      await moveFavorite(currentBook.value.id, selectedFolderId.value);
-      currentBook.value.folderId = selectedFolderId.value;
+    // 缓存当前操作的书籍和目标文件夹ID
+    const targetBook = currentBook.value;
+    const targetFolderId = selectedFolderId.value;
+
+    if (targetBook && targetBook.id) {
+      // 1. 先更新本地状态（乐观更新）
+      targetBook.folderId = targetFolderId;
+      // 2. 再调用接口
+      await moveFavorite(targetBook.id, targetFolderId);
+      // 3. 接口成功后无需额外操作（已提前更新）
     } else if (selectedBooks.value.length) {
-      // 批量移动
+      // 批量移动逻辑保持不变
       const batchSize = 5;
       const batches = [];
       for (let i = 0; i < selectedBooks.value.length; i += batchSize) {
@@ -477,13 +483,14 @@ const confirmAddToFolder = async () => {
       }
       
       for (const batch of batches) {
-        await Promise.all(
-          // 批量调用moveFavorite接口
-          batch.map(book => moveFavorite(book.id, selectedFolderId.value))
-        );
+        // 乐观更新
         batch.forEach(book => {
-          book.folderId = selectedFolderId.value;
+          book.folderId = targetFolderId;
         });
+        // 调用接口
+        await Promise.all(
+          batch.map(book => moveFavorite(book.id, targetFolderId))
+        );
       }
       
       selectedBooks.value = [];
@@ -495,8 +502,15 @@ const confirmAddToFolder = async () => {
     selectedFolderId.value = '';
     showToast('添加成功');
   } catch (error) {
+    // 接口失败时回滚本地状态
+    if (currentBook.value) {
+      currentBook.value.folderId = null; // 回滚到之前的状态（未分类）
+    }
     console.error('添加到收藏夹失败', error);
     showToast('添加失败: ' + (error.response?.data?.message || '未知错误'));
+  } finally {
+    // 最后再重置currentBook，避免异步过程中被提前清空
+    resetFolderDialog();
   }
 };
 

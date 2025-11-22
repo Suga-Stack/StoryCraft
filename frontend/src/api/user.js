@@ -109,7 +109,7 @@ export const deleteFavorite = (id) => {
 
 //移动到其他收藏夹
 export const moveFavorite = (id, folderId) => {
-  return http.patch(`/interactions/favorites/${id}/`, {folderId})
+  return http.patch(`/interactions/favorites/${id}/`, {folderId, id})
 }
 
 //获取评论
