@@ -6,7 +6,7 @@
       <van-swipe :autoplay="3000" indicator-color="#d4a5a5">
         <van-swipe-item v-for="book in hotBooks" :key="book.id">
           <div class="carousel-item" 
-            :style="{ backgroundImage: `url(${book.cover})` }"
+            :style="{ backgroundImage: `url(${book.image_url})` }"
              @click="$router.push(`/works/${book.id}`)"  
           >
             <div class="book-info">
@@ -85,31 +85,12 @@ import {useRouter} from 'vue-router';
 import bookCover1 from '../assets/book1.jpg';  
 import bookCover2 from '../assets/book2.jpg';
 import bookCover3 from '../assets/book3.jpg';
-import { recommendWorks } from '../api/user';
+import { recommendWorks, getRatingLeaderboard  } from '../api/user';
 
-// 模拟热门作品数据
-const hotBooks = ref([
-  {
-    id: 1,
-    title: "星辰大海",
-    author: "张三",
-    cover: bookCover1
-  },
-  {
-    id: 2,
-    title: "时光旅行者",
-    author: "李四",
-    cover: bookCover2
-  },
-  {
-    id: 3,
-    title: "城市微光",
-    author: "王五",
-    cover: bookCover3
-  }
-]);
+// 热门作品数据
+const hotBooks = ref([])
 
-// 模拟推荐作品数据（根据用户偏好标签）
+// 推荐作品数据（根据用户偏好标签）
 const recommendedBooks = ref([]);
 const loading = ref(false);
 const error = ref('');
@@ -151,6 +132,24 @@ const handleTabChange = (name) => {
   }
 }
 
+// 添加获取评分排行榜数据的方法
+const fetchHotBooks = async () => {
+  try {
+    const response = await getRatingLeaderboard();
+    const resData = response.data;
+    
+    if (resData) { 
+      // 取前三条数据作为轮播内容
+      hotBooks.value = resData.data.slice(0, 3);
+    } else {
+      showToast(`获取排行榜失败: ${resData.message || '未知错误'}`);
+    }
+  } catch (err) {
+    console.error('排行榜请求失败:', err);
+    showToast('获取热门作品失败，请稍后重试');
+  }
+}
+
 const fetchRecommendedBooks = async () => {
   if (loading.value) return;
   
@@ -187,6 +186,7 @@ const fetchRecommendedBooks = async () => {
 
 // 页面加载时获取数据（实际项目中替换为接口请求）
 onMounted(() => {
+  fetchHotBooks();
   fetchRecommendedBooks();
 });
 </script>
