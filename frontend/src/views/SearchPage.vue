@@ -269,7 +269,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { getFavoriteLeaderboard, search, getRatingLeaderboard } from '../api/user' 
+import { getFavoriteLeaderboard, search, getRatingLeaderboard, getHotLeaderboard } from '../api/user' 
 import { useTags } from '../composables/useTags';
 import http from '../utils/http'
 // 路由实例
@@ -438,6 +438,61 @@ const fetchRatingLeaderboard = async () => {
   }
 }
 
+const fetchHotLeaderboard = async () => {
+  try {
+    // 获取总榜
+    const totalResponse = await getHotLeaderboard('total')
+    const totalItems = await Promise.all(
+      totalResponse.data.data.map(async (item) => ({
+        id: item.id.toString(),
+        title: item.title,
+        author: item.author,
+        cover: item.image_url,
+        tags: await convertTagIdsToNames(item.tags),
+        hotScore: item.hot_score,
+        rating: item.average_score,
+        collectionCount: item.favorite_count
+      }))
+    )
+    totalRank.value = totalItems
+
+    // 获取月榜
+    const monthResponse = await getHotLeaderboard('month')
+    const monthItems = await Promise.all(
+      monthResponse.data.data.map(async (item) => ({
+        id: item.id.toString(),
+        title: item.title,
+        author: item.author,
+        cover: item.image_url,
+        tags: await convertTagIdsToNames(item.tags),
+        hotScore: item.hot_score,
+        rating: item.average_score,
+        collectionCount: item.favorite_count
+      }))
+    )
+    monthRank.value = monthItems
+
+    // 获取周榜
+    const weekResponse = await getHotLeaderboard('week')
+    const weekItems = await Promise.all(
+      weekResponse.data.data.map(async (item) => ({
+        id: item.id.toString(),
+        title: item.title,
+        author: item.author,
+        cover: item.image_url,
+        tags: await convertTagIdsToNames(item.tags),
+        hotScore: item.hot_score,
+        rating: item.average_score,
+        collectionCount: item.favorite_count
+      }))
+    )
+    weekRank.value = weekItems
+    
+  } catch (error) {
+    console.error('获取热度榜失败', error);
+    showToast('获取热度榜失败，请稍后重试');
+  }
+}
 
 
 // 页面挂载时加载搜索历史
@@ -453,6 +508,7 @@ onMounted(() => {
   }
   fetchRatingLeaderboard()
   fetchFavoriteLeaderboard()
+  fetchHotLeaderboard()
 })
 
 // 选择标签（切换选中状态）
@@ -601,10 +657,18 @@ const navigateToDetail = (id) => {
 
 // 数字格式化
 const formatNumber = (num) => {
-  if (num >= 10000) {
-    return (num / 10000).toFixed(1) + '万'
+  if (num === undefined || num === null) {
+    return '0';
   }
-  return num.toString()
+  // 确保是数字类型
+  const number = Number(num);
+  if (isNaN(number)) {
+    return '0';
+  }
+  if (number >= 10000) {
+    return (number / 10000).toFixed(1) + '万';
+  }
+  return number.toString();
 }
 
 // 在标签相关变量区域添加

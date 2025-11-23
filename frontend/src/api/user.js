@@ -76,6 +76,12 @@ export const getRatingLeaderboard = () => {
   return http.get('/gameworks/rating-leaderboard/');
 }
 
+export const getHotLeaderboard = (range) => {
+  return http.get('/gameworks/hot-leaderboard/', {
+    params: { range }
+  })
+}
+
 //创建收藏夹
 export const createFolders = (name) => {
   return http.post('/interactions/favorite-folders/',{name});
