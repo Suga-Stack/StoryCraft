@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, onActivated } from 'vue'
 import { ScreenOrientation } from '@capacitor/screen-orientation'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../store'
@@ -11,6 +11,8 @@ import * as createWorkService from '../service/createWork.js'
 const USE_MOCK_CREATE = false
 // 本地可替换的函数引用
 let createWorkOnBackend = createWorkService.createWorkOnBackend
+// 临时开关：若为 true，则点击「一键生成」不会发送任何后端请求，直接在前端模拟生成流程（用于本地动画/交互测试）
+const SKIP_BACKEND_CREATE = false
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -100,6 +102,9 @@ const canCreate = computed(() => {
 const isLoading = ref(false)
 const progress = ref(0)
 const backendWork = ref(null)
+// 持久化创建任务（用于跨页面保留加载状态）
+const CREATION_JOB_KEY = 'creationJob'
+let resumeTimer = null
 
 // 提交到后端生成作品（使用 service）
 const submitToBackend = async () => {
@@ -174,6 +179,18 @@ const submitToBackend = async () => {
 
 const startCreate = async () => {
   if (!canCreate.value) return
+  // 如果已经有完成的创建任务，直接跳转到已生成的作品（避免重复请求）
+  try {
+    const existing = JSON.parse(sessionStorage.getItem(CREATION_JOB_KEY) || 'null')
+    if (existing && existing.status === 'done' && existing.backendWork) {
+      // 已生成，导航到作品详情页（使用 createResult 兼容旧逻辑）
+      try { const cr = JSON.parse(sessionStorage.getItem('createResult') || '{}'); } catch(e) {}
+      // 为了确保该自动跳转只触发一次，跳转前从 sessionStorage 中移除 creationJob
+      try { sessionStorage.removeItem(CREATION_JOB_KEY) } catch (e) {}
+      router.push('/works')
+      return
+    }
+  } catch (e) {}
   // 记录本次用户请求，便于后端读取或下页使用
   try {
     sessionStorage.setItem('createRequest', JSON.stringify({
@@ -182,6 +199,35 @@ const startCreate = async () => {
       length: lengthType.value
     }))
   } catch {}
+
+  // 在开始生成时写入一个 creationJob，便于用户在离开后返回时恢复加载状态
+  try {
+    const pendingJob = {
+      id: `local-${Date.now()}`,
+      status: 'pending',
+      progress: 0,
+      createdAt: Date.now(),
+      backendWork: null
+    }
+    sessionStorage.setItem(CREATION_JOB_KEY, JSON.stringify(pendingJob))
+  } catch (e) {
+    console.warn('unable to persist creationJob:', e)
+  }
+
+  // 如果启用跳过后端模式，则在前端模拟一个生成流程（不调用任何后端接口）
+  if (SKIP_BACKEND_CREATE) {
+    // 在 sessionStorage 中记录 creationJob，方便跨页面恢复
+    const job = {
+      id: `local-${Date.now()}`,
+      status: 'pending',
+      progress: 0,
+      createdAt: Date.now(),
+      backendWork: null
+    }
+    try { sessionStorage.setItem(CREATION_JOB_KEY, JSON.stringify(job)) } catch (e) {}
+    startResumeSimulation(job)
+    return
+  }
 
   // 如果启用了 mock，则按需动态加载 mock 实现以覆盖 createWorkOnBackend
   if (USE_MOCK_CREATE) {
@@ -217,6 +263,15 @@ const startCreate = async () => {
   try {
     startFakeProgress()
     const result = await submitToBackend()
+    // submitToBackend 成功后，把 creationJob 标记为 done 并写回（兼容恢复逻辑）
+    try {
+      const finished = JSON.parse(sessionStorage.getItem(CREATION_JOB_KEY) || '{}')
+      finished.status = 'done'
+      finished.progress = 100
+      finished.backendWork = backendWork.value || null
+      finished.finishedAt = Date.now()
+      sessionStorage.setItem(CREATION_JOB_KEY, JSON.stringify(finished))
+    } catch (e) { console.warn('update finished creationJob failed', e) }
     // 服务返回后，把进度推进到 100%
     stopFakeProgress()
     progress.value = 100
@@ -230,6 +285,13 @@ const startCreate = async () => {
     // 出错时也短暂显示 100% 以给用户反馈，然后跳转到作品介绍页
     try { progress.value = 100 } catch (_) {}
     await new Promise(r => setTimeout(r, 300))
+    // 失败时移除 creationJob 或标记为 failed
+    try {
+      const cur = JSON.parse(sessionStorage.getItem(CREATION_JOB_KEY) || '{}')
+      cur.status = 'failed'
+      cur.progress = progress.value || 100
+      sessionStorage.setItem(CREATION_JOB_KEY, JSON.stringify(cur))
+    } catch (e) { try { sessionStorage.removeItem(CREATION_JOB_KEY) } catch(_) {} }
     router.push('/works')
   } finally {
     stopFakeProgress()
@@ -239,8 +301,95 @@ const startCreate = async () => {
   }
 }
 
+// 恢复/检查 sessionStorage 中的 creationJob（用于挂载与激活时）
+const restoreCreationJob = () => {
+  try {
+    const existing = JSON.parse(sessionStorage.getItem(CREATION_JOB_KEY) || 'null')
+    if (existing && (existing.status === 'pending' || existing.status === 'in-progress')) {
+      startResumeSimulation(existing)
+    }
+  } catch (e) {}
+}
+
+// 在挂载与激活时尝试恢复，以兼容 keep-alive 场景
+onMounted(() => { try { restoreCreationJob() } catch (e) {} })
+onActivated(() => { try { restoreCreationJob() } catch (e) {} })
+
 // 底部导航
 const activeTab = ref('create');
+
+// GIF 加载状态：若项目中存在 `frontend/public/images/create_loading.gif`，会优先展示该动图
+const loadingGifLoaded = ref(false)
+const onGifLoad = () => { loadingGifLoaded.value = true }
+const onGifError = () => { loadingGifLoaded.value = false }
+
+// 恢复/模拟创建任务的逻辑
+const startResumeSimulation = (job) => {
+  // 写入本地状态
+  try { sessionStorage.setItem(CREATION_JOB_KEY, JSON.stringify(job)) } catch (e) {}
+  isLoading.value = true
+  progress.value = job.progress || 0
+  // 清理旧定时器
+  if (resumeTimer) clearInterval(resumeTimer)
+  resumeTimer = setInterval(() => {
+    const target = 100
+    const delta = Math.max(0.5, (target - progress.value) * 0.06)
+    progress.value = Math.min(target, +(progress.value + delta).toFixed(2))
+    // 同步写回 job
+    try {
+      const cur = JSON.parse(sessionStorage.getItem(CREATION_JOB_KEY) || '{}')
+      cur.progress = progress.value
+      sessionStorage.setItem(CREATION_JOB_KEY, JSON.stringify(cur))
+    } catch (e) {}
+    if (progress.value >= 100) {
+      clearInterval(resumeTimer)
+      resumeTimer = null
+      // 生成 fake backendWork 并写回 job
+      const fakeBackendWork = {
+        id: Date.now(),
+        title: idea.value?.trim() || 'AI 生成作品',
+        coverUrl: '/images/placeholder_cover.png',
+        tags: selectedTags.value,
+        favorite_count: 0,
+        is_favorited: false,
+        average_score: 0,
+        rating_count: 0,
+        word_count: null
+      }
+      try {
+        const finished = JSON.parse(sessionStorage.getItem(CREATION_JOB_KEY) || '{}')
+        finished.status = 'done'
+        finished.progress = 100
+        finished.backendWork = fakeBackendWork
+        finished.finishedAt = Date.now()
+        sessionStorage.setItem(CREATION_JOB_KEY, JSON.stringify(finished))
+        // Also write createResult for compatibility
+        const createResult = {
+          selectedTags: selectedTags.value,
+          fromCreate: true,
+          backendWork: fakeBackendWork,
+          chapterOutlines: null,
+          modifiable: identity.value === 'creator'
+        }
+        try { sessionStorage.setItem('createResult', JSON.stringify(createResult)) } catch (e) {}
+      } catch (e) { console.warn('write finished job failed', e) }
+      // 给用户短暂完成感，但保持 isLoading true until navigation or explicit clear
+      setTimeout(() => {
+        isLoading.value = false
+        progress.value = 0
+      }, 300)
+    }
+  }, 250)
+}
+
+// 页面加载时检查是否已有正在进行或已完成的 creationJob
+try {
+  const existing = JSON.parse(sessionStorage.getItem(CREATION_JOB_KEY) || 'null')
+  if (existing && existing.status === 'pending') {
+    // 恢复进度并继续模拟
+    startResumeSimulation(existing)
+  }
+} catch (e) {}
 
 // 处理底部导航切换
 const handleTabChange = (name) => {
@@ -336,12 +485,19 @@ const handleTabChange = (name) => {
     <!-- 加载覆盖层 -->
     <div v-if="isLoading" class="loading-overlay">
       <div class="loading-card">
-        <div class="loading-title">正在生成你的专属作品...</div>
-        <div class="progress-bg">
-          <div class="progress-fill" :style="{ width: progress + '%' }"></div>
+          <div class="loading-title">正在生成你的专属作品...</div>
+
+          <!-- 优先展示项目静态资源 /images/create_loading.gif -->
+          <img
+            src="/images/create_loading.gif"
+            alt="loading"
+            class="loading-gif"
+            @load="onGifLoad"
+            @error="onGifError"
+          />
+
+          <!-- 不显示进度条，优先展示 GIF（若 GIF 不存在或加载失败则只显示标题） -->
         </div>
-        <div class="progress-text">{{ progress }}%</div>
-      </div>
     </div>
 
     
@@ -453,12 +609,47 @@ const handleTabChange = (name) => {
 .create-btn-full { width: 100%; max-width: 480px; padding: 0.44rem 0.9rem; font-size: 0.98rem; border-radius: 10px; }
 .create-btn:disabled { opacity: 1; cursor:not-allowed; filter: grayscale(8%); }
 
-.loading-overlay { position:fixed; inset:0; background: rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; z-index: 10000; }
-.loading-card { width:min(92vw, 560px); background:#fff; border:1px solid rgba(212,165,165,0.35); border-radius:12px; padding:1rem; box-shadow: 0 8px 24px rgba(0,0,0,0.18); }
-.loading-title { color:#2c1810; font-weight:700; margin-bottom:0.75rem; }
+/* 全屏加载覆盖层 */
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+/* loading-card 占满整个视口，展示为全屏等待页样式 */
+.loading-card {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  background: #fff;
+  border: none;
+  border-radius: 0;
+  padding: 2rem;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading-title { color:#2c1810; font-weight:700; margin-bottom:1rem; font-size:1.25rem; text-align:center; }
 .progress-bg { width:100%; height:12px; background: rgba(0,0,0,0.08); border-radius: 999px; overflow:hidden; }
 .progress-fill { height:100%; width:0%; background: linear-gradient(90deg, #d4a5a5, #f5e6d3); transition: width 0.2s ease; }
 .progress-text { margin-top:0.5rem; color:#8B7355; font-weight:700; text-align:right; }
+
+/* 加载动图样式 */
+.loading-gif {
+  display:block;
+  margin: 1rem auto;
+  width: 160px;
+  height: auto;
+  object-fit: contain;
+}
 
 @media (max-width: 720px) {
   .tags-grid { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); }
@@ -477,6 +668,7 @@ const handleTabChange = (name) => {
   left: 0;
   right: 0;
   background-color: #faf8f3;
+  z-index: 10001; /* 保持 tabbar 在加载覆盖层之上，仍可切换页面 */
 }
 
 ::v-deep .van-tabbar-item--active {

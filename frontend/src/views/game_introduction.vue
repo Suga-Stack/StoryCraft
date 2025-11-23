@@ -108,6 +108,11 @@ onMounted(async () => {
       averageScore.value = normalized.averageScore
       ratingCount.value = normalized.ratingCount
       readCount.value = normalized.readCount
+      // 如果后端返回积分相关字段，更新前端显示
+      try {
+        if (typeof payload.unlock_points_needed !== 'undefined') unlockPointsNeeded.value = payload.unlock_points_needed
+        if (typeof payload.user_given_points !== 'undefined') userGivenPoints.value = payload.user_given_points
+      } catch (e) {}
       if (normalized.wordCount !== null) {
         backendWordCount.value = normalized.wordCount
       }
@@ -149,6 +154,61 @@ const averageScore = ref(backendWorkRaw?.averageScore || 0)
 const ratingCount = ref(backendWorkRaw?.ratingCount || 0)
 const readCount = ref(backendWorkRaw?.readCount || 0)
 const backendWordCount = ref(backendWorkRaw?.wordCount || null)
+
+// 积分/打赏相关（用于作品简介与评论评分之间的“送积分”模块）
+const unlockPointsNeeded = ref(backendWorkRaw?.unlock_points_needed || 100) // 解锁该作品需要的积分（后端可返回字段）
+const userGivenPoints = ref(backendWorkRaw?.user_given_points || 0) // 当前用户已在该作品上送出的积分
+const sendingPoints = ref(false)
+// 页面内 modal 控制：改为页面内弹窗输入数量
+const showPointsModal = ref(false)
+const pointsAmount = ref(10)
+// 预设额度（含自定义）
+const presets = [30, 60, 98, 158, 268, 388, 618, 998, '自定义']
+const selectedPreset = ref(presets[0])
+
+const openPointsModal = () => {
+  pointsAmount.value = 30
+  selectedPreset.value = presets[0]
+  showPointsModal.value = true
+}
+
+const cancelSendPoints = () => {
+  showPointsModal.value = false
+}
+
+const selectPreset = (p) => {
+  selectedPreset.value = p
+  if (p === '自定义') {
+    pointsAmount.value = ''
+    // focus will be handled by user interaction
+  } else {
+    pointsAmount.value = p
+  }
+}
+
+const confirmSendPoints = async () => {
+  const amount = parseInt(pointsAmount.value)
+  if (isNaN(amount) || amount <= 0) {
+    alert('请输入大于 0 的整数')
+    return
+  }
+  try {
+    sendingPoints.value = true
+    const res = await http.post(`/api/gameworks/gameworks/${work.value.id}/give_points/`, { amount })
+    if (res && res.data && typeof res.data.user_given_points !== 'undefined') {
+      userGivenPoints.value = res.data.user_given_points
+    } else {
+      userGivenPoints.value += amount
+    }
+    showPointsModal.value = false
+    alert('送积分成功，谢谢支持！')
+  } catch (e) {
+    console.error('sendPoints error', e)
+    alert('送积分失败，请稍后重试')
+  } finally {
+    sendingPoints.value = false
+  }
+}
 
 const publicationDisplay = computed(() => {
   try {
@@ -590,6 +650,53 @@ const startReading = () => {
             <path d="M19 9l-7 7-7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
         </button>
+      </div>
+      
+      <!-- 送积分模块：显示解锁所需积分与用户已送出的积分 -->
+      <div class="points-box">
+        <div class="points-info">
+          <div class="points-row">
+            <div class="points-label">解锁本篇需</div>
+            <div class="points-value">{{ unlockPointsNeeded }} 积分</div>
+          </div>
+          <div class="points-row">
+            <div class="points-label">你已送出</div>
+            <div class="points-value">{{ userGivenPoints }} 积分</div>
+          </div>
+        </div>
+        <div class="points-actions">
+          <button :disabled="sendingPoints" class="submit-comment-btn" @click="openPointsModal">
+            {{ sendingPoints ? '发送中...' : '送积分' }}
+          </button>
+        </div>
+      </div>
+      
+      <!-- 页面内送积分弹窗 -->
+      <div v-if="showPointsModal" class="modal-overlay" @click="cancelSendPoints">
+        <div class="modal-content" @click.stop>
+          <h2 class="modal-title">送出积分</h2>
+          <p style="color:#555;margin-top:0.5rem;">向作者送出积分以支持创作。请输入送出的积分数量（整数）。</p>
+          <div style="margin-top:1rem;">
+            <div class="preset-grid">
+              <button
+                v-for="(p, idx) in presets"
+                :key="idx"
+                :class="['preset-btn', { active: selectedPreset === p || selectedPreset === p } ]"
+                @click="selectPreset(p)">
+                {{ p }}
+              </button>
+            </div>
+
+            <div v-if="selectedPreset === '自定义'" style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center;">
+              <input type="number" v-model.number="pointsAmount" min="1" style="flex:1;padding:0.6rem;border:1px solid #e0e0e0;border-radius:8px;font-size:1rem;" />
+              <div style="color:#999;font-size:0.95rem;">积分</div>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-top:1.25rem;">
+            <button class="close-btn" @click="cancelSendPoints" aria-label="关闭" title="关闭" style="background:#f0f0f0;color:#333;padding:0.5rem 0.9rem;border-radius:8px;border:none">×</button>
+            <button class="submit-comment-btn" @click="confirmSendPoints">确认送出</button>
+          </div>
+        </div>
       </div>
       
       <!-- 评论区域 -->
@@ -1544,6 +1651,63 @@ const startReading = () => {
 
 .cancel-reply-btn:hover {
   color: #c89090;
+}
+
+/* 送积分模块 */
+.points-box {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:1rem;
+  background: white;
+  border-radius: 12px;
+  padding: 1rem;
+  margin: 1rem 0 1.5rem 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.points-info {
+  display:flex;
+  flex-direction:column;
+  gap:0.5rem;
+}
+.points-row {
+  display:flex;
+  gap:0.75rem;
+  align-items:center;
+}
+.points-label {
+  color:#777;
+  font-size:0.95rem;
+}
+.points-value {
+  color:#2c3e50;
+  font-weight:700;
+}
+.points-actions {
+  display:flex;
+  align-items:center;
+}
+
+/* 预设额度按钮 */
+.preset-grid {
+  display:flex;
+  flex-wrap:wrap;
+  gap:0.5rem;
+}
+.preset-btn {
+  padding:0.5rem 0.9rem;
+  border-radius:8px;
+  border:1px solid #eee;
+  background:#fff;
+  cursor:pointer;
+  font-weight:600;
+  color: #999; /* 未选中时字体浅灰 */
+}
+.preset-btn.active {
+  background:#d4a5a5; /* 与 submit-comment-btn 一致的肉粉色 */
+  color:#fff;
+  border-color:transparent;
+  box-shadow:0 4px 12px rgba(212,165,165,0.28);
 }
 
 /* 评论输入区 */
