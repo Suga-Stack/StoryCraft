@@ -7,11 +7,11 @@ from django.db import transaction
 from typing import List, Dict, Any, Optional
 from django.db import close_old_connections
 from django.conf import settings
-from stories.models import Story, StoryChapter, StoryScene
+from stories.models import Story, StoryChapter, StoryScene, StoryEnding
 from gameworks.models import Gamework
 from .utils import parse_raw_chapter
 from .game_generator.architecture import generate_core_seed, generate_architecture
-from .game_generator.chapter import generate_chapter_content
+from .game_generator.chapter import generate_chapter_content, generate_ending_content
 from .game_generator.images import generate_cover_image, generate_scene_images
 logger = logging.getLogger('django')
 
@@ -43,8 +43,10 @@ def _generate_chapter(gamework_id: int, chapter_index: int, user_prompt: str = "
     chapters = story.chapters.prefetch_related('scenes').order_by('chapter_index')
     prev_raw = chapters.filter(chapter_index=chapter_index - 1).first().raw_content if chapter_index > 1 else None
 
-    raw_chapter_content, updated_global_summary = generate_chapter_content(
+    # 1. 生成章节内容（如果是最后一章，返回的是前半部分 + 结局摘要）
+    raw_chapter_content, updated_global_summary, endings_summary = generate_chapter_content(
         chapter_index=chapter_index,
+        total_chapters=story.total_chapters, 
         chapter_directory=story.chapter_directory,
         core_seed=story.core_seed,
         attribute_system=story.attribute_system,
@@ -54,11 +56,17 @@ def _generate_chapter(gamework_id: int, chapter_index: int, user_prompt: str = "
         global_summary=story.global_summary,
         user_prompt=user_prompt
     )
-    story.global_summary = updated_global_summary
-    story.save()
-    logger.info(f"写入全局摘要：length={len(updated_global_summary)} content_preview=\n{updated_global_summary[:120]}")
+    
+    update_fields = {
+        "global_summary": updated_global_summary
+    }
+    if endings_summary:
+        update_fields["endings_summary"] = endings_summary
+    
+    Story.objects.filter(pk=story.pk).update(**update_fields)
+    story.refresh_from_db()
 
-    # 生成场景图片 (根据整章内容自动切分)
+    # 2. 处理章节（或最后一章的前半部分）的图片和解析
     scene_ranges, scene_urls = generate_scene_images(raw_chapter_content)
     chapter_dict = parse_raw_chapter(raw_chapter_content, scene_ranges)
     chapter_title = chapter_dict["title"]
@@ -87,12 +95,134 @@ def _generate_chapter(gamework_id: int, chapter_index: int, user_prompt: str = "
             dialogues=scene["dialogues"]
         )
 
-    chapter_obj.refresh_from_db()
+    # 3. 如果是最后一章，且有结局摘要，开始异步生成完整结局
+    if endings_summary:
+        _generate_endings_async(story.id, endings_summary, chapter_index)
 
-    if story.generated_chapters_count == story.total_chapters:
-        story.is_complete = True
-        story.save()
+    # 检查是否全部完成
+    current_chapter_count = StoryChapter.objects.filter(story=story).count()
+    if current_chapter_count >= story.total_chapters:
+        Story.objects.filter(pk=story.pk).update(is_complete=True)
 
+def _generate_endings_async(story_id: int, endings_summary: list, chapter_index: int):
+    """后台生成所有结局详情"""
+    def worker():
+        close_old_connections()
+        try:
+            story = Story.objects.get(pk=story_id)
+            logger.info(f"开始生成故事 {story_id} 的 {len(endings_summary)} 个结局")
+            
+            # 收集所有章节的 parsed_content 用于计算属性范围
+            all_chapters = list(story.chapters.order_by('chapter_index'))
+            parsed_chapters = [ch.parsed_content for ch in all_chapters]
+
+            # 获取最后一章（前半部分）内容
+            try:
+                last_chapter = story.chapters.get(chapter_index=chapter_index)
+                last_chapter_content = last_chapter.raw_content
+            except StoryChapter.DoesNotExist:
+                last_chapter_content = ""
+                logger.warning(f"生成结局时未找到第 {chapter_index} 章内容")
+
+            # 获取倒数第二章内容
+            previous_chapter_content = ""
+            if chapter_index > 1:
+                try:
+                    prev_chapter = story.chapters.get(chapter_index=chapter_index - 1)
+                    previous_chapter_content = prev_chapter.raw_content
+                except StoryChapter.DoesNotExist:
+                    pass
+            
+            # 生成结局内容
+            generated_endings = generate_ending_content(
+                endings_summary=endings_summary,
+                chapter_index=chapter_index,
+                attribute_system=story.attribute_system,
+                characters=story.characters,
+                architecture=story.architecture,
+                previous_chapter_content=previous_chapter_content,
+                last_chapter_content=last_chapter_content,
+                parsed_chapters=parsed_chapters,
+                initial_attributes=story.initial_attributes,
+                global_summary=story.global_summary
+            )
+            
+            # 保存结局并生成图片
+            for ending_data in generated_endings:
+                # 生成图片
+                scene_ranges, scene_urls = generate_scene_images(ending_data["raw_content"])
+                # 解析内容
+                parsed_ending = parse_raw_chapter(ending_data["raw_content"], scene_ranges)
+                
+                # 创建 StoryEnding
+                ending_obj = StoryEnding.objects.create(
+                    story=story,
+                    title=ending_data["title"],
+                    condition=ending_data["condition"],
+                    summary=ending_data["summary"],
+                    raw_content=ending_data["raw_content"],
+                    parsed_content=parsed_ending
+                )
+                
+                # 创建 StoryScene 关联到 Ending
+                for scene in parsed_ending["scenes"]:
+                    idx = scene["id"] - 1
+                    img_url = scene_urls[idx] if idx < len(scene_urls) else f"{settings.SITE_DOMAIN}{settings.MEDIA_URL}placeholders/scene.jpg"
+                    StoryScene.objects.create(
+                        ending=ending_obj, # 关联到 ending
+                        scene_index=scene["id"],
+                        background_image_url=img_url,
+                        dialogues=scene["dialogues"]
+                    )
+            
+            logger.info(f"故事 {story_id} 结局生成完成")
+            
+        except Exception as e:
+            logger.error(f"生成结局失败: {e}", exc_info=True)
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+
+def get_story_endings(gamework: Gamework) -> dict:
+    """获取故事结局状态及内容"""
+    story = gamework.story
+    
+    if not story.endings_summary:
+        return {"status": "pending"}
+
+    expected_count = len(story.endings_summary)
+    current_endings = story.story_endings.all()
+    
+    # 如果生成的结局数量少于预期，说明还在生成中
+    if current_endings.count() < expected_count:
+        return {"status": "generating"}
+    
+    # 组装返回数据
+    endings_data = []
+    for ending in current_endings:
+        scenes_data = []
+        for scene in ending.scenes.order_by("scene_index"):
+             bg_image = scene.background_image_url
+             if bg_image and not bg_image.startswith(('http://', 'https://')):
+                 bg_image = f"{settings.SITE_DOMAIN}{bg_image}"
+             
+             scenes_data.append({
+                 "id": scene.scene_index,
+                 "backgroundImage": bg_image,
+                 "dialogues": scene.dialogues if scene.dialogues else []
+             })
+        
+        endings_data.append({
+            "title": ending.title,
+            "condition": ending.condition,
+            "summary": ending.summary,
+            "scenes": scenes_data
+        })
+        
+    return {
+        "status": "ready",
+        "endings": endings_data
+    }
 
 def _resolve_total_chapters(length: str) -> int:
     """根据篇幅映射章节数量"""
@@ -104,35 +234,36 @@ def _resolve_total_chapters(length: str) -> int:
     min_chapters, max_chapters = ranges.get((length or "").lower().strip(), (6, 10))
     return random.randint(min_chapters, max_chapters)
 
-def _generate_all_chapters_async(gamework: Gamework):
+def _generate_all_chapters_async(gamework_id: int):
     """后台线程中连续生成所有章节"""
-    gamework_id = gamework.id 
     def worker():
         try:
-            gamework_instance = Gamework.objects.select_related('story').get(pk=gamework_id)
-            story = gamework_instance.story
-            story.is_generating = True
-            story.save()
+            Story.objects.filter(gamework_id=gamework_id).update(is_generating=True)
 
-            for chapter_index in range(1, story.total_chapters + 1):
-                story.current_generating_chapter = chapter_index
-                story.save()
+            # 获取总章节数
+            total_chapters = Story.objects.filter(gamework_id=gamework_id).values_list('total_chapters', flat=True).first()
+            if not total_chapters:
+                logger.error(f"作品 {gamework_id} 未找到总章节数")
+                return
+
+            for chapter_index in range(1, total_chapters + 1):
+                Story.objects.filter(gamework_id=gamework_id).update(current_generating_chapter=chapter_index)
                 
-                logger.info(f"开始生成作品ID {gamework_instance.id} 第 {chapter_index} 章")
-                _generate_chapter(gamework_instance.id, chapter_index)  # 修正：传入 ID
-                logger.info(f"完成生成作品ID {gamework_instance.id} 第 {chapter_index} 章")
+                logger.info(f"开始生成作品ID {gamework_id} 第 {chapter_index} 章")
+                _generate_chapter(gamework_id, chapter_index) 
+                logger.info(f"完成生成作品ID {gamework_id} 第 {chapter_index} 章")
 
-            story.is_generating = False
-            story.is_complete = True
-            story.current_generating_chapter = 0
-            story.save()
-            logger.info(f"作品 {gamework_instance.id} 所有章节生成完成")
+            # 完成
+            Story.objects.filter(gamework_id=gamework_id).update(
+                is_generating=False,
+                is_complete=True,
+                current_generating_chapter=0
+            )
+            logger.info(f"作品 {gamework_id} 所有章节生成完成")
         except Exception as e:
             logger.error(f"生成作品 {gamework_id} 章节时发生错误: {e}")
             try:
-                story = Story.objects.get(gamework_id=gamework_id)
-                story.is_generating = False
-                story.save()
+                Story.objects.filter(gamework_id=gamework_id).update(is_generating=False)
             except:
                 pass
 
@@ -221,7 +352,7 @@ def _update_gamework_after_generation(
 
             # 如果是读者模式，在初始信息生成后，开始生成所有章节
             if story.initial_generation_complete and not story.ai_callable:
-                _generate_all_chapters_async(gamework)
+                transaction.on_commit(lambda: _generate_all_chapters_async(gamework.id))
     except Exception as e:
         logger.error(f"作品详情更新失败：\n{e}")
 

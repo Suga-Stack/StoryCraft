@@ -28,15 +28,18 @@ def _parse_attr_deltas(effect_text: str) -> dict:
             continue
     return deltas
 
+# 1. 箭头可能是 →, ->, =>
+# 2. 序号可能是 A., 1.
+# 3. 属性标记可能是 [属性影响：...], [影响属性：...], [属性：...]
+# 4. 括号可能是 [] 或 【】
 _choice_line_re = re.compile(
-    r"^\s*→\s*(?:[AB]|[0-9]+)\.\s*(.+?)\s*\[?属性影响：([^\]]+)\]?\s*$"
+    r"^\s*\*{0,2}\s*(?:→|->|=>)\s*(?:[ABCD]|[0-9]+)(?:\.|、)?\s*(.+?)\s*(?:\[|【)?(?:属性影响|影响属性|属性)[:：]\s*([^\]】]+)(?:\]|】)?\s*\*{0,2}\s*$"
 )
 
 def _normalize_block(text: str) -> str:
     """规范化文本块:
     - 去除首尾空白
     - 折叠多余空行为单个换行
-    - 将剩余换行替换为空格
     - 压缩多余空白为单个空格
     """
     if not text:
@@ -44,17 +47,48 @@ def _normalize_block(text: str) -> str:
     t = text.replace("\r", "")
     t = re.sub(r"\n{2,}", "\n", t)          # 多空行折叠
     t = t.strip()
-    t = " ".join(t.splitlines())            # 行内合并
     t = re.sub(r"[ \t]+", " ", t)           # 多空格折叠
     return t.strip()
 
 def _split_sentences(text: str) -> list[str]:
-    """分句前先做规范化，避免句子里残留换行符"""
+    """分句前先做规范化，避免句子里残留换行符，并修复因引号导致的错误切分"""
     norm = _normalize_block(text)
     if not norm:
         return []
     doc = nlp(norm)
-    return [sent.text.strip() for sent in doc.sents if sent.text.strip()]
+    
+    merged_sents = []
+    current_sent = ""
+    en_quotes = 0
+    cn_open = 0
+    cn_close = 0
+    
+    for sent in doc.sents:
+        s_text = sent.text
+        
+        # 统计当前片段中的引号数量
+        en_quotes += s_text.count('"')
+        cn_open += s_text.count('“')
+        cn_close += s_text.count('”')
+        
+        if current_sent == "":
+            current_sent = s_text
+        else:
+            current_sent += s_text
+            
+        # 只有当引号平衡时才作为完整句子输出
+        # 英文引号需为偶数，中文引号需成对
+        if (en_quotes % 2 == 0) and (cn_open == cn_close):
+            merged_sents.append(current_sent.strip())
+            current_sent = ""
+            en_quotes = 0
+            cn_open = 0
+            cn_close = 0
+            
+    if current_sent:
+        merged_sents.append(current_sent.strip())
+        
+    return [s for s in merged_sents if s]
 
 def _chunk_narrations(text: str, min_len: int = 25, max_len: int = 60) -> list[str]:
     """把文本按句子聚合为若干 narration，长度尽量在 25-60 字之间，不拆句"""
@@ -128,36 +162,6 @@ def _chunk_reaction(text: str, min_len: int = 25, max_len: int = 60) -> list[str
         chunks.pop()
     # 规范化 reaction 块
     return [_normalize_block(c) for c in chunks if _normalize_block(c)]
-
-def _smart_quotes(text: str) -> str:
-    """将英文直引号替换为中文引号，成对分配，避免 JSON 中出现转义的 \" """
-    if not text:
-        return text
-    res = []
-    d_open = True  # 双引号开/关
-    s_open = True  # 单引号开/关
-    for ch in text:
-        if ch == '"':
-            res.append('“' if d_open else '”')
-            d_open = not d_open
-        elif ch == "'":
-            res.append('‘' if s_open else '’')
-            s_open = not s_open
-        else:
-            res.append(ch)
-    return "".join(res)
-
-def _apply_smart_quotes_to_dialogues(dialogues: list[dict]) -> list[dict]:
-    """对 narration / playerChoices 文本统一应用中文引号替换"""
-    for d in dialogues:
-        d["narration"] = _smart_quotes(d.get("narration", ""))
-        pcs = d.get("playerChoices")
-        if isinstance(pcs, list):
-            for ch in pcs:
-                ch["text"] = _smart_quotes(ch.get("text", ""))
-                subs = ch.get("subsequentDialogues") or []
-                ch["subsequentDialogues"] = [_smart_quotes(x) for x in subs]
-    return dialogues
 
 def _collect_reaction_line(lines: list[str], start_idx: int) -> tuple[str, int]:
     """
@@ -324,9 +328,16 @@ def parse_raw_chapter(raw_content: str, ranges: list[int]) -> dict:
                 if n:
                     seg_dialogues.append({"narration": n, "playerChoices": None})
 
-        # 对白与选项文本应用中文引号，避免 \" 转义
-        seg_dialogues = _apply_smart_quotes_to_dialogues(seg_dialogues)
-
         scenes.append({"id": i, "dialogues": seg_dialogues})
 
     return {"chapterIndex": chapter_index, "title": chapter_title, "scenes": scenes}
+
+test = """
+你从冬眠中苏醒，冰冷的液体从维生舱中退去。第一口呼吸带着消毒剂的刺鼻气味，肺部灼痛。隔离空间站的金属墙壁泛着苍白的光，寂静中只有生命维持系统的低沉嗡鸣。你活动僵硬的手指，触碰到控制台——倒计时终端已经启动：71:59:42。鲜红的数字在黑暗中跳动，每一次变化都像心跳的倒计时。
+
+"艾德里安·韦斯博士，能听到我吗？"通讯器传来冷静的女声，"我是伊莎贝尔·陈，地面指挥中心首席科学顾问。你的生命体征稳定，这很好。我们没有时间进行标准复苏程序了。"
+"""
+
+if __name__ == "__main__":
+    result = parse_raw_chapter(test,[10,100])
+    print(result)

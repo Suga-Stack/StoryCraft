@@ -184,6 +184,62 @@
 
 ---
 
+## 4.1 获取剧情结局
+- **方法**: `GET`
+- **路径**: `/api/game/storyending/{gameworkId}`
+- **描述**: 全部章节结束后，获取最终结局。
+- **成功响应**:
+  - 未完成
+  ```json
+  {
+    "status": "generating"
+  }
+  ```
+  - 已完成：
+    ```json
+    {
+      "status": "ready",
+      "endings": [
+        {
+          "title": "结局1",
+          "condition": {"心计": ">=50", "圣宠": ">=30"},
+          "summary": "结局梗概...",
+          "scenes": [
+            {
+              "id": 1,
+              "backgroundImage": "/media/gamework_scenes/132693169d27471fa8cb7f30630b7983.jpg",
+              "dialogues": [
+                {
+                  "narration": "你背着半旧的青锋剑，站在名为“望归”的古道入口……",
+                  "playerChoices": null
+                }
+                // ...更多对白，结局不再有选项
+              ]
+            }
+            // ...更多场景...
+          ]
+        },
+        {
+          "title": "结局2",
+          "condition": {"健康": ">=80", "心机": "<=30"},
+          "summary": "结局梗概...",
+          "scenes": [
+            //
+          ]
+        },
+        {
+          "title": "结局3",
+          "condition": {"心机": "<=30"}, // 目前暂没有默认结局，可认为最后一个结局为默认结局
+          "summary": "结局梗概...",
+          "scenes":[
+            // 
+          ]
+        }
+      ]
+    }
+    ```
+
+   
 ## 5. 保存手动修改后的章节内容 (锁定章节)
 
 - **方法**: `PUT`

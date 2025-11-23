@@ -197,6 +197,59 @@ class GameChapterView(views.APIView):
         return Response({"ok": True}, status=status.HTTP_200_OK)
 
 
+class GameEndingView(views.APIView):
+    """查询游戏结局生成状态或获取内容"""
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="获取游戏结局",
+        operation_description="轮询接口，返回结局生成状态(pending/generating/ready)或已生成的结局内容。",
+        manual_parameters=[
+            openapi.Parameter('gameworkId', openapi.IN_PATH, description="作品ID", type=openapi.TYPE_INTEGER, required=True),
+        ],
+        responses={
+            status.HTTP_200_OK: openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'status': openapi.Schema(type=openapi.TYPE_STRING, description="状态: pending, generating, ready"),
+                    'endings': openapi.Schema(
+                        type=openapi.TYPE_ARRAY,
+                        items=openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            properties={
+                                'title': openapi.Schema(type=openapi.TYPE_STRING),
+                                'condition': openapi.Schema(type=openapi.TYPE_OBJECT),
+                                'summary': openapi.Schema(type=openapi.TYPE_STRING),
+                                'scenes': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_OBJECT))
+                            }
+                        )
+                    )
+                }
+            ),
+            status.HTTP_404_NOT_FOUND: openapi.Response(description="作品不存在"),
+            status.HTTP_500_INTERNAL_SERVER_ERROR: openapi.Response(description="服务器内部错误")
+        }
+    )
+    def get(self, request, gameworkId: int, *args, **kwargs):
+        try:
+            try:
+                gamework = get_object_or_404(Gamework, pk=gameworkId)
+            except Exception:
+                return Response({"error":"指定的作品不存在"}, status=status.HTTP_404_NOT_FOUND)
+            
+            result = services.get_story_endings(gamework)
+            return Response(result, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(
+                "查询结局状态时发生错误 - gamework_id: %s, error: %s",
+                gameworkId, e, exc_info=True
+            )
+            return Response(
+                {"error": "服务器出错，请稍后重试。"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
 class ChapterGenerateView(views.APIView):
     """为创作者启动指定章节的生成"""
     permission_classes = [IsAuthenticated]
