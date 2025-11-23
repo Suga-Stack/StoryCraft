@@ -1963,7 +1963,7 @@ onUnmounted(async () => {
               </svg>
               <span>读档</span>
             </button>
-            <button class="menu-item" @click="showMenu = false; triggerImagePicker()">
+            <button class="menu-item" @click="showMenu = false; openAttributes()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14" stroke-width="2"/>
                 <path d="M3 7h18M8 11l2.5 3L13 11l4 6H7l1-2z" stroke-width="2"/>
