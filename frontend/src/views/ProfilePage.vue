@@ -2,13 +2,28 @@
   <div class="profile-page">
     <!-- 顶部用户信息区域 -->
     <div class="user-header">
-      <van-image 
-        class="avatar" 
-        :src="userAvatar" 
-        round 
-        fit="cover"
+      <div
+        class="avatar-container"
         @click="handleAvatarClick"
-      />
+        :style="{ cursor: 'pointer' }"
+        >
+
+        <img 
+          :src="previewUrl || userInfo.profile_picture || defaultAvatar" 
+          alt="用户头像"
+          class="avatar-img"
+        >
+
+        <!-- 隐藏的文件选择框 -->
+        <input
+          type="file"
+          ref="fileInput"
+          class="hidden"
+          accept="image/*" 
+          @change="handleFileChange"
+        >
+      </div>
+  
       <div class="username-container">
         <span class="username">{{ username }}</span>
         <van-icon 
@@ -32,21 +47,13 @@
 
       <!-- 性别信息 -->
       <van-cell 
-        title="性别" 
+        title="性别及偏好" 
         :value="userGender"
         icon="user"
         is-link
         @click="navigateToPreferences"
       />
 
-      <!-- 偏好标签 -->
-      <van-cell 
-        title="偏好标签" 
-        value="查看偏好"
-        icon="tag"
-        is-link
-        @click="navigateToPreferences"
-      />
     </van-cell-group>
 
     <!-- 阅读历史区域 -->
@@ -68,7 +75,7 @@
           @click="navigateToBookDetail(book.id)"
         >
           <van-image 
-            :src="book.cover" 
+            :src="book.image_url" 
             class="book-cover" 
             fit="cover"
           />
@@ -96,7 +103,7 @@
           @click="navigateToBookDetail(book.id)"
         >
           <van-image 
-            :src="book.cover" 
+            :src="book.image_url" 
             class="book-cover" 
             fit="cover"
           />
@@ -141,64 +148,223 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import bookCover1 from '../assets/book1.jpg';  
-import bookCover2 from '../assets/book2.jpg';
-import bookCover3 from '../assets/book3.jpg';
-import bookCover4 from '../assets/book4.jpg';
+import { updateUserInfo } from '../api/user';
+import { getUserInfo } from '../api/user';
+import http from '../utils/http';
+import { getRecentReadingHistory } from '../api/user';
+import { getRecentMyworks } from '../api/user';
+import { useUserStore } from '../store';
 
 // 路由实例
 const router = useRouter()
+const userStore = useUserStore()
 
-// 状态管理
-const username = ref('张三')
-const newUsername = ref('')
 const showUsernameDialog = ref(false)
-const userPoints = ref(1250)
-const userGender = ref('男')
-const userAvatar = ref('https://img.yzcdn.cn/vant/cat.jpeg')
 const activeTab = ref('profile') // 默认选中"我的"
+const previewUrl = ref('')
+const defaultAvatar = ref('https://img.yzcdn.cn/vant/cat.jpeg')
+const fileInput = ref(null)
+
+const userInfo = ref({})
+const username = ref('')
+const userPoints = ref(0)
+const userGender = ref('')
+const newUsername = ref('')
 
 // 阅读历史数据
-const readingHistory = ref([
-  {
-    id: 1,
-    title: '青春物语',
-    cover: bookCover1
-  },
-  {
-    id: 2,
-    title: '职场生存指南',
-    cover: bookCover2
-  }
-])
+const readingHistory = ref([])
 
 // 我的创作数据
-const myCreations = ref([
-  {
-    id: 101,
-    title: '科幻世界',
-    cover: bookCover3
-  },
-  {
-    id: 102,
-    title: '美食日记',
-    cover: bookCover4
+const myCreations = ref([])
+
+// 添加用户信息获取接口
+const fetchUserInfo = async (userId) => {
+  try {
+    const response = await getUserInfo(userId)
+
+    // 检查业务状态
+    if (response.data.code && response.data.code !== 200) {
+      throw new Error(`业务错误: ${response.data.message || '获取用户信息失败'}`);
+    }
+
+    return response.data;
+  } catch (error) {
+    const errorMsg = `获取用户信息失败: ${error.message}`;
+    showToast(errorMsg);
+    throw error;
   }
-])
+  
+}
+
+const getUserIdFromStorage = () => {
+  // 从 localStorage 读取用户信息
+  try{
+    const storedUser = localStorage.getItem('userInfo');
+    if (storedUser) {
+      const user = JSON.parse(storedUser);
+      return user.id; // 返回 userId
+    }
+  }catch (err) {
+    console.error('读取本地用户信息失败', err);
+    localStorage.removeItem('userInfo'); // 清除无效数据
+  }
+  router.push('/login');
+  return null;
+}
+
+// 获取阅读历史的函数
+const fetchReadingHistory = async () => {
+  try {
+    const response = await getRecentReadingHistory();
+    // 假设接口返回格式为 { data: [...] }
+    if (response.data.code === 200) {
+      readingHistory.value = response.data.data;
+    } else {
+      throw new Error(response.data.message || '获取阅读历史失败');
+    }
+  } catch (error) {
+    console.error('获取阅读历史失败:', error);
+    showToast(error.message || '加载阅读历史出错');
+  }
+}
+
+// 获取创作作品的函数
+const fetchMyCreations = async () => {
+  try {
+    const response = await getRecentMyworks();
+    // 假设接口返回格式为 { data: [...] }
+    if (response.data.code === 200) {
+      myCreations.value = response.data.data;
+    } else {
+      throw new Error(response.data.message || '获取创作作品失败');
+    }
+  } catch (error) {
+    console.error('获取创作作品失败:', error);
+    showToast(error.message || '加载创作作品出错');
+  }
+}
 
 // 页面挂载时设置当前活跃标签
-onMounted(() => {
+onMounted(async () => {
   activeTab.value = 'profile'
+  const userId = getUserIdFromStorage();
+  if (!userId) return; // 未登录则不继续
+  
+  try {
+    const userData = await fetchUserInfo(userId)
+    // 更新用户信息到响应式变量
+    userInfo.value = userData
+    // 同步显示数据
+    username.value = userData.username
+    userPoints.value = userData.user_credits || 0
+    userGender.value = userData.gender || '未设置'
+
+    await fetchReadingHistory()
+    await fetchMyCreations()
+  } catch (error) {
+    console.error('获取用户信息失败', error)
+  }
 })
 
-// 处理用户名修改
-const handleUsernameChange = () => {
-  if (!newUsername.value.trim()) {
-    showToast('用户名不能为空')
-    return
+// 头像点击事件
+const handleAvatarClick = () => {
+  fileInput.value.click()
+}
+
+const uploadImage = async (file) => {
+  const formData = new FormData();
+  formData.append('file', file); 
+
+  const response = await http.post('/game/upload-image/', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  });
+
+  if (response.status === 201) {
+    console.log('上传成功，返回的图片URL：', response.data.imageUrl);
+    return response.data.imageUrl;
+  } else {
+    throw new Error('图片上传失败，服务器返回异常');
   }
-  username.value = newUsername.value.trim()
-  showToast('修改成功')
+}
+
+// 处理用户选择图片的方法
+const handleFileChange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  // 1. 校验图片格式和大小（保持不变）
+  const isImage = file.type.startsWith('image/');
+  const isLt5M = file.size / 1024 / 1024 < 5; // 限制5MB以内
+  if (!isImage) {
+    showToast('请选择图片格式文件（如jpg、png）');
+    return;
+  }
+  if (!isLt5M) {
+    showToast('图片大小不能超过5MB');
+    return;
+  }
+
+  // 2. 生成预览图（可选，提升用户体验）
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    previewUrl.value = e.target.result; // 显示本地预览
+  };
+  reader.readAsDataURL(file);
+
+  // 3. 上传图片并更新头像
+  uploadImage(file)
+    .then((imageUrl) => {
+      // 上传成功后，用返回的URL更新用户信息
+      return updateUserInfo(userInfo.value.id, {
+        profile_picture: imageUrl // 后端要求的字段名，和swagger一致
+      });
+    })
+    .then((userResponse) => {
+      // 4. 更新本地缓存和显示
+      userInfo.value.profile_picture = userResponse.data.profile_picture;
+      const storedUser = JSON.parse(localStorage.getItem('userInfo') || '{}');
+      storedUser.profile_picture = userResponse.data.profile_picture;
+      localStorage.setItem('userInfo', JSON.stringify(storedUser));
+      
+      previewUrl.value = ''; // 清空预览
+      showToast('头像更换成功');
+    })
+    .catch((err) => {
+      // 捕获所有可能的错误（上传失败/更新失败）
+      const errorMsg = err.response?.data?.message || err.message || '头像更新失败';
+      showToast(errorMsg);
+      previewUrl.value = ''; // 清空预览
+    });
+}
+
+
+const handleUsernameChange = async () => {
+  const trimmedName = newUsername.value.trim();
+  if (!trimmedName) {
+    showToast('用户名不能为空');
+    return;
+  }
+
+  try {
+    // 只传递需要修改的username字段
+    const response = await updateUserInfo(
+      userInfo.value.id,
+      { username: trimmedName } 
+    );
+
+    // 更新本地数据
+    userInfo.value.username = response.data.username;
+    username.value = response.data.username;
+    const storedUser = JSON.parse(localStorage.getItem('userInfo') || '{}');
+    storedUser.username = response.data.username;
+    localStorage.setItem('userInfo', JSON.stringify(storedUser));
+    
+    showToast('用户名修改成功');
+    showUsernameDialog.value = false;
+    newUsername.value = '';
+  } catch (err) {
+    showToast('用户名更新失败：' + (err.response?.data?.message || err.message));
+  }
 }
 
 // 导航到偏好设置页
@@ -218,20 +384,34 @@ const navigateToMyCreations = () => {
 
 // 导航到书籍详情页
 const navigateToBookDetail = (bookId) => {
-  router.push(`/book-detail/${bookId}`)
+  router.push(`/works/${bookId}`)
 }
 
 // 处理退出登录
-const handleLogout = () => {
-  // 清除登录状态（实际项目中需清除token等）
-  router.push('/login')
-  showToast('已退出登录')
+const handleLogout = async () => {
+  try {
+    const refreshToken = localStorage.getItem('refreshToken');
+    if (refreshToken) {
+      // 调用后端logout接口
+      await http.post('/auth/logout/', {
+        refresh: refreshToken
+      });
+    }
+    
+    userStore.logout();
+    
+    // 跳转到登录页
+    router.push('/login');
+    showToast('已成功退出登录');
+  } catch (error) {
+    console.error('退出登录失败', error);
+    // 即使接口调用失败也清除本地状态并跳转，保证前端状态一致性
+    localStorage.removeItem('userInfo');
+    router.push('/login');
+    showToast('退出登录失败，请重试');
+  }
 }
 
-// 头像点击事件
-const handleAvatarClick = () => {
-  showToast('上传头像功能待实现')
-}
 
 // 底部导航切换
 const handleTabChange = (tabName) => {
@@ -270,11 +450,19 @@ const handleTabChange = (tabName) => {
   padding: 16px;
 }
 
-.avatar {
+.avatar-container {
   width: 100px;
   height: 100px;
-  border: 3px solid #f0f0f0;
+  border-radius: 50%; 
+  overflow: hidden;
   margin-bottom: 12px;
+  border: 3px solid #f0f0f0;
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover; 
 }
 
 .username-container {
@@ -291,6 +479,14 @@ const handleTabChange = (tabName) => {
 .edit-icon {
   color: #888;
   cursor: pointer;
+}
+
+::v-deep .van-dialog__confirm {
+  color: white;
+  font-size: 16px;
+  width: 100%;
+  background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
+  border: none;
 }
 
 /* 积分样式 */

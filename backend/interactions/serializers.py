@@ -47,7 +47,7 @@ class FavoriteSerializer(serializers.ModelSerializer):
             "id": g.id,
             "title": g.title,
             "author": g.author.username if g.author else None,
-            "cover": g.cover.url if getattr(g, 'cover', None) else None,
+            "cover": g.image_url if getattr(g, 'image_url', None) else None,
         }
 
     def create(self, validated_data):

@@ -10,7 +10,6 @@ import PreferencesPage from '../views/PreferencesPage.vue'
 import BookshelfPage from '../views/BookshelfPage.vue'
 import SearchPage from '../views/SearchPage.vue'
 import BookstorePage from '../views/BookstorePage.vue'
-//import CreatePage from '../views/CreatePage.vue'
 import ProfilePage from '../views/ProfilePage.vue'
 import MyCreationsPage from '../views/MyCreationsPage.vue'
 import ReadingHistoryPage from '../views/ReadinghistoryPage.vue'
@@ -32,7 +31,7 @@ const routes = [
     component: RegisterPage
   },
   {
-    path: '/works',
+    path: '/works/:id',
     name: 'Works',
     component: GameIntroduction
   },
@@ -92,5 +91,6 @@ const router = createRouter({
   history: createWebHashHistory(), // 使用 Hash 模式（Capacitor 必需）
   routes
 })
+
 
 export default router

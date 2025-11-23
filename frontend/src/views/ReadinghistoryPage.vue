@@ -10,7 +10,7 @@
         @click="navigateToBookDetail(book.id)"
       >
         <van-image 
-          :src="book.cover" 
+          :src="book.image_url" 
           class="book-cover" 
           fit="cover"
         />
@@ -22,18 +22,18 @@
             <van-tag 
               v-for="tag in book.tags" 
               :key="tag"
-              type="primary"
-              round
               size="small"
+              :style="getRandomTagStyle()"
             >
               {{ tag }}
             </van-tag>
           </div>
         </div>
         <van-icon 
-          name="star-o" 
+          :name="book.isFavorite ? 'star' : 'star-o'" 
           class="favorite-icon"
-          @click.stop="handleFavorite(book.id)"
+          :class="{ active: book.isFavorite }"
+          @click.stop="handleFavorite(book)"
         />
       </div>
     </div>
@@ -41,68 +41,85 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { showToast } from 'vant'
-import bookCover1 from '../assets/book1.jpg';  
-import bookCover2 from '../assets/book2.jpg';
-import bookCover3 from '../assets/book3.jpg';
-import bookCover4 from '../assets/book4.jpg';
+import { getReadingHistory } from '../api/user'
+import { addFavorite, deleteFavorite } from '../api/user'
 
 const router = useRouter()
 const route = useRoute()
+const readingHistory = ref([])
 
-// 模拟阅读历史数据（实际项目中可能从API获取）
-const readingHistory = ref([
-  {
-    id: 1,
-    title: '青春物语',
-    cover: bookCover1,
-    author: '李明',
-    description: '这是一本关于青春成长的小说，讲述了主人公在高中时期的点点滴滴...',
-    tags: ['青春', '校园', '成长']
-  },
-  {
-    id: 2,
-    title: '职场生存指南',
-    cover: bookCover2,
-    author: '张华',
-    description: '实用的职场技巧分享，帮助新人快速适应职场环境...',
-    tags: ['职场', '技能', '励志']
-  },
-  {
-    id: 3,
-    title: '人工智能简史',
-    cover: bookCover3,
-    author: '王教授',
-    description: '从起源到未来，全面解析人工智能的发展历程...',
-    tags: ['科技', 'AI', '科普']
-  },
-  {
-    id: 4,
-    title: '旅行日记',
-    cover: bookCover4,
-    author: '旅行者',
-    description: '记录了环游世界的奇妙经历和所见所闻...',
-    tags: ['旅行', '生活', '随笔']
+const tagColorOptions = [
+  { backgroundColor: '#e0f2fe', color: '#0284c7' },
+  { backgroundColor: '#dbeafe', color: '#3b82f6' },
+  { backgroundColor: '#f0fdf4', color: '#166534' },
+  { backgroundColor: '#fff7ed', color: '#c2410c' },
+  { backgroundColor: '#f5f3ff', color: '#6b21a8' },
+  { backgroundColor: '#fee2e2', color: '#b91c1c' },
+]
+
+// 在组件挂载时获取阅读历史
+onMounted(() => {
+  fetchReadingHistory()
+})
+
+// 获取当前用户阅读历史的作品列表
+const fetchReadingHistory = async () => {
+  try {
+    const response = await getReadingHistory();
+    
+    if (!response.data.code || response.data.code !== 200) {
+      throw new Error('获取阅读历史失败')
+    }
+    
+    readingHistory.value = response.data.data;
+  } catch (error) {
+    showToast(error.message || '获取数据失败，请稍后重试')
+    console.error('作品列表请求失败:', error)
   }
-])
+}
+
 
 // 返回上一页
 const handleBack = () => {
   router.back()
 }
 
+// 随机获取一个颜色样式
+const getRandomTagStyle = () => {
+  const randomIndex = Math.floor(Math.random() * tagColorOptions.length);
+  return tagColorOptions[randomIndex];
+};
+
+
 // 导航到书籍详情页
 const navigateToBookDetail = (bookId) => {
-  router.push(`/book-detail/${bookId}`)
-}
+  router.push(`/works/${bookId}`)
+};
 
 // 收藏功能
-const handleFavorite = (bookId) => {
-  showToast('收藏功能已触发')
-  // 实际项目中这里会调用API进行收藏操作
-}
+const handleFavorite = async (book) => {
+  try {
+    if (!book.isFavorite) {
+      // 添加收藏
+      await addFavorite(book.id); // 这里的文件夹名称可根据实际需求调整或从参数获取
+      book.isFavorite = true;
+      showToast('已收藏');
+    } else {
+      // 取消收藏 - 假设book对象包含收藏记录的id(favoriteId)，如果没有需要调整接口参数
+      await deleteFavorite(book.favoriteId); 
+      book.isFavorite = false;
+      showToast('取消收藏');
+    }
+  } catch (error) {
+    console.error('收藏操作失败:', error);
+    showToast('操作失败，请稍后重试');
+    // 失败时回滚状态
+    book.isFavorite = !book.isFavorite;
+  }
+};
 </script>
 
 <style scoped>
@@ -126,35 +143,35 @@ const handleFavorite = (bookId) => {
 }
 
 .book-cover {
-  width: 80px;
-  height: 120px;
-  border-radius: 8px;
+  width: 150px;
+  height: 100px;
+  border-radius: 4px;
   flex-shrink: 0;
 }
 
 .book-info {
-  margin-left: 16px;
+  margin-left: 12px;
   flex-grow: 1;
   overflow: hidden;
 }
 
 .book-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 500;
-  margin: 0 0 8px 0;
+  margin: 0 0 4px 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .book-author {
-  font-size: 14px;
+  font-size: 12px;
   color: #666;
-  margin: 0 0 8px 0;
+  margin: 0 0 6px 0;
 }
 
 .book-desc {
-  font-size: 13px;
+  font-size: 12px;
   color: #888;
   margin: 0 0 10px 0;
   display: -webkit-box;
@@ -166,18 +183,17 @@ const handleFavorite = (bookId) => {
 
 .book-tags {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .favorite-icon {
-  font-size: 22px;
+  font-size: 18px;
   color: #888;
   margin-left: 12px;
   flex-shrink: 0;
 }
 
 .favorite-icon.active {
-  color: #ff4d4f;
+  color: #ffcc00;
 }
 </style>

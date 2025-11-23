@@ -41,7 +41,7 @@ class UserViewSet(viewsets.ModelViewSet):
         普通用户仅能查看自己，管理员可查看所有
         """
         user = self.request.user
-        if user.is_staff:
+        if user.is_staff or user.is_superuser:
             return User.objects.all()
         return User.objects.filter(id=user.id)
     
@@ -50,6 +50,9 @@ class UserViewSet(viewsets.ModelViewSet):
         查看用户列表
         普通用户只能看到自己，管理员可以看到所有用户
         """
+        queryset = self.get_queryset()
+        if not request.user.is_staff and queryset.count() > 1:
+            return Response({'detail': '您没有权限查看其他用户的数据。'}, status=status.HTTP_403_FORBIDDEN)
         return super().list(request, *args, **kwargs)
 
     def retrieve(self, request, *args, **kwargs):
@@ -159,16 +162,55 @@ class LoginView(APIView):
 
     @swagger_auto_schema(
         request_body=LoginSerializer,
-        responses={200: "登录成功"}
+        responses={
+            200: openapi.Response(
+                description="登录成功",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'code': openapi.Schema(type=openapi.TYPE_INTEGER, description='状态码', example=200),
+                        'message': openapi.Schema(type=openapi.TYPE_STRING, description='提示信息', example='登录成功'),
+                        'data': openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            properties={
+                                'access': openapi.Schema(type=openapi.TYPE_STRING, description='JWT访问令牌'),
+                                'refresh': openapi.Schema(type=openapi.TYPE_STRING, description='JWT刷新令牌'),
+                                'user': openapi.Schema(
+                                    type=openapi.TYPE_OBJECT,
+                                    properties={
+                                        'id': openapi.Schema(type=openapi.TYPE_INTEGER, description='用户ID'),
+                                        'username': openapi.Schema(type=openapi.TYPE_STRING, description='用户名'),
+                                        'profile_picture': openapi.Schema(type=openapi.TYPE_STRING, description='头像URL', nullable=True),
+                                        'user_credits': openapi.Schema(type=openapi.TYPE_INTEGER, description='用户积分', nullable=True),
+                                        'gender': openapi.Schema(type=openapi.TYPE_STRING, description='性别', enum=['Male', 'Female', 'Other', None]),
+                                        'liked_tags': openapi.Schema(type=openapi.TYPE_ARRAY, description='喜欢的标签', items=openapi.Items(type=openapi.TYPE_INTEGER))
+                                    }
+                                )
+                            }
+                        )
+                    }
+                )
+            ),
+            400: openapi.Response(description="登录失败", schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'code': openapi.Schema(type=openapi.TYPE_INTEGER, example=400),
+                    'message': openapi.Schema(type=openapi.TYPE_OBJECT, description='错误信息')
+                }
+            ))
+        }
     )
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.validated_data['user']
-            tokens = serializer.get_tokens_for_user(user)
-            return Response({'code': 200, 'message': '登录成功', 'tokens': tokens}, status=status.HTTP_200_OK)
+            result = serializer.get_tokens_for_user(user)  # 现在包含user信息
+            return Response({
+                'code': 200, 
+                'message': '登录成功', 
+                'data': result  # 用data包裹所有返回内容
+            }, status=status.HTTP_200_OK)
         return Response({'code': 400, 'message': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
-
 
 class LogoutView(APIView):
     """登出接口"""
