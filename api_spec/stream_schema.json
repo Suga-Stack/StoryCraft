@@ -1,0 +1,141 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "StoryCraft 流式消息 Schema",
+  "description": "后端通过流（SSE/WS/NDJSON）向前端推送的消息模板。每条消息必须包含 type、seq、workId 等公共字段。",
+  "oneOf": [
+    { "$ref": "#/definitions/work_meta" },
+    { "$ref": "#/definitions/scene" },
+    { "$ref": "#/definitions/choice_effect" },
+    { "$ref": "#/definitions/mainline" },
+    { "$ref": "#/definitions/special_event" },
+    { "$ref": "#/definitions/end" },
+    { "$ref": "#/definitions/report" }
+  ],
+  "definitions": {
+    "base": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string" },
+        "seq": { "type": "integer" },
+        "timestamp": { "type": "integer" },
+        "workId": { "type": "string" },
+        "note": { "type": "string" }
+      },
+      "required": ["type","seq","workId"]
+    },
+    "work_meta": {
+      "allOf": [ { "$ref": "#/definitions/base" } , {
+        "type": "object",
+        "properties": {
+          "type": { "const": "work_meta" },
+          "title": { "type": "string" },
+          "coverUrl": { "type": "string" },
+          "summary": { "type": "string" },
+          "tags": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["type","seq","workId","title","coverUrl"]
+      } ]
+    },
+    "dialogue_item": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "properties": {
+            "text": { "type": "string" },
+            "speaker": { "type": "string" },
+            "backgroundImage": { "type": "string" }
+          },
+          "required": ["text"]
+        }
+      ]
+    },
+    "scene": {
+      "allOf": [ { "$ref": "#/definitions/base" } , {
+        "type": "object",
+        "properties": {
+          "type": { "const": "scene" },
+          "scene": {
+            "type": "object",
+            "properties": {
+              "sceneId": { "type": ["string","integer"] },
+              "title": { "type": "string" },
+              "backgroundImage": { "type": "string" },
+              "dialogues": { "type": "array", "items": { "$ref": "#/definitions/dialogue_item" } },
+              "choiceTriggerIndex": { "type": "integer" }
+            },
+            "required": ["sceneId","dialogues"]
+          }
+        },
+        "required": ["type","seq","workId","scene"]
+      } ]
+    },
+    "choice_effect": {
+      "allOf": [ { "$ref": "#/definitions/base" } , {
+        "type": "object",
+        "properties": {
+          "type": { "const": "choice_effect" },
+          "sceneId": { "type": ["string","integer"] },
+          "choices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "text": { "type": "string" },
+                "attributesDelta": { "type": "object", "additionalProperties": { "type": "number" } },
+                "statusesDelta": { "type": "object", "additionalProperties": { "oneOf": [{"type":"boolean"},{"type":"string"},{"type":"number"}] } },
+                "nextScenes": { "type": "array", "items": { "$ref": "#/definitions/scene" } }
+              },
+              "required": ["id","text"]
+            }
+          }
+        },
+        "required": ["type","seq","workId","sceneId","choices"]
+      } ]
+    },
+    "mainline": {
+      "allOf": [ { "$ref": "#/definitions/base" } , {
+        "type": "object",
+        "properties": {
+          "type": { "const": "mainline" },
+          "scene": { "$ref": "#/definitions/scene/properties/scene" }
+        },
+        "required": ["type","seq","workId","scene"]
+      } ]
+    },
+    "special_event": {
+      "allOf": [ { "$ref": "#/definitions/base" } , {
+        "type": "object",
+        "properties": {
+          "type": { "const": "special_event" },
+          "eventId": { "type": "string" },
+          "description": { "type": "string" },
+          "condition": { "type": "object" },
+          "resultIfMet": { "type": "object" },
+          "resultIfNotMet": { "type": "object" }
+        },
+        "required": ["type","seq","workId","eventId"]
+      } ]
+    },
+    "end": {
+      "allOf": [ { "$ref": "#/definitions/base" } , {
+        "type": "object",
+        "properties": { "type": { "const": "end" }, "reason": { "type": "string" } },
+        "required": ["type","seq","workId"]
+      } ]
+    },
+    "report": {
+      "allOf": [ { "$ref": "#/definitions/base" } , {
+        "type": "object",
+        "properties": {
+          "type": { "const": "report" },
+          "finalAttributes": { "type": "object", "additionalProperties": { "type": "number" } },
+          "finalStatuses": { "type": "object" },
+          "personalReport": { "type": "array", "items": { "type": "object", "properties": { "title": { "type": "string" }, "content": { "type": "string" } }, "required": ["title","content"] } }
+        },
+        "required": ["type","seq","workId","finalAttributes"]
+      } ]
+    }
+  }
+}
