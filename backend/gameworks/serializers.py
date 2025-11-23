@@ -142,7 +142,7 @@ class GameworkDetailSerializer(serializers.ModelSerializer):
             gamework=obj,
             parent__isnull=True
         ).select_related("user").prefetch_related("replies__user")
-        return CommentSerializer(qs, many=True).data
+        return CommentSerializer(qs, many=True, context=self.context).data
     
     def get_comments_by_hot(self, obj):
         qs = Comment.objects.filter(
