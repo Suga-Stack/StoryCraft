@@ -127,6 +127,16 @@ export const postComments = (content, gamework, parent) => {
   return http.post('/interactions/comments/', {content, gamework, parent})
 }
 
+// 点赞评论
+export const likeComment = (commentId) => {
+  return http.post(`/interactions/comments/${commentId}/like/`)
+}
+
+// 取消点赞评论
+export const unlikeComment = (commentId) => {
+  return http.post(`/interactions/comments/${commentId}/unlike/`)
+}
+
 export const recommendWorks = (page) => {
   return http.get('/gameworks/recommend/', page)
 }
