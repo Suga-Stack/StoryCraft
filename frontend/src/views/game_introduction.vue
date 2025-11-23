@@ -153,6 +153,25 @@ onMounted(async () => {
         if (Array.isArray(payload.comments_by_hot)) {
           rawCommentsByHot.value = payload.comments_by_hot
         }
+        // 如果后端返回 rating_details，则用它初始化评分分页数据
+        try {
+          if (Array.isArray(payload.rating_details)) {
+            ratings.value = payload.rating_details.map((r, idx) => {
+              const created = r.created_at || r.createdAt || r.time || null
+              const timestamp = created ? Date.parse(created) : Date.now() - idx
+              const score10 = Number(r.score || r.score10 || 0)
+              return {
+                id: `${timestamp}_${idx}`,
+                author: r.username || r.user || '匿名',
+                profile_picture: r.profile_picture || r.profilePicture || null,
+                stars: Math.round((score10 || 0) / 2),
+                score10: score10,
+                time: created ? new Date(created).toLocaleString() : '未知',
+                timestamp: timestamp
+              }
+            })
+          }
+        } catch (e) { console.warn('failed to parse rating_details from payload', e) }
       } catch (e) { console.warn('failed to parse comments from payload', e) }
     }
     // 仅在作品详情未包含任何评论时，回退到独立的 comments API 拉取（避免覆盖已加载的评论）
