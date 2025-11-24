@@ -79,12 +79,8 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import http from '../utils/http';
 import { showToast } from 'vant';
 import {useRouter} from 'vue-router';
-import bookCover1 from '../assets/book1.jpg';  
-import bookCover2 from '../assets/book2.jpg';
-import bookCover3 from '../assets/book3.jpg';
 import { recommendWorks, getRatingLeaderboard  } from '../api/user';
 
 // 热门作品数据
