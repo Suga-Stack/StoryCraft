@@ -208,7 +208,8 @@ class GameChapterStatusResponseSerializer(serializers.Serializer):
     chapter = GameChapterResponseSerializer(required=False, help_text="章节内容(仅在ready时返回)")
 
 class GameSaveStateSerializer(serializers.Serializer):
-    chapterIndex = serializers.IntegerField(required=True, allow_null=True)
+    chapterIndex = serializers.IntegerField(required=False, allow_null=True)
+    endingIndex = serializers.IntegerField(required=False, allow_null=True)
     sceneId = serializers.IntegerField(required=True, allow_null=True)
     dialogueIndex = serializers.IntegerField(required=False, allow_null=True)
     attributes = serializers.DictField(child=serializers.IntegerField(), required=False, default=dict)

@@ -519,13 +519,22 @@ def build_settlement_variants(attributes: Dict[str, int], statuses: Dict[str, An
         "success": True
     }
 
-def resolve_scene_cover_url(gamework: Gamework, chapter_index: int, scene_index: int) -> Optional[str]:
+def resolve_scene_cover_url(gamework: Gamework, chapter_index: Optional[int], scene_index: int, ending_index: Optional[int] = None) -> Optional[str]:
     """根据章节与场景索引解析背景图URL"""
-    url = StoryScene.objects.filter(
-        chapter__story__gamework=gamework,
-        chapter__chapter_index=chapter_index,
-        scene_index=scene_index
-    ).values_list('background_image_url', flat=True).first()
+    url = None
+    
+    if ending_index is not None:
+        url = StoryScene.objects.filter(
+            ending__story__gamework=gamework,
+            ending__ending_index=ending_index,
+            scene_index=scene_index
+        ).values_list('background_image_url', flat=True).first()
+    elif chapter_index is not None:
+        url = StoryScene.objects.filter(
+            chapter__story__gamework=gamework,
+            chapter__chapter_index=chapter_index,
+            scene_index=scene_index
+        ).values_list('background_image_url', flat=True).first()
 
     if url and not url.startswith(('http://', 'https://')):
         return f"{settings.SITE_DOMAIN}{url}"

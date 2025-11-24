@@ -352,8 +352,9 @@ class GameSaveDetailView(views.APIView):
         state = payload.get("state")
         cover_url = services.resolve_scene_cover_url(
             gamework,
-            state.get("chapterIndex"),
-            state.get("sceneId")
+            chapter_index=state.get("chapterIndex"),
+            scene_index=state.get("sceneId"),
+            ending_index=state.get("endingIndex")
         ) or ""
 
         GameSave.objects.update_or_create(
@@ -427,15 +428,23 @@ class GameSaveListView(views.APIView):
         items = []
         for save in saves:
             state = save.state 
-            items.append({
+            item = {
                 "slot": save.slot,
                 "title": save.title,
                 "timestamp": save.timestamp,
-                "chapterIndex": state.get("chapterIndex"),
-                "sceneId": state.get("sceneId"),
-                "dialogueIndex": state.get("dialogueIndex"),
                 "coverUrl": save.cover_url
-            })
+            }
+            
+            if "chapterIndex" in state:
+                item["chapterIndex"] = state["chapterIndex"]
+            if "endingIndex" in state:
+                item["endingIndex"] = state["endingIndex"]
+            if "sceneId" in state:
+                item["sceneId"] = state["sceneId"]
+            if "dialogueIndex" in state:
+                item["dialogueIndex"] = state["dialogueIndex"]
+
+            items.append(item)
 
         return Response({"saves": items}, status=status.HTTP_200_OK)
 
