@@ -8,7 +8,7 @@ from django.db import close_old_connections
 from django.conf import settings
 from stories.models import Story, StoryChapter, StoryScene, StoryEnding
 from gameworks.models import Gamework
-from .utils import parse_raw_chapter
+from .utils import parse_raw_chapter, update_story_directory
 from .game_generator.architecture import generate_core_seed, generate_architecture
 from .game_generator.chapter import generate_chapter_content, generate_ending_content
 from .game_generator.images import generate_cover_image, generate_scene_images
@@ -429,7 +429,7 @@ def start_single_chapter_generation(gamework: Gamework, chapter_index: int, outl
 
     # 更新大纲
     story.outlines = outlines
-    story.save()
+    update_story_directory(story, outlines)
 
     # 删除可能存在的旧章节实例，准备重新生成
     StoryChapter.objects.filter(story=story, chapter_index=chapter_index).delete()

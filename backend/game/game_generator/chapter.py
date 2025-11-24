@@ -1,5 +1,4 @@
 import re
-import json
 from typing import Iterator
 from .openai_client import invoke
 from .prompts import(
@@ -56,8 +55,7 @@ def generate_chapter_content(
     """生成章节文本 + 更新摘要"""
     
     if chapter_index == total_chapters:
-
-        combined_content = invoke(build_last_chapter_with_endings_prompt(
+        base_prompt = build_last_chapter_with_endings_prompt(
             chapter_index=chapter_index,
             chapter_directory=chapter_directory,
             attribute_system=attribute_system,
@@ -65,7 +63,10 @@ def generate_chapter_content(
             architecture=architecture,
             previous_chapter_content=previous_chapter_content,
             global_summary=global_summary
-        ))
+        )
+        if user_prompt:
+            base_prompt += f"\n# 创作者附加指令\n{user_prompt}\n(请合理融合但保持主线一致)"        
+        combined_content = invoke(base_prompt)
 
         last_chapter_content, endings_summary = _parse_last_chapter_with_endings_output(combined_content)
 
