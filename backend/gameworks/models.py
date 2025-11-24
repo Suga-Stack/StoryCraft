@@ -16,6 +16,7 @@ class Gamework(models.Model):
     published_at = models.DateTimeField(null=True, blank=True)  # 发布时间
 
     favorites = models.ManyToManyField(settings.AUTH_USER_MODEL, through='interactions.Favorite', related_name='favorite_games')
+    price = models.IntegerField(default=0, verbose_name="Price")  # 价格，默认免费
 
     class Meta:
         verbose_name = "Gamework"

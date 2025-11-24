@@ -5,26 +5,34 @@ from gameworks.models import Gamework
 
 # 用户模型
 class User(AbstractUser):
-  # user_id = models.AutoField(primary_key=True)  # 用户id，自动递增的主键
-  username = models.CharField(max_length=255, unique=True)  # 用户名，唯一
-  email = models.EmailField(unique=True)  # 邮箱唯一
-  password = models.CharField(max_length=255)  # 密码哈希值
-  profile_picture = models.URLField(max_length=255, blank=True, null=True)  # 头像URL
-  user_credits = models.IntegerField(blank=True, null=True)  # 用户积分
-  created_at = models.DateTimeField(auto_now_add=True)  # 创建时间，自动设置
-  updated_at = models.DateTimeField(auto_now=True)  # 更新时间，自动更新
-  gender = models.CharField(
-        max_length=10,
-        choices=[('Male', 'Male'), ('Female', 'Female'), ('Other', 'Other')],
-        blank=True,
-        null=True
-  )  # 性别字段，选择 Male、Female 或 Other
-  liked_tags = models.ManyToManyField(Tag, blank=True)  # 用户喜欢的标签，可以为空
-  is_staff = models.BooleanField(default=False)  # 默认用户为非管理员
+      # user_id = models.AutoField(primary_key=True)  # 用户id，自动递增的主键
+      username = models.CharField(max_length=255, unique=True)  # 用户名，唯一
+      email = models.EmailField(unique=True)  # 邮箱唯一
+      password = models.CharField(max_length=255)  # 密码哈希值
+      profile_picture = models.URLField(max_length=255, blank=True, null=True)  # 头像URL
+      user_credits = models.IntegerField(blank=True, null=True)  # 用户积分
+      created_at = models.DateTimeField(auto_now_add=True)  # 创建时间，自动设置
+      updated_at = models.DateTimeField(auto_now=True)  # 更新时间，自动更新
+      gender = models.CharField(
+            max_length=10,
+            choices=[('Male', 'Male'), ('Female', 'Female'), ('Other', 'Other')],
+            blank=True,
+            null=True
+      )  # 性别字段，选择 Male、Female 或 Other
+      liked_tags = models.ManyToManyField(Tag, blank=True)  # 用户喜欢的标签，可以为空
+      is_staff = models.BooleanField(default=False)  # 默认用户为非管理员
 
-  def get_read_gameworks(self):
-        """返回该用户读过的所有作品"""
-        return Gamework.objects.filter(read_records__user=self).distinct()
+      def get_read_gameworks(self):
+            """返回该用户读过的所有作品"""
+            return Gamework.objects.filter(read_records__user=self).distinct()
 
-  def __str__(self):
-    return self.username
+      def __str__(self):
+            return self.username
+
+class UserSignIn(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='signin_info')
+    last_signin_date = models.DateField(null=True, blank=True)
+    continuous_days = models.IntegerField(default=0)
+
+    def __str__(self):
+        return f"{self.user.username} - 连续 {self.continuous_days} 天"
