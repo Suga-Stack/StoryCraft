@@ -37,7 +37,11 @@ const normalizeBackendWork = (raw) => {
     tags: raw.tags || raw.tag_names || raw.tag_ids || [],
     favoritesCount: raw.favorite_count || raw.favoritesCount || 0,
     publishedAt: raw.published_at || raw.publishedAt || null,
-    isFavorite: raw.is_favorited || false
+    isFavorited: raw.is_favorited || false,
+    averageScore: raw.average_score || 0,
+    ratingCount: raw.rating_count || 0,
+    wordCount: raw.word_count || null,
+    readCount: raw.read_count || 0
   }
 }
 
@@ -64,7 +68,7 @@ const work = ref({
 
 在这吃人的后宫，不想争宠的干饭人，
 正在悄悄苟成最后赢家。`,
-  isFavorite: false
+  isFavorite: backendWorkRaw?.isFavorited || false
 })
 
 // 如果首次没有传入 backendWork（直接打开 /works 或刷新），尝试在挂载时去后端拉取最新详情并规范化映射
@@ -102,6 +106,22 @@ onMounted(async () => {
       work.value.isFavorite = normalized.isFavorite || work.value.isFavorite
       try { favoritesCount.value = payload.favorite_count || payload.favoritesCount || favoritesCount.value } catch (e) {}
       try { publishedAt.value = payload.published_at || payload.publishedAt || publishedAt.value } catch (e) {}
+      work.value.isFavorite = normalized.isFavorited
+      
+      // 更新统计数据
+      favoritesCount.value = normalized.favoritesCount
+      publishedAt.value = normalized.publishedAt || publishedAt.value
+      averageScore.value = normalized.averageScore
+      ratingCount.value = normalized.ratingCount
+      readCount.value = normalized.readCount
+      // 如果后端返回积分相关字段，更新前端显示
+      try {
+        if (typeof payload.unlock_points_needed !== 'undefined') unlockPointsNeeded.value = payload.unlock_points_needed
+        if (typeof payload.user_given_points !== 'undefined') userGivenPoints.value = payload.user_given_points
+      } catch (e) {}
+      if (normalized.wordCount !== null) {
+        backendWordCount.value = normalized.wordCount
+      }
 
       // 将获取到的后端原始数据写回 sessionStorage.createResult，方便其他页面/刷新时复用
       try {
@@ -126,7 +146,7 @@ const toggleFavorite = () => {
   work.value.isFavorite = !work.value.isFavorite
 }
 // 收藏数（示例初始值或来自后端）
-const favoritesCount = ref(backendWorkRaw?.favoritesCount || 124)
+const favoritesCount = ref(backendWorkRaw?.favoritesCount || 0)
 
 // 修改切换收藏以维护收藏计数
 const toggleFavoriteWithCount = async () => {
@@ -150,6 +170,67 @@ const toggleFavoriteWithCount = async () => {
 
 // 发表时间（来自后端或默认当前时间）
 const publishedAt = ref(backendWorkRaw?.publishedAt || backendWorkRaw?.publishedDate || new Date().toISOString())
+
+// 评分数据（从后端获取）
+const averageScore = ref(backendWorkRaw?.averageScore || 0)
+const ratingCount = ref(backendWorkRaw?.ratingCount || 0)
+const readCount = ref(backendWorkRaw?.readCount || 0)
+const backendWordCount = ref(backendWorkRaw?.wordCount || null)
+
+// 积分/打赏相关（用于作品简介与评论评分之间的“送积分”模块）
+const unlockPointsNeeded = ref(backendWorkRaw?.unlock_points_needed || 100) // 解锁该作品需要的积分（后端可返回字段）
+const userGivenPoints = ref(backendWorkRaw?.user_given_points || 0) // 当前用户已在该作品上送出的积分
+const sendingPoints = ref(false)
+// 页面内 modal 控制：改为页面内弹窗输入数量
+const showPointsModal = ref(false)
+const pointsAmount = ref(10)
+// 预设额度（含自定义）
+const presets = [30, 60, 98, 158, 268, 388, 618, 998, '自定义']
+const selectedPreset = ref(presets[0])
+
+const openPointsModal = () => {
+  pointsAmount.value = 30
+  selectedPreset.value = presets[0]
+  showPointsModal.value = true
+}
+
+const cancelSendPoints = () => {
+  showPointsModal.value = false
+}
+
+const selectPreset = (p) => {
+  selectedPreset.value = p
+  if (p === '自定义') {
+    pointsAmount.value = ''
+    // focus will be handled by user interaction
+  } else {
+    pointsAmount.value = p
+  }
+}
+
+const confirmSendPoints = async () => {
+  const amount = parseInt(pointsAmount.value)
+  if (isNaN(amount) || amount <= 0) {
+    alert('请输入大于 0 的整数')
+    return
+  }
+  try {
+    sendingPoints.value = true
+    const res = await http.post(`/api/gameworks/gameworks/${work.value.id}/give_points/`, { amount })
+    if (res && res.data && typeof res.data.user_given_points !== 'undefined') {
+      userGivenPoints.value = res.data.user_given_points
+    } else {
+      userGivenPoints.value += amount
+    }
+    showPointsModal.value = false
+    alert('送积分成功，谢谢支持！')
+  } catch (e) {
+    console.error('sendPoints error', e)
+    alert('送积分失败，请稍后重试')
+  } finally {
+    sendingPoints.value = false
+  }
+}
 
 const publicationDisplay = computed(() => {
   try {
@@ -338,8 +419,11 @@ const pagedRatings = computed(() => {
   return ratings.value.slice(start, start + ratingPageSize)
 })
 
-// 字数（按字符数统计，去除换行）
+// 字数（优先使用后端返回的 word_count，否则按字符数统计）
 const wordCount = computed(() => {
+  if (backendWordCount.value !== null) {
+    return backendWordCount.value
+  }
   const d = work.value.description || ''
   return d.replace(/\n/g, '').length
 })
@@ -367,11 +451,21 @@ const submitRating = () => {
   ratingPage.value = 1
 }
 
-// 平均分（10分制），根据已有 ratings 中的 score10（若不存在则用 stars*2）
+// 平均分（10分制），优先使用后端返回的 averageScore，否则根据已有 ratings 中的 score10（若不存在则用 stars*2）
 const averageRating10 = computed(() => {
+  // 优先使用后端返回的评分
+  if (averageScore.value > 0) {
+    return averageScore.value
+  }
+  // 否则使用本地 ratings 计算
   if (!ratings.value.length) return 0
   const sum = ratings.value.reduce((s, r) => s + ((r.score10 !== undefined) ? r.score10 : (r.stars || 0) * 2), 0)
   return sum / ratings.value.length
+})
+
+// 评分人数（优先使用后端返回的 ratingCount）
+const totalRatingCount = computed(() => {
+  return ratingCount.value > 0 ? ratingCount.value : ratings.value.length
 })
 
 const prevRatingPage = () => {
@@ -534,7 +628,7 @@ const startReading = () => {
             <div class="meta-value">{{ favoritesCount }}</div>
           </div>
           <div class="meta-item">
-              <div class="meta-label">{{ ratings.length ? (ratings.length + ' 人已评分') : '0 人已评分' }}</div>
+              <div class="meta-label">{{ totalRatingCount > 0 ? (totalRatingCount + ' 人已评分') : '0 人已评分' }}</div>
               <div class="meta-value rating-inline">
                 <span class="rating-text">{{ averageRating10 > 0 ? (averageRating10).toFixed(1) : '—' }}</span>
               </div>
@@ -579,6 +673,53 @@ const startReading = () => {
         </button>
       </div>
       
+      <!-- 送积分模块：显示解锁所需积分与用户已送出的积分 -->
+      <div class="points-box">
+        <div class="points-info">
+          <div class="points-row">
+            <div class="points-label">解锁本篇需</div>
+            <div class="points-value">{{ unlockPointsNeeded }} 积分</div>
+          </div>
+          <div class="points-row">
+            <div class="points-label">你已送出</div>
+            <div class="points-value">{{ userGivenPoints }} 积分</div>
+          </div>
+        </div>
+        <div class="points-actions">
+          <button :disabled="sendingPoints" class="submit-comment-btn" @click="openPointsModal">
+            {{ sendingPoints ? '发送中...' : '送积分' }}
+          </button>
+        </div>
+      </div>
+      
+      <!-- 页面内送积分弹窗 -->
+      <div v-if="showPointsModal" class="modal-overlay" @click="cancelSendPoints">
+        <div class="modal-content" @click.stop>
+          <h2 class="modal-title">送出积分</h2>
+          <p style="color:#555;margin-top:0.5rem;">向作者送出积分以支持创作。请输入送出的积分数量（整数）。</p>
+          <div style="margin-top:1rem;">
+            <div class="preset-grid">
+              <button
+                v-for="(p, idx) in presets"
+                :key="idx"
+                :class="['preset-btn', { active: selectedPreset === p || selectedPreset === p } ]"
+                @click="selectPreset(p)">
+                {{ p }}
+              </button>
+            </div>
+
+            <div v-if="selectedPreset === '自定义'" style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center;">
+              <input type="number" v-model.number="pointsAmount" min="1" style="flex:1;padding:0.6rem;border:1px solid #e0e0e0;border-radius:8px;font-size:1rem;" />
+              <div style="color:#999;font-size:0.95rem;">积分</div>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-top:1.25rem;">
+            <button class="close-btn" @click="cancelSendPoints" aria-label="关闭" title="关闭" style="background:#f0f0f0;color:#333;padding:0.5rem 0.9rem;border-radius:8px;border:none">×</button>
+            <button class="submit-comment-btn" @click="confirmSendPoints">确认送出</button>
+          </div>
+        </div>
+      </div>
+      
       <!-- 评论区域 -->
       <div class="comments-section">
         <div class="comments-header">
@@ -592,12 +733,12 @@ const startReading = () => {
               </button>
               <button class="tab-btn" :class="{ active: showingRatings }" @click="showingRatings = true" style="flex:1;justify-content:center;">
                 <div class="tab-label">评分</div>
-                <div class="tab-count">{{ ratings.length }} <span class="tab-unit">人</span></div>
+                <div class="tab-count">{{ totalRatingCount }} <span class="tab-unit">人</span></div>
               </button>
             </div>
 
             <!-- 平铺的平均评分显示（仅在评分 tab 激活时显示） -->
-            <div class="avg-rating" v-if="showingRatings && ratings.length > 0" style="display:flex;align-items:center;gap:0.5rem;">
+            <div class="avg-rating" v-if="showingRatings && totalRatingCount > 0" style="display:flex;align-items:center;gap:0.5rem;">
               <div class="avg-stars">
                 <span v-for="n in 5" :key="n" class="star" :class="{ filled: n <= Math.round(averageRating) }">★</span>
               </div>
@@ -668,7 +809,7 @@ const startReading = () => {
 
             <!-- 分页显示评分列表 -->
             <div class="ratings-list" style="width:100%;margin-top:0.5rem;">
-              <div v-if="ratings.length === 0" class="empty-comments">
+              <div v-if="totalRatingCount === 0" class="empty-comments">
                 <p>还没有评分，快来评分吧！</p>
               </div>
               <div v-else>
@@ -1531,6 +1672,63 @@ const startReading = () => {
 
 .cancel-reply-btn:hover {
   color: #c89090;
+}
+
+/* 送积分模块 */
+.points-box {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:1rem;
+  background: white;
+  border-radius: 12px;
+  padding: 1rem;
+  margin: 1rem 0 1.5rem 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.points-info {
+  display:flex;
+  flex-direction:column;
+  gap:0.5rem;
+}
+.points-row {
+  display:flex;
+  gap:0.75rem;
+  align-items:center;
+}
+.points-label {
+  color:#777;
+  font-size:0.95rem;
+}
+.points-value {
+  color:#2c3e50;
+  font-weight:700;
+}
+.points-actions {
+  display:flex;
+  align-items:center;
+}
+
+/* 预设额度按钮 */
+.preset-grid {
+  display:flex;
+  flex-wrap:wrap;
+  gap:0.5rem;
+}
+.preset-btn {
+  padding:0.5rem 0.9rem;
+  border-radius:8px;
+  border:1px solid #eee;
+  background:#fff;
+  cursor:pointer;
+  font-weight:600;
+  color: #999; /* 未选中时字体浅灰 */
+}
+.preset-btn.active {
+  background:#d4a5a5; /* 与 submit-comment-btn 一致的肉粉色 */
+  color:#fff;
+  border-color:transparent;
+  box-shadow:0 4px 12px rgba(212,165,165,0.28);
 }
 
 /* 评论输入区 */

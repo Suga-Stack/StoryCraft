@@ -4,6 +4,7 @@
  */
 
 import { http, getUserId } from './http.js'
+import { POLL_DETAILS_INTERVAL_MS, POLL_DETAILS_TIMEOUT_MS } from '../config/polling.js'
 
 /**
  * 将用户在创建界面输入的数据发送至后端创建作品
@@ -49,8 +50,9 @@ export async function createWorkOnBackend(payload = {}) {
   }
 
   const id = res.gameworkId
-  const pollIntervalMs = 1500
-  const timeoutMs = 120000 // 最多等待 120s
+  // 轮询间隔与整体超时由配置控制
+  const pollIntervalMs = POLL_DETAILS_INTERVAL_MS
+  const timeoutMs = POLL_DETAILS_TIMEOUT_MS // 默认 10 分钟，可通过环境变量覆盖
   const start = Date.now()
 
   while (Date.now() - start < timeoutMs) {

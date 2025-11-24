@@ -4,6 +4,7 @@
  */
 
 import { http, getUserId } from './http.js'
+import { STORY_MAX_RETRIES, STORY_RETRY_INTERVAL_MS } from '../config/polling.js'
 
 /**
  * 获取指定章节的剧情场景
@@ -26,8 +27,9 @@ import { http, getUserId } from './http.js'
  */
 export async function getScenes(workId, chapterIndex = 1, options = {}) {
   const {
-    maxRetries = 60,  // 最大重试次数（增加到60次，约5分钟）
-    retryInterval = 5000,  // 重试间隔(5秒)
+    // 默认更耐心：约 10 分钟（120 次 * 5 秒）
+    maxRetries = STORY_MAX_RETRIES,
+    retryInterval = STORY_RETRY_INTERVAL_MS,
     onProgress  // 进度回调函数
   } = options
 
@@ -126,7 +128,7 @@ export async function getScenes(workId, chapterIndex = 1, options = {}) {
  * @returns {Promise<{id: string|number, title: string, coverUrl?: string, authorId?: string, description?: string}>}
  */
 export async function getWorkInfo(workId) {
-  return await http.get(`/api/works/${workId}`)
+  return await http.get(`/api/gameworks/gameworks/${workId}`)
 }
 
 /**
@@ -218,6 +220,34 @@ export async function getInitialScenes(workId) {
   return res.scenes || []
 }
 
+/**
+ * 获取个性化结算报告
+ * @param {string|number} workId - 作品 ID
+ * @param {Object} gameState - 游戏状态
+ * @param {Object} gameState.attributes - 当前属性
+ * @param {Object} gameState.statuses - 当前状态
+ * @returns {Promise<Object|null>} 结算报告数据，失败时返回 null
+ */
+export async function fetchSettlementReport(workId, gameState = {}) {
+  try {
+    const { attributes = {}, statuses = {} } = gameState
+    
+    console.log('[Story] 请求结算报告 - workId:', workId)
+    console.log('[Story] 游戏状态 - attributes:', attributes, 'statuses:', statuses)
+    
+    const data = await http.post(
+      `/api/settlement/report/${workId}/`,
+      { attributes, statuses }
+    )
+    
+    console.log('[Story] 结算报告获取成功:', data)
+    return data
+  } catch (error) {
+    console.warn('[Story] 获取结算报告失败:', error)
+    return null
+  }
+}
+
 // 导出所有 API
 export default {
   getScenes,
@@ -228,5 +258,6 @@ export default {
   getWorkList,
   updateWork,
   deleteWork,
-  getInitialScenes
+  getInitialScenes,
+  fetchSettlementReport
 }
