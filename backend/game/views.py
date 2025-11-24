@@ -1,8 +1,10 @@
 import logging
 import os
+import time
 from rest_framework import views, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from django.db import transaction, OperationalError
 from .serializers import (
     GameCreateSerializer,
     GameChapterStatusResponseSerializer, SettlementRequestSerializer, 
@@ -137,7 +139,7 @@ class GameChapterView(views.APIView):
                 gamework = get_object_or_404(Gamework, pk=gameworkId)
             except Exception as e:
                 return Response({"error":"指定的作品不存在"}, status=status.HTTP_404_NOT_FOUND)
-            
+            print("tring to get chapter status for gameworkId:", gameworkId, "chapterIndex:", chapterIndex)
             result = services.get_chapter_status(gamework, chapterIndex)
             return Response(result, status=status.HTTP_200_OK)
         except Exception as e:
@@ -357,18 +359,40 @@ class GameSaveDetailView(views.APIView):
             ending_index=state.get("endingIndex")
         ) or ""
 
-        GameSave.objects.update_or_create(
-            user=request.user,
-            gamework=gamework,
-            slot=slot,
-            defaults={
-                "title": payload.get("title", "默认标题"),
-                "timestamp": payload.get("timestamp", 1),
-                "state": state,
-                "cover_url": cover_url
-            }
+        # 添加重试机制处理 SQLite 数据库锁定问题
+        max_retries = 3
+        retry_delay = 0.5  # 500ms
+        
+        for attempt in range(max_retries):
+            try:
+                with transaction.atomic():
+                    GameSave.objects.update_or_create(
+                        user=request.user,
+                        gamework=gamework,
+                        slot=slot,
+                        defaults={
+                            "title": payload.get("title", "默认标题"),
+                            "timestamp": payload.get("timestamp", 1),
+                            "state": state,
+                            "cover_url": cover_url
+                        }
+                    )
+                return Response({"ok": True}, status=status.HTTP_200_OK)
+            except OperationalError as e:
+                if "database is locked" in str(e) and attempt < max_retries - 1:
+                    # 如果是数据库锁定错误且还有重试机会，等待后重试
+                    time.sleep(retry_delay * (attempt + 1))  # 递增延迟
+                    continue
+                else:
+                    # 如果不是锁定错误或已达到最大重试次数，抛出异常
+                    logger.error(f"存档失败 (重试 {attempt + 1}/{max_retries}): {str(e)}")
+                    raise
+        
+        # 如果所有重试都失败，返回错误
+        return Response(
+            {"error": "存档失败，数据库繁忙，请稍后重试"}, 
+            status=status.HTTP_503_SERVICE_UNAVAILABLE
         )
-        return Response({"ok": True}, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(
         operation_summary="读取存档",
@@ -387,7 +411,8 @@ class GameSaveDetailView(views.APIView):
         payload = {
             "title": save.title,
             "timestamp": save.timestamp,
-            "state": save.state
+            "state": save.state,
+            "cover_url": save.cover_url  # 添加缩略图 URL
         }
         return Response(payload, status=status.HTTP_200_OK)
 
