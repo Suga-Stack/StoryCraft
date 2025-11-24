@@ -145,9 +145,15 @@ class GameChapterManualUpdateSerializer(serializers.Serializer):
     chapterIndex = serializers.IntegerField()
     title = serializers.CharField()
     scenes = GameChapterSceneSerializer(many=True)
+    
+class GameEndingManualUpdateSerializer(serializers.Serializer):
+    endingIndex = serializers.IntegerField(help_text="结局Index")
+    title = serializers.CharField(max_length=255, help_text="结局标题")
+    scenes = GameChapterSceneSerializer(many=True)
 
 class ChapterOutlineSerializer(serializers.Serializer):
     chapterIndex = serializers.IntegerField()
+    title = serializers.CharField(required=False, allow_blank=True)
     outline = serializers.CharField()
 
 class ChapterGenerateSerializer(serializers.Serializer):
@@ -202,7 +208,8 @@ class GameChapterStatusResponseSerializer(serializers.Serializer):
     chapter = GameChapterResponseSerializer(required=False, help_text="章节内容(仅在ready时返回)")
 
 class GameSaveStateSerializer(serializers.Serializer):
-    chapterIndex = serializers.IntegerField(required=True, allow_null=True)
+    chapterIndex = serializers.IntegerField(required=False, allow_null=True)
+    endingIndex = serializers.IntegerField(required=False, allow_null=True)
     sceneId = serializers.IntegerField(required=True, allow_null=True)
     dialogueIndex = serializers.IntegerField(required=False, allow_null=True)
     attributes = serializers.DictField(child=serializers.IntegerField(), required=False, default=dict)

@@ -40,6 +40,7 @@ def _normalize_block(text: str) -> str:
     """规范化文本块:
     - 去除首尾空白
     - 折叠多余空行为单个换行
+    - 行内合并
     - 压缩多余空白为单个空格
     """
     if not text:
@@ -47,6 +48,7 @@ def _normalize_block(text: str) -> str:
     t = text.replace("\r", "")
     t = re.sub(r"\n{2,}", "\n", t)          # 多空行折叠
     t = t.strip()
+    t = " ".join(t.splitlines())            # 行内合并
     t = re.sub(r"[ \t]+", " ", t)           # 多空格折叠
     return t.strip()
 
@@ -332,12 +334,47 @@ def parse_raw_chapter(raw_content: str, ranges: list[int]) -> dict:
 
     return {"chapterIndex": chapter_index, "title": chapter_title, "scenes": scenes}
 
-test = """
-你从冬眠中苏醒，冰冷的液体从维生舱中退去。第一口呼吸带着消毒剂的刺鼻气味，肺部灼痛。隔离空间站的金属墙壁泛着苍白的光，寂静中只有生命维持系统的低沉嗡鸣。你活动僵硬的手指，触碰到控制台——倒计时终端已经启动：71:59:42。鲜红的数字在黑暗中跳动，每一次变化都像心跳的倒计时。
+def update_story_directory(story, new_outlines: list[dict]):
+    """更新 story.chapter_directory 中的大纲内容"""
+    directory = story.chapter_directory
+    if not directory:
+        return
 
-"艾德里安·韦斯博士，能听到我吗？"通讯器传来冷静的女声，"我是伊莎贝尔·陈，地面指挥中心首席科学顾问。你的生命体征稳定，这很好。我们没有时间进行标准复苏程序了。"
-"""
-
-if __name__ == "__main__":
-    result = parse_raw_chapter(test,[10,100])
-    print(result)
+    for item in new_outlines:
+        idx = item.get('chapterIndex')
+        new_outline = item.get('outline')
+        if idx is None or new_outline is None:
+            continue
+            
+        # 匹配章节标题行：例如 "### 第1章" 或 "第 1 章"
+        pattern_chapter_start = re.compile(r"^(?:#+\s*)?第\s*" + str(idx) + r"\s*章.*$", re.MULTILINE)
+        m_start = pattern_chapter_start.search(directory)
+        if not m_start:
+            continue
+            
+        start_idx = m_start.end()
+        
+        # 寻找下一章开始位置
+        pattern_next_chapter = re.compile(r"^(?:#+\s*)?第\s*\d+\s*章", re.MULTILINE)
+        m_next = pattern_next_chapter.search(directory, pos=start_idx)
+        end_idx = m_next.start() if m_next else len(directory)
+        
+        chapter_body = directory[start_idx:end_idx]
+        
+        # 替换大纲部分
+        # 匹配 "**章节大纲**：" 或 "章节大纲：" 等，直到块结束
+        # 使用 DOTALL 匹配换行符
+        pattern_outline = re.compile(r"((?:\*\*|\[|【)?\s*章节大纲\s*(?:\*\*|\]|】)?\s*[:：]\s*)(.*)", re.DOTALL)
+        
+        if pattern_outline.search(chapter_body):
+             # 替换 group 2
+             safe_outline = new_outline.replace('\\', '\\\\')
+             new_body = pattern_outline.sub(r"\1" + safe_outline + "\n\n", chapter_body, count=1)
+             directory = directory[:start_idx] + new_body + directory[end_idx:]
+        else:
+            # 如果没找到大纲字段，追加
+            new_body = chapter_body.rstrip() + f"\n\n**章节大纲**：{new_outline}\n\n"
+            directory = directory[:start_idx] + new_body + directory[end_idx:]
+            
+    story.chapter_directory = directory
+    story.save()

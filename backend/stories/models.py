@@ -11,12 +11,12 @@ class Story(models.Model):
     initial_attributes = models.JSONField(default=dict, help_text="故事初始主角属性值")
     initial_statuses = models.JSONField(default=dict,blank=True,null=True, help_text="主角初始状态")
 
-    core_seed = models.TextField(default="", help_text="用于生成故事的核心剧情种子")
-    attribute_system = models.TextField(default="", help_text="完整属性系统")
-    characters = models.TextField(default="", help_text="主要角色设定")
-    architecture = models.TextField(default="", help_text="叙事架构")
-    chapter_directory = models.TextField(default="", help_text="章节目录")
-    global_summary = models.TextField(default="", help_text="全局摘要")
+    core_seed = models.TextField(default="",blank=True,null=True, help_text="用于生成故事的核心剧情种子")
+    attribute_system = models.TextField(default="",blank=True,null=True, help_text="完整属性系统")
+    characters = models.TextField(default="", blank=True,null=True,help_text="主要角色设定")
+    architecture = models.TextField(default="",blank=True,null=True, help_text="叙事架构")
+    chapter_directory = models.TextField(default="",blank=True,null=True, help_text="章节目录")
+    global_summary = models.TextField(default="",blank=True,null=True, help_text="全局摘要")
     outlines = models.JSONField(default=list, blank=True, help_text="所有章节的大纲")
     endings_summary = models.JSONField(default=list,blank=True,null=True, help_text="结局梗概")
 
@@ -85,17 +85,20 @@ class StoryEnding(models.Model):
     故事结局模型，存储生成的完整结局内容。
     """
     story = models.ForeignKey(Story, on_delete=models.CASCADE, related_name='story_endings', help_text="关联的故事")
+    ending_index = models.PositiveIntegerField(default=1, help_text="结局序号")
     title = models.CharField(max_length=255, help_text="结局标题")
     condition = models.JSONField(default=dict, help_text="触发条件")
-    summary = models.TextField(default="", help_text="结局梗概")
-    
     raw_content = models.TextField(default="", help_text="结局原始文本")
     parsed_content = models.JSONField(default=dict, help_text="格式化后的结局内容")
     
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        ordering = ['story', 'ending_index']
+        unique_together = ['story', 'ending_index']
+
     def __str__(self):
-        return f"{self.story.gamework.title} - Ending: {self.title}"
+        return f"{self.story.gamework.title} - Ending {self.ending_index}: {self.title}"
 
 class StoryScene(models.Model):
     """故事场景模型，记录场景及其对白、选项。"""
