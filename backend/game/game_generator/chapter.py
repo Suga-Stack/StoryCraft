@@ -1,5 +1,6 @@
 import re
 import json
+from typing import Iterator
 from .openai_client import invoke
 from .prompts import(
     build_chapter_prompt,
@@ -189,14 +190,16 @@ def generate_ending_content(
     parsed_chapters: list,
     initial_attributes: dict,
     global_summary: str = "",
-):
+) -> Iterator[dict]:
     """
-    生成完整结局内容，并解析触发条件。
+    使用 yield 逐个返回生成的结局数据。
+    - title（结局标题）
+    - condition (解析后条件)
+    - raw_content（原始完整结局文本）
     """
     # 计算属性范围
     attr_ranges = _calculate_attributes(parsed_chapters, initial_attributes)
     
-    endings = []
     for ending_info in endings_summary:
         # 解析条件
         parsed_condition = _parse_ending_condition(ending_info["condition"], attr_ranges)
@@ -215,11 +218,8 @@ def generate_ending_content(
             last_chapter_content=last_chapter_content     
         ))
         
-        endings.append({
+        yield {
             "title": ending_info["title"],
             "condition": parsed_condition, # 存解析后的数值条件
-            "summary": ending_info["summary"],
             "raw_content": ending_content
-        })
-
-    return endings
+        }

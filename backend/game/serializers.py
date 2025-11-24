@@ -145,9 +145,15 @@ class GameChapterManualUpdateSerializer(serializers.Serializer):
     chapterIndex = serializers.IntegerField()
     title = serializers.CharField()
     scenes = GameChapterSceneSerializer(many=True)
+    
+class GameEndingManualUpdateSerializer(serializers.Serializer):
+    endingIndex = serializers.IntegerField(help_text="结局Index")
+    title = serializers.CharField(max_length=255, help_text="结局标题")
+    scenes = GameChapterSceneSerializer(many=True)
 
 class ChapterOutlineSerializer(serializers.Serializer):
     chapterIndex = serializers.IntegerField()
+    title = serializers.CharField(required=False, allow_blank=True)
     outline = serializers.CharField()
 
 class ChapterGenerateSerializer(serializers.Serializer):
