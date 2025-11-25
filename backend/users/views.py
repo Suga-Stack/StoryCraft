@@ -11,13 +11,13 @@ from django.utils.crypto import get_random_string
 from django.shortcuts import get_object_or_404
 from game.models import GameSave
 from gameworks.models import Gamework
-from .serializers import UserSerializer, RegisterSerializer, LoginSerializer, LogoutSerializer, UserPreferenceSerializer
+from .serializers import UserSerializer, RegisterSerializer, LoginSerializer, LogoutSerializer, UserPreferenceSerializer, CreditLogSerializer
 from gameworks.serializers import GameworkSimpleSerializer
 from interactions.models import ReadRecord
 from django.utils import timezone
 from datetime import date, timedelta
-from .utils import get_signin_reward
-from .models import UserSignIn
+from .utils import get_signin_reward, change_user_credits
+from .models import UserSignIn, CreditLog
 
 User = get_user_model()
 
@@ -276,9 +276,12 @@ class ReadGameworkListView(APIView):
                 return Response({'code': 400, 'message': '积分不足，无法阅读该作品'}, status=status.HTTP_400_BAD_REQUEST)
 
             # 扣积分
-            user.user_credits -= gamework.price
-            user.save()
-
+            change_user_credits(
+                user=user,
+                amount=-gamework.price,
+                log_type='read_pay',
+                remark=f'阅读作品《{gamework.title}》扣费'
+            )
             obj.has_paid = True
 
         # 更新阅读时间
@@ -464,8 +467,12 @@ class UserSignInView(APIView):
         signin_record.save()
 
         # 增加用户积分
-        user.user_credits = (user.user_credits or 0) + reward
-        user.save()
+        change_user_credits(
+            user=user,
+            amount=reward,
+            log_type='reward',
+            remark=f'签到奖励（连续第 {signin_record.continuous_days} 天）'
+        )
 
         return Response({
             "message": "签到成功",
@@ -499,14 +506,38 @@ class RechargeViewSet(viewsets.ViewSet):
             return Response({"code": 400, "message": "充值积分必须大于 0"}, status=400)
 
         user = request.user
-        user.user_credits += credits
-        user.save()
+        after = change_user_credits(
+            user=user,
+            amount=credits,
+            log_type='recharge',
+            remark='用户充值'
+        )
 
         return Response({
             "code": 200,
             "message": "充值成功",
-            "new_credits": user.user_credits
+            "new_credits": after
         }, status=200)
+    
+class CreditLogViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = CreditLogSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="获取用户积分流水",
+        operation_description="返回当前登录用户所有积分变动记录（积分增加、减少、任务奖励、消费扣减等）",
+        responses={
+            200: openapi.Response(
+                description="积分流水列表",
+                schema=CreditLogSerializer(many=True)
+            )
+        }
+    )
+    def list(self, request, *args, **kwargs):
+        queryset = CreditLog.objects.filter(user=request.user).order_by('-created_at')
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
 
 class SaveDetailView(APIView):
     """

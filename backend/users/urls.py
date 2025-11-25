@@ -1,5 +1,5 @@
 from django.urls import path, include
-from .views import UserPreferenceView, UserViewSet, ReadGameworkListView, RecentReadGameworksView, MyGameworkListView, RecentMyGameworksView, UserSignInView, RechargeViewSet
+from .views import UserPreferenceView, UserViewSet, ReadGameworkListView, RecentReadGameworksView, MyGameworkListView, RecentMyGameworksView, UserSignInView, RechargeViewSet, CreditLogViewSet
 from .views import SaveDetailView, SaveListView
 
 urlpatterns = [
@@ -12,6 +12,7 @@ urlpatterns = [
     path('myworks/recent/', RecentMyGameworksView.as_view(), name='recent_my_gameworks'),
     path("signin/", UserSignInView.as_view(), name="user-signin"),
     path('recharge/', RechargeViewSet.as_view({'post': 'create'}), name='user-recharge'),
+    path('creditlog/', CreditLogViewSet.as_view({'get': 'list'}), name='user-creditlog'),
     # 存档接口
     path('<int:userId>/saves/<int:workId>/<str:slot>/', SaveDetailView.as_view(), name='user-save-detail'),
     path('<int:userId>/saves/<int:workId>/', SaveListView.as_view(), name='user-save-list'),

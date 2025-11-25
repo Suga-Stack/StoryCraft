@@ -2,6 +2,7 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from tags.models import Tag
 from gameworks.models import Gamework
+from django.conf import settings
 
 # 用户模型
 class User(AbstractUser):
@@ -36,3 +37,34 @@ class UserSignIn(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - 连续 {self.continuous_days} 天"
+    
+class CreditLog(models.Model):
+    """用户积分流水记录"""
+
+    TYPE_CHOICES = [
+        ('recharge', '积分充值'),
+        ('reward', '签到奖励 / 系统奖励'),
+        ('read_pay', '阅读扣费'),
+        ('manual', '管理员调整'),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="credit_logs"
+    )
+
+    change_amount = models.IntegerField()  # 正数=增加，负数=减少
+    before_balance = models.IntegerField()
+    after_balance = models.IntegerField()
+
+    type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    remark = models.CharField(max_length=255, blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"[{self.get_type_display()}] {self.user.username}: {self.change_amount}"

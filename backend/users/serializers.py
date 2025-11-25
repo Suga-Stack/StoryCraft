@@ -1,15 +1,14 @@
 from rest_framework import serializers
-from django.contrib.auth import get_user_model, authenticate
+from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
 from rest_framework_simplejwt.tokens import RefreshToken, TokenError
 from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
-from django.core.mail import send_mail
+from django.core.exceptions import ValidationError
 from tags.models import Tag
-from tags.serializers import TagSerializer
+from .models import CreditLog
 
 User = get_user_model()
-
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -139,3 +138,8 @@ class UserPreferenceSerializer(serializers.ModelSerializer):
 
         instance.save()
         return instance
+    
+class CreditLogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CreditLog
+        fields = ['change_amount', 'before_balance', 'after_balance', 'type', 'remark', 'created_at']
