@@ -519,6 +519,67 @@ class RechargeViewSet(viewsets.ViewSet):
             "new_credits": after
         }, status=200)
     
+class RewardViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="打赏作品作者",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                "gamework_id": openapi.Schema(type=openapi.TYPE_INTEGER, description="被打赏的作品ID"),
+                "amount": openapi.Schema(type=openapi.TYPE_INTEGER, description="打赏金额 (整数 > 0)")
+            },
+            required=["amount"]
+        ),
+        responses={200: "打赏成功"}
+    )
+    def create(self, request, pk=None):
+        gamework_id = request.data.get("gamework_id")
+        amount = request.data.get("amount")
+        try:
+            amount = int(amount)
+        except (TypeError, ValueError):
+            return Response({"code": 400, "message": "打赏金额必须为整数"}, status=400)
+
+        if amount <= 0:
+            return Response({"code": 400, "message": "打赏金额必须大于 0"}, status=400)
+        
+        user=request.user
+        if (user.user_credits or 0) < amount:
+            return Response({'code': 400, 'message': '积分不足，无法打赏'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 找到作品
+        gamework = get_object_or_404(Gamework, id=gamework_id)
+        author = gamework.author
+
+        if request.user == gamework.author:
+            return Response({"code": 400, "message": "不能给自己的作品打赏"}, status=400)
+
+        # 创建支出记录（打赏者）
+        change_user_credits(
+            user=user,
+            amount=-amount,
+            log_type="reward_out",
+            remark=f'打赏作品《{gamework.title}》'
+        )
+
+        author.refresh_from_db()
+        # 创建收入记录（作者）
+        change_user_credits(
+            user=author,
+            amount=amount,
+            log_type="reward_in",
+            remark=f'收到作品《{gamework.title}》的打赏'
+        )
+
+        return Response({
+            "code": 200,
+            "message": "打赏成功",
+            "amount": amount,
+            "author": author.username
+        })
+    
 class CreditLogViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = CreditLogSerializer
     permission_classes = [permissions.IsAuthenticated]

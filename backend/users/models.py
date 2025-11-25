@@ -46,6 +46,8 @@ class CreditLog(models.Model):
         ('reward', '签到奖励 / 系统奖励'),
         ('read_pay', '阅读扣费'),
         ('manual', '管理员调整'),
+        ('reward_out', '打赏支出'),
+        ('reward_in', '获得打赏'),
     ]
 
     user = models.ForeignKey(
