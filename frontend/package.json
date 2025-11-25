@@ -19,7 +19,8 @@
     "pinia": "^3.0.4",
     "vant": "^4.9.21",
     "vue": "^3.5.22",
-    "vue-router": "^4.6.0"
+    "vue-router": "^4.6.0",
+    "vue3-datepicker": "^0.4.0"
   },
   "devDependencies": {
     "@capacitor/cli": "^7.4.3",

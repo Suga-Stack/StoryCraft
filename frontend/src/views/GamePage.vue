@@ -55,7 +55,6 @@ const {
   restoreChoiceFlagsFromHistory,
   getDialogueItem,
   // 服务引用
-  getScenes,
   setGetScenes,
   generateChapter,
   setGenerateChapter,
@@ -157,7 +156,7 @@ const {
   previewSnapshot,
   pendingOutlineTargetChapter,
   overrides,
-  outlineEditorResolver,
+
   
   toggleCreatorMode,
   openOutlineEditorManual,
@@ -184,6 +183,10 @@ const {
   setupCreatorModeWatch,
   setDependencies: setCreatorModeDependencies
 } = creatorModeAPI
+
+// 修改为 let
+let { getScenes, someOtherData } = useSomeComposable();
+let outlineEditorResolver = null;
 
 // 当前对话对象（可能是字符串或对象）
 const currentDialogueObject = computed(() => {

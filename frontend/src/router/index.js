@@ -14,6 +14,7 @@ import ProfilePage from '../views/ProfilePage.vue'
 import MyCreationsPage from '../views/MyCreationsPage.vue'
 import ReadingHistoryPage from '../views/ReadinghistoryPage.vue'
 import CreditsChargePage from '../views/CreditsChargePage.vue'
+import TestSignPage from '../views/TestSignPage.vue'
 
 const routes = [
    {
@@ -90,6 +91,11 @@ const routes = [
     path: '/charge',
     name: 'charge',
     component: CreditsChargePage
+  },
+  {
+    path: '/test',
+    name: 'test',
+    component: TestSignPage
   }
 ]
 
