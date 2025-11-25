@@ -329,7 +329,7 @@ def build_game_architecture_prompt(
 
 def build_chapter_directory_prompt(
     core_seed: str,
-    attribute_system: str, 
+    attribute_system: str,
     characters: str,
     architecture: str,
     total_chapters: int
@@ -612,7 +612,7 @@ def build_last_chapter_with_endings_prompt(
    - **缺憾/特殊结局**（特定属性偏科或较低，带有悲剧色彩或另类展开）
 2. **判定逻辑**：基于【完整属性系统】中的属性设定合理的触发条件，条件只能为较高、中等或较低三个词中的一个。
    - 例如："勇气较高，智慧中等" 或 "心计较低"，注意用逗号分隔多个属性条件。严格遵循此格式。
-   - 最后一个结局为默认结局，属性要求一栏为空。
+   - 最后一个结局必须为默认结局，属性要求一栏为空。
 3. **结局简述**：为每个结局提供150-200字左右的剧情梗概。
 
 # 输出格式
@@ -833,3 +833,33 @@ def build_scene_image_prompt_prompt(chapter_content: str) -> str:
 - 确保每个Prompt都能独立生成高质量的背景图像。
 - 直接按要求返回有效格式，不要任何解释。
 """
+
+def build_report_prompt(
+    global_summary: str,
+    ending_summary: str,
+    ending_title: str
+) -> str:
+    return f"""
+# 任务
+你是一位资深的文字冒险游戏剧情策划。请根据以下提供的全局剧情摘要和玩家达成的结局，生成详细的玩家个性报告。
+
+# 全局剧情摘要
+{global_summary}
+
+# 达成结局
+标题：{ending_title}
+概述：{ending_summary}
+
+# 报告要求
+请生成一份个性化的结算报告，包含以下内容：
+1. **称号**：一个四字或五字的独特称号，概括玩家在故事中的表现（如“宫心计谋家”、“末世独行者”）。
+2. **评价**：一段100-150字的评价，以第二人称“你”的口吻，分析玩家的性格特点、决策风格以及在故事中的命运。
+3. **特质**：提取3-4个关键词标签，描述玩家的核心特质（如“果敢”、“深谋远虑”、“仁慈”）。
+
+# 输出格式
+请严格按照以下格式输出，不要包含任何解释：
+[称号]：xxxx
+[评价]：xxxx
+[特质]：xxxx, xxxx, xxxx
+"""
+

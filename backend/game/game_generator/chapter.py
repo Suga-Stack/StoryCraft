@@ -191,11 +191,13 @@ def generate_ending_content(
     parsed_chapters: list,
     initial_attributes: dict,
     global_summary: str = "",
+    user_prompt: str = ""
 ) -> Iterator[dict]:
     """
     使用 yield 逐个返回生成的结局数据。
     - title（结局标题）
     - condition (解析后条件)
+    - summary（结局概述）
     - raw_content（原始完整结局文本）
     """
     # 计算属性范围
@@ -205,8 +207,8 @@ def generate_ending_content(
         # 解析条件
         parsed_condition = _parse_ending_condition(ending_info["condition"], attr_ranges)
         
-        # 生成内容
-        ending_content = invoke(build_ending_content_prompt(
+        # 构建 Prompt
+        prompt = build_ending_content_prompt(
             ending_title=ending_info["title"],
             ending_condition=ending_info["condition"], 
             ending_summary=ending_info["summary"],
@@ -217,10 +219,17 @@ def generate_ending_content(
             global_summary=global_summary,
             previous_chapter_content=previous_chapter_content, 
             last_chapter_content=last_chapter_content     
-        ))
+        )
+        
+        if user_prompt:
+            prompt += f"\n# 创作者附加指令\n{user_prompt}\n(请合理融合但保持结局逻辑一致)"
+
+        # 生成内容
+        ending_content = invoke(prompt)
         
         yield {
             "title": ending_info["title"],
             "condition": parsed_condition, # 存解析后的数值条件
+            "summary": ending_info["summary"],
             "raw_content": ending_content
         }

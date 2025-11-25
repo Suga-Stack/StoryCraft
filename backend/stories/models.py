@@ -88,6 +88,7 @@ class StoryEnding(models.Model):
     ending_index = models.PositiveIntegerField(default=1, help_text="结局序号")
     title = models.CharField(max_length=255, help_text="结局标题")
     condition = models.JSONField(default=dict, help_text="触发条件")
+    summary = models.TextField(default="", help_text="结局概述")
     raw_content = models.TextField(default="", help_text="结局原始文本")
     parsed_content = models.JSONField(default=dict, help_text="格式化后的结局内容")
     
