@@ -482,8 +482,89 @@ export function useStoryAPI() {
         return data
         }
 
-        // 规范化 scenes 来源：优先使用 data.chapter.scenes（新接口），其次使用 data.scenes（兼容）
-        const scenesArray = (data && data.chapter && Array.isArray(data.chapter.scenes)) ? data.chapter.scenes : (data && Array.isArray(data.scenes) ? data.scenes : null)
+        // 规范化 scenes 来源：
+        // - 优先支持结局格式：{ endings: [ { title, summary, scenes: [...] }, ... ] }
+        //   我们只解析第一个 ending 并将其 scenes 推入 storyScenes，同时标记为结局。
+        // - 否则使用 data.chapter.scenes（新接口）或 data.scenes（兼容）
+        let scenesArray = null
+        if (data && Array.isArray(data.endings) && data.endings.length > 0) {
+        // 支持多个 endings，根据属性/状态条件选择合适的一个
+        const evaluateCondition = (condition = {}, attrsRef, statusesRef) => {
+          try {
+            if (!condition || Object.keys(condition).length === 0) return true
+            const attrs = (attrsRef && attrsRef.value) ? attrsRef.value : (attrsRef || {})
+            const statuses = (statusesRef && statusesRef.value) ? statusesRef.value : (statusesRef || {})
+
+            for (const [key, expr] of Object.entries(condition)) {
+              // 优先从 attributes 中读取其值，否则从 statuses 中读取
+              const raw = (attrs && (key in attrs)) ? attrs[key] : ((statuses && (key in statuses)) ? statuses[key] : undefined)
+              const actualRaw = raw
+              const actual = Number(actualRaw)
+
+              if (typeof expr === 'number') {
+                if (Number.isNaN(actual) || actual !== expr) return false
+                continue
+              }
+
+              if (typeof expr === 'string') {
+                const trimmed = expr.trim()
+                const m = trimmed.match(/^(>=|<=|>|<|==|=)\s*(-?\d+(?:\.\d+)?)$/)
+                if (m) {
+                  const op = m[1]
+                  const num = Number(m[2])
+                  if (Number.isNaN(actual)) return false
+                  switch (op) {
+                    case '>': if (!(actual > num)) return false; break
+                    case '<': if (!(actual < num)) return false; break
+                    case '>=': if (!(actual >= num)) return false; break
+                    case '<=': if (!(actual <= num)) return false; break
+                    case '==': if (!(actual == num)) return false; break
+                    case '=': if (!(actual == num)) return false; break
+                    default: return false
+                  }
+                  continue
+                }
+
+                if (String(actualRaw) !== trimmed) return false
+                continue
+              }
+
+              if (actualRaw !== expr) return false
+            }
+            return true
+          } catch (e) { console.warn('evaluateCondition error', e); return false }
+        }
+
+        const pickEnding = (endingsArray, attrsRef, statusesRef) => {
+          if (!Array.isArray(endingsArray)) return null
+          for (const e of endingsArray) {
+            const cond = e?.condition || {}
+            if (evaluateCondition(cond, attrsRef, statusesRef)) return e
+          }
+          // 如果没有匹配任意条件，回退到第一个结局（兼容旧行为）
+          return endingsArray[0] || null
+        }
+
+        const chosen = pickEnding(data.endings, _attributes, _statuses)
+        if (chosen && Array.isArray(chosen.scenes) && chosen.scenes.length > 0) {
+          scenesArray = chosen.scenes.map(s => {
+            try {
+              if (!s || typeof s !== 'object') return s
+              const out = Object.assign({}, s)
+              out.isEnding = true
+              out.endingTitle = chosen.title || null
+              out.endingSummary = chosen.summary || null
+              return out
+            } catch (e) { return s }
+          })
+          storyEndSignaled.value = true
+          console.log('[fetchNextChapter] Selected ending:', chosen.title)
+        } else {
+          scenesArray = null
+        }
+        } else {
+        scenesArray = (data && data.chapter && Array.isArray(data.chapter.scenes)) ? data.chapter.scenes : (data && Array.isArray(data.scenes) ? data.scenes : null)
+        }
         console.log(`[fetchNextChapter] 检查scenes: data=${!!data}, scenesLength=${scenesArray ? scenesArray.length : 'null'}`)
         if (scenesArray && scenesArray.length > 0) {
         console.log('[fetchNextChapter] Processing scenes:', scenesArray.length, 'opts.replace=', opts && opts.replace)
@@ -692,6 +773,9 @@ export function useStoryAPI() {
   let _pendingOutlineTargetChapter = null
   let _outlineEditorResolver = null
   let _loadingProgress = null
+  // attributes / statuses refs（由 useGameState 或页面传入）
+  let _attributes = null
+  let _statuses = null
 
   // 提供设置依赖的方法
   const setDependencies = (deps) => {
@@ -705,6 +789,9 @@ export function useStoryAPI() {
     _pendingOutlineTargetChapter = deps.pendingOutlineTargetChapter
     _outlineEditorResolver = deps.outlineEditorResolver
     _loadingProgress = deps.loadingProgress
+    // 可选传入 attributes/statuses 的 refs，供 endings condition 匹配使用
+    if (deps.attributes) _attributes = deps.attributes
+    if (deps.statuses) _statuses = deps.statuses
   }
 
   return {

@@ -213,6 +213,9 @@ const attemptDeleteNarration = () => {
 // 先定义 showSettingsModal，因为它被 anyOverlayOpen 使用
 const showSettingsModal = ref(false)
 
+// 是否正在进入结局判定的特殊加载（在跳转到结算/结局前显示）
+const isEndingLoading = ref(false)
+
 // 🔑 新增：标记是否等待用户点击以显示选项
 // 当用户阅读到带有选项的narration时，不立即显示选项，而是等待用户再点击一次
 const waitingForClickToShowChoices = ref(false)
@@ -1121,6 +1124,15 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       scenes: scenesPayload
     }
 
+    // 检测是否为结局场景：如果是结局则不要 PUT 回原章节以避免覆盖原始最后一章内容
+    const isEndingChapter = (!!storyEndSignaled && storyEndSignaled.value === true) ||
+                           (Array.isArray(scenesWithOverrides) && scenesWithOverrides.some(s => s.isChapterEnding || s.isGameEnding || s.isGameEnd || s.chapterEnd || s.end))
+    if (isEndingChapter) {
+      console.log('persistCurrentChapterEdits: Detected ending chapter — skipping backend PUT to avoid overwriting last chapter', { workId, chapterIndex })
+      try { await stopLoading() } catch (e) {}
+      return
+    }
+
     console.log('persistCurrentChapterEdits: saving chapter', { workId, chapterIndex, scenesCount: scenesPayload.length })
     
     try {
@@ -1271,9 +1283,24 @@ const persistCurrentChapterEdits = async (opts = {}) => {
             if (isAtChapterEnd) {
               console.log('末章已保存并读完，准备进入结算')
               showNotice('作品已完结，即将进入结算页面', 3000)
-              setTimeout(() => {
-                storyEndSignaled.value = true
-                handleGameEnd()
+              setTimeout(async () => {
+                try {
+                  // 标记将在进入结局判定时显示特殊加载界面
+                  storyEndSignaled.value = true
+                  isEndingLoading.value = true
+                  // 启动常规加载界面（复用现有加载逻辑）
+                  try { startLoading() } catch (e) { /* ignore */ }
+                  // 平滑显示进度
+                  try { await simulateLoadTo100(800) } catch (e) { /* ignore */ }
+                  // 调用结局处理（可能会导航到结算页面）
+                  await handleGameEnd()
+                } catch (e) {
+                  console.warn('进入结算处理失败', e)
+                } finally {
+                  // 关闭结局专用加载标记（如果组件还在）
+                  try { isEndingLoading.value = false } catch (e) {}
+                  try { await stopLoading() } catch (e) {}
+                }
               }, 3000)
             } else {
               console.log('末章已保存但未读完，提示用户读完后将进入结算')
@@ -1589,7 +1616,10 @@ storyAPI.setDependencies({
   editorInvocation,
   pendingOutlineTargetChapter,
   outlineEditorResolver,
-  loadingProgress
+  loadingProgress,
+  // 传入属性/状态引用，供结局条件匹配使用
+  attributes,
+  statuses
 })
 
 // 自动播放的启动/停止已由 useAutoPlay 内部自动处理,不需要额外的 watch
@@ -1783,8 +1813,8 @@ onUnmounted(async () => {
   <div class="loading-cover-bg" :style="{ backgroundImage: `url(${effectiveCoverUrl})` }"></div>
         
         <div class="loading-content">
-          <!-- 游戏标题（使用作品名） -->
-          <h1 class="game-title">{{ work.title }}</h1>
+          <!-- 游戏标题（作品名；结局判定时展示特殊标题） -->
+          <h1 class="game-title">{{ isEndingLoading ? '结局判定中' : work.title }}</h1>
           
           <!-- 进度条与毛笔（毛笔跟随进度条滑动） -->
           <div class="loading-progress-container">
@@ -1827,7 +1857,9 @@ onUnmounted(async () => {
           
           <!-- 加载提示 -->
           <div class="loading-tips">
-            <p class="tip-text">{{ isGeneratingSettlement ? '结算页面生成中...' : '正在准备故事...' }}</p>
+            <p class="tip-text">
+              {{ isEndingLoading ? '结局判定中，请稍候...' : (isGeneratingSettlement ? '结算页面生成中...' : '正在准备故事...') }}
+            </p>
           </div>
         </div>
         
@@ -1860,7 +1892,7 @@ onUnmounted(async () => {
       <div 
         v-if="currentScene && currentScene.choices && choicesVisible" 
         class="choices-container" 
-        :class="{ disabled: showMenu }"
+        :class="{ disabled: showMenu, 'ending-choices': currentScene._isEndingChoiceScene }"
         @click.stop>
         <div class="choice" v-for="choice in currentScene.choices" :key="choice.id">
           <button 
@@ -1963,7 +1995,7 @@ onUnmounted(async () => {
               </svg>
               <span>读档</span>
             </button>
-            <button class="menu-item" @click="showMenu = false; triggerImagePicker()">
+            <button class="menu-item" @click="showMenu = false; openAttributes()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14" stroke-width="2"/>
                 <path d="M3 7h18M8 11l2.5 3L13 11l4 6H7l1-2z" stroke-width="2"/>
