@@ -30,6 +30,7 @@ export function useGameState(dependencies = {}) {
     getWorkDetails,
     checkCurrentChapterSaved,
     restoreChoiceFlagsFromHistory,
+    lastSelectedEndingIndex,
     // 添加缺失的依赖
     creatorMode,
     allowAdvance,
@@ -61,134 +62,184 @@ export function useGameState(dependencies = {}) {
   const showMenu = ref(false)
   const choicesVisible = ref(false)
   let eventSource = null
-  // 标记是否已将后端的结局场景追加到 storyScenes（避免重复追加）
+  // 标记当前是否正在播放后端提供的结局场景（在读者模式下）
+  const playingEndingScenes = ref(false)
+  // 标记刚刚播放完后端结局（用于避免在播放完后再次去拉取并重复追加结局场景）
+  const justFinishedPlayingEnding = ref(false)
+  // 标记是否已把后端结局追加到当前 storyScenes 中（避免重复追加）
   const endingsAppended = ref(false)
-
-  // 解析并匹配后端返回的结局条件
-  const matchEndingByCondition = (ending) => {
+  // 安全调用 autoPlay 控制器（一些环境下该函数可能未被注入）
+  const safeStartAutoPlay = () => {
     try {
-      if (!ending || !ending.condition || Object.keys(ending.condition).length === 0) return false
-      for (const [key, expr] of Object.entries(ending.condition)) {
-        const actual = Number((statuses.value && statuses.value[key]) ?? (attributes.value && attributes.value[key]) ?? 0)
-        let op = null
-        let threshold = null
+      if (startAutoPlayTimer && typeof startAutoPlayTimer === 'function') startAutoPlayTimer()
+    } catch (e) { /* ignore */ }
+  }
+  const safeStopAutoPlay = () => {
+    try {
+      if (stopAutoPlayTimer && typeof stopAutoPlayTimer === 'function') stopAutoPlayTimer()
+    } catch (e) { /* ignore */ }
+  }
+  // helper: 评估单个结局的条件是否满足当前属性
+  const evaluateCondition = (condition = {}, attrsRef) => {
+    try {
+      // 空条件当作匹配
+      if (!condition || Object.keys(condition).length === 0) return true
+
+      const attrs = (attrsRef && attrsRef.value) ? attrsRef.value : (attrsRef || {})
+
+      for (const [key, expr] of Object.entries(condition)) {
+        const actualRaw = attrs?.[key]
+        const actual = Number(actualRaw)
+
+        // 如果条件是数字，直接比较相等
         if (typeof expr === 'number') {
-          op = '>='
-          threshold = expr
-        } else if (typeof expr === 'string') {
-          const m = expr.match(/^(>=|<=|==|=|>|<)\s*(\d+)$/)
-          if (m) {
-            op = m[1]
-            threshold = Number(m[2])
-          } else if (!isNaN(Number(expr))) {
-            op = '=='
-            threshold = Number(expr)
-          } else {
-            // 无法解析条件，跳过该字段
-            continue
-          }
-        } else {
+          if (Number.isNaN(actual) || actual !== expr) return false
           continue
         }
 
-        switch (op) {
-          case '>=': if (!(actual >= threshold)) return false; break
-          case '<=': if (!(actual <= threshold)) return false; break
-          case '>': if (!(actual > threshold)) return false; break
-          case '<': if (!(actual < threshold)) return false; break
-          case '==':
-          case '=': if (!(actual === threshold)) return false; break
-          default: return false
+        if (typeof expr === 'string') {
+          const trimmed = expr.trim()
+          // 支持 >=, <=, >, <, ==, =
+          const m = trimmed.match(/^(>=|<=|>|<|==|=)\s*(-?\d+(?:\.\d+)?)$/)
+          if (m) {
+            const op = m[1]
+            const num = Number(m[2])
+            if (Number.isNaN(actual)) return false
+            switch (op) {
+              case '>': if (!(actual > num)) return false; break
+              case '<': if (!(actual < num)) return false; break
+              case '>=': if (!(actual >= num)) return false; break
+              case '<=': if (!(actual <= num)) return false; break
+              case '==': if (!(actual == num)) return false; break
+              case '=': if (!(actual == num)) return false; break
+              default: return false
+            }
+            continue
+          }
+
+          // 如果不是带操作符的数字比较，则做宽松相等匹配（字符串/数字）
+          if (String(actualRaw) !== trimmed) return false
+          continue
         }
+
+        // 其它类型，严格相等
+        if (actualRaw !== expr) return false
       }
+
       return true
     } catch (e) {
-      console.warn('matchEndingByCondition failed', e)
+      console.warn('evaluateCondition error', e)
       return false
     }
   }
 
-  // 从多个结局中选择最合适的一个：尝试按条件匹配，未命中的返回最后一个(default)
-  const selectEnding = (endings) => {
-    if (!Array.isArray(endings) || endings.length === 0) return null
-    try {
-      // 优先找到第一个满足条件的结局（不包括最后一个默认结局）
-      for (let i = 0; i < endings.length - 1; i++) {
-        const e = endings[i]
-        if (matchEndingByCondition(e)) return e
-      }
-      // 如果没有匹配，返回最后一个作为默认结局
-      return endings[endings.length - 1]
-    } catch (e) {
-      console.warn('selectEnding failed', e)
-      return endings[endings.length - 1]
+  // helper: 从后端返回的多个结局中选取第一个满足条件的结局
+  const pickEnding = (endingsArray, attrsRef) => {
+    if (!Array.isArray(endingsArray)) return null
+    for (const ending of endingsArray) {
+      const cond = ending?.condition || {}
+      if (evaluateCondition(cond, attrsRef)) return ending
     }
+    return null
   }
+  // 从后端载荷中提取 scenes 的通用函数，兼容多种可能的返回结构
+  const extractScenesFromPayload = (payload, attrsRef) => {
+    if (!payload) return null
 
-  // 拉取结局并将选择的结局场景追加到 storyScenes；成功返回 true
+    // 直接就是 scenes 数组
+    if (Array.isArray(payload) && payload.length > 0 && (payload[0]?.dialogues || payload[0]?.backgroundImage)) {
+      return payload
+    }
+
+    // payload.scenes
+    if (Array.isArray(payload?.scenes)) return payload.scenes
+
+    // payload.data.scenes 或 payload.result.scenes
+    if (Array.isArray(payload?.data?.scenes)) return payload.data.scenes
+    if (Array.isArray(payload?.result?.scenes)) return payload.result.scenes
+
+    // payload.endings 是结局列表（带 condition 和 scenes字段）
+    if (Array.isArray(payload?.endings) && payload.endings.length > 0) {
+      // 如果 endings 本身就是 scenes 数组（兼容错误命名）
+      if (payload.endings.length > 0 && (payload.endings[0]?.dialogues || payload.endings[0]?.backgroundImage)) {
+        return payload.endings
+      }
+      const ending = pickEnding(payload.endings, attrsRef)
+      if (ending && Array.isArray(ending.scenes)) return ending.scenes
+    }
+
+    // payload 是 endings 列表（顶层为数组，每项包含 scenes）
+    if (Array.isArray(payload) && payload.length > 0 && payload[0]?.scenes) {
+      const ending = pickEnding(payload, attrsRef)
+      if (ending && Array.isArray(ending.scenes)) return ending.scenes
+    }
+
+    // payload.ending 单个对象
+    if (payload?.ending && Array.isArray(payload.ending.scenes)) return payload.ending.scenes
+
+    // 兜底：尝试其他常见键名
+    if (Array.isArray(payload?.endingScenes)) return payload.endingScenes
+
+    return null
+  }
+  // 标记是否正在请求下一章或结局，防止并发请求
+  let isRequestingNext = false
+
+  // 从后端拉取结局并追加到 storyScenes（如果可用）
   const fetchAndAppendEndings = async (workId) => {
-    if (!workId) return false
+    if (endingsAppended.value) return false
+    if (isRequestingNext) return false
+    isRequestingNext = true
     try {
-      showNotice('正在获取结局，请稍候...')
-      startLoading()
+      const resp = await http.get(`/api/game/storyending/${workId}`)
+      const payload = resp && resp.data ? resp.data : resp
 
-      const endpoint = `/api/game/storyending/${workId}/`
-      let data = null
-      try {
-        data = await http.get(endpoint)
-      } catch (e) {
-        console.warn('fetchAndAppendEndings initial http.get failed', e)
-        // fall back to null so polling will retry via http.get
-        data = null
+      // 优先尝试提取 scenes
+      const scenes = extractScenesFromPayload(payload, attributes)
+      if (scenes && Array.isArray(scenes) && scenes.length > 0) {
+        const startIdx = storyScenes.value.length
+        for (const s of scenes) {
+          try {
+            const before = storyScenes.value.length
+            pushSceneFromServer(s)
+            const pushed = storyScenes.value[before]
+            if (pushed) {
+              pushed._isBackendEnding = true
+              pushed.isEnding = true
+            }
+          } catch (e) { console.warn('fetchAndAppendEndings: pushSceneFromServer failed', e) }
+        }
+        endingsAppended.value = true
+        console.log('fetchAndAppendEndings: appended', scenes.length, 'ending scenes')
+        return true
       }
 
-      // 如果后端仍在生成，轮询直到就绪或超时（60s）
-      const pollInterval = 2000
-      // 增加轮询最大等待时间：120s，以容忍后端生成结局耗时较久
-      const maxWait = 1200 * 1000
-      let waited = 0
-      while (data && data.status === 'generating' && waited < maxWait) {
-        await new Promise(r => setTimeout(r, pollInterval))
-        waited += pollInterval
-        try { data = await http.get(endpoint) } catch (e) { console.warn('poll fetch endings failed', e); break }
+      // 如果返回的是 endings 列表（每项包含 scenes 或 title），则创建一个总结性场景
+      if (Array.isArray(payload?.endings) && payload.endings.length > 0) {
+        const summaries = payload.endings.map((ed, i) => `结局 ${i + 1}: ${ed.title || ed.name || ''}`).join('\n')
+        const summaryScene = {
+          sceneId: `endings-summary-${Date.now()}`,
+          backgroundImage: work.value.coverUrl || '',
+          dialogues: [payload.prompt || '以下为可能的结局：', summaries],
+          choices: [],
+          isChapterEnding: false
+        }
+        try {
+          pushSceneFromServer(summaryScene)
+          const pushed = storyScenes.value[storyScenes.value.length - 1]
+          if (pushed) pushed._isBackendEnding = true
+          endingsAppended.value = true
+          console.log('fetchAndAppendEndings: appended endings summary scene')
+          return true
+        } catch (e) { console.warn('fetchAndAppendEndings: push summary failed', e) }
       }
 
-      if (!data || data.status !== 'ready' || !Array.isArray(data.endings) || data.endings.length === 0) {
-        console.warn('fetchAndAppendEndings: endings not ready or empty', data)
-        await stopLoading()
-        return false
-      }
-
-      const chosen = selectEnding(data.endings)
-      if (!chosen || !Array.isArray(chosen.scenes) || chosen.scenes.length === 0) {
-        console.warn('fetchAndAppendEndings: chosen ending has no scenes')
-        await stopLoading()
-        return false
-      }
-
-      const startIdx = Array.isArray(storyScenes.value) ? storyScenes.value.length : 0
-      for (const s of chosen.scenes) {
-        // 标记场景为结局场景，便于后续识别
-        const sceneToPush = Object.assign({}, s, { isEnding: true })
-        try { pushSceneFromServer(sceneToPush) } catch (e) { console.warn('pushSceneFromServer failed for ending scene', e) }
-      }
-
-      // 切换到追加的第一个结局场景
-      try {
-        currentSceneIndex.value = startIdx
-        currentDialogueIndex.value = 0
-        choicesVisible.value = false
-        showText.value = true
-      } catch (e) { console.warn('switching to appended ending scenes failed', e) }
-
-      showNotice('已加载结局，请阅读完结局后进入结算。', 4000)
-      endingsAppended.value = true
-      await stopLoading()
-      return true
-    } catch (e) {
-      console.error('fetchAndAppendEndings failed', e)
-      try { await stopLoading() } catch (err) {}
       return false
+    } catch (e) {
+      console.warn('fetchAndAppendEndings failed', e)
+      return false
+    } finally {
+      isRequestingNext = false
     }
   }
   
@@ -305,6 +356,152 @@ export function useGameState(dependencies = {}) {
             }
         }
         
+        // 在进入生成结算前，先尝试在「阅读者」模式下从后端获取结局场景并播放
+        // 如果后端返回结局场景，则优先播放结局并返回，不直接进入结算页面
+        // 如果我们刚刚播放完结局（justFinishedPlayingEnding），则不要再次去拉取结局以避免重复追加
+        try {
+          if (!justFinishedPlayingEnding.value && !playingEndingScenes.value && !eventSource) {
+            try {
+              const resp = await http.get(`/api/game/storyending/${work.value.id}`)
+              const payload = resp && resp.data ? resp.data : resp
+
+              // 如果后端明确返回了多个 endings（每个带 title/condition/scenes），
+              // 我们需要先将这些结局作为“可选择的结局选项”呈现给用户，用户点击后会触发对应结局场景的播放。
+              if (Array.isArray(payload?.endings) && payload.endings.length > 0) {
+                const endings = payload.endings
+                const startIdx = storyScenes.value.length
+                // 构造一个临时场景，用于展示结局选项（场景级别 choices）
+                const formatConditionText = (cond) => {
+                  try {
+                    if (!cond || typeof cond !== 'object') return ''
+                    const parts = []
+                    for (const [k, v] of Object.entries(cond)) {
+                      if (v == null) continue
+                      if (typeof v === 'string') {
+                        const trimmed = v.trim()
+                        // 如果像 ">=36"、"<=23"、">5" 等形式，直接拼接
+                        if (/^(>=|<=|>|<|==|=)/.test(trimmed)) {
+                          parts.push(`${k} ${trimmed}`)
+                        } else {
+                          parts.push(`${k} = ${trimmed}`)
+                        }
+                      } else {
+                        parts.push(`${k} = ${String(v)}`)
+                      }
+                    }
+                    return parts.join(', ')
+                  } catch (e) { return '' }
+                }
+
+                const choiceScene = {
+                  sceneId: `ending-choices-${Date.now()}`,
+                  backgroundImage: work.value.coverUrl || '',
+                  dialogues: [payload.prompt || '请选择一个结局：'],
+                  // 直接使用场景级 choices 字段，pushSceneFromServer 会识别并处理
+                  choices: endings.map((ed, i) => {
+                    const cond = ed.condition || ed.conditions || {}
+                    const condText = formatConditionText(cond)
+                    const title = ed.title || `结局 ${i + 1}`
+                    const display = condText ? `${title} (${condText})` : title
+                    return {
+                      id: ed.id ?? `ending-${i}`,
+                      text: display,
+                      // 附带元数据，供 chooseOption 识别并处理
+                      _endingScenes: ed.scenes || [],
+                      _endingCondition: cond,
+                      // 保持兼容：保留 subsequentDialogues 空数组
+                      subsequentDialogues: []
+                    }
+                  }),
+                  // 触发点在第一句对话后立即展示选项
+                  isChapterEnding: false
+                }
+
+                try { 
+                  pushSceneFromServer(choiceScene) 
+                  // pushSceneFromServer 会规范化 choices 字段，可能会丢弃我们直接放入的自定义字段。
+                  // 因此这里将原始 endings 的元数据附回到刚推入的场景的 choices 上，保持索引对应关系。
+                  try {
+                    const pushedIdx = storyScenes.value.length - 1
+                    const pushed = storyScenes.value[pushedIdx]
+                    if (pushed && Array.isArray(pushed.choices)) {
+                      for (let i = 0; i < pushed.choices.length; i++) {
+                        const orig = endings[i] || {}
+                        try { pushed.choices[i]._endingScenes = orig.scenes || orig.scenes || [] } catch (e) {}
+                        try { pushed.choices[i]._endingCondition = orig.condition || orig.conditions || {} } catch (e) {}
+                          try { pushed.choices[i]._endingTitle = orig.title || orig.name || null } catch (e) {}
+                          try { pushed.choices[i]._endingIndex = (orig.endingIndex != null) ? Number(orig.endingIndex) : (i + 1) } catch (e) {}
+                      }
+                    }
+                  } catch (attachErr) { console.warn('attach ending metadata failed', attachErr) }
+
+                    // 标记该场景为结局选择场景（供 UI 特殊样式使用）
+                    try {
+                      const pushedIdx2 = storyScenes.value.length - 1
+                      const pushed2 = storyScenes.value[pushedIdx2]
+                      if (pushed2) pushed2._isEndingChoiceScene = true
+                    } catch (e) { /* ignore */ }
+                } catch (e) { console.warn('pushSceneFromServer for ending choice scene failed', e) }
+
+                // 跳转到选项场景并显示文本，等待用户选择
+                choicesVisible.value = false
+                showText.value = false
+                setTimeout(() => {
+                  currentSceneIndex.value = startIdx
+                  currentDialogueIndex.value = 0
+                  showText.value = true
+                  console.log('[handleGameEnd] 展示结局选项场景 at index', startIdx)
+                }, 300)
+                return
+              }
+
+              const scenes = extractScenesFromPayload(payload, attributes)
+
+              if (scenes && Array.isArray(scenes) && scenes.length > 0) {
+                const startIdx = storyScenes.value.length
+                console.log('[handleGameEnd] 收到后端结局场景，追加', scenes.length, '个场景，startIdx:', startIdx)
+                for (const s of scenes) {
+                  try {
+                    const before = storyScenes.value.length
+                    pushSceneFromServer(s)
+                    // 标记刚追加的场景为后端结局场景，便于存档识别
+                    try {
+                      const pushed = storyScenes.value[before]
+                      if (pushed) {
+                        pushed._isBackendEnding = true
+                        // 兼容性：也标记为 isEnding
+                        pushed.isEnding = true
+                      }
+                    } catch (tagErr) { console.warn('tagging pushed ending scene failed', tagErr) }
+                  } catch (e) { console.warn('pushSceneFromServer for ending scene failed', e) }
+                }
+                // 跳转到结局开始位置并开始播放
+                choicesVisible.value = false
+                showText.value = false
+                setTimeout(() => {
+                  currentSceneIndex.value = startIdx
+                  currentDialogueIndex.value = 0
+                  showText.value = true
+                  // 标记正在播放结局场景
+                  playingEndingScenes.value = true
+                  console.log('[handleGameEnd] 开始播放结局场景 at index', startIdx)
+                }, 300)
+                return
+              }
+            } catch (e) {
+              console.warn('[handleGameEnd] 获取结局场景失败，回退到结算流程:', e)
+            }
+          }
+          // 如果我们到这里并且 justFinishedPlayingEnding 为 true，说明我们刚刚播放完结局，
+          // 将其重置以便后续流程可以正常进入结算页面并且不会再次触发拉取结局
+          if (justFinishedPlayingEnding.value) {
+            try { justFinishedPlayingEnding.value = false } catch (e) {}
+            console.log('[handleGameEnd] 刚刚播放完结局，跳过再次拉取结局，直接进入结算流程')
+          }
+        } catch (e) {
+          console.warn('[handleGameEnd] 处理结局前置请求时发生错误:', e)
+        }
+
         isGeneratingSettlement.value = true
         isLoading.value = true
         loadingProgress.value = 0
@@ -473,6 +670,126 @@ export function useGameState(dependencies = {}) {
             if (scene) {
                 scene.choiceConsumed = true
                 scene.chosenChoiceId = choice.id
+              // 如果这是一个后端结局选项（我们在 handleGameEnd 中构造的），优先处理结局分支
+              if (choice._endingScenes && Array.isArray(choice._endingScenes)) {
+                try {
+                  const cond = choice._endingCondition || choice.condition || {}
+                  const matched = evaluateCondition(cond, attributes)
+                  if (!matched) {
+                    // 条件不满足：提示并允许用户继续选择其它结局
+                    showNotice('你不满足进入该结局的条件，进入失败。', 4000)
+                    // 恢复选项未被消费状态，允许再次选择
+                    try { scene.choiceConsumed = false } catch (e) {}
+                    try { scene.chosenChoiceId = null } catch (e) {}
+                    return
+                  }
+
+                  // 条件满足：将对应的结局场景追加并播放
+                  // 在本地记录用户进入的结局标题，供结算页面显示分支缩略图使用
+                  try {
+                    const endingTitle = choice._endingTitle || (choice.text && choice.text.toString()) || ''
+                    if (endingTitle && work && work.value && work.value.id) {
+                      sessionStorage.setItem(`selectedEndingTitle_${work.value.id}`, endingTitle)
+                      console.log('[chooseOption] 已记录所选结局标题到 sessionStorage:', `selectedEndingTitle_${work.value.id}`, endingTitle)
+                    }
+                  } catch (e) { console.warn('保存 selectedEndingTitle 到 sessionStorage 失败', e) }
+
+                  // 记录用户选择的结局索引（优先使用 choice._endingIndex，否则回退到 1）
+                  try {
+                    if (typeof lastSelectedEndingIndex !== 'undefined' && lastSelectedEndingIndex && lastSelectedEndingIndex.value !== undefined) {
+                      const chosenIdx = (choice._endingIndex != null) ? Number(choice._endingIndex) : 1
+                      lastSelectedEndingIndex.value = chosenIdx
+                      console.log('[chooseOption] 记录 lastSelectedEndingIndex =', chosenIdx)
+                      // 也持久化到 sessionStorage 以便页面刷新前能保留该值
+                      try { if (work && work.value && work.value.id) sessionStorage.setItem(`lastSelectedEndingIndex_${work.value.id}`, String(chosenIdx)) } catch (e) {}
+                    }
+                  } catch (e) { console.warn('记录 lastSelectedEndingIndex 时出错', e) }
+
+                  const scenesToPush = choice._endingScenes || []
+
+                  // 新规则：用所选结局覆盖「前一章」的缓存（如果能找到前一章），否则回退为追加行为
+                  const replaceChapter = (currentChapterIndex && Number(currentChapterIndex.value)) ? Number(currentChapterIndex.value) : null
+                  if (replaceChapter != null) {
+                    const firstIndex = storyScenes.value.findIndex(s => Number(s.chapterIndex) === replaceChapter)
+                    if (firstIndex >= 0) {
+                      let lastIndex = firstIndex
+                      for (let i = firstIndex; i < storyScenes.value.length; i++) {
+                        if (Number(storyScenes.value[i].chapterIndex) === replaceChapter) lastIndex = i
+                        else break
+                      }
+
+                      const before = storyScenes.value.slice(0, firstIndex)
+                      const after = storyScenes.value.slice(lastIndex + 1)
+
+                      // 重建 scenes：前段 + 结局 scenes + 后段
+                      storyScenes.value = before.slice()
+                      for (const s of scenesToPush) {
+                        try {
+                          const beforePush = storyScenes.value.length
+                          pushSceneFromServer(s)
+                          try {
+                            const pushed = storyScenes.value[beforePush]
+                            if (pushed) { pushed._isBackendEnding = true; pushed.isEnding = true }
+                          } catch (tagErr) { console.warn('tagging pushed chosen ending scene failed', tagErr) }
+                        } catch (e) { console.warn('pushSceneFromServer for chosen ending failed', e) }
+                      }
+
+                      for (const s of after) {
+                        try { storyScenes.value.push(s) } catch (e) { console.warn('re-append after segment failed', e) }
+                      }
+
+                      // 标记结局已被追加/覆盖，避免后续重复插入
+                      try { endingsAppended.value = true } catch (e) { console.warn('failed to set endingsAppended in chooseOption', e) }
+
+                      // 跳转到被替换后结局的起始位置
+                      const startIdx = before.length
+                      choicesVisible.value = false
+                      showText.value = false
+                      setTimeout(() => {
+                        currentSceneIndex.value = startIdx
+                        currentDialogueIndex.value = 0
+                        currentChapterIndex.value = replaceChapter
+                        showText.value = true
+                        playingEndingScenes.value = true
+                        console.log('[chooseOption] 已用所选结局覆盖前一章，开始播放结局场景 at index', startIdx)
+                      }, 300)
+                      return
+                    }
+                  }
+
+                  // 兼容回退：未找到要替换的章节，按旧逻辑追加到末尾
+                  const startIdx = storyScenes.value.length
+                  for (const s of scenesToPush) {
+                    try {
+                      const beforePush = storyScenes.value.length
+                      pushSceneFromServer(s)
+                      try {
+                        const pushed = storyScenes.value[beforePush]
+                        if (pushed) {
+                          pushed._isBackendEnding = true
+                          pushed.isEnding = true
+                        }
+                      } catch (tagErr) { console.warn('tagging pushed chosen ending scene failed', tagErr) }
+                    } catch (e) { console.warn('pushSceneFromServer for chosen ending failed', e) }
+                  }
+
+                  try { endingsAppended.value = true } catch (e) { console.warn('failed to set endingsAppended in chooseOption', e) }
+
+                  // 跳转到结局场景并开始播放
+                  choicesVisible.value = false
+                  showText.value = false
+                  setTimeout(() => {
+                    currentSceneIndex.value = startIdx
+                    currentDialogueIndex.value = 0
+                    showText.value = true
+                    playingEndingScenes.value = true
+                    console.log('[chooseOption] 选择结局，开始播放结局场景 at index', startIdx)
+                  }, 300)
+                  return
+                } catch (e) {
+                  console.warn('[chooseOption] 处理结局选项时出错:', e)
+                }
+              }
                 
                 // 🔑 关键修复：如果选项有 subsequentDialogues，插入到当前场景的对话列表中
                 // 保持 subsequentDialogues 的原始格式，不转换为 narration
@@ -777,7 +1094,7 @@ export function useGameState(dependencies = {}) {
         isRequestingNext = true
         
         // 立即停止自动播放，避免重复调用
-        stopAutoPlayTimer()
+        safeStopAutoPlay()
 
         console.log('[requestNextIfNeeded] 到达章节末尾，准备加载下一章')
         console.log('[requestNextIfNeeded] 当前章节:', currentChapterIndex.value, '总章数:', totalChapters.value)
@@ -794,7 +1111,103 @@ export function useGameState(dependencies = {}) {
         if (isLastChapter) {
         // 已读完最后一章
         console.log('[requestNextIfNeeded] 已读完最后一章，准备跳转到结算界面')
-        
+
+        // 仅在阅读者模式下尝试从后端获取结局剧情并插入播放，若返回则直接播放结局
+        if (!creatorMode.value) {
+        try {
+          console.log('[requestNextIfNeeded] Reader last chapter reached — attempting to fetch story ending from backend')
+          const resp = await http.get(`/api/game/storyending/${work.value.id}`)
+          const payload = resp && resp.data ? resp.data : resp
+          // 仅当后端明确返回 `endings` 列表时，才把结局作为剧情追加并播放；否则视为无结局（不追加）
+          if (Array.isArray(payload?.endings) && payload.endings.length > 0) {
+            const endings = payload.endings
+            const startIdx = storyScenes.value.length
+            // 构造一个临时场景用于展示结局选项，保持与 handleGameEnd 中的行为一致
+            const formatConditionText = (cond) => {
+              try {
+                if (!cond || typeof cond !== 'object') return ''
+                const parts = []
+                for (const [k, v] of Object.entries(cond)) {
+                  if (v == null) continue
+                  if (typeof v === 'string') {
+                    const trimmed = v.trim()
+                    if (/^(>=|<=|>|<|==|=)/.test(trimmed)) {
+                      parts.push(`${k} ${trimmed}`)
+                    } else {
+                      parts.push(`${k} = ${trimmed}`)
+                    }
+                  } else {
+                    parts.push(`${k} = ${String(v)}`)
+                  }
+                }
+                return parts.join(', ')
+              } catch (e) { return '' }
+            }
+
+            const choiceScene = {
+              sceneId: `ending-choices-${Date.now()}`,
+              backgroundImage: work.value.coverUrl || '',
+              dialogues: [payload.prompt || '请选择一个结局：'],
+              choices: endings.map((ed, i) => {
+                const cond = ed.condition || ed.conditions || {}
+                const condText = formatConditionText(cond)
+                const title = ed.title || `结局 ${i + 1}`
+                const display = condText ? `${title} (${condText})` : title
+                return {
+                  id: ed.id ?? `ending-${i}`,
+                  text: display,
+                  _endingScenes: ed.scenes || [],
+                  _endingCondition: cond,
+                  subsequentDialogues: []
+                }
+              }),
+              isChapterEnding: false
+            }
+
+            try {
+              pushSceneFromServer(choiceScene)
+              try {
+                const pushedIdx = storyScenes.value.length - 1
+                const pushed = storyScenes.value[pushedIdx]
+                if (pushed && Array.isArray(pushed.choices)) {
+                  for (let i = 0; i < pushed.choices.length; i++) {
+                    const orig = endings[i] || {}
+                    try { pushed.choices[i]._endingScenes = orig.scenes || [] } catch (e) {}
+                    try { pushed.choices[i]._endingCondition = orig.condition || orig.conditions || {} } catch (e) {}
+                    try { pushed.choices[i]._endingTitle = orig.title || orig.name || null } catch (e) {}
+                  }
+                }
+              } catch (attachErr) { console.warn('attach ending metadata failed', attachErr) }
+
+              try {
+                const pushedIdx2 = storyScenes.value.length - 1
+                const pushed2 = storyScenes.value[pushedIdx2]
+                if (pushed2) pushed2._isEndingChoiceScene = true
+              } catch (e) { /* ignore */ }
+            } catch (e) { console.warn('pushSceneFromServer for ending choice scene failed', e) }
+
+            choicesVisible.value = false
+            showText.value = false
+            setTimeout(() => {
+              currentSceneIndex.value = startIdx
+              currentDialogueIndex.value = 0
+              showText.value = true
+              playingEndingScenes.value = true
+              console.log('[requestNextIfNeeded] 展示结局选项场景 at index', startIdx)
+            }, 300)
+            isRequestingNext = false
+            return
+          } else {
+            console.log('[requestNextIfNeeded] backend returned no endings list — skipping append')
+          }
+        } catch (e) {
+          console.warn('[requestNextIfNeeded] fetch story ending failed or returned no scenes, continuing fallback logic', e)
+        }
+        } else {
+          console.log('[requestNextIfNeeded] Creator mode — 不自动请求结局，走原有结算/保存检查流程')
+        }
+
+        // 若后端没有结局或请求失败，则继续原有的创作者/阅读者结算流程
         // 创作者身份：检查最后一章是否已保存
         if (creatorFeatureEnabled.value) {
             try {
@@ -839,17 +1252,10 @@ export function useGameState(dependencies = {}) {
             return
             }
         }
-        
-        // 阅读者身份：直接显示提示并跳转到结算
-        showNotice('故事已完结，即将进入结算页面...', 2000)
-        setTimeout(async () => {
-          try {
-            if (!endingsAppended.value) {
-              const appended = await fetchAndAppendEndings(work.value.id)
-              if (appended) { isRequestingNext = false; return }
-            }
-          } catch (e) { console.warn('pre-handleGameEnd fetch endings failed', e) }
 
+        // 阅读者身份：后端未返回结局，直接进入结算（兼容原逻辑）
+        showNotice('故事已完结，即将进入结算页面...', 2000)
+        setTimeout(() => {
           storyEndSignaled.value = true
           handleGameEnd()
           isRequestingNext = false  // 重置标志
@@ -912,8 +1318,8 @@ export function useGameState(dependencies = {}) {
             setTimeout(() => {
             // 再次检查条件，确保没有弹窗打开
             if (autoPlayEnabled.value && !anyOverlayOpen.value) {
-                console.log('[requestNextIfNeeded] 恢复自动播放')
-                startAutoPlayTimer()
+            console.log('[requestNextIfNeeded] 恢复自动播放')
+            safeStartAutoPlay()
             } else {
                 console.log('[requestNextIfNeeded] 自动播放未恢复 - enabled:', autoPlayEnabled.value, 'overlay:', anyOverlayOpen.value)
             }
@@ -953,11 +1359,11 @@ export function useGameState(dependencies = {}) {
   }
 
   // 🔑 新增：如果等待用户点击显示选项，此时用户点击了，就显示选项
-  if (waitingForClickToShowChoices && waitingForClickToShowChoices.value) {
+    if (waitingForClickToShowChoices && waitingForClickToShowChoices.value) {
     console.log('[nextDialogue] 检测到等待点击显示选项标记，现在显示选项')
     waitingForClickToShowChoices.value = false
     choicesVisible.value = true
-    stopAutoPlayTimer()
+    safeStopAutoPlay()
     return
   }
 
@@ -980,7 +1386,7 @@ export function useGameState(dependencies = {}) {
       if (waitingForClickToShowChoices) {
         waitingForClickToShowChoices.value = true
       }
-      stopAutoPlayTimer()
+      safeStopAutoPlay()
       return
     }
   }
@@ -1041,7 +1447,7 @@ export function useGameState(dependencies = {}) {
         if (waitingForClickToShowChoices) {
           waitingForClickToShowChoices.value = true
         }
-        stopAutoPlayTimer()
+        safeStopAutoPlay()
         return
       } else {
         console.log('[nextDialogue] suppressAutoShowChoices cleared, but not showing choices:', {
@@ -1094,7 +1500,7 @@ export function useGameState(dependencies = {}) {
       if (waitingForClickToShowChoices) {
         waitingForClickToShowChoices.value = true
       }
-      stopAutoPlayTimer()
+      safeStopAutoPlay()
       return
     }
   }
@@ -1239,8 +1645,41 @@ export function useGameState(dependencies = {}) {
             console.warn('[nextDialogue] 检查创作者章节状态失败:', e)
           }
         }
+        // 非创作者（即阅读者）在已加载内容末尾且为章节结束时，应主动请求下一章或结局
+        if (!creatorFeatureEnabled.value && !playingEndingScenes.value && !eventSource) {
+          try {
+            console.log('[nextDialogue] Reader at chapter end at end-of-loaded-content — calling requestNextIfNeeded() to fetch next/ending')
+            await requestNextIfNeeded()
+            // requestNextIfNeeded 会在成功获取结局时处理跳转或追加场景并返回
+            return
+          } catch (e) {
+            console.warn('[nextDialogue] requestNextIfNeeded failed in end-of-loaded-content branch:', e)
+          }
+        }
       }
       
+      // 如果我们正在播放后端提供的结局场景，且已到达这些场景的最后一句，则在此触发结算
+      if (playingEndingScenes.value) {
+        try {
+          const lastIdx = storyScenes.value.length - 1
+          const lastScene = storyScenes.value[lastIdx]
+          const atLastScene = currentSceneIndex.value === lastIdx
+          const atLastDialogue = lastScene && Array.isArray(lastScene.dialogues) ? (currentDialogueIndex.value === lastScene.dialogues.length - 1) : true
+          if (atLastScene && atLastDialogue) {
+            console.log('[nextDialogue] 结局场景播放完毕，进入结算')
+            // 标记刚刚播放完结局，避免 handleGameEnd 再次去拉取结局并重复追加
+            try { justFinishedPlayingEnding.value = true } catch (e) {}
+            playingEndingScenes.value = false
+            showNotice('结局已读，进入结算页面...', 1500)
+            setTimeout(() => {
+              storyEndSignaled.value = true
+              handleGameEnd()
+            }, 800)
+            return
+          }
+        } catch (e) { console.warn('playingEndingScenes check failed', e) }
+      }
+
       if (storyEndSignaled.value) {
         console.log('[nextDialogue] 故事结束，跳转结算页面')
         if (creatorFeatureEnabled.value) {

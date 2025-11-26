@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { fetchPersonalityReportVariants } from '../service/personality.js'
 import { getScenes, getWorkInfo } from '../service/story.js'
+import { http } from '../service/http.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -676,6 +677,71 @@ const generateBranchingGraph = async () => {
   })
 
   // 结束节点
+  // 在生成结束/汇合节点之前，尝试获取后端的结局列表并把已进入的结局显示为图像，其它结局显示为问号并在下方显示标题
+  try {
+    const resp = await http.get(`/api/game/storyending/${currentWorkId}`)
+    const payload = resp && resp.data ? resp.data : resp
+    const endings = Array.isArray(payload?.endings) ? payload.endings : []
+    if (endings.length > 0) {
+      const storedTitle = sessionStorage.getItem(`selectedEndingTitle_${currentWorkId}`)
+      const endCount = endings.length
+      const endSpacing = 240
+      const endStartX = 400 - (endCount - 1) * endSpacing / 2
+      let endY = currentY + 40
+      // 保存进入结局前的父节点ID，所有结局分支都从该节点分出，避免将未选中结局连接到已选中结局的节点上
+      const endingsParentNodeId = lastNodeId
+      for (let ei = 0; ei < endings.length; ei++) {
+        const ed = endings[ei]
+        const ex = endStartX + ei * endSpacing
+        const etitle = ed.title || `结局 ${ei + 1}`
+        if (storedTitle && etitle === storedTitle) {
+          // 已进入的结局：显示首图缩略并连接为已选分支
+          const endImage = (Array.isArray(ed.scenes) && ed.scenes.length > 0) ? (ed.scenes[0].backgroundImage || null) : null
+          const layoutE = computeNodeLayout('结局', etitle, { imageW: THUMB_W, imageH: THUMB_H })
+          const endNodeId = nodeId++
+          nodes.push({
+            id: endNodeId,
+            title: '结局',
+            type: 'ending-selected',
+            x: ex,
+            y: endY,
+            description: etitle,
+            width: layoutE.width,
+            height: layoutE.height,
+            descLines: layoutE.descLines,
+            image: endImage,
+            imageW: layoutE.imageW || 0,
+            imageH: layoutE.imageH || 0,
+            isSelected: true
+          })
+          edges.push({ from: endingsParentNodeId, to: endNodeId, label: '', isSelected: true })
+          // 不要修改 lastNodeId，这样后续未选中结局仍然从 parent 出发
+        } else {
+          // 未进入的结局：显示问号节点，但在描述中显示结局标题
+          const layoutQ = computeNodeLayout('?', etitle)
+          const qNodeId = nodeId++
+          nodes.push({
+            id: qNodeId,
+            title: '?',
+            type: 'ending-unseen',
+            x: ex,
+            y: endY,
+            description: etitle,
+            width: layoutQ.width,
+            height: layoutQ.height,
+            descLines: layoutQ.descLines,
+            imageW: layoutQ.imageW || 0,
+            imageH: layoutQ.imageH || 0
+          })
+          edges.push({ from: endingsParentNodeId, to: qNodeId, label: '', isSelected: false })
+        }
+      }
+      currentY += 220
+    }
+  } catch (e) {
+    console.warn('[Settlement] 获取结局列表失败，跳过在分支图显示结局缩略图:', e)
+  }
+
   if (gameData.value.choiceHistory.length > 0) {
     const endNodeId = nodeId++
     const layoutEnd = computeNodeLayout('主线/完结', '分支收束于主线，完成一次旅程')

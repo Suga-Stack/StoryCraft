@@ -592,8 +592,24 @@ export function useCreatorMode(dependencies = {}) {
       const target = scene.dialogues[idx]
       if (!isNarration(target)) { showNotice?.('当前项不是旁白，无法删除'); return }
 
+      // 如果该场景包含选项，并且当前索引正好是触发选项的那句旁白，则禁止删除
+      const hasChoices = Array.isArray(scene.choices) && scene.choices.length > 0
+      const triggerIdx = (typeof scene.choiceTriggerIndex === 'number') ? scene.choiceTriggerIndex : null
+      if (hasChoices && triggerIdx !== null && idx === triggerIdx) {
+        showNotice?.('无法删除触发选项的旁白，请先移动或修改选项触发点');
+        return
+      }
+
+      // 记录旧的 trigger 索引，以便在删除靠前项时调整
+      const oldTriggerIdx = triggerIdx
+
       // 删除
       scene.dialogues.splice(idx, 1)
+
+      // 如果删除的项在触发点之前，触发索引需要左移一位，以保持触发旁白不变
+      if (hasChoices && oldTriggerIdx !== null && idx < oldTriggerIdx) {
+        try { scene.choiceTriggerIndex = oldTriggerIdx - 1 } catch (e) { /* ignore */ }
+      }
 
       // 更新 overrides：重建索引映射，保持其它被编辑的文本
       const sid = (scene._uid || scene.sceneId || scene.id || `idx_${_currentSceneIndex.value}`)
