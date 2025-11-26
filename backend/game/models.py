@@ -1,6 +1,7 @@
 from django.db import models
 from django.conf import settings
 from gameworks.models import Gamework
+from stories.models import StoryEnding
 
 class GameSave(models.Model):
     """游戏存档模型"""
@@ -25,15 +26,17 @@ class GameSave(models.Model):
 
 class GameReport(models.Model):
     """游戏总结报告模型"""
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="game_reports")
-    gamework = models.ForeignKey(Gamework, on_delete=models.CASCADE, related_name="game_reports")
+    # 关联到具体的结局
+    story_ending = models.OneToOneField(StoryEnding, on_delete=models.CASCADE, related_name="report")
     
-    content = models.JSONField(help_text="游戏总结报告的内容 (JSON格式)")
+    title = models.CharField(max_length=100, help_text="称号")
+    content = models.TextField(help_text="评价内容")
+    traits = models.JSONField(default=list, help_text="特质列表")
     
-    generated_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"Report for {self.user.username} on '{self.gamework.title}'"
+        return f"Report for {self.story_ending}"
 
     class Meta:
-        ordering = ['-generated_at']
+        ordering = ['-created_at']
