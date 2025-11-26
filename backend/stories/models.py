@@ -84,13 +84,27 @@ class StoryEnding(models.Model):
     """
     故事结局模型，存储生成的完整结局内容。
     """
+    class EndingStatus(models.TextChoices):
+        NOT_GENERATED = 'not_generated'
+        GENERATING = 'generating'
+        GENERATED = 'generated'
+        SAVED = 'saved'
+
     story = models.ForeignKey(Story, on_delete=models.CASCADE, related_name='story_endings', help_text="关联的故事")
     ending_index = models.PositiveIntegerField(default=1, help_text="结局序号")
     title = models.CharField(max_length=255, help_text="结局标题")
     condition = models.JSONField(default=dict, help_text="触发条件")
+    summary = models.TextField(default="", help_text="结局概述")
     raw_content = models.TextField(default="", help_text="结局原始文本")
     parsed_content = models.JSONField(default=dict, help_text="格式化后的结局内容")
     
+    status = models.CharField(
+        max_length=20,
+        choices=EndingStatus.choices,
+        default=EndingStatus.NOT_GENERATED,
+        help_text="结局状态"
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

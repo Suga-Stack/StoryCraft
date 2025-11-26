@@ -33,7 +33,7 @@ def _parse_attr_deltas(effect_text: str) -> dict:
 # 3. 属性标记可能是 [属性影响：...], [影响属性：...], [属性：...]
 # 4. 括号可能是 [] 或 【】
 _choice_line_re = re.compile(
-    r"^\s*\*{0,2}\s*(?:→|->|=>)\s*(?:[ABCD]|[0-9]+)(?:\.|、)?\s*(.+?)\s*(?:\[|【)?(?:属性影响|影响属性|属性)[:：]\s*([^\]】]+)(?:\]|】)?\s*\*{0,2}\s*$"
+    r"^\s*\*{0,2}\s*(?:→|->|=>)\s*(?:[ABCD]|[0-9]+)(?:\.|、)?\s*\[?(.+?)\]?\s*(?:\[|【)?(?:属性影响|影响属性|属性)[:：]\s*([^\]】]+)(?:\]|】)?\s*\*{0,2}\s*$"
 )
 
 def _normalize_block(text: str) -> str:
@@ -343,9 +343,23 @@ def update_story_directory(story, new_outlines: list[dict]):
     for item in new_outlines:
         idx = item.get('chapterIndex')
         new_outline = item.get('outline')
+        new_title = item.get('title')
+
         if idx is None or new_outline is None:
             continue
             
+        # 1. 更新标题 (如果有)
+        if new_title:
+            # 匹配行： "### 第1章 - 旧标题" 或 "第1章"
+            # group 1: "### 第1章"
+            pattern_title_line = re.compile(r"^((?:#+\s*)?第\s*" + str(idx) + r"\s*章).*$", re.MULTILINE)
+            m_title = pattern_title_line.search(directory)
+            if m_title:
+                # 保留前缀，替换后面部分
+                new_header = f"{m_title.group(1)} - {new_title}"
+                directory = directory[:m_title.start()] + new_header + directory[m_title.end():]
+
+        # 2. 更新大纲
         # 匹配章节标题行：例如 "### 第1章" 或 "第 1 章"
         pattern_chapter_start = re.compile(r"^(?:#+\s*)?第\s*" + str(idx) + r"\s*章.*$", re.MULTILINE)
         m_start = pattern_chapter_start.search(directory)

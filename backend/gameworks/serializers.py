@@ -112,7 +112,22 @@ class GameworkDetailSerializer(serializers.ModelSerializer):
         return getattr(obj.story, 'initial_statuses', {})
 
     def get_outlines(self, obj):
-        return getattr(obj.story, 'outlines', [])
+        # 获取章节大纲
+        outlines = getattr(obj.story, 'outlines', []) or []
+        if not isinstance(outlines, list):
+            outlines = []
+        
+        # 获取结局大纲并追加
+        endings_summary = getattr(obj.story, 'endings_summary', []) or []
+        if endings_summary and isinstance(endings_summary, list):
+            for i, ending in enumerate(endings_summary):
+                outlines.append({
+                    "endingIndex": i + 1,
+                    "title": ending.get("title", f"结局{i+1}"),
+                    "outline": ending.get("summary", "")
+                })
+                                     
+        return outlines
 
     def get_chapters_status(self, obj):
         story = getattr(obj, 'story', None)
