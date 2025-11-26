@@ -431,6 +431,27 @@ export function useGameState(dependencies = {}) {
         isGeneratingSettlement.value = true
         isLoading.value = true
         loadingProgress.value = 0
+
+        // 如果尚未将结局追加到剧情中，先尝试拉取并插入结局场景
+        if (!endingsAppended.value) {
+          try {
+            console.log('handleGameEnd: 尚未追加结局，尝试拉取并追加结局场景')
+            const appended = await fetchAndAppendEndings(work.value.id)
+            // 如果成功追加结局，则退出 handleGameEnd，让玩家阅读结局后再次触发结算流程
+            if (appended) {
+              isGeneratingSettlement.value = false
+              isLoading.value = false
+              loadingProgress.value = 0
+              return
+            }
+            // 如果未追加（超时或失败），继续走原始结算逻辑作为回退
+            console.log('handleGameEnd: 结局未追加（可能超时或错误），继续结算流程')
+          } catch (e) {
+            console.warn('handleGameEnd: fetchAndAppendEndings 失败，继续结算流程', e)
+          }
+        } else {
+          console.log('handleGameEnd: 结局已追加，进入结算生成')
+        }
         
         // 模拟结算页面生成过程
         const generateSettlement = async () => {
@@ -989,7 +1010,19 @@ export function useGameState(dependencies = {}) {
             if (lastChapterStatus === 'saved') {
                 console.log('[requestNextIfNeeded] 最后一章已保存，跳转到结算界面')
                 showNotice('故事已完结，即将进入结算页面...', 2000)
-                setTimeout(() => {
+                setTimeout(async () => {
+                // 在进入结算前先尝试拉取并追加结局
+                try {
+                  if (!endingsAppended.value) {
+                    const appended = await fetchAndAppendEndings(work.value.id)
+                    if (appended) {
+                      // 用户将阅读结局，停止后续结算流程
+                      isRequestingNext = false
+                      return
+                    }
+                  }
+                } catch (e) { console.warn('pre-handleGameEnd fetch endings failed', e) }
+
                 storyEndSignaled.value = true
                 handleGameEnd()
                 isRequestingNext = false  // 重置标志
@@ -1025,9 +1058,16 @@ export function useGameState(dependencies = {}) {
         console.log('[requestNextIfNeeded] nextChapter exceeds totalChapters, marking story end')
         storyEndSignaled.value = true
         showNotice('故事已完结，即将进入结算页面...', 2000)
-        setTimeout(() => {
-            handleGameEnd()
-            isRequestingNext = false  // 重置标志
+        setTimeout(async () => {
+          try {
+            if (!endingsAppended.value) {
+              const appended = await fetchAndAppendEndings(work.value.id)
+              if (appended) { isRequestingNext = false; return }
+            }
+          } catch (e) { console.warn('pre-handleGameEnd fetch endings failed', e) }
+
+          handleGameEnd()
+          isRequestingNext = false  // 重置标志
         }, 2000)
         return
         }
@@ -1359,6 +1399,13 @@ export function useGameState(dependencies = {}) {
             if (isLastChapter) {
               console.log('[nextDialogue] 已完成末章，准备进入结算')
               storyEndSignaled.value = true
+              try {
+                if (!endingsAppended.value) {
+                  const appended = await fetchAndAppendEndings(work.value.id)
+                  if (appended) return
+                }
+              } catch (e) { console.warn('pre-handleGameEnd fetch endings failed', e) }
+
               handleGameEnd()
               return
             } else {
@@ -1473,10 +1520,16 @@ export function useGameState(dependencies = {}) {
             return
           }
           
-          if (totalChapters.value && Number(nextChapter) > Number(totalChapters.value)) {
+            if (totalChapters.value && Number(nextChapter) > Number(totalChapters.value)) {
             console.log('[nextDialogue] Next chapter exceeds totalChapters')
             storyEndSignaled.value = true
             await stopLoading()
+            try {
+              if (!endingsAppended.value) {
+                const appended = await fetchAndAppendEndings(work.value.id)
+                if (appended) return
+              }
+            } catch (e) { console.warn('pre-handleGameEnd fetch endings failed', e) }
             handleGameEnd()
             return
           }
@@ -1522,6 +1575,12 @@ export function useGameState(dependencies = {}) {
         if (!data || data.end === true) {
           console.log('[nextDialogue] Story ended')
           storyEndSignaled.value = true
+          try {
+            if (!endingsAppended.value) {
+              const appended = await fetchAndAppendEndings(work.value.id)
+              if (appended) return
+            }
+          } catch (e) { console.warn('pre-handleGameEnd fetch endings failed', e) }
           handleGameEnd()
           return
         }
@@ -1547,9 +1606,9 @@ export function useGameState(dependencies = {}) {
 
         console.warn('[nextDialogue] No content received')
         const nextChapter = isChapterEnd ? currentChapterIndex.value : (currentChapterIndex.value + 1)
-        if (totalChapters.value && Number(nextChapter) > Number(totalChapters.value)) {
-          console.log('[nextDialogue] No content and exceeds totalChapters')
-          storyEndSignaled.value = true
+          if (totalChapters.value && Number(nextChapter) > Number(totalChapters.value)) {
+            console.log('[nextDialogue] No content and exceeds totalChapters')
+            storyEndSignaled.value = true
           
           if (creatorFeatureEnabled.value) {
             try {
@@ -1566,6 +1625,13 @@ export function useGameState(dependencies = {}) {
             }
           }
           
+          try {
+            if (!endingsAppended.value) {
+              const appended = await fetchAndAppendEndings(work.value.id)
+              if (appended) return
+            }
+          } catch (e) { console.warn('pre-handleGameEnd fetch endings failed', e) }
+
           handleGameEnd()
           return
         }
@@ -1594,6 +1660,13 @@ export function useGameState(dependencies = {}) {
             }
           }
           
+          try {
+            if (!endingsAppended.value) {
+              const appended = await fetchAndAppendEndings(work.value.id)
+              if (appended) return
+            }
+          } catch (e) { console.warn('pre-handleGameEnd fetch endings failed', e) }
+
           handleGameEnd()
           return
         }
