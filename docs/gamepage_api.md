@@ -200,40 +200,21 @@
     {
       "status": "ready",
       "endings": [
-        {
+        { 
+          "endingIndex": 1,
           "title": "结局1",
           "condition": {"心计": ">=50", "圣宠": ">=30"},
-          "summary": "结局梗概...",
-          "scenes": [
-            {
-              "id": 1,
-              "backgroundImage": "/media/gamework_scenes/132693169d27471fa8cb7f30630b7983.jpg",
-              "dialogues": [
-                {
-                  "narration": "你背着半旧的青锋剑，站在名为“望归”的古道入口……",
-                  "playerChoices": null
-                }
-                // ...更多对白，结局不再有选项
-              ]
-            }
-            // ...更多场景...
-          ]
+          "outline": "结局梗概...",
         },
         {
           "title": "结局2",
           "condition": {"健康": ">=80", "心机": "<=30"},
           "summary": "结局梗概...",
-          "scenes": [
-            //
-          ]
         },
         {
           "title": "结局3",
           "condition": {"心机": "<=30"}, // 目前暂没有默认结局，可认为最后一个结局为默认结局
           "summary": "结局梗概...",
-          "scenes":[
-            // 
-          ]
         }
       ]
     }

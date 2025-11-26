@@ -196,12 +196,12 @@ class GameChapterView(views.APIView):
 
 
 class GameEndingView(views.APIView):
-    """查询游戏结局生成状态或获取内容，以及手动更新结局"""
+    """查询游戏结局列表（摘要）"""
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_summary="获取游戏结局",
-        operation_description="轮询接口，返回结局生成状态(pending/generating/ready)或已生成的结局内容。",
+        operation_summary="获取游戏结局列表",
+        operation_description="返回所有结局的摘要信息（不含场景）。",
         manual_parameters=[
             openapi.Parameter('gameworkId', openapi.IN_PATH, description="作品ID", type=openapi.TYPE_INTEGER, required=True),
         ],
@@ -209,23 +209,23 @@ class GameEndingView(views.APIView):
             status.HTTP_200_OK: openapi.Schema(
                 type=openapi.TYPE_OBJECT,
                 properties={
-                    'status': openapi.Schema(type=openapi.TYPE_STRING, description="状态: pending, generating, ready"),
+                    'status': openapi.Schema(type=openapi.TYPE_STRING, description="状态: pending, ready"),
                     'endings': openapi.Schema(
                         type=openapi.TYPE_ARRAY,
                         items=openapi.Schema(
                             type=openapi.TYPE_OBJECT,
                             properties={
-                                'endingIndex': openapi.Schema(type=openapi.TYPE_INTEGER, description="结局序号（从1开始）"),
+                                'endingIndex': openapi.Schema(type=openapi.TYPE_INTEGER),
                                 'title': openapi.Schema(type=openapi.TYPE_STRING),
                                 'condition': openapi.Schema(type=openapi.TYPE_OBJECT),
-                                'scenes': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_OBJECT))
+                                'outline': openapi.Schema(type=openapi.TYPE_STRING, description="结局梗概"),
+                                'status': openapi.Schema(type=openapi.TYPE_STRING, description="not_generated/generating/generated/saved")
                             }
                         )
                     )
                 }
             ),
             status.HTTP_404_NOT_FOUND: openapi.Response(description="作品不存在"),
-            status.HTTP_500_INTERNAL_SERVER_ERROR: openapi.Response(description="服务器内部错误")
         }
     )
     def get(self, request, gameworkId: int, *args, **kwargs):
@@ -239,13 +239,52 @@ class GameEndingView(views.APIView):
             return Response(result, status=status.HTTP_200_OK)
         except Exception as e:
             logger.error(
-                "查询结局状态时发生错误 - gamework_id: %s, error: %s",
+                "查询结局列表时发生错误 - gamework_id: %s, error: %s",
                 gameworkId, e, exc_info=True
             )
             return Response(
                 {"error": "服务器出错，请稍后重试。"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+class GameEndingDetailView(views.APIView):
+    """获取单个结局的详细内容或手动更新结局"""
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="获取单个结局详情",
+        operation_description="返回指定结局的详细内容（包含场景）。",
+        responses={
+            status.HTTP_200_OK: openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'status': openapi.Schema(type=openapi.TYPE_STRING),
+                    'ending': openapi.Schema(
+                        type=openapi.TYPE_OBJECT,
+                        properties={
+                            'endingIndex': openapi.Schema(type=openapi.TYPE_INTEGER),
+                            'title': openapi.Schema(type=openapi.TYPE_STRING),
+                            'condition': openapi.Schema(type=openapi.TYPE_OBJECT),
+                            'outline': openapi.Schema(type=openapi.TYPE_STRING),
+                            'status': openapi.Schema(type=openapi.TYPE_STRING),
+                            'scenes': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_OBJECT))
+                        }
+                    )
+                }
+            ),
+            status.HTTP_404_NOT_FOUND: openapi.Response(description="结局不存在"),
+        }
+    )
+    def get(self, request, gameworkId: int, endingIndex: int, *args, **kwargs):
+        try:
+            gamework = get_object_or_404(Gamework, pk=gameworkId)
+            result = services.get_single_story_ending(gamework, endingIndex)
+            if result.get("status") == "error":
+                return Response(result, status=status.HTTP_404_NOT_FOUND)
+            return Response(result, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"查询结局详情失败: {e}", exc_info=True)
+            return Response({"error": "服务器出错"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @swagger_auto_schema(
         operation_summary="手动保存修改后的结局内容",
@@ -257,7 +296,7 @@ class GameEndingView(views.APIView):
             status.HTTP_400_BAD_REQUEST: openapi.Response(description='参数错误'),
         }
     )
-    def put(self, request, gameworkId: int, *args, **kwargs):
+    def put(self, request, gameworkId: int, endingIndex: int, *args, **kwargs):
         gamework = get_object_or_404(Gamework, pk=gameworkId)
         if gamework.author != request.user:
             return Response({"error": "您没有权限修改此作品。"}, status=status.HTTP_403_FORBIDDEN)
@@ -267,12 +306,18 @@ class GameEndingView(views.APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
         data = serializer.validated_data
+        
+        # 校验 endingIndex 是否匹配
+        if data.get('endingIndex') != endingIndex:
+            return Response({"error": "URL中的结局索引与请求体中的不匹配。"}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
-            ending_obj = StoryEnding.objects.get(story__gamework=gamework,ending_index=data.get("endingIndex"))
+            ending_obj = StoryEnding.objects.get(story__gamework=gamework, ending_index=endingIndex)
         except StoryEnding.DoesNotExist:
             return Response({"error": "指定的结局不存在"}, status=status.HTTP_404_NOT_FOUND)
 
         ending_obj.title = data.get("title")
+        ending_obj.status = StoryEnding.EndingStatus.SAVED # 标记为已保存
         ending_obj.save()
         
         ending_obj.scenes.all().delete()
@@ -285,7 +330,6 @@ class GameEndingView(views.APIView):
             )
         
         return Response({"ok": True}, status=status.HTTP_200_OK)
-
 
 class ChapterGenerateView(views.APIView):
     """为创作者启动指定章节的生成"""

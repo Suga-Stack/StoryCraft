@@ -10,5 +10,6 @@ urlpatterns = [
     path('saves/<int:gameworkId>/<int:slot>/', views.GameSaveDetailView.as_view(), name='game-save-detail'),
     path('saves/<int:gameworkId>/', views.GameSaveListView.as_view(), name='game-saves'),
     path('storyending/<int:gameworkId>/', views.GameEndingView.as_view(), name='story-ending'),
+    path('storyending/<int:gameworkId>/<int:endingIndex>/', views.GameEndingDetailView.as_view(), name='story-ending-detail'),
     path('report/<int:gameworkId>/<int:endingIndex>/', views.GameReportView.as_view(), name='settlement-report'),
 ]

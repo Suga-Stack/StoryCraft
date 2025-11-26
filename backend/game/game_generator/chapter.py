@@ -1,5 +1,4 @@
 import re
-from typing import Iterator
 from .openai_client import invoke
 from .prompts import(
     build_chapter_prompt,
@@ -13,16 +12,9 @@ def _parse_last_chapter_with_endings_output(text: str):
     从合并输出的文本中解析出最后一章前半部分和各个结局概述
     """
     
-    # 提取最后一章前半部分
-    chapter_match = re.search(
-        r"#### 剧情内容\s+(.+?)\s+## 结局概述", 
-        text, 
-        re.DOTALL
-    )
-    
-    last_chapter_content = ""
-    if chapter_match:
-        last_chapter_content = chapter_match.group(1).strip()
+    # 提取最后一章前半部分（包含标题等所有信息），直到遇到 "## 结局概述"
+    parts = re.split(r"##\s*结局概述", text, maxsplit=1)
+    last_chapter_content = parts[0].strip() if parts else ""
     
     # 提取各个结局
     endings = []
@@ -98,7 +90,7 @@ def generate_chapter_content(
         ))
         return chapter_content, updated_summary, []
 
-def _calculate_attributes(parsed_chapters: list, initial_attributes: dict) -> dict:
+def calculate_attributes(parsed_chapters: list, initial_attributes: dict) -> dict:
     """
     遍历所有章节，计算每个属性在游戏结束时的可能取值范围 (min, max)。
     """
@@ -141,7 +133,7 @@ def _calculate_attributes(parsed_chapters: list, initial_attributes: dict) -> di
                     
     return ranges
 
-def _parse_ending_condition(text: str, attr_ranges: dict) -> dict:
+def parse_ending_condition(text: str, attr_ranges: dict) -> dict:
     """
     将自然语言条件（如"勇气较高，智慧中等"）解析为数值条件（如 {"勇气": ">=30", "智慧": ">=20,<=40"}）。
     """
@@ -181,55 +173,37 @@ def _parse_ending_condition(text: str, attr_ranges: dict) -> dict:
     return conditions
 
 def generate_ending_content(
-    endings_summary: list,
+    ending_title: str,
+    ending_condition: str,
+    ending_summary: str,
     chapter_index: int, 
     attribute_system: str,
     characters: str,
     architecture: str,
     previous_chapter_content: str, 
     last_chapter_content: str,     
-    parsed_chapters: list,
-    initial_attributes: dict,
     global_summary: str = "",
     user_prompt: str = ""
-) -> Iterator[dict]:
+) -> str:
     """
-    使用 yield 逐个返回生成的结局数据。
-    - title（结局标题）
-    - condition (解析后条件)
-    - summary（结局概述）
-    - raw_content（原始完整结局文本）
+    生成单个结局的完整内容
     """
-    # 计算属性范围
-    attr_ranges = _calculate_attributes(parsed_chapters, initial_attributes)
+    prompt = build_ending_content_prompt(
+        ending_title=ending_title,
+        ending_condition=ending_condition, 
+        ending_summary=ending_summary,
+        chapter_index=chapter_index,
+        architecture=architecture,
+        attribute_system=attribute_system,
+        characters=characters,
+        global_summary=global_summary,
+        previous_chapter_content=previous_chapter_content, 
+        last_chapter_content=last_chapter_content     
+    )
     
-    for ending_info in endings_summary:
-        # 解析条件
-        parsed_condition = _parse_ending_condition(ending_info["condition"], attr_ranges)
-        
-        # 构建 Prompt
-        prompt = build_ending_content_prompt(
-            ending_title=ending_info["title"],
-            ending_condition=ending_info["condition"], 
-            ending_summary=ending_info["summary"],
-            chapter_index=chapter_index,
-            architecture=architecture,
-            attribute_system=attribute_system,
-            characters=characters,
-            global_summary=global_summary,
-            previous_chapter_content=previous_chapter_content, 
-            last_chapter_content=last_chapter_content     
-        )
-        
-        if user_prompt:
-            prompt += f"\n# 创作者附加指令\n{user_prompt}\n(请合理融合但保持结局逻辑一致)"
+    if user_prompt:
+        prompt += f"\n# 创作者附加指令\n{user_prompt}\n(请合理融合但保持结局逻辑一致)"
 
-        # 生成内容
-        ending_content = invoke(prompt)
-        
-        yield {
-            "title": ending_info["title"],
-            "condition": parsed_condition, # 存解析后的数值条件
-            "summary": ending_info["summary"],
-            "raw_content": ending_content
-        }
+    ending_content = invoke(prompt)
+    
+    return ending_content
