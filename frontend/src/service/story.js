@@ -190,6 +190,20 @@ export async function saveChapter(gameworkId, chapterIndex, chapterData = {}) {
 }
 
 /**
+ * 将创作者在前端修改后的结局内容持久化到后端（PUT /api/game/storyending/{gameworkId}）
+ * @param {number|string} gameworkId
+ * @param {Object} body - { endingId, title, scenes }
+ */
+export async function saveEnding(gameworkId, body = {}) {
+  try {
+    return await http.put(`/api/game/storyending/${gameworkId}/`, body)
+  } catch (e) {
+    console.error('saveEnding failed', e)
+    throw e
+  }
+}
+
+/**
  * 更新作品信息
  * @param {string|number} workId - 作品 ID
  * @param {Object} updates - 更新的字段
@@ -254,6 +268,7 @@ export default {
   createGame,
   generateChapter,
   saveChapter,
+  saveEnding,
   getWorkInfo,
   getWorkList,
   updateWork,

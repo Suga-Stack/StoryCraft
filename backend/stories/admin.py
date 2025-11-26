@@ -18,7 +18,7 @@ class StoryChapterAdmin(admin.ModelAdmin):
 
 @admin.register(StoryEnding)
 class StoryEndingAdmin(admin.ModelAdmin):
-    list_display = ("story", "title", "created_at")
+    list_display = ("story", "ending_index", "title", "created_at")
     search_fields = ("story__gamework__title", "title")
     list_filter = ("story",)
 

@@ -77,6 +77,8 @@ const selectedGroupTags = computed(() => tagGroups[selectedCategory.value].tags)
 onBeforeUnmount(() => {
   try { ScreenOrientation.unlock && ScreenOrientation.unlock().catch(() => {}) } catch (e) {}
   try { if (screen && screen.orientation && screen.orientation.unlock) screen.orientation.unlock().catch(() => {}) } catch (e) {}
+  try { if (resumeTimer) { clearInterval(resumeTimer); resumeTimer = null } } catch (e) {}
+  try { if (pollTimer) { clearInterval(pollTimer); pollTimer = null } } catch (e) {}
 })
 
 const toggleGroup = (idx) => {
@@ -105,6 +107,7 @@ const backendWork = ref(null)
 // 持久化创建任务（用于跨页面保留加载状态）
 const CREATION_JOB_KEY = 'creationJob'
 let resumeTimer = null
+let pollTimer = null
 
 // 提交到后端生成作品（使用 service）
 const submitToBackend = async () => {
@@ -180,17 +183,8 @@ const submitToBackend = async () => {
 const startCreate = async () => {
   if (!canCreate.value) return
   // 如果已经有完成的创建任务，直接跳转到已生成的作品（避免重复请求）
-  try {
-    const existing = JSON.parse(sessionStorage.getItem(CREATION_JOB_KEY) || 'null')
-    if (existing && existing.status === 'done' && existing.backendWork) {
-      // 已生成，导航到作品详情页（使用 createResult 兼容旧逻辑）
-      try { const cr = JSON.parse(sessionStorage.getItem('createResult') || '{}'); } catch(e) {}
-      // 为了确保该自动跳转只触发一次，跳转前从 sessionStorage 中移除 creationJob
-      try { sessionStorage.removeItem(CREATION_JOB_KEY) } catch (e) {}
-      router.push('/works')
-      return
-    }
-  } catch (e) {}
+  // 始终尝试发起新的生成请求（即使之前存在已完成的 creationJob），
+  // 避免点击时自动跳转到之前生成的作品。我们要保证点击「一键生成」即刻向后端发起生成。
   // 记录本次用户请求，便于后端读取或下页使用
   try {
     sessionStorage.setItem('createRequest', JSON.stringify({
@@ -200,19 +194,7 @@ const startCreate = async () => {
     }))
   } catch {}
 
-  // 在开始生成时写入一个 creationJob，便于用户在离开后返回时恢复加载状态
-  try {
-    const pendingJob = {
-      id: `local-${Date.now()}`,
-      status: 'pending',
-      progress: 0,
-      createdAt: Date.now(),
-      backendWork: null
-    }
-    sessionStorage.setItem(CREATION_JOB_KEY, JSON.stringify(pendingJob))
-  } catch (e) {
-    console.warn('unable to persist creationJob:', e)
-  }
+  // 不在这里提前写入本地 pending job（避免在返回时触发本地模拟并误结束加载）。
 
   // 如果启用跳过后端模式，则在前端模拟一个生成流程（不调用任何后端接口）
   if (SKIP_BACKEND_CREATE) {
@@ -280,24 +262,23 @@ const startCreate = async () => {
     // 跳转到作品介绍页，让用户查看作品详情并决定是否开始游戏
     router.push('/works')
   } catch (e) {
+    // 发生错误：停止假的进度条，但保持页面处于 loading 状态，
+    // 不再自动跳转到作品页。用户可以稍后重试或刷新页面以继续生成。
     stopFakeProgress()
-    alert('后端生成失败或超时，已使用本地占位内容。可重试或稍后再试。')
-    // 出错时也短暂显示 100% 以给用户反馈，然后跳转到作品介绍页
-    try { progress.value = 100 } catch (_) {}
-    await new Promise(r => setTimeout(r, 300))
-    // 失败时移除 creationJob 或标记为 failed
+    console.error('submitToBackend failed:', e)
+    // 标记 creationJob 为 pending/failed 保留在 sessionStorage 中，方便用户返回继续
     try {
       const cur = JSON.parse(sessionStorage.getItem(CREATION_JOB_KEY) || '{}')
-      cur.status = 'failed'
-      cur.progress = progress.value || 100
+      cur.status = cur.status || 'pending'
+      cur.progress = progress.value || 0
+      cur.error = (e && e.message) ? e.message : String(e)
       sessionStorage.setItem(CREATION_JOB_KEY, JSON.stringify(cur))
-    } catch (e) { try { sessionStorage.removeItem(CREATION_JOB_KEY) } catch(_) {} }
-    router.push('/works')
+    } catch (ee) { console.warn('update creationJob on failure failed', ee) }
+    // 保持 isLoading=true，这样创建页一直显示加载覆盖层，符合需求
+    return
   } finally {
-    stopFakeProgress()
-    // 重置加载状态（导航后页面会卸载，这里作为防御性恢复）
-    isLoading.value = false
-    progress.value = 0
+    // 成功路径会跳转页面并在路由变化中卸载本组件；失败路径会在上面 return 保持 isLoading。
+    // 这里不再在 finally 中清理 isLoading，以保证在失败时保持加载覆盖层。
   }
 }
 
@@ -306,7 +287,47 @@ const restoreCreationJob = () => {
   try {
     const existing = JSON.parse(sessionStorage.getItem(CREATION_JOB_KEY) || 'null')
     if (existing && (existing.status === 'pending' || existing.status === 'in-progress')) {
-      startResumeSimulation(existing)
+      // 仅在本地模拟或明确要求跳过后端时使用本地模拟
+      const isLocalJob = existing.id && String(existing.id).startsWith('local-')
+      if (SKIP_BACKEND_CREATE || USE_MOCK_CREATE || isLocalJob) {
+        startResumeSimulation(existing)
+      } else {
+        // 对于真实的后端生成任务，启动轮询 sessionStorage.createResult 或后端接口，
+        // 保持创建页的加载覆盖层直到后端写入 createResult.backendWork
+        try {
+          isLoading.value = true
+          // 清理可能存在的旧定时器
+          if (pollTimer) clearInterval(pollTimer)
+          pollTimer = setInterval(() => {
+            try {
+              const crRaw = sessionStorage.getItem('createResult')
+              if (!crRaw) return
+              const cr = JSON.parse(crRaw)
+              if (cr && cr.backendWork) {
+                backendWork.value = cr.backendWork
+                // mark creationJob as done
+                try {
+                  const finished = JSON.parse(sessionStorage.getItem(CREATION_JOB_KEY) || '{}')
+                  finished.status = 'done'
+                  finished.progress = 100
+                  finished.backendWork = backendWork.value
+                  finished.finishedAt = Date.now()
+                  sessionStorage.setItem(CREATION_JOB_KEY, JSON.stringify(finished))
+                } catch (e) {}
+                clearInterval(pollTimer)
+                pollTimer = null
+                // stop loading and navigate
+                isLoading.value = false
+                progress.value = 100
+                // short delay for UX
+                setTimeout(() => {
+                  router.push('/works')
+                }, 250)
+              }
+            } catch (e) { /* ignore parse errors */ }
+          }, 2000)
+        } catch (e) { /* ignore */ }
+      }
     }
   } catch (e) {}
 }

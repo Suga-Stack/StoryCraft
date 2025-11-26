@@ -33,6 +33,7 @@ const {
   currentChapterIndex,
   chaptersStatus,
   lastLoadedGeneratedChapter,
+  lastSelectedEndingIndex,
   isFetchingNext,
   isFetchingChoice,
   storyScenes,
@@ -287,6 +288,7 @@ const gameStateAPI = useGameState({
   restoreChoiceFlagsFromHistory,
   // 添加缺失的依赖
   creatorMode,
+  lastSelectedEndingIndex,
   allowAdvance,
   editingDialogue,  // 🔑 关键修复：添加编辑状态依赖
   creatorFeatureEnabled,
@@ -1094,9 +1096,24 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       const bg = (s.backgroundImage || s.background_image || s.background || '')
       const rawDialogues = Array.isArray(s.dialogues) ? s.dialogues : []
       // 🔑 关键修复：过滤掉 null 值（来自 subsequentDialogues 的对话）
-      const dialogues = rawDialogues
+      let dialogues = rawDialogues
         .map((d, dIdx) => normalizeDialogue(d, s, dIdx))
         .filter(d => d !== null)
+
+      // 额外过滤：保证每个 dialogue 的 narration 非空或至少包含 playerChoices
+      dialogues = dialogues.map(d => {
+        const narration = (d.narration || '')
+        const hasChoices = Array.isArray(d.playerChoices) && d.playerChoices.length > 0
+        if (!String(narration).trim() && !hasChoices) {
+          // 如果既没有叙述也没有选项，丢弃该 dialogue（后续 .filter 会移除）
+          return null
+        }
+        if (!String(narration).trim() && hasChoices) {
+          // 如果没有叙述但存在选项，设置为单个空格以满足后端非空校验
+          d.narration = ' '
+        }
+        return d
+      }).filter(d => d !== null)
       return { id: Number(sid), backgroundImage: bg || '', dialogues }
     })
 
@@ -1124,13 +1141,216 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       scenes: scenesPayload
     }
 
-    // 检测是否为结局场景：如果是结局则不要 PUT 回原章节以避免覆盖原始最后一章内容
+    // 检测是否为结局场景：如果是结局则走结局保存接口（而不是覆盖章节）
     const isEndingChapter = (!!storyEndSignaled && storyEndSignaled.value === true) ||
-                           (Array.isArray(scenesWithOverrides) && scenesWithOverrides.some(s => s.isChapterEnding || s.isGameEnding || s.isGameEnd || s.chapterEnd || s.end))
+                           (Array.isArray(scenesWithOverrides) && scenesWithOverrides.some(s => s.isChapterEnding || s.isGameEnding || s.isGameEnd || s.chapterEnd || s.end || s.isEnding))
     if (isEndingChapter) {
-      console.log('persistCurrentChapterEdits: Detected ending chapter — skipping backend PUT to avoid overwriting last chapter', { workId, chapterIndex })
-      try { await stopLoading() } catch (e) {}
-      return
+      console.log('persistCurrentChapterEdits: Detected ending chapter — will call storyending save endpoint', { workId, chapterIndex })
+      try {
+        // 尝试获取后端已存在的结局列表，以便定位 endingId 与 title（兼容没有 id 的实现）
+        let endingId = null
+        let endingTitle = chapterData.title || ''
+        try {
+          const resp = await storyService.getWorkInfo(workId)
+          // 如果 getWorkInfo 包含 endings 字段（某些后端可能返回在作品详情里），尝试读取
+          const payload = resp && resp.data ? resp.data : resp
+          const endingsFromWork = Array.isArray(payload?.endings) ? payload.endings : []
+          if (endingsFromWork.length > 0) {
+            const idx = (lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? (Number(lastSelectedEndingIndex.value) - 1) : 0
+            const chosen = endingsFromWork[idx] || endingsFromWork[0]
+            if (chosen) {
+              endingId = chosen.id ?? chosen.endingId ?? null
+              endingTitle = endingTitle || chosen.title || chosen.name || endingTitle
+            }
+          } else {
+            // 否则再尝试直接读取 /api/game/storyending 接口
+            try {
+              const resp2 = await http.get(`/api/game/storyending/${workId}`)
+              const payload2 = resp2 && resp2.data ? resp2.data : resp2
+              const endings2 = Array.isArray(payload2?.endings) ? payload2.endings : []
+              if (endings2.length > 0) {
+                const idx2 = (lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? (Number(lastSelectedEndingIndex.value) - 1) : 0
+                const chosen2 = endings2[idx2] || endings2[0]
+                endingId = chosen2.id ?? chosen2.endingId ?? null
+                endingTitle = endingTitle || chosen2.title || chosen2.name || endingTitle
+              }
+            } catch (e) { /* ignore */ }
+          }
+        } catch (e) { /* ignore */ }
+
+        // 我们要把所有结局按后端 GET 返回的结构逐个 PUT 回去（包含不可进入的结局）
+        // 1) 先尝试读取后端现有的 endings 列表
+        let existingEndings = []
+        try {
+          // 优先使用作品详情中的 endings 字段
+          const resp = await storyService.getWorkInfo(workId)
+          const payload = resp && resp.data ? resp.data : resp
+          existingEndings = Array.isArray(payload?.endings) ? payload.endings : []
+        } catch (e) {
+          // 如果作品详情没有返回 endings，尝试直接读取 storyending 列表接口
+          try {
+            const resp2 = await http.get(`/api/game/storyending/${workId}/`)
+            const p2 = resp2 && resp2.data ? resp2.data : resp2
+            existingEndings = Array.isArray(p2?.endings) ? p2.endings : []
+          } catch (e2) {
+            // 忽略，后面会至少保存当前编辑的结局
+            existingEndings = []
+          }
+        }
+
+        // helper: 限制 title 长度到 255
+        const safeTitle = (t) => {
+          if (!t && t !== 0) return ''
+          const s = String(t)
+          return s.length > 255 ? s.slice(0, 255) : s
+        }
+
+        // 确定当前要保存的 endingIndex（以 1 为基数）
+        // 优先策略：如果当前编辑来自于一个已读/加载的存档并且该存档包含 `endingindex`，
+        // 则使用该 `endingindex` 来定位要覆盖的逻辑结局（确保我们覆盖的是用户实际修改的结局）。
+        // 否则再回退到 UI 中选中的 lastSelectedEndingIndex，或最终回退到 1。
+        // 注意：不要把后端 DB 的 `id` 当作逻辑上的 endingIndex 使用。
+        let currentEndingIndex = 1
+        try {
+          if (lastSaveInfo && lastSaveInfo.value && lastSaveInfo.value.state) {
+            const s = lastSaveInfo.value.state
+            const si = (typeof s.endingindex === 'number') ? s.endingindex : (s.endingIndex != null ? Number(s.endingIndex) : null)
+            if (si != null && !isNaN(si)) {
+              currentEndingIndex = Number(si)
+            } else if (lastSelectedEndingIndex && lastSelectedEndingIndex.value) {
+              currentEndingIndex = Number(lastSelectedEndingIndex.value)
+            }
+          } else if (lastSelectedEndingIndex && lastSelectedEndingIndex.value) {
+            currentEndingIndex = Number(lastSelectedEndingIndex.value)
+          }
+        } catch (e) {
+          // 发生异常时安全回退
+          try { if (lastSelectedEndingIndex && lastSelectedEndingIndex.value) currentEndingIndex = Number(lastSelectedEndingIndex.value) } catch (ee) { currentEndingIndex = 1 }
+        }
+
+        // 如果没有任何 existingEndings，至少构建一个基于当前编辑的结局以保证保存
+        if (!existingEndings || existingEndings.length === 0) {
+          const single = {
+            endingIndex: currentEndingIndex,
+            title: safeTitle(endingTitle || chapterData.title || `结局 ${currentEndingIndex}`),
+            scenes: scenesPayload
+          }
+          try {
+            await storyService.saveEnding(workId, single)
+            showNotice('已保存结局内容')
+          } catch (saveErr) {
+            console.error('persistCurrentChapterEdits: saveEnding API failed', saveErr, saveErr?.data || (saveErr?.response && saveErr.response.data))
+            showNotice('保存结局失败: ' + (saveErr?.data || saveErr?.message || '未知错误'), 8000)
+            throw saveErr
+          }
+        } else {
+          // 遍历所有 existingEndings，构造与 GET 时相同的 payload 并 PUT
+          const errors = []
+          // Build a map of existing endings by their logical endingIndex (if provided).
+          // We will try to match and replace by that logical index. If an existing ending
+          // does not expose a logical endingIndex (only has DB id), we will fallback to
+          // preserving its scenes but will not treat that DB id as the logical index.
+          const existingByIndex = {}
+          const fallbackList = []
+          for (let i = 0; i < existingEndings.length; i++) {
+            const e = existingEndings[i]
+            // Prefer an explicit `endingIndex` field; if not present, try `endingId`.
+            const logicalIdx = (e.endingIndex != null) ? Number(e.endingIndex) : (e.endingId != null ? Number(e.endingId) : null)
+            if (logicalIdx != null && !isNaN(logicalIdx)) {
+              existingByIndex[logicalIdx] = e
+            } else {
+              // Unknown-index endings are kept in fallback order
+              fallbackList.push(e)
+            }
+          }
+
+          // Prepare payloads: for all logical indices found, preserve order by ascending index
+          const indices = Object.keys(existingByIndex).map(x => Number(x)).sort((a,b)=>a-b)
+          const payloads = []
+
+          // helper: try to resolve backend-provided title for a logical ending index
+          const getBackendTitle = (idx) => {
+            try {
+              if (!existingEndings || existingEndings.length === 0) return null
+              // check explicit mapping first
+              const byIdx = existingByIndex[idx]
+              if (byIdx && (byIdx.title || byIdx.name)) return byIdx.title || byIdx.name
+              // fallback: search full list for matching logical fields
+              for (const ee of existingEndings) {
+                const logical = (ee.endingIndex != null) ? Number(ee.endingIndex) : (ee.endingId != null ? Number(ee.endingId) : null)
+                if (logical === idx) return ee.title || ee.name || null
+              }
+              // last resort: if idx maps to array position
+              const pos = idx - 1
+              if (pos >=0 && pos < existingEndings.length) {
+                const cand = existingEndings[pos]
+                if (cand && (cand.title || cand.name)) return cand.title || cand.name
+              }
+            } catch (e) { /* ignore */ }
+            return null
+          }
+          // Add logical-indexed endings first
+          for (const idx of indices) {
+            const e = existingByIndex[idx]
+            const backendTitle = getBackendTitle(idx)
+            payloads.push({
+              endingIndex: idx,
+              title: safeTitle( backendTitle || (idx === currentEndingIndex ? (endingTitle || chapterData.title) : (e.title || e.name || `结局 ${idx}`)) ),
+              scenes: (idx === currentEndingIndex) ? scenesPayload : (Array.isArray(e.scenes) ? e.scenes : [])
+            })
+          }
+          // Append fallback (unknown-index) endings preserving their original scenes
+          for (let j = 0; j < fallbackList.length; j++) {
+            const e = fallbackList[j]
+            // For unknown-index entries, do not attempt to reassign the logical index.
+            payloads.push({
+              // We do not set a logical endingIndex here if backend didn't expose one;
+              // keep whatever fields backend expects by passing through its scenes and title.
+              endingIndex: e.endingIndex != null ? Number(e.endingIndex) : (e.endingId != null ? Number(e.endingId) : (j + 1)),
+              title: safeTitle(e.title || e.name || `结局 ${j + 1}`),
+              scenes: Array.isArray(e.scenes) ? e.scenes : []
+            })
+          }
+
+          // If there is no existing ending matching currentEndingIndex, append it
+          if (!indices.includes(currentEndingIndex)) {
+            const backendTitleForCurrent = getBackendTitle(currentEndingIndex)
+            payloads.push({
+              endingIndex: currentEndingIndex,
+              title: safeTitle( backendTitleForCurrent || endingTitle || chapterData.title || `结局 ${currentEndingIndex}` ),
+              scenes: scenesPayload
+            })
+          }
+
+          // Send payloads in order
+          while (payloads.length > 0) {
+            const p = payloads.shift()
+            try {
+              await storyService.saveEnding(workId, p)
+              console.log('persistCurrentChapterEdits: saved ending', p.endingIndex)
+            } catch (saveErr) {
+              console.error('persistCurrentChapterEdits: failed saving an ending', saveErr, saveErr?.data || (saveErr?.response && saveErr.response.data))
+              errors.push({ endingIndex: p.endingIndex, error: saveErr })
+            }
+          }
+
+          if (errors.length === 0) {
+            showNotice('已保存全部结局内容')
+          } else {
+            showNotice('部分结局保存失败，请检查控制台错误', 8000)
+            throw errors[0].error
+          }
+        }
+
+        // 刷新作品详情
+        try { await getWorkDetails(workId) } catch (e) { /* ignore */ }
+        try { await stopLoading() } catch (e) {}
+        return
+      } catch (e) {
+        console.warn('persistCurrentChapterEdits: failed saving ending, falling back to abort', e, e?.data || (e?.response && e.response.data))
+        try { await stopLoading() } catch (err) {}
+        throw e
+      }
     }
 
     console.log('persistCurrentChapterEdits: saving chapter', { workId, chapterIndex, scenesCount: scenesPayload.length })
@@ -1145,9 +1365,9 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           await saveChapter(workId, chapterIndex, chapterData)
           console.log('persistCurrentChapterEdits: saveChapter API succeeded')
           showNotice('已将本章保存并标记为 saved')
-        } catch (saveErr) {
-          console.error('persistCurrentChapterEdits: saveChapter API failed', saveErr)
-          showNotice('保存章节失败: ' + (saveErr.message || '未知错误'), 5000)
+          } catch (saveErr) {
+          console.error('persistCurrentChapterEdits: saveChapter API failed', saveErr, saveErr?.data || (saveErr?.response && saveErr.response.data))
+          showNotice('保存章节失败: ' + (saveErr?.data || saveErr?.message || '未知错误'), 5000)
           throw saveErr
         }
         
@@ -1263,7 +1483,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           prev.backendWork.outlines[idx].outline = outlineEdits.value.find(x => Number(x.chapterIndex) === Number(chapterIndex))?.outline || prev.backendWork.outlines[idx].outline
         }
         sessionStorage.setItem('createResult', JSON.stringify(prev))
-      } catch (e) { console.warn('persistCurrentChapterEdits: update createResult failed', e) }
+      } catch (e) { console.warn('persistCurrentChapterEdits: update createResult failed', e, e?.data || (e?.response && e.response.data)) }
 
       // 如果是手动确认保存（allowSaveGenerated为true），检查是否已读完当前章，如果已读完且不是末章，则弹出下一章编辑器
   if (allowSaveGenerated && (creatorFeatureEnabled.value || isCreatorIdentity.value || modifiableFromCreate.value)) {
@@ -1589,6 +1809,8 @@ setSaveLoadDependencies({
   deepClone,
   currentBackground,
   effectiveCoverUrl
+  ,
+  lastSelectedEndingIndex
 })
 
 // 设置 useCreatorMode 的依赖（在 autoPlayAPI 创建之后）

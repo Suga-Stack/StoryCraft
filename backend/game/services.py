@@ -1,4 +1,3 @@
-import json
 import random
 import logging
 import threading
@@ -9,7 +8,7 @@ from django.db import close_old_connections
 from django.conf import settings
 from stories.models import Story, StoryChapter, StoryScene, StoryEnding
 from gameworks.models import Gamework
-from .utils import parse_raw_chapter
+from .utils import parse_raw_chapter, update_story_directory
 from .game_generator.architecture import generate_core_seed, generate_architecture
 from .game_generator.chapter import generate_chapter_content, generate_ending_content
 from .game_generator.images import generate_cover_image, generate_scene_images
@@ -62,6 +61,18 @@ def _generate_chapter(gamework_id: int, chapter_index: int, user_prompt: str = "
     }
     if endings_summary:
         update_fields["endings_summary"] = endings_summary
+        # 更新最后一章的大纲，追加结局摘要
+        current_outlines = story.outlines
+        if current_outlines and isinstance(current_outlines, list):
+            for item in current_outlines:
+                if item.get("chapterIndex") == chapter_index:
+                    original_outline = item.get("outline", "")
+                    endings_text = "\n\n【结局分支预览】\n"
+                    for ending in endings_summary:
+                        endings_text += f"- {ending.get('title')} (条件: {ending.get('condition')}):\n{ending.get('summary')}\n"
+                    item["outline"] = original_outline + endings_text
+                    break
+            update_fields["outlines"] = current_outlines
     
     Story.objects.filter(pk=story.pk).update(**update_fields)
     story.refresh_from_db()
@@ -96,13 +107,47 @@ def _generate_chapter(gamework_id: int, chapter_index: int, user_prompt: str = "
         )
 
     # 3. 如果是最后一章，且有结局摘要，开始异步生成完整结局
-    if endings_summary:
+    if endings_summary:      
         _generate_endings_async(story.id, endings_summary, chapter_index)
 
     # 检查是否全部完成
     current_chapter_count = StoryChapter.objects.filter(story=story).count()
     if current_chapter_count >= story.total_chapters:
         Story.objects.filter(pk=story.pk).update(is_complete=True)
+
+def _process_and_save_ending(story_id: int, ending_index: int, ending_data: dict):
+    """独立线程处理单个结局的图片生成与保存"""
+    close_old_connections()
+    try:
+        story = Story.objects.get(pk=story_id)
+        # 生成图片
+        scene_ranges, scene_urls = generate_scene_images(ending_data["raw_content"])
+        # 解析内容
+        parsed_ending = parse_raw_chapter(ending_data["raw_content"], scene_ranges)
+        
+        # 创建 StoryEnding
+        ending_obj = StoryEnding.objects.create(
+            story=story,
+            ending_index=ending_index,
+            title=ending_data["title"],
+            condition=ending_data["condition"],
+            raw_content=ending_data["raw_content"],
+            parsed_content=parsed_ending
+        )
+        
+        # 创建 StoryScene 关联到 Ending
+        for scene in parsed_ending["scenes"]:
+            idx = scene["id"] - 1
+            img_url = scene_urls[idx] if idx < len(scene_urls) else f"{settings.SITE_DOMAIN}{settings.MEDIA_URL}placeholders/scene.jpg"
+            StoryScene.objects.create(
+                ending=ending_obj, # 关联到 ending
+                scene_index=scene["id"],
+                background_image_url=img_url,
+                dialogues=scene["dialogues"]
+            )
+        logger.info(f"故事 {story_id} 结局 {ending_index} 保存完成")
+    except Exception as e:
+        logger.error(f"保存结局 {ending_index} 失败: {e}", exc_info=True)
 
 def _generate_endings_async(story_id: int, endings_summary: list, chapter_index: int):
     """后台生成所有结局详情"""
@@ -133,8 +178,8 @@ def _generate_endings_async(story_id: int, endings_summary: list, chapter_index:
                 except StoryChapter.DoesNotExist:
                     pass
             
-            # 生成结局内容
-            generated_endings = generate_ending_content(
+            # 生成结局内容 (Generator)
+            endings_generator = generate_ending_content(
                 endings_summary=endings_summary,
                 chapter_index=chapter_index,
                 attribute_system=story.attribute_system,
@@ -147,35 +192,12 @@ def _generate_endings_async(story_id: int, endings_summary: list, chapter_index:
                 global_summary=story.global_summary
             )
             
-            # 保存结局并生成图片
-            for ending_data in generated_endings:
-                # 生成图片
-                scene_ranges, scene_urls = generate_scene_images(ending_data["raw_content"])
-                # 解析内容
-                parsed_ending = parse_raw_chapter(ending_data["raw_content"], scene_ranges)
-                
-                # 创建 StoryEnding
-                ending_obj = StoryEnding.objects.create(
-                    story=story,
-                    title=ending_data["title"],
-                    condition=ending_data["condition"],
-                    summary=ending_data["summary"],
-                    raw_content=ending_data["raw_content"],
-                    parsed_content=parsed_ending
-                )
-                
-                # 创建 StoryScene 关联到 Ending
-                for scene in parsed_ending["scenes"]:
-                    idx = scene["id"] - 1
-                    img_url = scene_urls[idx] if idx < len(scene_urls) else f"{settings.SITE_DOMAIN}{settings.MEDIA_URL}placeholders/scene.jpg"
-                    StoryScene.objects.create(
-                        ending=ending_obj, # 关联到 ending
-                        scene_index=scene["id"],
-                        background_image_url=img_url,
-                        dialogues=scene["dialogues"]
-                    )
+            # 逐个获取生成的结局文本，并立即启动后台线程处理图片和保存
+            for i, ending_data in enumerate(endings_generator, 1):
+                t = threading.Thread(target=_process_and_save_ending, args=(story_id, i, ending_data))
+                t.start()
             
-            logger.info(f"故事 {story_id} 结局生成完成")
+            logger.info(f"故事 {story_id} 所有结局文本生成任务已分发")
             
         except Exception as e:
             logger.error(f"生成结局失败: {e}", exc_info=True)
@@ -191,7 +213,7 @@ def get_story_endings(gamework: Gamework) -> dict:
         return {"status": "pending"}
 
     expected_count = len(story.endings_summary)
-    current_endings = story.story_endings.all()
+    current_endings = story.story_endings.all().order_by('ending_index')
     
     # 如果生成的结局数量少于预期，说明还在生成中
     if current_endings.count() < expected_count:
@@ -213,9 +235,9 @@ def get_story_endings(gamework: Gamework) -> dict:
              })
         
         endings_data.append({
+            "endingIndex": ending.ending_index,
             "title": ending.title,
             "condition": ending.condition,
-            "summary": ending.summary,
             "scenes": scenes_data
         })
         
@@ -407,7 +429,7 @@ def start_single_chapter_generation(gamework: Gamework, chapter_index: int, outl
 
     # 更新大纲
     story.outlines = outlines
-    story.save()
+    update_story_directory(story, outlines)
 
     # 删除可能存在的旧章节实例，准备重新生成
     StoryChapter.objects.filter(story=story, chapter_index=chapter_index).delete()
@@ -497,13 +519,22 @@ def build_settlement_variants(attributes: Dict[str, int], statuses: Dict[str, An
         "success": True
     }
 
-def resolve_scene_cover_url(gamework: Gamework, chapter_index: int, scene_index: int) -> Optional[str]:
+def resolve_scene_cover_url(gamework: Gamework, chapter_index: Optional[int], scene_index: int, ending_index: Optional[int] = None) -> Optional[str]:
     """根据章节与场景索引解析背景图URL"""
-    url = StoryScene.objects.filter(
-        chapter__story__gamework=gamework,
-        chapter__chapter_index=chapter_index,
-        scene_index=scene_index
-    ).values_list('background_image_url', flat=True).first()
+    url = None
+    
+    if ending_index is not None:
+        url = StoryScene.objects.filter(
+            ending__story__gamework=gamework,
+            ending__ending_index=ending_index,
+            scene_index=scene_index
+        ).values_list('background_image_url', flat=True).first()
+    elif chapter_index is not None:
+        url = StoryScene.objects.filter(
+            chapter__story__gamework=gamework,
+            chapter__chapter_index=chapter_index,
+            scene_index=scene_index
+        ).values_list('background_image_url', flat=True).first()
 
     if url and not url.startswith(('http://', 'https://')):
         return f"{settings.SITE_DOMAIN}{url}"

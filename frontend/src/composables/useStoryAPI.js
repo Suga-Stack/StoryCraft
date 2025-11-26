@@ -11,6 +11,7 @@ export function useStoryAPI() {
   let getScenes = storyService.getScenes
   let generateChapter = storyService.generateChapter
   let saveChapter = storyService.saveChapter
+  let saveEnding = storyService.saveEnding
   
   // 故事场景数据
   const storyScenes = ref([])
@@ -22,6 +23,8 @@ export function useStoryAPI() {
   const storyEndSignaled = ref(false)
   const isFetchingNext = ref(false)
   const isGeneratingSettlement = ref(false)
+  // 记录后端返回并被选中的结局索引（1-based），用于存档/读档定位
+  const lastSelectedEndingIndex = ref(null)
   
   // 章节状态
   const chaptersStatus = ref([])
@@ -547,10 +550,22 @@ export function useStoryAPI() {
 
         const chosen = pickEnding(data.endings, _attributes, _statuses)
         if (chosen && Array.isArray(chosen.scenes) && chosen.scenes.length > 0) {
+          try {
+            // 优先使用后端显式提供的 `endingIndex` 值（与后端保持一致）
+            if (typeof chosen.endingIndex === 'number' || (chosen.endingIndex != null && !isNaN(Number(chosen.endingIndex)))) {
+              lastSelectedEndingIndex.value = Number(chosen.endingIndex)
+            } else {
+              // 回退：记录 chosen 在原始列表中的索引（1-based），若找不到则置为1
+              const idx = Array.isArray(data.endings) ? data.endings.findIndex(e => e === chosen) : -1
+              lastSelectedEndingIndex.value = (idx >= 0) ? (idx + 1) : 1
+            }
+          } catch (e) { lastSelectedEndingIndex.value = 1 }
           scenesArray = chosen.scenes.map(s => {
             try {
               if (!s || typeof s !== 'object') return s
               const out = Object.assign({}, s)
+              // 将后端的 endingIndex（若存在）挂到场景上，便于调试与兼容性检查
+              if (chosen && (chosen.endingIndex != null)) out.endingIndex = chosen.endingIndex
               out.isEnding = true
               out.endingTitle = chosen.title || null
               out.endingSummary = chosen.summary || null
@@ -568,25 +583,69 @@ export function useStoryAPI() {
         console.log(`[fetchNextChapter] 检查scenes: data=${!!data}, scenesLength=${scenesArray ? scenesArray.length : 'null'}`)
         if (scenesArray && scenesArray.length > 0) {
         console.log('[fetchNextChapter] Processing scenes:', scenesArray.length, 'opts.replace=', opts && opts.replace)
-        // 创作者模式：始终替换当前内容，保证 storyScenes 只包含当前章节
-        // 用新章节覆盖当前 storyScenes
-        storyScenes.value = []
-        for (const sc of scenesArray) {
+
+        // 当检测到这是后端返回的结局（storyEndSignaled=true 且后端提供 endings 列表）时，
+        // 按照新规则：将用户选择并进入的结局覆盖掉“前一章”的缓存场景（chapter idx-1），而不是追加到最后。
+        const isEndingResponse = storyEndSignaled.value === true && Array.isArray(data?.endings)
+        if (isEndingResponse) {
+          const replaceChapter = (Number(idx) > 1) ? Number(idx) - 1 : Number(idx)
+          console.log('[fetchNextChapter] Ending response detected — will replace chapter', replaceChapter)
+
+          // 在现有 storyScenes 中查找属于 replaceChapter 的连续区间
+          const firstIndex = storyScenes.value.findIndex(s => Number(s.chapterIndex) === replaceChapter)
+          if (firstIndex >= 0) {
+            let lastIndex = firstIndex
+            for (let i = firstIndex; i < storyScenes.value.length; i++) {
+              if (Number(storyScenes.value[i].chapterIndex) === replaceChapter) lastIndex = i
+              else break
+            }
+
+            const before = storyScenes.value.slice(0, firstIndex)
+            const after = storyScenes.value.slice(lastIndex + 1)
+
+            // 用前段 + 结局 scenes + 后段 重建 storyScenes
+            storyScenes.value = before.slice()
+            for (const sc of scenesArray) {
+              try { pushSceneFromServer(sc) } catch (e) { console.warn('pushSceneFromServer failed for one ending entry', e) }
+            }
+            for (const s of after) {
+              try { storyScenes.value.push(s) } catch (e) { console.warn('re-append after segment failed', e) }
+            }
+
+            // 将播放位置指向被覆盖章节的开头
+            currentChapterIndex.value = replaceChapter
+            currentSceneIndex.value = storyScenes.value.findIndex(s => Number(s.chapterIndex) === replaceChapter)
+            if (currentSceneIndex.value < 0) currentSceneIndex.value = 0
+            currentDialogueIndex.value = 0
+
+            console.log('[fetchNextChapter] 已用结局覆盖前一章缓存，新的 scene count=', storyScenes.value.length)
+          } else {
+            // 未找到对应章节，回退为覆盖全部场景（兼容）
+            console.log('[fetchNextChapter] 未找到要替换的章节，回退为覆盖全部场景')
+            storyScenes.value = []
+            for (const sc of scenesArray) {
+              try { pushSceneFromServer(sc) } catch (e) { console.warn('pushSceneFromServer failed for one entry', e) }
+            }
+            currentSceneIndex.value = 0
+            currentDialogueIndex.value = 0
+            currentChapterIndex.value = idx
+          }
+        } else {
+          // 非结局场景：保持原本的覆盖当前章节行为
+          storyScenes.value = []
+          for (const sc of scenesArray) {
             try { pushSceneFromServer(sc) } catch (e) { console.warn('pushSceneFromServer failed for one entry', e) }
+          }
+          currentSceneIndex.value = 0
+          currentDialogueIndex.value = 0
+          currentChapterIndex.value = idx
+          console.log(`[Story] 成功加载第 ${idx} 章，场景数=${scenesArray.length}`)
         }
-        // 重置播放 / 对话索引以从新章节开始
-        currentSceneIndex.value = 0
-        currentDialogueIndex.value = 0
-
-        // 重要修改：更新当前章节索引（无论覆盖或追加都要更新）
-        currentChapterIndex.value = idx
-
-        console.log(`[Story] 成功加载第 ${idx} 章，共 ${data.scenes.length} 个场景`)
 
         // 如果我们已请求了超出 totalChapters 的章节（totalChapters 可用），视为已到结尾并不再继续请求下一章。
         // 注意：不要在请求到等于 totalChapters 时立即标记结束 —— 只有在请求超出范围或后端显式返回 end 时才认为结束。
         if (totalChapters.value && idx > Number(totalChapters.value)) {
-            storyEndSignaled.value = true
+          storyEndSignaled.value = true
         }
 
         return data
@@ -838,6 +897,10 @@ export function useStoryAPI() {
     setGenerateChapter: (fn) => { generateChapter = fn },
     saveChapter,
     setSaveChapter: (fn) => { saveChapter = fn },
+    saveEnding,
+    setSaveEnding: (fn) => { saveEnding = fn },
+    // 记录并导出最后选中的结局索引（1-based）
+    lastSelectedEndingIndex,
     
     // 添加设置依赖的方法
     setDependencies
