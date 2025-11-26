@@ -5,7 +5,6 @@ from rest_framework import permissions
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
-from game.views import SettlementReportView
 from django.conf import settings
 from django.conf.urls.static import static
 
@@ -46,7 +45,6 @@ urlpatterns = [
     path('api/interactions/', include('interactions.urls')),  # 收藏/评论/评分模块
 
     path('api/game/',include('game.urls')),
-    path('api/settlement/report/<int:workId>/', SettlementReportView.as_view(), name='api-settlement-report'),
 
     # JWT token
     # POST /api/auth/token/  获取 token
