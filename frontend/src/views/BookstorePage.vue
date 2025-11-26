@@ -54,12 +54,12 @@
                 <p class="book-author">{{ book.author }}</p>
                 <div class="book-tags">
                     <van-tag 
-                    v-for="tag in book.tags" 
-                    :key="tag"
+                    v-for="(tag, index) in book.processedTags.slice(0, 2)" 
+                    :key="tag.id"
                     size="small"
-                    :style="getRandomTagStyle()"
+                    :style="tag.color"
                     >
-                    {{ tag }}
+                    {{ tag.name }}
                     </van-tag>
                 </div>
             </div>
@@ -82,6 +82,10 @@ import { ref, onMounted } from 'vue';
 import { showToast } from 'vant';
 import {useRouter} from 'vue-router';
 import { recommendWorks, getRatingLeaderboard  } from '../api/user';
+import { useTags } from '../composables/useTags'; // 导入标签工具函数
+
+// 初始化标签工具
+const { getTagsByIds } = useTags();
 
 // 热门作品数据
 const hotBooks = ref([])
@@ -90,21 +94,6 @@ const hotBooks = ref([])
 const recommendedBooks = ref([]);
 const loading = ref(false);
 const error = ref('');
-
-const tagColorOptions = [
-  { backgroundColor: '#e0f2fe', color: '#0284c7' },
-  { backgroundColor: '#dbeafe', color: '#3b82f6' },
-  { backgroundColor: '#f0fdf4', color: '#166534' },
-  { backgroundColor: '#fff7ed', color: '#c2410c' },
-  { backgroundColor: '#f5f3ff', color: '#6b21a8' },
-  { backgroundColor: '#fee2e2', color: '#b91c1c' },
-];
-
-// 随机获取一个颜色样式
-const getRandomTagStyle = () => {
-  const randomIndex = Math.floor(Math.random() * tagColorOptions.length);
-  return tagColorOptions[randomIndex];
-};
 
 // 底部导航
 const activeTab = ref('bookstore');
@@ -156,10 +145,14 @@ const fetchRecommendedBooks = async () => {
     const response = await recommendWorks(1);
 
     const resData = response.data;
+
     
     if (resData.code === 200) {
-      // 正确获取嵌套在data中的数据数组
-      recommendedBooks.value = resData.data;
+      const books = resData.data;  
+      for (const book of books) {
+        book.processedTags = await getTagsByIds(book.tags || []);
+      }
+      recommendedBooks.value = books;
       // 如果返回空数组，可以显示提示信息
       if (recommendedBooks.value.length === 0) {
         showToast('暂无推荐作品');

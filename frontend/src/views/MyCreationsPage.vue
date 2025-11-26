@@ -20,12 +20,12 @@
           <p class="book-desc">{{ book.description }}</p>
           <div class="book-tags">
             <van-tag 
-              v-for="tag in book.tags" 
-              :key="tag"
+              v-for="tag in book.processedTags.slice(0,3)" 
+              :key="tag.id"
               size="small"
-              :style="getRandomTagStyle()"
+              :style="tag.color"
             >
-              {{ tag }}
+              {{ tag.name }}
             </van-tag>
           </div>
         </div>
@@ -133,7 +133,10 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { getMyworks, publishWorks} from '../api/user'
+import { useTags } from '../composables/useTags'
 
+// 初始化标签工具
+const { getTagsByIds } = useTags();
 
 const router = useRouter()
 const myCreations = ref([])
@@ -151,15 +154,6 @@ const requiredCredits = ref('')
 //积分有效
 const isCreditsValid = ref(false)
 
-const tagColorOptions = [
-  { backgroundColor: '#e0f2fe', color: '#0284c7' },
-  { backgroundColor: '#dbeafe', color: '#3b82f6' },
-  { backgroundColor: '#f0fdf4', color: '#166534' },
-  { backgroundColor: '#fff7ed', color: '#c2410c' },
-  { backgroundColor: '#f5f3ff', color: '#6b21a8' },
-  { backgroundColor: '#fee2e2', color: '#b91c1c' },
-]
-
 // 在组件挂载时获取作品列表
 onMounted(() => {
   fetchMyWorks()
@@ -173,8 +167,15 @@ const fetchMyWorks = async () => {
     if (!response.data.code || response.data.code !== 200) {
       throw new Error('获取作品列表失败')
     }
+
+    const books = response.data.data;
     
-    myCreations.value = response.data.data;
+    // 为每本书处理标签（转换ID为名称和颜色）
+    for (const book of books) {
+      book.processedTags = await getTagsByIds(book.tags || []);
+    }
+
+    myCreations.value = books;
   } catch (error) {
     showToast(error.message || '获取数据失败，请稍后重试')
     console.error('作品列表请求失败:', error)

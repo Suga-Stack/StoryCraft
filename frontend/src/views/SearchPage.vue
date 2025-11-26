@@ -206,13 +206,14 @@
                   </span>
                   <div class="tags">
                     <van-tag 
-                      v-for="tagId in item.tags.slice(0, 2)" 
+                      v-for="(tagId, index) in item.tags.slice(0, 2)" 
                       :key="tagId"
-                      :color="getTagColorById(tagId)"
+                      :color="getTagColorById(tagId).backgroundColor"
+                      :text-color="getTagColorById(tagId).color"
                       size="mini"
                       round
                     >
-                      {{ tagId }}
+                      {{ item.tagNames[index] }}
                     </van-tag>
                   </div>
                 </div>
@@ -247,11 +248,12 @@
               <van-tag 
                 v-for="(tagId, index) in item.tags.slice(0, 2)"
                 :key="tagId"
-                :color="getTagColorById(tagId)"
+                :color="getTagColorById(tagId).backgroundColor" 
+                :text-color="getTagColorById(tagId).color"  
                 size="small"
                 round
               >
-                {{ tagId }}
+                {{ item.tagNames[index] }}
               </van-tag>
             </div>
           </div>
@@ -272,6 +274,7 @@ import { showToast } from 'vant'
 import { getFavoriteLeaderboard, search, getRatingLeaderboard, getHotLeaderboard } from '../api/user' 
 import { useTags } from '../composables/useTags';
 import http from '../utils/http'
+import { get } from 'vant/lib/utils';
 // 路由实例
 const router = useRouter()
 
@@ -303,57 +306,12 @@ const currentTab = ref('total') // total, month, week, rating
 const currentPage = ref(1)
 const pageSize = ref(20)
 
-// 生成模拟数据
-const generateRankData = (type, count = 50) => {
-  const baseCovers = [
-    'https://img01.yzcdn.cn/vant/cat.jpeg',
-    'https://img02.yzcdn.cn/vant/dog.jpeg',
-    'https://img03.yzcdn.cn/vant/bird.jpeg',
-    'https://img04.yzcdn.cn/vant/rabbit.jpeg',
-    'https://img05.yzcdn.cn/vant/fox.jpeg',
-    'https://img06.yzcdn.cn/vant/elephant.jpeg',
-    'https://img07.yzcdn.cn/vant/tiger.jpeg',
-    'https://img08.yzcdn.cn/vant/lion.jpeg',
-    'https://img09.yzcdn.cn/vant/panda.jpeg',
-    'https://img10.yzcdn.cn/vant/bear.jpeg',
-  ]
-  
-  const tags = ['科幻', '文学', '历史', '科普', '小说', '哲学', '经济', '艺术', '传记', '悬疑']
-  const authors = ['作者A', '作者B', '作者C', '作者D', '作者E', '作者F', '作者G', '作者H', '作者I', '作者J']
-  const titles = ['作品标题', '经典名著', '畅销书籍', '精选读物', '推荐好书', '热门作品', '高分图书', '必读书目']
-
-  return Array.from({ length: count }, (_, i) => {
-    const id = i + 1
-    const randomBase = Math.random()
-    return {
-      id: `${type}-${id}`,
-      // 原有字段保持不变...
-      hotScore: Math.floor(randomBase * 100000),
-      rating: 3 + randomBase * 2,
-      collectionCount: Math.floor(randomBase * 5000),  // 新增收藏数字段
-      tags: [
-        tags[Math.floor(Math.random() * tags.length)],
-        tags[Math.floor(Math.random() * tags.length)]
-      ]
-    }
-  }).sort((a, b) => {
-    // 新增收藏榜排序逻辑
-    if (type === 'collection') {
-      return b.collectionCount - a.collectionCount
-    }
-    // 原有排序逻辑保持不变
-    return type === 'rating' 
-      ? b.rating - a.rating 
-      : b.hotScore - a.hotScore
-  })
-}
-
 // 排行榜数据
-const totalRank = ref(generateRankData('total'))
-const monthRank = ref(generateRankData('month'))
-const weekRank = ref(generateRankData('week'))
-const ratingRank = ref(generateRankData('rating'))
-const collectionRank = ref(generateRankData('collection'))
+const totalRank = ref([])
+const monthRank = ref([])
+const weekRank = ref([])
+const ratingRank = ref([])
+const collectionRank = ref([])
 
 // 计算当前显示的排行榜数据
 const currentRankList = computed(() => {
@@ -392,16 +350,21 @@ const fetchFavoriteLeaderboard = async () => {
   try {
     const response = await getFavoriteLeaderboard()
     const itemsWithTags = await Promise.all(
-      response.data.data.map(async (item) => ({
-        id: item.id.toString(),  // 统一转为字符串ID
-        title: item.title,
-        author: item.author,
-        cover: item.image_url,  // 映射到cover字段
-        tags: await convertTagIdsToNames(item.tags),
-        hotScore: item.read_count,  // 热度使用阅读量
-        rating: item.average_score, // 评分
-        collectionCount: item.favorite_count  // 收藏数
-      }))
+      response.data.data.map(async (item) => {
+        const tagNames = await convertTagIdsToNames(item.tags);
+        return{
+          ...item,
+          id: item.id.toString(),  // 统一转为字符串ID
+          title: item.title,
+          author: item.author,
+          cover: item.image_url,  // 映射到cover字段
+          tags: item.tags,
+          tagNames: tagNames,
+          hotScore: item.read_count,  // 热度使用阅读量
+          rating: item.average_score, // 评分
+          collectionCount: item.favorite_count  // 收藏数
+        }
+      })
     )
     // 按收藏数排序
     collectionRank.value = itemsWithTags.sort((a, b) => b.collectionCount - a.collectionCount)
@@ -419,15 +382,20 @@ const fetchRatingLeaderboard = async () => {
     // 转换接口返回数据为统一格式
     if (response.data) {
       const itemsWithTags = await Promise.all(
-        response.data.data.map(async (item) => ({
-          id: item.id.toString(),  // 统一转为字符串ID
-          title: item.title,
-          author: item.author,
-          cover: item.image_url,  // 映射到cover字段
-          tags: await convertTagIdsToNames(item.tags), // 等待标签名称解析完成
-          rating: item.average_score, // 评分
-          collectionCount: item.favorite_count  // 收藏数
-        }))
+        response.data.data.map(async (item) => {
+          const tagNames = await convertTagIdsToNames(item.tags);
+          return{
+            ...item,
+            id: item.id.toString(),  // 统一转为字符串ID
+            title: item.title,
+            author: item.author,
+            cover: item.image_url,  // 映射到cover字段
+            tags: item.tags, // 等待标签名称解析完成
+            tagNames: tagNames,
+            rating: item.average_score, // 评分
+            collectionCount: item.favorite_count  // 收藏数
+          }
+        })
       )
       ratingRank.value = itemsWithTags.sort((a, b) => b.average_score - a.average_score);
     }
@@ -443,48 +411,60 @@ const fetchHotLeaderboard = async () => {
     // 获取总榜
     const totalResponse = await getHotLeaderboard('total')
     const totalItems = await Promise.all(
-      totalResponse.data.data.map(async (item) => ({
-        id: item.id.toString(),
-        title: item.title,
-        author: item.author,
-        cover: item.image_url,
-        tags: await convertTagIdsToNames(item.tags),
-        hotScore: item.hot_score,
-        rating: item.average_score,
-        collectionCount: item.favorite_count
-      }))
+      totalResponse.data.data.map(async (item) => {
+        const tagNames = await convertTagIdsToNames(item.tags);
+        return {
+          ...item,
+          id: item.id.toString(),
+          title: item.title,
+          author: item.author,
+          cover: item.image_url,
+          tags: item.tags, // 保留原始标签ID
+          tagNames: tagNames, // 存储转换后的标签名称
+          rating: item.average_score,
+          collectionCount: item.favorite_count
+        }
+      })
     )
     totalRank.value = totalItems
 
     // 获取月榜
     const monthResponse = await getHotLeaderboard('month')
     const monthItems = await Promise.all(
-      monthResponse.data.data.map(async (item) => ({
-        id: item.id.toString(),
-        title: item.title,
-        author: item.author,
-        cover: item.image_url,
-        tags: await convertTagIdsToNames(item.tags),
-        hotScore: item.hot_score,
-        rating: item.average_score,
-        collectionCount: item.favorite_count
-      }))
+      monthResponse.data.data.map(async (item) => {
+        const tagNames = await convertTagIdsToNames(item.tags);
+        return {
+          ...item,
+          id: item.id.toString(),
+          title: item.title,
+          author: item.author,
+          cover: item.image_url,
+          tags: item.tags, // 保留原始标签ID
+          tagNames: tagNames, // 存储转换后的标签名称
+          rating: item.average_score,
+          collectionCount: item.favorite_count
+        }
+      })
     )
     monthRank.value = monthItems
 
     // 获取周榜
     const weekResponse = await getHotLeaderboard('week')
     const weekItems = await Promise.all(
-      weekResponse.data.data.map(async (item) => ({
-        id: item.id.toString(),
-        title: item.title,
-        author: item.author,
-        cover: item.image_url,
-        tags: await convertTagIdsToNames(item.tags),
-        hotScore: item.hot_score,
-        rating: item.average_score,
-        collectionCount: item.favorite_count
-      }))
+      weekResponse.data.data.map(async (item) => {
+        const tagNames = await convertTagIdsToNames(item.tags);
+        return {
+          ...item,
+          id: item.id.toString(),
+          title: item.title,
+          author: item.author,
+          cover: item.image_url,
+          tags: item.tags, // 保留原始标签ID
+          tagNames: tagNames, // 存储转换后的标签名称
+          rating: item.average_score,
+          collectionCount: item.favorite_count
+        }
+      })
     )
     weekRank.value = weekItems
     
