@@ -1,6 +1,7 @@
 from rest_framework import generics, status, permissions, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
 from django.contrib.auth import get_user_model
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -10,10 +11,13 @@ from django.utils.crypto import get_random_string
 from django.shortcuts import get_object_or_404
 from game.models import GameSave
 from gameworks.models import Gamework
-from .serializers import UserSerializer, RegisterSerializer, LoginSerializer, LogoutSerializer, UserPreferenceSerializer
+from .serializers import UserSerializer, RegisterSerializer, LoginSerializer, LogoutSerializer, UserPreferenceSerializer, CreditLogSerializer
 from gameworks.serializers import GameworkSimpleSerializer
 from interactions.models import ReadRecord
 from django.utils import timezone
+from datetime import date, timedelta
+from .utils import get_signin_reward, change_user_credits
+from .models import UserSignIn, CreditLog
 
 User = get_user_model()
 
@@ -248,7 +252,7 @@ class ReadGameworkListView(APIView):
     获取、记录或删除当前用户读过的作品
     GET: 返回当前用户所有读过的作品
     POST: 用户阅读作品时调用，记录阅读行为
-    DELETE: 删除某条或全部阅读记录
+    DELETE: 隐藏某条或全部阅读记录
     """
     permission_classes = [permissions.IsAuthenticated]
 
@@ -263,7 +267,7 @@ class ReadGameworkListView(APIView):
     )
     def get(self, request):
         user = request.user
-        read_records = ReadRecord.objects.filter(user=user).select_related('gamework').order_by('-read_at')
+        read_records = ReadRecord.objects.filter(user=user,is_visible=True).select_related('gamework').order_by('-read_at')
         gameworks = [r.gamework for r in read_records]
         serializer = GameworkSimpleSerializer(gameworks, many=True)
         return Response({'code': 200, 'data': serializer.data}, status=status.HTTP_200_OK)
@@ -294,17 +298,39 @@ class ReadGameworkListView(APIView):
         except Gamework.DoesNotExist:
             return Response({'code': 400, 'message': '作品不存在'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 创建或更新阅读记录（更新 read_at 时间）
-        obj, created = ReadRecord.objects.update_or_create(
+        # 获取或创建阅读记录
+        obj, created = ReadRecord.objects.get_or_create(
             user=user,
             gamework=gamework,
-            defaults={'read_at': timezone.now()}
+            defaults={'is_visible': True}
         )
 
-        return Response({'code': 200, 'message': '阅读记录已创建'}, status=status.HTTP_200_OK)
+        if not created and not obj.is_visible:
+            obj.is_visible = True
+
+        # 若未付费 & 价格>0，则扣费
+        if not obj.has_paid and gamework.price > 0:
+            # 用户积分不足
+            if (user.user_credits or 0) < gamework.price:
+                return Response({'code': 400, 'message': '积分不足，无法阅读该作品'}, status=status.HTTP_400_BAD_REQUEST)
+
+            # 扣积分
+            change_user_credits(
+                user=user,
+                amount=-gamework.price,
+                log_type='read_pay',
+                remark=f'阅读作品《{gamework.title}》扣费'
+            )
+            obj.has_paid = True
+
+        # 更新阅读时间
+        obj.read_at = timezone.now()
+        obj.save()
+
+        return Response({'code': 200, 'message': '阅读记录已创建或更新'}, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(
-        operation_summary="删除当前用户读过的作品记录",
+        operation_summary="隐藏当前用户读过的作品记录",
         manual_parameters=[
             openapi.Parameter(
                 'gamework_ids_param', openapi.IN_QUERY, description="要删除的作品ID列表，不传则删除所有", type=openapi.TYPE_INTEGER
@@ -322,12 +348,19 @@ class ReadGameworkListView(APIView):
                 gamework_ids = [int(x) for x in gamework_ids_param.split(',') if x.strip()]
             except ValueError:
                 return Response({'code': 400, 'message': 'gamework_ids 参数格式错误'}, status=status.HTTP_400_BAD_REQUEST)
-            deleted, _ = ReadRecord.objects.filter(user=user, gamework_id__in=gamework_ids).delete()
-            return Response({'code': 200, 'message': f'删除 {deleted} 条记录'}, status=status.HTTP_200_OK)
-        else:
-            # 不传参数则删除全部
-            deleted, _ = ReadRecord.objects.filter(user=user).delete()
-            return Response({'code': 200, 'message': f'删除 {deleted} 条记录'}, status=status.HTTP_200_OK)
+
+            # 只隐藏阅读记录，不删除
+            updated = ReadRecord.objects.filter(
+                user=user,
+                gamework_id__in=gamework_ids,
+                is_visible=True
+            ).update(is_visible=False)
+
+            return Response({'code': 200, 'message': f'隐藏 {updated} 条记录'}, status=status.HTTP_200_OK)
+
+        # 不传参数 → 隐藏所有阅读记录
+        updated = ReadRecord.objects.filter(user=user, is_visible=True).update(is_visible=False)
+        return Response({'code': 200, 'message': f'隐藏 {updated} 条记录'}, status=status.HTTP_200_OK)
     
 class RecentReadGameworksView(APIView):
     """
@@ -349,7 +382,7 @@ class RecentReadGameworksView(APIView):
         user = request.user
         read_records = (
             ReadRecord.objects
-            .filter(user=user)
+            .filter(user=user,is_visible=True)
             .select_related('gamework')
             .order_by('-read_at')[:2]  # 取最近两条记录
         )
@@ -400,6 +433,211 @@ class RecentMyGameworksView(APIView):
         works = Gamework.objects.filter(author=user).order_by('-created_at')[:2]
         serializer = GameworkSimpleSerializer(works, many=True)
         return Response({'code': 200, 'data': serializer.data}, status=200)
+    
+class UserSignInView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    @swagger_auto_schema(
+        operation_summary="用户签到",
+        operation_description=(
+            "用户每日签到接口。\n\n"
+            "功能：\n"
+            "- 判断今日是否已经签到\n"
+            "- 自动计算连续签到天数（断签重置为1）\n"
+            "- 根据连续天数发放积分（1~7天循环）\n"
+            "- 更新用户积分 user_credits\n"
+        ),
+
+        responses={
+            status.HTTP_200_OK: openapi.Response(
+                description="签到成功 / 今日已签到",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "message": openapi.Schema(type=openapi.TYPE_STRING, description="签到结果提示"),
+                        "continuous_days": openapi.Schema(type=openapi.TYPE_INTEGER, description="连续签到天数"),
+                        "reward": openapi.Schema(type=openapi.TYPE_INTEGER, description="本次获取积分"),
+                        "credits": openapi.Schema(type=openapi.TYPE_INTEGER, description="当前用户积分"),
+                    }
+                )
+            ),
+            status.HTTP_401_UNAUTHORIZED: openapi.Response(
+                description="未登录或 token 无效",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "detail": openapi.Schema(type=openapi.TYPE_STRING, description="错误信息")
+                    }
+                )
+            ),
+        },
+    )
+    def post(self, request):
+        user = request.user
+
+        # 获取或创建签到记录
+        signin_record, created = UserSignIn.objects.get_or_create(user=user)
+
+        today = date.today()
+        yesterday = today - timedelta(days=1)
+
+        last_date = signin_record.last_signin_date
+
+        # 已经签到
+        if last_date == today:
+            return Response({
+                "message": "今日已签到",
+                "continuous_days": signin_record.continuous_days,
+                "reward": 0,
+                "credits": user.user_credits
+            })
+
+        # 连续签到判断
+        if last_date == yesterday:
+            signin_record.continuous_days += 1
+        else:
+            signin_record.continuous_days = 1  # 断签重置为第1天
+
+        # 计算奖励
+        reward = get_signin_reward(signin_record.continuous_days)
+
+        # 写入签到记录
+        signin_record.last_signin_date = today
+        signin_record.save()
+
+        # 增加用户积分
+        change_user_credits(
+            user=user,
+            amount=reward,
+            log_type='reward',
+            remark=f'签到奖励（连续第 {signin_record.continuous_days} 天）'
+        )
+
+        return Response({
+            "message": "签到成功",
+            "continuous_days": signin_record.continuous_days,
+            "reward": reward,
+            "credits": user.user_credits
+        })
+
+class RechargeViewSet(viewsets.ViewSet):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="积分充值",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'credits': openapi.Schema(type=openapi.TYPE_INTEGER, description="充值积分数量")
+            },
+            required=['credits']
+        ),
+        responses={200: "充值成功"}
+    )
+    def create(self, request):
+        credits = request.data.get("credits")
+        try:
+            credits = int(credits)
+        except:
+            return Response({"code": 400, "message": "credits 必须为整数"}, status=400)
+
+        if credits <= 0:
+            return Response({"code": 400, "message": "充值积分必须大于 0"}, status=400)
+
+        user = request.user
+        after = change_user_credits(
+            user=user,
+            amount=credits,
+            log_type='recharge',
+            remark='用户充值'
+        )
+
+        return Response({
+            "code": 200,
+            "message": "充值成功",
+            "new_credits": after
+        }, status=200)
+    
+class RewardViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="打赏作品作者",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                "gamework_id": openapi.Schema(type=openapi.TYPE_INTEGER, description="被打赏的作品ID"),
+                "amount": openapi.Schema(type=openapi.TYPE_INTEGER, description="打赏金额 (整数 > 0)")
+            },
+            required=["amount"]
+        ),
+        responses={200: "打赏成功"}
+    )
+    def create(self, request, pk=None):
+        gamework_id = request.data.get("gamework_id")
+        amount = request.data.get("amount")
+        try:
+            amount = int(amount)
+        except (TypeError, ValueError):
+            return Response({"code": 400, "message": "打赏金额必须为整数"}, status=400)
+
+        if amount <= 0:
+            return Response({"code": 400, "message": "打赏金额必须大于 0"}, status=400)
+        
+        user=request.user
+        if (user.user_credits or 0) < amount:
+            return Response({'code': 400, 'message': '积分不足，无法打赏'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 找到作品
+        gamework = get_object_or_404(Gamework, id=gamework_id)
+        author = gamework.author
+
+        if request.user == gamework.author:
+            return Response({"code": 400, "message": "不能给自己的作品打赏"}, status=400)
+
+        # 创建支出记录（打赏者）
+        change_user_credits(
+            user=user,
+            amount=-amount,
+            log_type="reward_out",
+            remark=f'打赏作品《{gamework.title}》'
+        )
+
+        author.refresh_from_db()
+        # 创建收入记录（作者）
+        change_user_credits(
+            user=author,
+            amount=amount,
+            log_type="reward_in",
+            remark=f'收到作品《{gamework.title}》的打赏'
+        )
+
+        return Response({
+            "code": 200,
+            "message": "打赏成功",
+            "amount": amount,
+            "author": author.username
+        })
+    
+class CreditLogViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = CreditLogSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="获取用户积分流水",
+        operation_description="返回当前登录用户所有积分变动记录（积分增加、减少、任务奖励、消费扣减等）",
+        responses={
+            200: openapi.Response(
+                description="积分流水列表",
+                schema=CreditLogSerializer(many=True)
+            )
+        }
+    )
+    def list(self, request, *args, **kwargs):
+        queryset = CreditLog.objects.filter(user=request.user).order_by('-created_at')
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
 
 class SaveDetailView(APIView):
     """

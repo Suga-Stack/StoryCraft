@@ -6,6 +6,7 @@ from .serializers import FavoriteSerializer, CommentSerializer, RatingSerializer
 from drf_yasg.utils import swagger_auto_schema, no_body
 from drf_yasg import openapi
 from django.db.models import Avg, Count, Prefetch
+from django.shortcuts import get_object_or_404
 
 class FavoriteFolderViewSet(viewsets.ModelViewSet):
     """
@@ -179,12 +180,29 @@ class FavoriteViewSet(viewsets.ModelViewSet):
 
     @swagger_auto_schema(
         operation_summary="取消收藏",
+        manual_parameters=[
+            openapi.Parameter(
+                name="pk",
+                in_=openapi.IN_PATH,
+                type=openapi.TYPE_INTEGER,
+                description="当前作品 ID",
+                required=True
+            )
+        ],
         responses={204: openapi.Response(description="取消收藏成功")}
     )
     def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        self.perform_destroy(instance)
-        return Response({"code": 204, "message": "取消收藏成功"}, status=status.HTTP_204_NO_CONTENT)
+        id = kwargs.get("pk")
+
+        # 找到该用户的收藏记录
+        instance = get_object_or_404(Favorite, user=request.user, gamework_id=id)
+
+        instance.delete()
+
+        return Response(
+            {"code": 204, "message": "取消收藏成功"},
+            status=status.HTTP_204_NO_CONTENT
+        )
 
     @swagger_auto_schema(
         operation_summary="批量移动收藏到指定收藏夹",
