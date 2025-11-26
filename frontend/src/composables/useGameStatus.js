@@ -1,9 +1,7 @@
 import { ref, computed } from 'vue'
 import { ScreenOrientation } from '@capacitor/screen-orientation'
 import { http } from '../service/http.js'
-
 export function useGameState(dependencies = {}) {
-  // 从依赖中解构所需的函数和状态
   const {
     router,
     route,
@@ -68,6 +66,126 @@ export function useGameState(dependencies = {}) {
   const justFinishedPlayingEnding = ref(false)
   // 标记是否已把后端结局追加到当前 storyScenes 中（避免重复追加）
   const endingsAppended = ref(false)
+  // 结局编辑器（供创作者在选择结局后编辑大纲）
+  const endingEditorVisible = ref(false)
+  const endingEditorBusy = ref(false)
+  const endingEditorForm = ref({ title: '', outline: '', userPrompt: '', endingIndex: null, choice: null })
+
+  // 打开结局编辑器（创作者在选择结局后会弹出）
+  const openEndingEditor = (choice) => {
+    try {
+      const idx = (choice._endingIndex != null) ? Number(choice._endingIndex) : null
+      endingEditorForm.value = {
+        title: choice._endingTitle || choice.text || '',
+        outline: choice._endingOutline || (choice._endingCondition ? JSON.stringify(choice._endingCondition) : '') || '',
+        userPrompt: '',
+        endingIndex: idx,
+        choice: choice
+      }
+      endingEditorVisible.value = true
+    } catch (e) { console.warn('openEndingEditor failed', e) }
+  }
+
+  const cancelEndingEditor = () => {
+    endingEditorVisible.value = false
+    endingEditorBusy.value = false
+    endingEditorForm.value = { title: '', outline: '', userPrompt: '', endingIndex: null, choice: null }
+  }
+
+  const submitEndingEditor = async () => {
+    try {
+      if (!endingEditorForm.value || endingEditorBusy.value) return
+      endingEditorBusy.value = true
+      const workId = work && work.value && work.value.id
+      const endingIndex = endingEditorForm.value.endingIndex
+      if (!workId || endingIndex == null) {
+        showNotice('无法识别作品或结局索引', 3000)
+        endingEditorBusy.value = false
+        return
+      }
+
+      const body = {
+        title: endingEditorForm.value.title || '',
+        outline: endingEditorForm.value.outline || '',
+        userPrompt: endingEditorForm.value.userPrompt || ''
+      }
+
+      // 触发后端重新生成该结局
+      await http.post(`/api/game/ending/generate/${workId}/${endingIndex}/`, body)
+
+      // 轮询获取该结局的生成状态和场景
+      const pollInterval = 2000
+      const timeoutMs = 120000 // 2 分钟
+      let waited = 0
+      let pollTimer = null
+
+      const stopPoll = () => {
+        if (pollTimer) {
+          clearInterval(pollTimer)
+          pollTimer = null
+        }
+      }
+
+      pollTimer = setInterval(async () => {
+        try {
+          const resp = await http.get(`/api/game/storyending/${workId}/${endingIndex}/`)
+          const payload = resp && resp.data ? resp.data : resp
+          if (payload && payload.status === 'ready' && payload.ending) {
+            stopPoll()
+            endingEditorBusy.value = false
+            endingEditorVisible.value = false
+
+            // 使用返回的 scenes 覆盖前端缓存的后端结局场景
+            const scenes = extractScenesFromPayload(payload.ending || payload, attributes)
+            if (Array.isArray(scenes) && scenes.length > 0) {
+              // 删除之前标记为后端结局的场景
+              const before = storyScenes.value.filter(s => !s._isBackendEnding)
+              storyScenes.value = before.slice()
+              const startIdx = storyScenes.value.length
+              for (const s of scenes) {
+                try {
+                  const beforePush = storyScenes.value.length
+                  pushSceneFromServer(s)
+                  try {
+                    const pushed = storyScenes.value[beforePush]
+                    if (pushed) { pushed._isBackendEnding = true; pushed.isEnding = true }
+                  } catch (tagErr) { console.warn('tagging pushed chosen ending scene failed', tagErr) }
+                } catch (e) { console.warn('pushSceneFromServer for generated ending failed', e) }
+              }
+
+              // 跳转到生成的结局起点并播放
+              choicesVisible.value = false
+              showText.value = false
+              setTimeout(() => {
+                currentSceneIndex.value = startIdx
+                currentDialogueIndex.value = 0
+                showText.value = true
+                playingEndingScenes.value = true
+              }, 300)
+            } else {
+              showNotice('已生成结局，但未返回可播放的场景。', 4000)
+            }
+          }
+        } catch (e) {
+          console.warn('polling ending detail failed', e)
+        }
+
+        waited += pollInterval
+        if (waited >= timeoutMs) {
+          stopPoll()
+          endingEditorBusy.value = false
+          showNotice('结局生成超时，请稍后查看', 4000)
+        }
+      }, pollInterval)
+
+      // 隐式返回
+      return
+    } catch (e) {
+      console.warn('submitEndingEditor failed', e)
+      endingEditorBusy.value = false
+      showNotice('提交结局编辑器失败，请重试', 4000)
+    }
+  }
   // 安全调用 autoPlay 控制器（一些环境下该函数可能未被注入）
   const safeStartAutoPlay = () => {
     try {
@@ -429,7 +547,8 @@ export function useGameState(dependencies = {}) {
                         const orig = endings[i] || {}
                         try { pushed.choices[i]._endingScenes = orig.scenes || orig.scenes || [] } catch (e) {}
                         try { pushed.choices[i]._endingCondition = orig.condition || orig.conditions || {} } catch (e) {}
-                          try { pushed.choices[i]._endingTitle = orig.title || orig.name || null } catch (e) {}
+                        try { pushed.choices[i]._endingTitle = orig.title || orig.name || null } catch (e) {}
+                        try { pushed.choices[i]._endingOutline = orig.outline || orig.summary || null } catch (e) {}
                           try { pushed.choices[i]._endingIndex = (orig.endingIndex != null) ? Number(orig.endingIndex) : (i + 1) } catch (e) {}
                       }
                     }
@@ -671,10 +790,11 @@ export function useGameState(dependencies = {}) {
                 scene.choiceConsumed = true
                 scene.chosenChoiceId = choice.id
               // 如果这是一个后端结局选项（我们在 handleGameEnd 中构造的），优先处理结局分支
-              if (choice._endingScenes && Array.isArray(choice._endingScenes)) {
+              if (choice._endingScenes || choice._endingIndex != null) {
                 try {
                   const cond = choice._endingCondition || choice.condition || {}
-                  const matched = evaluateCondition(cond, attributes)
+                  const isCreator = (creatorMode && creatorMode.value) || (creatorFeatureEnabled && creatorFeatureEnabled.value) || (isCreatorIdentity && isCreatorIdentity.value)
+                  const matched = isCreator ? true : evaluateCondition(cond, attributes)
                   if (!matched) {
                     // 条件不满足：提示并允许用户继续选择其它结局
                     showNotice('你不满足进入该结局的条件，进入失败。', 4000)
@@ -684,7 +804,7 @@ export function useGameState(dependencies = {}) {
                     return
                   }
 
-                  // 条件满足：将对应的结局场景追加并播放
+                  // 条件满足或为创作者：将对应的结局场景追加并播放
                   // 在本地记录用户进入的结局标题，供结算页面显示分支缩略图使用
                   try {
                     const endingTitle = choice._endingTitle || (choice.text && choice.text.toString()) || ''
@@ -705,7 +825,54 @@ export function useGameState(dependencies = {}) {
                     }
                   } catch (e) { console.warn('记录 lastSelectedEndingIndex 时出错', e) }
 
-                  const scenesToPush = choice._endingScenes || []
+                  // 如果为创作者身份，弹出结局编辑大纲界面，等待创作者确认后再生成/替换结局
+                  if (isCreator) {
+                    try {
+                      openEndingEditor(choice)
+                    } catch (e) { console.warn('openEndingEditor failed', e) }
+                    return
+                  }
+
+                  let scenesToPush = Array.isArray(choice._endingScenes) ? choice._endingScenes : []
+                  // 对于阅读者：优先通过 endingIndex 向后端请求最新的结局场景（若提供 endingIndex）
+                  if (!isCreator && (choice._endingIndex != null)) {
+                    try {
+                      const endingIndex = Number(choice._endingIndex)
+                      console.log('[chooseOption] Reader: 将通过 endingIndex 向后端请求结局场景, endingIndex=', endingIndex)
+                      const resp = await http.get(`/api/game/storyending/${work.value.id}/${endingIndex}`)
+                      const payload = resp && resp.data ? resp.data : resp
+                      const fetchedScenes = extractScenesFromPayload(payload, attributes)
+                      if (Array.isArray(fetchedScenes) && fetchedScenes.length > 0) {
+                        scenesToPush = fetchedScenes
+                        console.log('[chooseOption] Reader: 成功获取结局场景，共', scenesToPush.length, '个场景')
+                        try {
+                          // 保存所选结局的大纲，供结算页显示
+                          const outline = (payload && (payload.ending?.outline || payload.outline)) ? (payload.ending?.outline || payload.outline) : ''
+                          if (outline && work && work.value && work.value.id) {
+                            try { sessionStorage.setItem(`selectedEndingOutline_${work.value.id}`, String(outline)) } catch (e) {}
+                          }
+                        } catch (e) { console.warn('保存 selectedEndingOutline 失败', e) }
+                      } else {
+                        // 后端未返回 scenes，回退到 choice._endingScenes（若有）或报错
+                        if (!scenesToPush || scenesToPush.length === 0) {
+                          console.warn('[chooseOption] Reader: 后端返回的结局没有可用场景，且本地也无 scenes')
+                          showNotice('无法获取所选结局的剧情内容，请稍后重试。', 4000)
+                          try { scene.choiceConsumed = false } catch (e) {}
+                          try { scene.chosenChoiceId = null } catch (e) {}
+                          return
+                        }
+                      }
+                    } catch (e) {
+                      console.warn('[chooseOption] Reader: 请求结局场景失败:', e)
+                      showNotice('请求结局剧情失败，请检查网络或稍后重试。', 4000)
+                      try { scene.choiceConsumed = false } catch (e) {}
+                      try { scene.chosenChoiceId = null } catch (e) {}
+                      return
+                    }
+                  } else {
+                    // 对于创作者或未提供 endingIndex 的情况，保持原有逻辑：使用 choice._endingScenes（创作者会被拦截到 editor）
+                    scenesToPush = Array.isArray(choice._endingScenes) ? choice._endingScenes : []
+                  }
 
                   // 新规则：用所选结局覆盖「前一章」的缓存（如果能找到前一章），否则回退为追加行为
                   const replaceChapter = (currentChapterIndex && Number(currentChapterIndex.value)) ? Number(currentChapterIndex.value) : null
@@ -1175,6 +1342,8 @@ export function useGameState(dependencies = {}) {
                     try { pushed.choices[i]._endingScenes = orig.scenes || [] } catch (e) {}
                     try { pushed.choices[i]._endingCondition = orig.condition || orig.conditions || {} } catch (e) {}
                     try { pushed.choices[i]._endingTitle = orig.title || orig.name || null } catch (e) {}
+                    try { pushed.choices[i]._endingOutline = orig.outline || orig.summary || null } catch (e) {}
+                    try { pushed.choices[i]._endingIndex = (orig.endingIndex != null) ? Number(orig.endingIndex) : (i + 1) } catch (e) {}
                   }
                 }
               } catch (attachErr) { console.warn('attach ending metadata failed', attachErr) }
@@ -1907,6 +2076,13 @@ export function useGameState(dependencies = {}) {
     requestLandscape,
     handleGameEnd,
     requestNextIfNeeded,
+    // 结局编辑器（创作者）
+    endingEditorVisible,
+    endingEditorBusy,
+    endingEditorForm,
+    openEndingEditor,
+    submitEndingEditor,
+    cancelEndingEditor,
     
     // 加载控制方法
     simulateLoadTo100,

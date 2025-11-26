@@ -329,6 +329,14 @@ const {
   handleGameEnd,
   cleanup: cleanupGameState
 } = gameStateResult
+const {
+  endingEditorVisible,
+  endingEditorBusy,
+  endingEditorForm,
+  openEndingEditor,
+  submitEndingEditor,
+  cancelEndingEditor
+} = gameStateResult
 
 // 计算任意弹窗是否打开 - 在 showMenu 解构之后定义
 const anyOverlayOpen = computed(() =>
@@ -337,7 +345,8 @@ const anyOverlayOpen = computed(() =>
   showLoadModal.value ||
   showAttributesModal.value ||
   showSettingsModal.value ||
-  showOutlineEditor.value
+  showOutlineEditor.value ||
+  (endingEditorVisible && endingEditorVisible.value)
 )
 
 // 初始化自动播放功能 - 在 gameState 之后创建，使用 getter 获取 nextDialogue
@@ -2481,5 +2490,28 @@ onUnmounted(async () => {
     </div>
     <!-- 隐藏的文件输入：用于用户替换当前背景图 -->
     <input ref="imgInput" type="file" accept="image/*" style="display:none" @change="onImageSelected" />
+  </div>
+</template>
+
+<!-- 创作者：结局编辑器模态 -->
+<template v-if="endingEditorVisible" >
+  <div class="modal-backdrop">
+    <div class="modal-panel outline-editor-panel">
+      <h3 class="outline-editor-title">✍️ 编辑结局大纲</h3>
+      <p class="outline-editor-desc">修改结局标题与大纲，或提供生成指令。提交后会触发结局生成并轮询直到完成。</p>
+
+      <div class="outline-chapter-item">
+        <div class="chapter-label">结局索引: {{ endingEditorForm.endingIndex || '-' }}</div>
+        <input v-model="endingEditorForm.title" class="outline-textarea" placeholder="结局标题" />
+        <textarea v-model="endingEditorForm.outline" rows="4" class="outline-textarea" placeholder="结局大纲，例如：你战胜了魔王，成为了王国的英雄..."></textarea>
+        <div class="chapter-label">生成指令 (可选)</div>
+        <textarea v-model="endingEditorForm.userPrompt" rows="2" class="outline-textarea outline-textarea-small" placeholder="例如：请让结局更悲壮一些"></textarea>
+      </div>
+
+      <div class="outline-editor-actions">
+        <button class="edit-btn btn-cancel" @click="cancelEndingEditor">取消</button>
+        <button class="edit-btn btn-confirm" :disabled="endingEditorBusy" @click="submitEndingEditor">提交并生成</button>
+      </div>
+    </div>
   </div>
 </template>
