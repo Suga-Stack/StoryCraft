@@ -170,6 +170,31 @@ onMounted(async () => {
                 timestamp: timestamp
               }
             })
+            // 尝试读取当前登录用户的用户名（优先 window 注入，其次 localStorage.userInfo）
+            try {
+              if (!currentUsername.value) {
+                if (window.__STORYCRAFT_USER__ && window.__STORYCRAFT_USER__.username) currentUsername.value = window.__STORYCRAFT_USER__.username
+                else {
+                  const stored = localStorage.getItem('userInfo')
+                  if (stored) {
+                    const u = JSON.parse(stored)
+                    currentUsername.value = u?.username || u?.user || null
+                  }
+                }
+              }
+            } catch (e) {}
+
+            // 如果当前用户已在后端评分记录中出现，标记为已评分并在星级处显示他之前的分数
+            try {
+              if (currentUsername.value) {
+                const found = payload.rating_details.find(r => (r.username || r.user) === currentUsername.value)
+                if (found) {
+                  userHasRated.value = true
+                  const s10 = Number(found.score || found.score10 || 0)
+                  if (!isNaN(s10) && s10 > 0) selectedStars.value = Math.round(s10 / 2)
+                }
+              }
+            } catch (e) { console.warn('check user rating failed', e) }
           }
         } catch (e) { console.warn('failed to parse rating_details from payload', e) }
       } catch (e) { console.warn('failed to parse comments from payload', e) }
@@ -436,6 +461,10 @@ const ratings = ref([
   // { id: 1, author: 'user_010', stars: 5, time: '1天前', timestamp: Date.now() - 24 * 60 * 60 * 1000 }
 ])
 const selectedStars = ref(0)
+// 当前操作用户的用户名（尝试从 window 全局或 localStorage 中读取）
+const currentUsername = ref(null)
+// 表示当前用户是否已对该作品评分（用于禁止重复提交并在 UI 上显示历史评分）
+const userHasRated = ref(false)
 const ratingPage = ref(1)
 const ratingPageSize = 5
 
@@ -511,8 +540,17 @@ const selectStar = (n) => {
   selectedStars.value = n
 }
 
+const handleStarClick = (n) => {
+  if (userHasRated.value) return
+  selectStar(n)
+}
+
 const submitRating = async () => {
   if (selectedStars.value <= 0) return
+  if (userHasRated.value) {
+    alert('您已评分，无法重复提交')
+    return
+  }
   const score10 = selectedStars.value * 2
   try {
     // post rating to backend
@@ -538,12 +576,15 @@ const submitRating = async () => {
     // 本地也保持一个评分记录用于立即显示
     ratings.value.unshift({
       id: Date.now(),
-      author: 'current_user',
+      author: currentUsername.value || 'current_user',
       stars: selectedStars.value,
       score10: score10,
       time: '刚刚',
       timestamp: Date.now()
     })
+
+    // 标记为已评分，禁止再次提交
+    userHasRated.value = true
 
     // reset
     selectedStars.value = 0
@@ -942,13 +983,13 @@ const startReading = async () => {
                   v-for="n in 5"
                   :key="n"
                   class="star"
-                  :class="{ filled: n <= selectedStars }"
-                  @click="selectStar(n)">
+                  :class="{ filled: n <= selectedStars, disabled: userHasRated }"
+                  @click="handleStarClick(n)">
                   ★
                 </span>
               </div>
               <div style="margin-left:auto;">
-                <button class="submit-comment-btn" @click="submitRating">提交评分</button>
+                <button class="submit-comment-btn" :disabled="userHasRated" @click="submitRating">{{ userHasRated ? '已评分' : '提交评分' }}</button>
               </div>
             </div>
 

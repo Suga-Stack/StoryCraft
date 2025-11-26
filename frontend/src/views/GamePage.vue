@@ -325,6 +325,32 @@ const {
   cleanup: cleanupGameState
 } = gameStateResult
 
+// 全局点击处理：当没有选项/菜单/编辑时，点击屏幕任意不在交互控件上的位置进入下一句
+const onGlobalClick = (e) => {
+  try {
+    // 如果编辑中、菜单/模态/保存等覆盖层打开、或选项可见，则不要在根容器处理为 next
+    if (editingDialogue?.value) return
+    if (showMenu?.value) return
+    if (choicesVisible?.value) return
+    if (anyOverlayOpen?.value) return
+
+    // 忽略点击在表单或交互元素上的情况（按钮、链接、输入框等）
+    const tag = (e.target && e.target.tagName) ? String(e.target.tagName).toLowerCase() : ''
+    if (['button','a','input','select','textarea','label'].includes(tag)) return
+
+    // 忽略点击发生在可能的交互面板内（例如选项容器、菜单面板、编辑控件、模态面板等）
+    if (e.target && e.target.closest) {
+      const ignore = e.target.closest('.choices-container, .menu-panel, .menu-button, .edit-controls, .choice-btn, .edit-btn, .modal-panel, .modal-backdrop, .save-load-modal')
+      if (ignore) return
+    }
+
+    // 如果当前处于等待点击以显示选项的状态，nextDialogue 会在内部将其转换为显示选项
+    nextDialogue()
+  } catch (err) {
+    console.warn('onGlobalClick failed', err)
+  }
+}
+
 // 计算任意弹窗是否打开 - 在 showMenu 解构之后定义
 const anyOverlayOpen = computed(() =>
   showMenu.value ||
@@ -1763,7 +1789,7 @@ onUnmounted(async () => {
 </script>
 
 <template>
-  <div class="game-page">
+  <div class="game-page" @click="onGlobalClick">
     <!-- 横屏准备界面 -->
     <div v-if="!isLandscapeReady" class="landscape-prompt">
       <div class="prompt-content">
@@ -1963,7 +1989,7 @@ onUnmounted(async () => {
               </svg>
               <span>读档</span>
             </button>
-            <button class="menu-item" @click="showMenu = false; triggerImagePicker()">
+            <button class="menu-item" @click="showMenu = false; openAttributes()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14" stroke-width="2"/>
                 <path d="M3 7h18M8 11l2.5 3L13 11l4 6H7l1-2z" stroke-width="2"/>
