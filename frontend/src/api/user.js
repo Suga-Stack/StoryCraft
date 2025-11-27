@@ -65,7 +65,7 @@ export const getRecentMyworks = () => {
 }
 
 export const search = (page, q, author, tag) => {
-  return http.get('/gameworks/search/', {page, q, author, tag});
+  return http.get('/gameworks/search/', {params: {page, q, author, tag}});
 }
 
 export const getFavoriteLeaderboard = () => {
