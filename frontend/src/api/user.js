@@ -131,6 +131,12 @@ export const recommendWorks = (page) => {
   return http.get('/gameworks/recommend/', page)
 }
 
+// 发布作品
 export const publishWorks = (id) => {
   return http.post(`/gameworks/publish/${id}/`)
+}
+
+// 取消发布作品
+export const unpublishWorks = (id, price) => {
+  return http.post(`/gameworks/unpublish/${id}/`, price)
 }

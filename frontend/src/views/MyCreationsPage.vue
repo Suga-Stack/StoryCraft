@@ -16,7 +16,6 @@
         />
         <div class="book-info">
           <h3 class="book-title"  @click="navigateToBookDetail(book.id)">{{ book.title }}</h3>
-          <p class="book-author">作者: {{ book.author }}</p>
           <p class="book-desc">{{ book.description }}</p>
           <div class="book-tags">
             <van-tag 
@@ -32,7 +31,7 @@
          <van-icon 
           :name="book.is_published ? 'eye' : 'eye-o'" 
           class="visibility-icon"
-          @click="handleIconClick"
+          @click="handleIconClick(book)"
         />
       </div>
     </div>
@@ -49,14 +48,14 @@
       <div class="item-card">
         <!--作品封面-->
         <van-image 
-          :src="currentBook?.image_url" 
+          :src="currentBook.image_url" 
           class="book-cover" 
           fit="cover"
         />
         <!--作品信息-->
         <div class="book-info">
           <!--作品名-->
-          <div class="book-title">{{ currentBook?.title }}</div>
+          <div class="book-title">{{ currentBook.title }}</div>
           <!--积分输入框-->
           <input type="number" 
             id="requiredCredits"  
@@ -79,6 +78,13 @@
         :class="{ active: currentBook.isPublished }"
         :disabled="!isAgreementChecked || !isCreditsValid"
         >确认发布
+      </button>
+
+      <!--取消发布按钮-->
+      <button class="unpublish-btn" 
+        @click="handleUnpublish(currentBook)"
+        :disabled="!currentBook.is_published"
+        >取消发布
       </button>
       
       <div class="checkbox-agreement-container">
@@ -132,7 +138,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { getMyworks, publishWorks} from '../api/user'
+import { getMyworks, publishWorks, unpublishWorks} from '../api/user'
 import { useTags } from '../composables/useTags'
 
 // 初始化标签工具
@@ -184,12 +190,8 @@ const fetchMyWorks = async () => {
 
 //处理眼睛Icon的点击事件
 const handleIconClick = (book) => {
-   if (book.is_published) {
-    handleUnpublish(book);
-  } else {
     showPublishModel.value = true;
     currentBook.value = book;
-  }
 }
 
 //取消发布接口
@@ -251,9 +253,8 @@ const handlePublish = async (book) => {
     return
   }
   try {
-    // 如果当前是未发布状态，则调用发布接口
-    if (!book.isPublished) {
-      const response = await publishWorks(book.id);
+    if (!book.is_published) {
+      const response = await publishWorks(book.id, Number(requiredCredits.value));
       
       // 假设接口返回200时表示发布成功
       if (response.status === 200) {
@@ -264,12 +265,6 @@ const handlePublish = async (book) => {
       } else {
         showToast('发布失败：' + (response.data.message || '未知错误'));
       }
-    } else {
-      // 如果需要实现取消发布功能，这里可以调用取消发布接口
-      // 假设取消发布接口为 /gameworks/unpublish/${id}
-      // const response = await unpublishWorks(book.id);
-      book.isPublished = false;
-      showToast('作品已隐藏');
     }
   } catch (error) {
     // 处理接口调用失败的情况
@@ -417,7 +412,7 @@ const handlePublish = async (book) => {
   border: 1px solid #D4A5A5;
   border-radius: 15px;
   padding: 15px;
-  margin: 0 5px 20px;
+  margin: 0 5px 10px;
 }
 
 .item-card .book-cover{
@@ -456,7 +451,7 @@ const handlePublish = async (book) => {
   display: block;
 }
 
-.publish-btn, .agreement-btn{
+.publish-btn, .agreement-btn, .unpublish-btn{
   color: white;
   font-size: 16px;
   width: 100%;
@@ -464,9 +459,10 @@ const handlePublish = async (book) => {
   border: none;
   border-radius: 16px;
   height: 35px;
+  margin: 10px 0 0 0;
 }
 
-.publish-btn:disabled {
+.publish-btn:disabled, .unpublish-btn:disabled {
   background: #cccccc; 
   color: #999999;
   cursor: not-allowed; 
