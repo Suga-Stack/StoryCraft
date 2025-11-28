@@ -75,6 +75,8 @@ class FavoriteViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [filters.SearchFilter]
     search_fields = ['gamework__title']
+    lookup_field = "gamework_id"
+    lookup_url_kwarg = "id"
 
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
@@ -182,7 +184,7 @@ class FavoriteViewSet(viewsets.ModelViewSet):
         operation_summary="取消收藏",
         manual_parameters=[
             openapi.Parameter(
-                name="pk",
+                name="id",
                 in_=openapi.IN_PATH,
                 type=openapi.TYPE_INTEGER,
                 description="当前作品 ID",
@@ -192,7 +194,7 @@ class FavoriteViewSet(viewsets.ModelViewSet):
         responses={204: openapi.Response(description="取消收藏成功")}
     )
     def destroy(self, request, *args, **kwargs):
-        id = kwargs.get("pk")
+        id = kwargs["id"]
 
         # 找到该用户的收藏记录
         instance = get_object_or_404(Favorite, user=request.user, gamework_id=id)
