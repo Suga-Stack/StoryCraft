@@ -17,7 +17,7 @@ from interactions.models import ReadRecord
 from django.utils import timezone
 from datetime import date, timedelta
 from .utils import get_signin_reward, change_user_credits
-from .models import UserSignIn, CreditLog
+from .models import UserSignIn, CreditLog, SignInLog
 
 User = get_user_model()
 
@@ -117,7 +117,20 @@ class SendEmailCodeView(APIView):
             },
             required=['email']
         ),
-        responses={200: "验证码已发送"}
+        responses={
+            200: openapi.Response(
+                description="验证码发送成功",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "code": openapi.Schema(type=openapi.TYPE_INTEGER),
+                        "message": openapi.Schema(type=openapi.TYPE_STRING),
+                    }
+                )
+            ),
+            400: openapi.Response(description="邮箱为空"),
+            500: openapi.Response(description="邮件发送失败"),
+        }
     )
 
     def post(self, request):
@@ -149,7 +162,28 @@ class RegisterView(APIView):
 
     @swagger_auto_schema(
         request_body=RegisterSerializer,
-        responses={200: "注册成功"}
+        responses={
+            201: openapi.Response(
+                description="注册成功",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "code": openapi.Schema(type=openapi.TYPE_INTEGER),
+                        "message": openapi.Schema(type=openapi.TYPE_STRING),
+                    }
+                )
+            ),
+            400: openapi.Response(
+                description="验证失败",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "code": openapi.Schema(type=openapi.TYPE_INTEGER),
+                        "message": openapi.Schema(type=openapi.TYPE_OBJECT),
+                    }
+                )
+            )
+        }
     )
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
@@ -166,7 +200,20 @@ class LoginView(APIView):
 
     @swagger_auto_schema(
         request_body=LoginSerializer,
-        responses={200: "登录成功"}
+        responses={
+            200: openapi.Response(
+                description="登录成功",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "code": openapi.Schema(type=openapi.TYPE_INTEGER),
+                        "message": openapi.Schema(type=openapi.TYPE_STRING),
+                        "tokens": openapi.Schema(type=openapi.TYPE_OBJECT),
+                    }
+                )
+            ),
+            400: openapi.Response(description="登录失败")
+        }
     )
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
@@ -181,7 +228,18 @@ class LogoutView(APIView):
     """登出接口"""
     @swagger_auto_schema(
         request_body=LogoutSerializer,
-        responses={200: "登出成功"}
+        responses={
+            200: openapi.Response(
+                description="登出成功",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "code": openapi.Schema(type=openapi.TYPE_INTEGER),
+                        "message": openapi.Schema(type=openapi.TYPE_STRING),
+                    }
+                )
+            )
+        }
     )
     def post(self, request):
         serializer = LogoutSerializer(data=request.data)
@@ -221,8 +279,14 @@ class ReadGameworkListView(APIView):
         operation_summary="获取当前用户读过的作品",
         responses={
             200: openapi.Response(
-                description="用户读过的作品列表",
-                schema=GameworkSimpleSerializer
+                description="作品列表",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "code": openapi.Schema(type=openapi.TYPE_INTEGER),
+                        "data": openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_OBJECT))
+                    }
+                )
             )
         }
     )
@@ -243,8 +307,17 @@ class ReadGameworkListView(APIView):
             required=['gamework_id']
         ),
         responses={
-            200: openapi.Response(description='记录成功'),
-            400: openapi.Response(description='参数错误或作品不存在')
+            200: openapi.Response(
+                description="记录成功",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "code": openapi.Schema(type=openapi.TYPE_INTEGER),
+                        "message": openapi.Schema(type=openapi.TYPE_STRING),
+                    }
+                )
+            ),
+            400: openapi.Response(description="参数错误")
         }
     )
     def post(self, request):
@@ -297,7 +370,18 @@ class ReadGameworkListView(APIView):
                 'gamework_ids_param', openapi.IN_QUERY, description="要删除的作品ID列表，不传则删除所有", type=openapi.TYPE_INTEGER
             )
         ],
-        responses={200: openapi.Response(description="删除成功")}
+        responses={
+            200: openapi.Response(
+                description="删除成功",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "code": openapi.Schema(type=openapi.TYPE_INTEGER),
+                        "message": openapi.Schema(type=openapi.TYPE_STRING),
+                    }
+                )
+            )
+        }
     )
     def delete(self, request):
         user = request.user
@@ -397,6 +481,42 @@ class RecentMyGameworksView(APIView):
     
 class UserSignInView(APIView):
     permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="获取用户所有签到日期",
+        responses={
+            status.HTTP_200_OK: openapi.Response(
+                description="返回签到日期列表",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "dates": openapi.Schema(
+                            type=openapi.TYPE_ARRAY,
+                            description="签到日期列表（倒序）",
+                            items=openapi.Schema(type=openapi.TYPE_STRING, format="date")
+                        )
+                    }
+                )
+            )
+        }
+    )
+    def get(self, request):
+        user = request.user
+        today = date.today()
+        year = today.year
+
+        # 筛选当前年份的签到记录
+        dates = list(
+            user.signin_logs.filter(date__year=year)
+            .order_by('-date')
+            .values_list('date', flat=True)
+        )
+
+        return Response({
+            # "year": year,
+            "dates": dates
+        })
+
     
     @swagger_auto_schema(
         operation_summary="用户签到",
@@ -465,6 +585,7 @@ class UserSignInView(APIView):
         # 写入签到记录
         signin_record.last_signin_date = today
         signin_record.save()
+        SignInLog.objects.get_or_create(user=user, date=today)
 
         # 增加用户积分
         change_user_credits(
@@ -493,7 +614,20 @@ class RechargeViewSet(viewsets.ViewSet):
             },
             required=['credits']
         ),
-        responses={200: "充值成功"}
+        responses={
+            200: openapi.Response(
+                description="充值成功",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "code": openapi.Schema(type=openapi.TYPE_INTEGER, example=200),
+                        "message": openapi.Schema(type=openapi.TYPE_STRING, example="充值成功"),
+                        "new_credits": openapi.Schema(type=openapi.TYPE_INTEGER, example=500)
+                    }
+                )
+            ),
+            400: openapi.Response(description="参数错误")
+        }
     )
     def create(self, request):
         credits = request.data.get("credits")
@@ -532,7 +666,21 @@ class RewardViewSet(viewsets.ViewSet):
             },
             required=["amount"]
         ),
-        responses={200: "打赏成功"}
+        responses={
+            200: openapi.Response(
+                description="打赏成功",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        "code": openapi.Schema(type=openapi.TYPE_INTEGER, example=200),
+                        "message": openapi.Schema(type=openapi.TYPE_STRING, example="打赏成功"),
+                        "amount": openapi.Schema(type=openapi.TYPE_INTEGER, example=20),
+                        "author": openapi.Schema(type=openapi.TYPE_STRING, example="作者用户名")
+                    }
+                )
+            ),
+            400: openapi.Response(description="积分不足 或 金额非法")
+        }
     )
     def create(self, request, pk=None):
         gamework_id = request.data.get("gamework_id")
