@@ -1,0 +1,240 @@
+{
+  "type": "work_meta",
+  "seq": 1,
+  "timestamp": 1700000000000,
+  "workId": "w-001",
+  "title": "我在仙门靠才华致富",
+  "coverUrl": "frontend/public/images/仙界封面.jpg",
+  "summary": "现代理财师魂穿仙侠世界，成了个小宗门弟子。
+              没有逆天资质，却有个需要氪金才能变强的奇怪系统。
+
+              为了“充值”，她在仙门开创了一系列“商业项目”。
+
+              从此，整个宗门的风气开始跑偏……",
+  "tags": [
+    "仙侠",
+    "爽文",
+    "群像",
+    "日常",
+    "女频",
+    "中篇"
+  ]
+}
+
+{
+  "type": "scene",
+  "seq": 2,
+  "timestamp": 1700000001000,
+  "workId": "w-001",
+  "scene": {
+    "sceneId": 1,
+    "title": "序章",
+    "backgroundImage": "/images/scene1.jpg",
+    "dialogues": [
+      {
+        "speaker": "旁白",
+        "text": "夜色如墨，宫灯如豆。"
+      },
+      {
+        "speaker": "锦瑟",
+        "text": "今日的朝会，有些不同寻常。"
+      }
+    ],
+    "choiceTriggerIndex": 1
+  }
+}
+
+{
+  "type": "mainline",
+  "seq": 3,
+  "timestamp": 1700000002000,
+  "workId": "w-001",
+  "scene": {
+    "sceneId": 2,
+    "title": "早朝",
+    "backgroundImage": "/images/scene2.jpg",
+    "dialogues": [
+      {
+        "speaker": "皇上",
+        "text": "奏事如何？"
+      },
+      {
+        "speaker": "大臣",
+        "text": "......"
+      }
+    ],
+    "choiceTriggerIndex": -1
+  }
+}
+
+{
+  "type": "choice_effect",
+  "seq": 4,
+  "timestamp": 1700000003000,
+  "workId": "w-001",
+  "sceneId": 2,
+  "choices": [
+    {
+      "id": "c1",
+      "text": "赞成改制",
+      "attributesDelta": {
+        "politics": 5
+      },
+      "statusesDelta": {
+        "faction_support": "锦瑟党"
+      },
+      "nextScenes": [
+        {
+          "sceneId": 21,
+          "title": "改制分支A",
+          "backgroundImage": "/images/branchA.jpg",
+          "dialogues": [
+            {
+              "speaker": "锦瑟",
+              "text": "我们需要变革。"
+            }
+          ],
+          "choiceTriggerIndex": -1
+        }
+      ]
+    },
+    {
+      "id": "c2",
+      "text": "反对改制",
+      "attributesDelta": {
+        "politics": -3
+      },
+      "statusesDelta": {
+        "faction_support": "保守派"
+      },
+      "nextScenes": [
+        {
+          "sceneId": 22,
+          "title": "反对分支B",
+          "backgroundImage": "/images/branchB.jpg",
+          "dialogues": [
+            {
+              "speaker": "锦瑟",
+              "text": "稳妥为先。"
+            }
+          ],
+          "choiceTriggerIndex": -1
+        }
+      ]
+    }
+  ]
+}
+
+{
+  "type": "scene",
+  "seq": 5,
+  "timestamp": 1700000004000,
+  "workId": "w-001",
+  "scene": {
+    "sceneId": 21,
+    "title": "改制分支A - 后续",
+    "backgroundImage": "/images/branchA-2.jpg",
+    "dialogues": [
+      {
+        "speaker": "锦瑟",
+        "text": "变革初见成效。"
+      }
+    ],
+    "choiceTriggerIndex": -1
+  }
+}
+
+{
+  "type": "mainline",
+  "seq": 6,
+  "timestamp": 1700000005000,
+  "workId": "w-001",
+  "scene": {
+    "sceneId": 3,
+    "title": "主线回归：政局平稳",
+    "backgroundImage": "/images/scene3.jpg",
+    "dialogues": [
+      {
+        "speaker": "旁白",
+        "text": "无论选择如何，国事依旧进行。"
+      }
+    ],
+    "choiceTriggerIndex": -1
+  }
+}
+
+{
+  "type": "special_event",
+  "seq": 7,
+  "timestamp": 1700000006000,
+  "workId": "w-001",
+  "eventId": "e-raid",
+  "description": "夜间突袭",
+  "condition": {
+    "attributes": {
+      "politics": {
+        "gte": 2
+      }
+    },
+    "statuses": {
+      "faction_support": "锦瑟党"
+    }
+  },
+  "resultIfMet": {
+    "dialogues": [
+      {
+        "speaker": "锦瑟",
+        "text": "我们做好了防守。"
+      }
+    ]
+  },
+  "resultIfNotMet": {
+    "dialogues": [
+      {
+        "speaker": "锦瑟",
+        "text": "措手不及，损失惨重。"
+      }
+    ]
+  }
+}
+
+{
+  "type": "end",
+  "seq": 8,
+  "timestamp": 1700000007000,
+  "workId": "w-001",
+  "reason": "chapter_finished"
+}
+
+{
+  "type": "report",
+  "seq": 9,
+  "timestamp": 1700000008000,
+  "workId": "w-001",
+  "finalAttributes": {
+    "politics": 12,
+    "charisma": 8
+  },
+  "finalStatuses": {
+    "faction_support": "锦瑟党"
+  },
+  "personalReport": [
+    {
+      "title": "政绩综述",
+      "content": "你在朝堂上推动了数项改革，声望提升。"
+    },
+    {
+      "title": "人际评价",
+      "content": "与皇室关系良好，民望上升。"
+    }
+  ]
+}
+{"type":"work_meta","seq":1,"timestamp":1700000000000,"workId":"w-001","title":"锦瑟深宫","coverUrl":"/images/covers/jinsedepalace.jpg","summary":"一段古风宫廷故事。","tags":["古风","宫廷","恋爱"]}
+{"type":"scene","seq":2,"timestamp":1700000001000,"workId":"w-001","scene":{"sceneId":1,"title":"序章","backgroundImage":"/images/scene1.jpg","dialogues":[{"speaker":"旁白","text":"夜色如墨，宫灯如豆。"},{"speaker":"锦瑟","text":"今日的朝会，有些不同寻常。"}],"choiceTriggerIndex":1}}
+{"type":"mainline","seq":3,"timestamp":1700000002000,"workId":"w-001","scene":{"sceneId":2,"title":"早朝","backgroundImage":"/images/scene2.jpg","dialogues":[{"speaker":"皇上","text":"奏事如何？"},{"speaker":"大臣","text":"......"}],"choiceTriggerIndex":-1}}
+{"type":"choice_effect","seq":4,"timestamp":1700000003000,"workId":"w-001","sceneId":2,"choices":[{"id":"c1","text":"赞成改制","attributesDelta":{"politics":5},"statusesDelta":{"faction_support":"锦瑟党"},"nextScenes":[{"sceneId":21,"title":"改制分支A","backgroundImage":"/images/branchA.jpg","dialogues":[{"speaker":"锦瑟","text":"我们需要变革。"}],"choiceTriggerIndex":-1}]},{"id":"c2","text":"反对改制","attributesDelta":{"politics":-3},"statusesDelta":{"faction_support":"保守派"},"nextScenes":[{"sceneId":22,"title":"反对分支B","backgroundImage":"/images/branchB.jpg","dialogues":[{"speaker":"锦瑟","text":"稳妥为先。"}],"choiceTriggerIndex":-1}]}]}
+{"type":"scene","seq":5,"timestamp":1700000004000,"workId":"w-001","scene":{"sceneId":21,"title":"改制分支A - 后续","backgroundImage":"/images/branchA-2.jpg","dialogues":[{"speaker":"锦瑟","text":"变革初见成效。"}],"choiceTriggerIndex":-1}}
+{"type":"mainline","seq":6,"timestamp":1700000005000,"workId":"w-001","scene":{"sceneId":3,"title":"主线回归：政局平稳","backgroundImage":"/images/scene3.jpg","dialogues":[{"speaker":"旁白","text":"无论选择如何，国事依旧进行。"}],"choiceTriggerIndex":-1}}
+{"type":"special_event","seq":7,"timestamp":1700000006000,"workId":"w-001","eventId":"e-raid","description":"夜间突袭","condition":{"attributes":{"politics":{"gte":2}},"statuses":{"faction_support":"锦瑟党"}},"resultIfMet":{"dialogues":[{"speaker":"锦瑟","text":"我们做好了防守。"}]},"resultIfNotMet":{"dialogues":[{"speaker":"锦瑟","text":"措手不及，损失惨重。"}]}}
+{"type":"end","seq":8,"timestamp":1700000007000,"workId":"w-001","reason":"chapter_finished"}
+{"type":"report","seq":9,"timestamp":1700000008000,"workId":"w-001","finalAttributes":{"politics":12,"charisma":8},"finalStatuses":{"faction_support":"锦瑟党"},"personalReport":[{"title":"政绩综述","content":"你在朝堂上推动了数项改革，声望提升。"},{"title":"人际评价","content":"与皇室关系良好，民望上升。"}]}
