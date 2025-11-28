@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import User, CreditLog
+from .models import User, CreditLog, SignInLog
 
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
@@ -61,3 +61,11 @@ class CreditLogAdmin(admin.ModelAdmin):
 
     # 让 created_at 成为可点击链接
     list_display_links = ("id", "user")
+
+
+@admin.register(SignInLog)
+class SignInLogAdmin(admin.ModelAdmin):
+    list_display = ('user', 'date')
+    search_fields = ('user__username',)
+    list_filter = ('date',)
+    ordering = ('-date',)

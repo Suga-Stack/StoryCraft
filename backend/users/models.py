@@ -38,6 +38,14 @@ class UserSignIn(models.Model):
     def __str__(self):
         return f"{self.user.username} - 连续 {self.continuous_days} 天"
     
+class SignInLog(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="signin_logs")
+    date = models.DateField()
+    
+    class Meta:
+        unique_together = ('user', 'date')
+        ordering = ['-date']
+    
 class CreditLog(models.Model):
     """用户积分流水记录"""
 
