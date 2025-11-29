@@ -151,12 +151,11 @@ import { showToast } from 'vant';
 import {useRouter} from 'vue-router';
 import { recommendWorks, getRatingLeaderboard  } from '../api/user';
 import { useTags } from '../composables/useTags'; // 导入标签工具函数
-import { useCheckInStore } from '../store/checkIn';
 import { getSignInDates, userSignIn } from '../api/user';
 
 // 初始化标签工具
 const { getTagsByIds } = useTags();
-const checkInStore = useCheckInStore();
+
 // 热门作品数据
 const hotBooks = ref([])
 

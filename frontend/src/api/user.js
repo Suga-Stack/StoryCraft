@@ -155,3 +155,8 @@ export const userSignIn = () => {
 export const rechargeCredits = (credits) => {
   return http.post('/users/recharge/', {credits})
 }
+
+// 获取积分流水
+export const getCreditsLog = (page) => {
+  return http.get('/users/creditlog/', {page})
+}

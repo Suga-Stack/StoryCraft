@@ -56,46 +56,64 @@
           <button class="recharge-btn">充值</button>
         </div>
       </div>
-      
-      <!-- 自定义充值区域 -->
-      <div class="custom-recharge-card">
-        <!-- 心形图标 -->
-        <div class="heart-icon"></div>
+
+      <!-- 积分流水标题 -->
+      <div class="log-section-header" @click="toggleChargeLog">
+        <span class="log-section-title">积分流水</span>
+        <svg class="toggle-arrow" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :class="{ 'rotate': showChargeLog }">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </div>
+
+      <!-- 积分流水内容区 -->
+      <div v-if="showChargeLog" class="credits-log-container">
+        <!-- 加载状态 -->
+        <div v-if="loading" class="loading">加载中...</div>
         
-        <!-- 自定义积分 -->
-        <div class="recharge-info">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="info-icon">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-          </svg>
-          <span>自定义</span>
+        <!-- 空状态 -->
+        <div v-if="!loading && creditsLog.length === 0" class="empty-log">
+          暂无积分记录
         </div>
         
-        <!-- 自定义金额输入 -->
-        <div class="custom-amount">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="price-icon">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-          </svg>
-          <div class="amount-input-wrapper">
-            <input
-              v-model="customAmount"
-              type="number"
-              min="1"
-              placeholder="输入金额"
-              class="amount-input"
-            >
-            <span class="amount-unit">元</span>
+        <!-- 流水列表 -->
+        <div class="log-list">
+          <div class="log-item" v-for="(log, index) in creditsLog" :key="index">
+            <div class="log-header">
+              <span class="log-type">{{ formatLogType(log.type) }}</span>
+              <span :class="['log-amount', log.change_amount > 0 ? 'increase' : 'decrease']">
+                {{ log.change_amount > 0 ? '+' : '' }}{{ log.change_amount }}
+              </span>
+            </div>
+            <div class="log-details">
+              <span class="log-time">{{ formatDateTime(log.created_at) }}</span>
+              <span class="log-balance">余额: {{ log.after_balance }}</span>
+            </div>
+            <div class="log-remark" v-if="log.remark">
+              {{ log.remark }}
+            </div>
           </div>
         </div>
         
-        <!-- 充值按钮 -->
-        <button 
-          class="recharge-btn"
-          @click="handleCustomRecharge"
-          :disabled="!customAmount || customAmount < 1"
-        >
-          充值
-        </button>
+        <!-- 分页控制 -->
+        <div class="pagination" v-if="!loading && creditsLog.length > 0">
+          <button 
+            class="page-btn" 
+            :disabled="currentPage <= 1" 
+            @click="fetchCreditsLog(currentPage - 1)"
+          >
+            上一页
+          </button>
+          <span class="page-info">第 {{ currentPage }} 页</span>
+          <button 
+            class="page-btn" 
+            :disabled="!hasMore" 
+            @click="fetchCreditsLog(currentPage + 1)"
+          >
+            下一页
+          </button>
+        </div>
       </div>
+      
 
       <!--充值弹窗-->
       <div class="model-overlay" v-if="showChargeModal" @click="showChargeModal=false">
@@ -227,9 +245,9 @@
 
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { getUserInfo } from '../api/user';
+import { getUserInfo, rechargeCredits, getCreditsLog  } from '../api/user';
 import { getCurrentUserId } from '../utils/auth.js';
 import { showToast } from 'vant';
 
@@ -247,9 +265,6 @@ const fixedRechargeOptions = ref([
   { points: 680, price: 100 }
 ]);
 
-// 自定义充值金额
-const customAmount = ref('');
-
 //弹窗显示
 const showChargeModal = ref(false);
 const showChargeSuccessModal = ref(false)
@@ -259,6 +274,40 @@ const selectedRechargeItem = ref(null);
 
 //用户对象
 const userInfo = ref({})
+
+// 积分流水相关
+const showChargeLog = ref(false);
+const creditsLog = ref([]);
+const currentPage = ref(1);
+const loading = ref(false);
+const hasMore = ref(true);
+
+// 格式化日志类型
+const formatLogType = (type) => {
+  // 根据实际枚举值映射
+  const typeMap = {
+    'recharge': '积分充值',
+    'consume': '积分消费',
+    'reward': '任务奖励',
+    'expire': '积分过期',
+    'system': '系统调整',
+    'other': '其他变动'
+  };
+  return typeMap[type] || type;
+};
+
+// 格式化日期时间
+const formatDateTime = (datetime) => {
+  if (!datetime) return '';
+  const date = new Date(datetime);
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
 
 // 添加用户信息获取接口
 const fetchUserInfo = async (userId) => {
@@ -306,26 +355,25 @@ const handleRecharge = (item) => {
   showChargeModal.value = true; // 显示弹窗  
 };
 
-const handlePaymentSuccess = () => {
-  showChargeModal.value = false;
-  showChargeSuccessModal.value = true;
-};
+const handlePaymentSuccess = async () => {
+  try {
+    // 调用充值接口
+    const response = await rechargeCredits(selectedRechargeItem.value.points);
 
-// 处理自定义金额充值
-const handleCustomRecharge = () => {
-  if (!customAmount.value || customAmount.value < 1) return;
-  
-  // 这里按1元=5积分的比例计算
-  const points = Math.floor(Number(customAmount.value) * 5);
-  
-  // 实际项目中这里会调用充值API
-  console.log(`自定义充值${points}积分，金额${customAmount.value}元`);
-  // 模拟充值成功
-  userPoints.value += points;
-  alert(`成功充值${points}积分！`);
-  
-  // 清空输入
-  customAmount.value = '';
+    // 处理成功响应
+    if (response.data.code === 200) {
+      showChargeModal.value = false;
+      showChargeSuccessModal.value = true;
+      // 更新用户积分
+      userPoints.value = response.data.new_credits;
+      showToast(response.data.message || '充值成功');
+    } else {
+      showToast(response.data.message || '充值失败，请重试');
+    }
+  } catch (error) {
+    console.error('充值接口调用失败:', error);
+    showToast('网络错误，充值失败');
+  }
 };
 
 // 从后端获取用户积分
@@ -347,9 +395,42 @@ const fetchUserPoints = async () => {
   }
 };
 
+const toggleChargeLog = () => {
+  showChargeLog.value = !showChargeLog.value;
+  // 如果是显示状态且还没有加载数据，就加载第一页
+  if (showChargeLog.value && creditsLog.value.length === 0) {
+    fetchCreditsLog(1);
+  }
+};
+
+// 获取积分流水
+const fetchCreditsLog = async (page) => {
+  try {
+    const userId = getUserIdFromStorage();
+    if (!userId) return;
+    
+    loading.value = true;
+    currentPage.value = page;
+    
+    const response = await getCreditsLog(page);
+    if (response.status === 200) {
+      creditsLog.value = page === 1 ? response.data : [...creditsLog.value, ...response.data.data];
+      hasMore.value = response.data.has_more || false;
+    } else {
+      showToast(response.data.message || '获取积分流水失败');
+    }
+  } catch (error) {
+    console.error('获取积分流水失败:', error);
+    showToast('加载积分记录失败');
+  } finally {
+    loading.value = false;
+  }
+};
+
 // 页面挂载时获取积分
 onMounted(async () => {
   await fetchUserPoints();
+  await fetchCreditsLog(1);
 });
 </script>
 
@@ -560,6 +641,137 @@ onMounted(async () => {
   .heart-icon::after {
     right: -25px;
   }
+}
+
+/* 积分流水标题 */
+.log-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  margin-bottom: 12px;
+}
+
+.log-section-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #5a4533;
+  margin-bottom: 0; /* 移除原有的margin-bottom */
+}
+
+/* 箭头样式及动画 */
+.toggle-arrow {
+  transition: transform 0.3s ease;
+  color: #8B7355;
+}
+
+.toggle-arrow.rotate {
+  transform: rotate(180deg);
+}
+
+/* 积分流水样式 */
+.credits-log-container {
+  margin-top: 16px;
+}
+
+.loading {
+  text-align: center;
+  padding: 40px 0;
+  color: #8B7355;
+}
+
+.empty-log {
+  text-align: center;
+  padding: 60px 0;
+  color: #8B7355;
+  font-size: 16px;
+}
+
+.log-list {
+  gap: 12px;
+  display: flex;
+  flex-direction: column;
+}
+
+.log-item {
+  background-color: white;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(212, 165, 165, 0.1);
+}
+
+.log-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.log-type {
+  font-weight: 600;
+  color: #5a4533;
+}
+
+.log-amount {
+  font-weight: 600;
+}
+
+.log-amount.increase {
+  color: #4CAF50;
+}
+
+.log-amount.decrease {
+  color: #F44336;
+}
+
+.log-details {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #8B7355;
+  margin-bottom: 8px;
+}
+
+.log-remark {
+  font-size: 13px;
+  color: #666;
+  padding-top: 8px;
+  border-top: 1px dashed rgba(212, 165, 165, 0.2);
+}
+
+/* 分页样式 */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  margin-top: 24px;
+  padding: 12px 0;
+}
+
+.page-btn {
+  background-color: white;
+  border: 1px solid #d4a5a5;
+  color: #d4a5a5;
+  border-radius: 20px;
+  padding: 6px 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.page-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.page-btn:hover:not(:disabled) {
+  background-color: #d4a5a5;
+  color: white;
+}
+
+.page-info {
+  color: #8B7355;
+  font-size: 14px;
 }
 
 /*充值弹窗*/
