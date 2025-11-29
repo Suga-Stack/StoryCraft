@@ -50,7 +50,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'corsheaders',  # CORS支持
     'rest_framework',
-    'rest_framework_simplejwt', 
+    'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist', 
     'drf_spectacular',
     'drf_yasg',
     'users',  # 用户

@@ -114,6 +114,8 @@ class ReadRecord(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='read_records')
     gamework = models.ForeignKey(Gamework, on_delete=models.CASCADE, related_name='read_records')
     read_at = models.DateTimeField(auto_now_add=True)  # 阅读时间
+    has_paid = models.BooleanField(default=False)
+    is_visible = models.BooleanField(default=True)  # 记录是否对用户可见
 
     class Meta:
         unique_together = ('user', 'gamework')  # 同一用户对同一作品只记录一次
