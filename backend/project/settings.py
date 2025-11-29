@@ -28,7 +28,15 @@ SECRET_KEY = 'django-insecure-k$yb$ixo21c3ci)k)l)mp*#79)7u0_5%xbfr-r_hrv1@p5$$ud
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    '',
+    'localhost',
+    'localhost:8000',
+    '127.0.0.1',
+    'http://localhost:5173', 
+    'http://127.0.0.1:5173', 
+    '0.0.0.0'
+]
 
 
 # Application definition
@@ -40,6 +48,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'corsheaders',  # CORS支持
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist', 
@@ -54,10 +63,12 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    
     'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware', 
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
@@ -106,8 +117,19 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+        'OPTIONS': {
+            'timeout': 30,  # 数据库锁等待超时时间(秒),增加到30秒
+            'init_command': (
+                "PRAGMA journal_mode=WAL;"  # 使用 WAL 模式提高并发性能
+                "PRAGMA synchronous=NORMAL;"  # 平衡性能和安全性
+                "PRAGMA busy_timeout=30000;"  # 30秒超时
+                "PRAGMA temp_store=MEMORY;"  # 使用内存存储临时数据
+                "PRAGMA cache_size=-64000;"  # 64MB 缓存
+            ),
+        },
     }
 }
+
 
 
 # Password validation
@@ -136,6 +158,10 @@ STATIC_URL = 'static/'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# 用于拼接绝对 URL（例如为 AI 生成的图片或 media 文件构造完整访问地址）
+# 可通过环境变量 SITE_DOMAIN 覆盖（例如在生产中设置为 https://yourdomain.com）
+SITE_DOMAIN = os.getenv('SITE_DOMAIN', 'http://localhost:8000')
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
@@ -144,10 +170,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # 指定用户模型
 AUTH_USER_MODEL = 'users.User'
 
-# 站点域名，用于在后台任务中构建绝对URL
-SITE_DOMAIN = os.getenv('SITE_DOMAIN', 'http://127.0.0.1:8000')
 
-# 所有功能开启权限验证
+# 完全关闭权限验证
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',  # 使用JWT认证
@@ -177,7 +201,7 @@ SWAGGER_SETTINGS = {
 }
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),   # 短期访问 token
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=800),   # 短期访问 token
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),      # 长期刷新 token
 }
 
@@ -191,13 +215,14 @@ EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
 
-# 缓存配置
+
+
 CACHES = {
-    'default': {
-        'BACKEND': os.getenv('CACHE_BACKEND', 'django.core.cache.backends.locmem.LocMemCache'),
-        'LOCATION': os.getenv('REDIS_URL', ''),
-        'OPTIONS': {
-            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": "redis://127.0.0.1:6379/1",  # 替换为实际IP
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
         }
     }
 }
@@ -264,7 +289,66 @@ LOGGING = {
     },
 }
 
-AI_MODEL_FOR_TEXT = "deepseek-v3-1-terminus"
-AI_MODEL_FOR_IMAGE = "doubao-seedream-3-0-t2i-250415"
-AI_API_KEY = "3f00ab95-6096-4639-a8b0-09c711a63d9c"
-AI_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
+# ============================================
+# CORS配置
+# ============================================
+
+# 方法1：允许所有 origins（开发环境）
+CORS_ALLOW_ALL_ORIGINS = True
+
+# 或者方法2：指定允许的 origins
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+
+# 允许携带凭证（cookies, authorization headers 等）
+CORS_ALLOW_CREDENTIALS = True
+
+# 允许的 HTTP 方法
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+
+# 允许的 headers
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+    'Authorization',
+    'Content-Type',
+    'Referrer',
+    'User-Agent',
+]
+
+# 如果需要，也可以显式设置允许的 origins（与 CORS_ALLOWED_ORIGINS 相同）
+ALLOWED_HOSTS = [
+    'localhost',
+    '127.0.0.1',
+    '0.0.0.0',
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+]
+AI_MODEL_FOR_TEXT = "DeepSeek-V3.2-Exp"
+AI_API_KEY_FOR_TEXT = "sk-PAF8gzAL93s9xKlaybzSQw"
+AI_BASE_URL_FOR_TEXT = "https://llmapi.paratera.com/v1/"
+
+AI_MODEL_FOR_IMAGE = "doubao-seedream-4-0-250828"
+AI_API_KEY_FOR_IMAGE = "d62d3ca8-3892-446f-9400-e2164e441bee"
+AI_BASE_URL_FOR_IMAGE = "https://ark.cn-beijing.volces.com/api/v3"

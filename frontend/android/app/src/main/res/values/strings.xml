@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">StoryCraft</string>
+    <string name="title_activity_main">StoryCraft</string>
+    <string name="package_name">com.f4.storycraft</string>
+    <string name="custom_url_scheme">com.f4.storycraft</string>
+</resources>
