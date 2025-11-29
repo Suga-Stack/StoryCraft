@@ -4,7 +4,7 @@
             <!--顶部导航栏-->
             <div class="nav">
                 <span class="check-in-txt">每日签到！</span>
-                <span class="close-btn">x</span>
+                <span class="close-btn" @click="handleClose">x</span>
             </div>
 
             <!--签到日历-->
@@ -40,40 +40,72 @@
                     }"
                 >
                     {{ day ? day.getDate() : '' }}
+                    <span v-if="day && isSignedDate(day)" class="signed-mark">✓</span>
                 </div>
                 </div>   
             </div>
 
             <!--明细文字-->
-            <span class="detail-txt">签到成功！连续签到{{continuousDays}}天，你获得了{{rewardCredits}}积分明天继续！</span>
+            <span 
+                class="detail-txt" 
+                v-if="showDetail"
+            >
+                签到成功！连续签到{{continuousDays}}天，你获得了{{reward}}积分，目前积分余额{{credits}}，明天继续！
+            </span>
 
             <!--确认按钮-->
             <div class="btn-container">
-                <button class="confirm-btn" @click="handleConfirm">谢谢！</button>
+                <button 
+                    class="confirm-btn" 
+                    @click="handleButtonClick"
+                >
+                    {{ isCheckedIn ? '谢谢' : '签到' }}
+                </button>
             </div>    
-                
         </div>
     </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue';
-import { useUserStore } from '../store/index'  
+import { ref, computed, onMounted } from 'vue'; 
 import { useCheckInStore } from '../store/checkIn'
+import { getSignInDates, userSignIn } from '../api/user';
 
-const userStore = useUserStore()
+
 const checkInStore = useCheckInStore()
 
-// 从后端获取的已签到日期列表
-const signedDates = ref(['2025-11-24', '2025-11-25']); 
+// 状态管理
 const today = new Date();
-
-const continuousDays = ref(2)
-const rewardCredits = ref(10)
 
 // 当前显示的年月
 const currentYear = ref(today.getFullYear());
 const currentMonth = ref(today.getMonth());
+const signedDates = ref([]);
+
+// 从store获取签到相关状态
+const isCheckedIn = computed(() => checkInStore.hasCheckedIn)
+const continuousDays = computed(() => checkInStore.continuousDays)
+const reward = computed(() => checkInStore.reward)
+const credits = computed(() => checkInStore.credits)
+const showDetail = ref(false);
+
+// 初始化 - 获取已签到日期
+onMounted(async() => {
+  try{
+    const res = await getSignInDates();
+    signedDates.value = res.dates || [];
+  } catch (error) {
+    console.error('获取已签到日期失败:', error);
+  }
+});
+
+// 格式化日期为yyyy-mm-dd
+const formatDate = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 // 切换月份
 const changeMonth = (step) => {
@@ -96,7 +128,7 @@ const daysInMonth = computed(() => {
   // 当月最后一天
   const lastDay = new Date(currentYear.value, currentMonth.value + 1, 0);
   
-  // 填充月初空白天数（第一天是星期几就留几个空位）
+  // 填充月初空白天数
   for (let i = 0; i < firstDay.getDay(); i++) {
     days.push(null);
   }
@@ -111,39 +143,44 @@ const daysInMonth = computed(() => {
 
 // 判断日期是否已签到
 const isSignedDate = (date) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const dateString = `${year}-${month}-${day}`;
-  return signedDates.value.includes(dateString);
+  return signedDates.value?.includes(formatDate(date)) || false;
 };
 
 // 判断是否是今天
 const isToday = (date) => {
-  return date.toDateString() === today.toDateString();
+  const dateString = formatDate(date)
+  return signedDates.value.includes(dateString)
 };
 
-// 监听签到成功事件，更新用户积分
-const handleCheckInSuccess = (data) => {
-  console.log('签到成功，更新用户积分...');
-  // 这里可以调用userStore的action来重新获取用户信息，以更新积分
-  // 或者直接更新本地状态
-  if (data.credits_added) {
-    userStore.userInfo.user_credits += data.credits_added;
+const handleButtonClick = () => {
+  if (isCheckedIn.value) {
+    handleConfirm();
+  } else {
+    handleCheckIn();
   }
-  // 可以在这里显示一个全局的成功提示
-  // showToast(data.message);
+};
+
+// 处理签到逻辑
+const handleCheckIn = async () => {
+  try {
+    const res = await userSignIn();
+    continuousDays.value = res.continuous_days;
+    reward.value = res.reward;
+    credits.value = res.credits;
+    showDetail.value = true;
+  } catch (error) {
+    console.error('签到失败:', error)
+  }
 };
 
 // 确认按钮点击事件
 const handleConfirm = () => {
-  // 假设通过接口请求签到，这里用模拟数据
-  const checkInData = {
-    credits_added: 10,
-    message: '签到成功'
-  };
-  handleCheckInSuccess(checkInData);  // 调用处理函数
   checkInStore.setShowModal(false);  // 关闭弹窗
+};
+
+// 关闭按钮事件
+const handleClose = () => {
+  checkInStore.setShowModal(false);
 };
 </script>
 
@@ -284,5 +321,32 @@ const handleConfirm = () => {
   border: none;
   border-radius: 16px;
   height: 35px;
+}
+
+.day-cell.signed {
+  background-color: #d4a5a5;
+  color: #ffffff;
+  position: relative;
+}
+
+.signed-mark {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  font-size: 8px;
+}
+
+.detail-txt {
+  color: #d4a5a5;
+  font-size: 14px; 
+  margin: 10px 8px;
+  display: block;
+  text-align: center;
+  min-height: 40px; /* 防止按钮跳动 */
+}
+
+.close-btn {
+  cursor: pointer;
+  color: #d4a5a5;
 }
 </style>

@@ -1,16 +1,9 @@
 <script setup>
-import DailyCheckIn from './components/DailyCheckIn.vue'
-import { useCheckInStore } from './store/checkIn'
-const checkInStore = useCheckInStore()
+import { ref } from 'vue'
 </script>
 
 <template>
   <router-view />
-  <!-- 签到弹窗组件 -->
-  <DailyCheckIn 
-    v-if="checkInStore.showModal" 
-    @close="checkInStore.setShowModal(false)"
-  />
 </template>
 
 <style>

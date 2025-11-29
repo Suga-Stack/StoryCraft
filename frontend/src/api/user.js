@@ -140,3 +140,18 @@ export const publishWorks = (id) => {
 export const unpublishWorks = (id, price) => {
   return http.post(`/gameworks/unpublish/${id}/`, price)
 }
+
+// 获取签到日期
+export const getSignInDates = () => {
+  return http.get('/users/signin/')
+}
+
+// 用户签到
+export const userSignIn = () => {
+  return http.post('/users/signin/')
+}
+
+// 积分充值
+export const rechargeCredits = (credits) => {
+  return http.post('/users/recharge/', {credits})
+}
