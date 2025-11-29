@@ -6,6 +6,7 @@ from .serializers import FavoriteSerializer, CommentSerializer, RatingSerializer
 from drf_yasg.utils import swagger_auto_schema, no_body
 from drf_yasg import openapi
 from django.db.models import Avg, Count, Prefetch
+from django.shortcuts import get_object_or_404
 
 class FavoriteFolderViewSet(viewsets.ModelViewSet):
     """
@@ -74,6 +75,8 @@ class FavoriteViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [filters.SearchFilter]
     search_fields = ['gamework__title']
+    lookup_field = "gamework_id"
+    lookup_url_kwarg = "id"
 
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
@@ -179,12 +182,29 @@ class FavoriteViewSet(viewsets.ModelViewSet):
 
     @swagger_auto_schema(
         operation_summary="取消收藏",
-        responses={204: openapi.Response(description="取消收藏成功")}
+        manual_parameters=[
+            openapi.Parameter(
+                name="id",
+                in_=openapi.IN_PATH,
+                type=openapi.TYPE_INTEGER,
+                description="当前作品 ID",
+                required=True
+            )
+        ],
+        responses={200: openapi.Response(description="取消收藏成功")}
     )
     def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        self.perform_destroy(instance)
-        return Response({"code": 204, "message": "取消收藏成功"}, status=status.HTTP_204_NO_CONTENT)
+        id = kwargs["id"]
+
+        # 找到该用户的收藏记录
+        instance = get_object_or_404(Favorite, user=request.user, gamework_id=id)
+
+        instance.delete()
+
+        return Response(
+            {"code": 200, "message": "取消收藏成功"},
+            status=status.HTTP_200_OK
+        )
 
     @swagger_auto_schema(
         operation_summary="批量移动收藏到指定收藏夹",
@@ -319,6 +339,58 @@ class CommentViewSet(viewsets.ModelViewSet):
             "message": "评论发布成功",
             "data": serializer.data
         }, status=status.HTTP_201_CREATED)
+    
+    @swagger_auto_schema(
+        operation_summary="删除评论（用户只能删除自己的评论，管理员可删除所有评论）",
+        manual_parameters=[
+            openapi.Parameter(
+                'id', openapi.IN_QUERY,
+                description="要删除的评论ID",
+                type=openapi.TYPE_INTEGER,
+                required=True
+            )
+        ],
+        responses={
+            200: "删除成功",
+            400: "参数错误",
+            403: "无权限删除该评论",
+            404: "评论不存在"
+        }
+    )
+    def destroy(self, request, *args, **kwargs):
+        comment_id = request.query_params.get('id')
+
+        if not comment_id:
+            return Response({
+                "code": 400,
+                "message": "缺少参数 id"
+            }, status=400)
+
+        try:
+            comment = Comment.objects.get(id=comment_id)
+        except Comment.DoesNotExist:
+            return Response({
+                "code": 404,
+                "message": "评论不存在"
+            }, status=404)
+
+        user = request.user
+
+        # 普通用户只能删除自己的评论
+        if not user.is_staff and comment.user != user:
+            return Response({
+                "code": 403,
+                "message": "您没有权限删除该评论"
+            }, status=403)
+
+        # 删除评论（包含子评论）
+        comment.delete()
+
+        return Response({
+            "code": 200,
+            "message": "评论删除成功"
+        })
+
 
     @swagger_auto_schema(
         operation_summary="点赞评论",

@@ -77,6 +77,12 @@ class PublishGameworkViewSet(viewsets.ViewSet):
         operation_description=(
             "作品发布前对作者和管理员以外不可见。\n\n"
         ),
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                "price": openapi.Schema(type=openapi.TYPE_INTEGER, description="作品价格（积分）")
+            }
+        ),
         responses={
             200: openapi.Response("作品已成功发布", GameworkSimpleSerializer(many=True)),
             404: "作品未找到",
@@ -94,9 +100,25 @@ class PublishGameworkViewSet(viewsets.ViewSet):
         # 确保用户是作品的作者或管理员
         if gamework.author != request.user and not request.user.is_staff:
             return Response({'message': '您没有权限发布该作品'}, status=status.HTTP_403_FORBIDDEN)
+        
+        price = request.data.get("price")
+        if price is not None:
+            try:
+                price = int(price)
+            except ValueError:
+                return Response({'message': 'price 必须是整数'}, status=status.HTTP_400_BAD_REQUEST)
+            
+            if price < 0 or price > 50:
+                return Response(
+                    {'message': 'price 必须在 0 ~ 50 之间'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            gamework.price = price
 
         # 设置作品为已发布
         gamework.is_published = True
+        gamework.published_at = timezone.now()
         gamework.save()
 
         return Response({'message': '作品已成功发布', 'gamework': GameworkSimpleSerializer(gamework).data}, status=status.HTTP_200_OK)
