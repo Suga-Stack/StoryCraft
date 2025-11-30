@@ -4,6 +4,10 @@ import { useRoute } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { http } from '../service/http.js'
 import { addFavorite, deleteFavorite, getComments, postComments, likeComment, unlikeComment } from '../api/user.js'
+import { useTags } from '../composables/useTags'; // 导入标签工具函数
+
+// 初始化标签工具
+const { getTagsByIds } = useTags();
 
 const router = useRouter()
 
@@ -17,9 +21,6 @@ const state = history.state || {}
 // 若存在 createResult，则优先使用 sessionStorage.createResult 中的 backendWork
 let sessionCreate = null
 try { sessionCreate = JSON.parse(sessionStorage.getItem('createResult')) } catch (e) { sessionCreate = null }
-const incomingTags = (state.selectedTags && Array.isArray(state.selectedTags))
-  ? state.selectedTags
-  : (() => { try { return JSON.parse(sessionStorage.getItem('createRequest'))?.tags } catch { return null } })()
 
 // 规范化后端返回的数据字段（兼容 image_url / coverUrl / cover_url 等差异）
 const normalizeBackendWork = (raw) => {
@@ -53,7 +54,7 @@ const work = ref({
   title: backendWorkRaw?.title || '锦瑟深宫',
   coverUrl: backendWorkRaw?.coverUrl || 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=800&h=500&fit=crop',
   authorId: backendWorkRaw?.authorId || 'user_12345',
-  tags: incomingTags || backendWorkRaw?.tags || ['科幻', '冒险', '太空', '未来'],
+  tags: backendWorkRaw?.tags || ['科幻', '冒险', '太空', '未来'],
   description: backendWorkRaw?.description || `柳晚晚穿越成后宫小透明，她把宫斗当成终身职业来经营。
 不争宠不夺权，只求平安活到退休。
  
@@ -103,13 +104,10 @@ onMounted(async () => {
       work.value.title = normalized.title || work.value.title
       work.value.coverUrl = normalized.coverUrl || work.value.coverUrl
       work.value.description = normalized.description || work.value.description
-      if (incomingTags) {
-        work.value.tags = incomingTags;
-      } else {
-        // 等待 Promise 完成后再赋值
-        const fetchedTags = await getTagsByIds(normalized.tags || []);
-        work.value.tags = fetchedTags || ['科幻', '冒险', '太空', '未来'];
-      }
+     
+      const fetchedTags = await getTagsByIds(normalized.tags || []);
+      work.value.tags = fetchedTags || ['科幻', '冒险', '太空', '未来'];
+      
       work.value.isFavorite = normalized.isFavorited || work.value.isFavorite
       try { favoritesCount.value = payload.favorite_count || payload.favoritesCount || favoritesCount.value } catch (e) {}
       try { publishedAt.value = payload.published_at || payload.publishedAt || payload.created_at || publishedAt.value } catch (e) {}
