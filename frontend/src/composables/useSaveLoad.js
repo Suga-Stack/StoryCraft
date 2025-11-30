@@ -2,6 +2,8 @@ import { ref } from 'vue'
 import { saveGameData, loadGameData, deleteGameData, refreshSlotInfosUtil } from '../utils/saveLoad.js'
 import { work } from './useStoryAPI.js'
 
+import http from '../utils/http.js'
+
 export function useSaveLoad() {
   const showSaveModal = ref(false)
   const showLoadModal = ref(false)
@@ -40,6 +42,9 @@ export function useSaveLoad() {
   let _suppressAutoShowChoices
   let _restoreChoiceFlagsFromHistory
   let _getCurrentUserId
+  let _lastSelectedEndingIndex
+  let _playingEndingScenes
+  let _endingsAppended
   
   // 深拷贝工具函数
   const deepClone = (obj) => {
@@ -83,6 +88,39 @@ export function useSaveLoad() {
     _suppressAutoShowChoices = deps.suppressAutoShowChoices
     _restoreChoiceFlagsFromHistory = deps.restoreChoiceFlagsFromHistory
     _getCurrentUserId = deps.getCurrentUserId
+    _lastSelectedEndingIndex = deps.lastSelectedEndingIndex
+    _playingEndingScenes = deps.playingEndingScenes
+    _endingsAppended = deps.endingsAppended
+  }
+
+  // 检查当前（或已追加的）后端结局是否为已保存状态
+  const isCurrentBackendEndingSaved = () => {
+    try {
+      // 仅在创作者模式下生效
+      if (!(_creatorFeatureEnabled && _creatorFeatureEnabled.value)) return true
+
+      // 优先检查当前场景标记
+      if (_currentScene && _currentScene.value && (_currentScene.value._isBackendEnding || _currentScene.value.isEnding)) {
+        return _currentScene.value._endingSaved === true
+      }
+
+      // 其次根据 lastSelectedEndingIndex 在已加载场景中查找对应结局标记
+      if (_lastSelectedEndingIndex && _lastSelectedEndingIndex.value && _storyScenes && Array.isArray(_storyScenes.value)) {
+        const target = Number(_lastSelectedEndingIndex.value)
+        for (const s of _storyScenes.value) {
+          if (!s) continue
+          const sIdx = s._endingIndex != null ? Number(s._endingIndex) : (s.endingIndex != null ? Number(s.endingIndex) : null)
+          if (s._isBackendEnding && sIdx === target) {
+            return s._endingSaved === true
+          }
+        }
+      }
+
+      // 默认允许
+      return true
+    } catch (e) {
+      return true
+    }
   }
     
   // 本地回退存档 key（包含 userId，避免不同用户冲突）
@@ -112,6 +150,17 @@ export function useSaveLoad() {
         }
       }
   }
+
+  // 在创作者模式下，如果当前为后端结局且不是 saved，则禁止打开存档弹窗
+  try {
+    if (_creatorFeatureEnabled && _creatorFeatureEnabled.value) {
+      const endingSaved = isCurrentBackendEndingSaved()
+      if (!endingSaved) {
+        if (_showNotice) _showNotice('当前结局尚未保存，无法进行存档操作')
+        return
+      }
+    }
+  } catch (e) {}
   
   showSaveModal.value = true
   if (_stopAutoPlayTimer) _stopAutoPlayTimer()
@@ -172,21 +221,16 @@ export function useSaveLoad() {
         }
       } catch (e) { console.warn('saveGame: chapter status check failed', e) }
       // 构建 gameData 对象,包含所有游戏状态
+      // 构建 gameData 并把最终 state 放到 gameData.state 中，saveGameData 会优先使用该 state（支持 endingindex）
       const gameData = {
         work: work.value,
-        chapterIndex: _currentChapterIndex ? _currentChapterIndex.value : 1,
-        sceneId: _currentScene && _currentScene.value ? (_currentScene.value.sceneId || _currentScene.value.id || null) : null,
-        currentDialogueIndex: _currentDialogueIndex ? _currentDialogueIndex.value : 0,
-        dialogueIndex: _currentDialogueIndex ? _currentDialogueIndex.value : 0,
-        currentSceneIndex: _currentSceneIndex ? _currentSceneIndex.value : 0,
-        attributes: attributes.value,
-        statuses: statuses.value,
-        choiceHistory: _choiceHistory ? _choiceHistory.value : [],
-        // 添加缩略图：优先使用当前背景图，回退到作品封面
+        state: buildSavePayload().state,
+        // 仍保留缩略图以便 UI/后端使用
         thumbnail: (_currentBackground && _currentBackground.value) ? _currentBackground.value : (_effectiveCoverUrl && _effectiveCoverUrl.value) ? _effectiveCoverUrl.value : (work.value && work.value.coverUrl) ? work.value.coverUrl : null
       }
   
       // 使用 saveLoad.js 中的统一存档函数
+      console.log('saveGame: preparing to save. save type:', gameData.state && gameData.state.endingindex ? 'ENDING' : 'CHAPTER')
       const result = await saveGameData(gameData, slot)
       
       if (result.success) {
@@ -225,19 +269,102 @@ export function useSaveLoad() {
       }
     })
 
+    // 构建 state：如果当前场景是结局（或由 lastSelectedEndingIndex 指示）则使用 endingindex 字段
+    const state = {
+      sceneId: (_currentScene && _currentScene.value && (_currentScene.value.id || _currentScene.value.sceneId)) 
+        ? Number(_currentScene.value.id ?? _currentScene.value.sceneId) 
+        : (_currentSceneIndex ? _currentSceneIndex.value : 0),
+      dialogueIndex: _currentDialogueIndex ? _currentDialogueIndex.value : 0,
+      attributes: _deepClone ? _deepClone(attributes.value) : attributes.value,
+      statuses: _deepClone ? _deepClone(statuses.value) : statuses.value,
+      choiceHistory: cleanedChoiceHistory
+    }
+
+    // 检查是否为结局存档：严格依据是否存在后端提供的 `endings` 信息
+    // 规则：仅当当前剧情流中包含后端返回的结局相关标记（例如：场景有 `_isEndingChoiceScene` 或选项包含 `_endingScenes`）
+    // 才认为这是结局存档；否则一律视为普通章节存档（不做兼容处理）。
+    try {
+      let hasBackendEndings = false
+      try {
+        if (_storyScenes && Array.isArray(_storyScenes.value)) {
+          for (const s of _storyScenes.value) {
+            if (!s) continue
+            if (s._isEndingChoiceScene || s._isBackendEnding) { hasBackendEndings = true; break }
+            if (Array.isArray(s.choices)) {
+              for (const c of s.choices) {
+                if (!c) continue
+                if (Array.isArray(c._endingScenes) && c._endingScenes.length > 0) { hasBackendEndings = true; break }
+              }
+              if (hasBackendEndings) break
+            }
+          }
+        }
+      } catch (scanErr) { console.warn('buildSavePayload: scanning storyScenes for backend endings failed', scanErr) }
+
+      if (hasBackendEndings) {
+        // 确定进入的是第几个结局（逻辑上的第 N 个结局，1-based）
+        // 规则：如果当前场景包含已选结局选项（currentChoiceIdx），优先使用该选项的 endingIndex；
+        // 否则使用上一次记录的 _lastSelectedEndingIndex（可能来自读档或之前的选择）。如果都不存在则回退到 1。
+        let recordedIdx = null
+        if (_lastSelectedEndingIndex && _lastSelectedEndingIndex.value) recordedIdx = Number(_lastSelectedEndingIndex.value)
+
+        let currentChoiceIdx = null
+        try {
+          if (_currentScene && _currentScene.value && Array.isArray(_currentScene.value.choices)) {
+            const chosenId = _currentScene.value.chosenChoiceId ?? null
+            if (chosenId != null) {
+              const choicesArr = _currentScene.value.choices
+              const found = choicesArr.findIndex(c => (c && (String(c.id) === String(chosenId) || c.choiceId == chosenId)))
+              if (found >= 0) {
+                const choiceObj = choicesArr[found]
+                if (choiceObj && (choiceObj._endingIndex != null)) currentChoiceIdx = Number(choiceObj._endingIndex)
+                else currentChoiceIdx = found + 1
+              }
+            }
+          }
+        } catch (e) { console.warn('buildSavePayload: derive currentChoiceIdx failed', e) }
+
+        let idx = (currentChoiceIdx != null) ? currentChoiceIdx : (recordedIdx != null ? recordedIdx : null)
+        if (!idx || isNaN(idx)) idx = 1
+        // 为了兼容不同命名约定，保存时同时写入小写和驼峰两种字段
+        state.endingindex = idx
+        state.endingIndex = idx
+          console.log('buildSavePayload: detected BACKEND endings — creating ENDING save with endingindex=', state.endingindex)
+          // 尝试从结局场景中选取缩略图
+          try {
+            let endingThumb = null
+            for (const s of (_storyScenes && Array.isArray(_storyScenes.value) ? _storyScenes.value : [])) {
+              if (!s) continue
+              if (s._isBackendEnding || s._isEndingChoiceScene) {
+                if (s.backgroundImage) { endingThumb = s.backgroundImage; break }
+                if (Array.isArray(s.dialogues) && s.dialogues.length > 0) {
+                  const first = s.dialogues[0]
+                  if (first && (first.backgroundImage || first.bg)) { endingThumb = first.backgroundImage || first.bg; break }
+                }
+              }
+            }
+            if (endingThumb) {
+              console.log('buildSavePayload: using ending scene thumbnail for save:', endingThumb)
+              // 覆盖返回值中的 thumbnail
+              return {
+                work: work.value,
+                state,
+                thumbnail: endingThumb,
+                timestamp: Date.now()
+              }
+            }
+          } catch (thumbErr) { console.warn('buildSavePayload: selecting ending thumbnail failed', thumbErr) }
+      } else {
+        state.chapterIndex = _currentChapterIndex ? _currentChapterIndex.value : 1
+        console.log('buildSavePayload: no backend endings detected — creating NORMAL chapter save for chapterIndex=', state.chapterIndex)
+      }
+    } catch (e) {
+      state.chapterIndex = _currentChapterIndex ? _currentChapterIndex.value : 1
+    }
+
     return {
       work: work.value,
-      // API 文档要求的 state 结构
-      state: {
-        chapterIndex: _currentChapterIndex ? _currentChapterIndex.value : 1,
-        sceneId: (_currentScene && _currentScene.value && (_currentScene.value.id || _currentScene.value.sceneId)) 
-          ? Number(_currentScene.value.id ?? _currentScene.value.sceneId) 
-          : (_currentSceneIndex ? _currentSceneIndex.value : 0),
-        dialogueIndex: _currentDialogueIndex ? _currentDialogueIndex.value : 0,
-        attributes: _deepClone ? _deepClone(attributes.value) : attributes.value,
-        statuses: _deepClone ? _deepClone(statuses.value) : statuses.value,
-        choiceHistory: cleanedChoiceHistory
-      },
+      state,
       // 缩略图：优先使用当前对话或场景提供的背景图，回退到作品封面
       thumbnail: (_currentBackground && _currentBackground.value) ? _currentBackground.value : (_effectiveCoverUrl && _effectiveCoverUrl.value) ? _effectiveCoverUrl.value : (work.value && work.value.coverUrl) ? work.value.coverUrl : null,
       timestamp: Date.now()
@@ -271,19 +398,12 @@ export function useSaveLoad() {
       // 构建 gameData 对象
       const gameData = {
         work: work.value,
-        chapterIndex: _currentChapterIndex ? _currentChapterIndex.value : 1,
-        sceneId: _currentScene && _currentScene.value ? (_currentScene.value.sceneId || _currentScene.value.id || null) : null,
-        currentDialogueIndex: _currentDialogueIndex ? _currentDialogueIndex.value : 0,
-        dialogueIndex: _currentDialogueIndex ? _currentDialogueIndex.value : 0,
-        currentSceneIndex: _currentSceneIndex ? _currentSceneIndex.value : 0,
-        attributes: attributes.value,
-        statuses: statuses.value,
-        choiceHistory: _choiceHistory ? _choiceHistory.value : [],
-        // 添加缩略图：优先使用当前背景图，回退到作品封面
+        state: buildSavePayload().state,
         thumbnail: (_currentBackground && _currentBackground.value) ? _currentBackground.value : (_effectiveCoverUrl && _effectiveCoverUrl.value) ? _effectiveCoverUrl.value : (work.value && work.value.coverUrl) ? work.value.coverUrl : null
       }
   
       // 使用 saveLoad.js 中的统一存档函数
+      console.log('autoSaveToSlot: preparing to auto-save. save type:', gameData.state && gameData.state.endingindex ? 'ENDING' : 'CHAPTER')
       const result = await saveGameData(gameData, slot)
       
       if (result.success) {
@@ -315,6 +435,8 @@ export function useSaveLoad() {
       const userId = _getCurrentUserId ? _getCurrentUserId() : null
       const workId = work.value.id
       const key = localSaveKey(userId, workId, slot)
+      // 直接写入完整 payload（包含 state，支持 endingindex）
+      console.log('quickLocalAutoSave: saving locally. save type:', payload && payload.state && payload.state.endingindex ? 'ENDING' : 'CHAPTER')
       localStorage.setItem(key, JSON.stringify(payload))
     } catch (e) {}
   }
@@ -334,37 +456,151 @@ export function useSaveLoad() {
   
       // 从读取的数据中恢复游戏状态
       const savedData = result.data
-      const remote = savedData.state || savedData
+      let remote = savedData.state || savedData
       
-      // 🔑 关键修改：读档后必须向后端请求相应章节的剧情内容
-      const savedChapterIndex = typeof remote.chapterIndex === 'number' ? remote.chapterIndex : 1
-      
-      console.log(`📖 读档后请求章节 ${savedChapterIndex} 的剧情内容...`)
-      
+      // 🔑 关键修改：读档后必须向后端请求相应章节或结局的剧情内容
+      const savedChapterIndex = typeof remote.chapterIndex === 'number' ? remote.chapterIndex : null
+      const savedEndingIndex = typeof remote.endingindex === 'number' ? remote.endingindex : (remote.endingIndex != null ? Number(remote.endingIndex) : null)
+
       try {
-        // 清空当前场景列表，准备加载存档章节的内容
+        // 清空当前场景列表，准备加载存档的内容
         if (_storyScenes) _storyScenes.value = []
-        
-          // 向后端请求存档中保存的章节内容
-        const chapterData = _fetchNextChapter ? await _fetchNextChapter(workId, savedChapterIndex) : null
-        
-        if (chapterData && chapterData.chapter && Array.isArray(chapterData.chapter.scenes)) {
-          console.log(`✅ 成功获取章节 ${savedChapterIndex} 的内容，共 ${chapterData.chapter.scenes.length} 个场景`)
-          
-          // 将场景内容推入 storyScenes
-          for (const scene of chapterData.chapter.scenes) {
-            try {
-              if (_pushSceneFromServer) _pushSceneFromServer(scene)
-            } catch (e) {
-              console.warn('pushSceneFromServer failed when loading chapter:', e)
+
+        if (savedEndingIndex) {
+          // 读档为结局：直接请求单个结局详情接口以确保拿到完整 scenes（兼容生成中状态）
+          console.log(`📖 读档为结局 (endingindex=${savedEndingIndex})，请求单个结局详情...`)
+          try {
+            const resp = await http.get(`/api/game/storyending/${workId}/${savedEndingIndex}/`)
+            const payload = resp && resp.data ? resp.data : resp
+            // 处理可能的生成中状态
+            if (payload && (payload.status === 'generating' || payload.status === 'not_generated')) {
+              console.warn(`⚠️ 结局 ${savedEndingIndex} 尚未生成 (status=${payload.status})`)
+              // 若未生成或正在生成，仍尝试从 payload.ending 中读取 scenes（若有）
             }
+            const endingObj = payload && (payload.ending || payload) ? (payload.ending || payload) : null
+            // 如果结局详情中包含 state，则该 state 应视为结局的官方保存状态，覆盖当前 remote
+            try {
+              const endingState = payload && (payload.state || (payload.ending && payload.ending.state)) ? (payload.state || payload.ending.state) : null
+              if (endingState) {
+                remote = endingState
+                console.log('loadGame: 使用结局详情中的 state 作为恢复状态')
+              }
+            } catch (e) { console.warn('loadGame: 合并结局 state 失败', e) }
+            // 优先使用 payload.ending.status 决定是否为已保存的结局
+            const endingStatus = payload?.ending?.status ?? payload?.status ?? null
+            const endingSavedFlag = (endingStatus === 'saved')
+            const scenes = Array.isArray(endingObj?.scenes) ? endingObj.scenes : (Array.isArray(payload?.scenes) ? payload.scenes : null)
+            if (!scenes || scenes.length === 0) {
+              console.warn('⚠️ 未能从结局详情中提取 scenes，尝试回退到结局列表请求')
+              // 退回到原先的列表请求逻辑以提高兼容性
+              const listResp = await http.get(`/api/game/storyending/${workId}/`)
+              const listPayload = listResp && listResp.data ? listResp.data : listResp
+              const list = Array.isArray(listPayload) ? listPayload : (Array.isArray(listPayload?.endings) ? listPayload.endings : [])
+              const idx = Math.max(0, Math.min(list.length - 1, Number(savedEndingIndex) - 1))
+              const chosen = list[idx]
+              // 如果从结局列表项中能拿到 state，也把它作为恢复状态
+              try {
+                if (chosen && (chosen.state || chosen.ending?.state)) {
+                  remote = chosen.state || chosen.ending.state
+                  console.log('loadGame: 使用结局列表项中的 state 作为恢复状态 (fallback)')
+                }
+              } catch (e) {}
+              if (chosen && Array.isArray(chosen.scenes)) {
+                for (const scene of chosen.scenes) {
+                  try {
+                    if (_pushSceneFromServer) _pushSceneFromServer(scene)
+                    try {
+                      const lastIdx = (_storyScenes && Array.isArray(_storyScenes.value)) ? _storyScenes.value.length - 1 : null
+                      const pushed = (lastIdx != null && lastIdx >= 0) ? _storyScenes.value[lastIdx] : null
+                      if (pushed) {
+                        pushed._isBackendEnding = true
+                        pushed.isEnding = true
+                        pushed._endingSaved = endingSavedFlag
+                        pushed.endingIndex = savedEndingIndex
+                      }
+                    } catch (tagErr) { console.warn('tagging pushed ending scene failed (fallback)', tagErr) }
+                  } catch (e) { console.warn('pushSceneFromServer failed when loading ending scene (fallback):', e) }
+                }
+              }
+            } else {
+              console.log(`✅ 加载结局 #${savedEndingIndex}，场景数: ${scenes.length}`)
+              for (const scene of scenes) {
+                try {
+                  if (_pushSceneFromServer) _pushSceneFromServer(scene)
+                  try {
+                    const lastIdx = (_storyScenes && Array.isArray(_storyScenes.value)) ? _storyScenes.value.length - 1 : null
+                    const pushed = (lastIdx != null && lastIdx >= 0) ? _storyScenes.value[lastIdx] : null
+                    if (pushed) {
+                      pushed._isBackendEnding = true
+                      pushed.isEnding = true
+                      pushed._endingSaved = endingSavedFlag
+                      pushed.endingIndex = savedEndingIndex
+                    }
+                  } catch (tagErr) { console.warn('tagging pushed ending scene failed', tagErr) }
+                } catch (e) { console.warn('pushSceneFromServer failed when loading ending scene:', e) }
+              }
+            }
+
+            // 标记推入的场景为后端结局场景，并记录逻辑上的 endingIndex，同时标注是否为已保存结局
+            try {
+              if (_storyScenes && Array.isArray(_storyScenes.value) && _storyScenes.value.length > 0) {
+                for (let i = 0; i < _storyScenes.value.length; i++) {
+                  try {
+                    const pushed = _storyScenes.value[i]
+                    if (pushed) {
+                      pushed._isBackendEnding = true
+                      pushed.isEnding = true
+                      pushed.endingIndex = savedEndingIndex
+                      if (typeof pushed._endingSaved === 'undefined') pushed._endingSaved = endingSavedFlag
+                    }
+                  } catch (e) {}
+                }
+              }
+            } catch (tagErr) { console.warn('marking loaded ending scenes failed', tagErr) }
+
+            // 记录到 lastSelectedEndingIndex，后续存档将优先使用此值
+            try {
+              if (_lastSelectedEndingIndex) {
+                _lastSelectedEndingIndex.value = savedEndingIndex
+                console.log('loadGame: set _lastSelectedEndingIndex =', _lastSelectedEndingIndex.value)
+              }
+            } catch (e) { console.warn('loadGame: set lastSelectedEndingIndex failed', e) }
+
+            // 标记为正在播放后端结局场景，及已追加结局，避免后续再次请求下一章
+            try {
+              if (_playingEndingScenes) {
+                _playingEndingScenes.value = true
+                console.log('loadGame: set _playingEndingScenes = true')
+              }
+            } catch (e) { console.warn('loadGame: set playingEndingScenes failed', e) }
+
+            try {
+              if (_endingsAppended) {
+                _endingsAppended.value = true
+                console.log('loadGame: set _endingsAppended = true')
+              }
+            } catch (e) { console.warn('loadGame: set endingsAppended failed', e) }
+
+          } catch (err) {
+            console.error('读取单个结局详情失败，回退到章节加载: ', err)
           }
         } else {
-          console.warn('⚠️ 未能获取章节内容，场景数据可能不完整')
+          // 普通章节读档
+          const chapterToLoad = savedChapterIndex || 1
+          console.log(`📖 读档后请求章节 ${chapterToLoad} 的剧情内容...`)
+          const chapterData = _fetchNextChapter ? await _fetchNextChapter(workId, chapterToLoad) : null
+          if (chapterData && chapterData.chapter && Array.isArray(chapterData.chapter.scenes)) {
+            console.log(`✅ 成功获取章节 ${chapterToLoad} 的内容，共 ${chapterData.chapter.scenes.length} 个场景`)
+            for (const scene of chapterData.chapter.scenes) {
+              try { if (_pushSceneFromServer) _pushSceneFromServer(scene) } catch (e) { console.warn('pushSceneFromServer failed when loading chapter:', e) }
+            }
+          } else {
+            console.warn('⚠️ 未能获取章节内容，场景数据可能不完整')
+          }
         }
       } catch (e) {
-        console.error('❌ 请求章节内容失败:', e)
-        alert('读档成功，但未能加载章节内容，可能影响游戏体验')
+        console.error('❌ 请求章节/结局内容失败:', e)
+        alert('读档成功，但未能加载场景内容，可能影响游戏体验')
       }
       
       // 辅助函数：根据 sceneId 或 chapterIndex 定位场景索引

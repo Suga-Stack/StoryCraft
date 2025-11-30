@@ -11,6 +11,7 @@ export function useStoryAPI() {
   let getScenes = storyService.getScenes
   let generateChapter = storyService.generateChapter
   let saveChapter = storyService.saveChapter
+  let saveEnding = storyService.saveEnding
   
   // 故事场景数据
   const storyScenes = ref([])
@@ -22,6 +23,8 @@ export function useStoryAPI() {
   const storyEndSignaled = ref(false)
   const isFetchingNext = ref(false)
   const isGeneratingSettlement = ref(false)
+  // 记录后端返回并被选中的结局索引（1-based），用于存档/读档定位
+  const lastSelectedEndingIndex = ref(null)
   
   // 章节状态
   const chaptersStatus = ref([])
@@ -102,7 +105,7 @@ export function useStoryAPI() {
   const getWorkDetails = async (workId) => {
     try {
       if (!workId) workId = work.value.id
-      const url = `/gameworks/gameworks/${encodeURIComponent(workId)}/`
+      const url = `/api/gameworks/gameworks/${encodeURIComponent(workId)}/`
       const resp = await http.get(url)
       const body = resp && resp.data ? resp.data : resp
       
@@ -430,7 +433,7 @@ export function useStoryAPI() {
         // 只进行一次 GET 请求，避免 getScenes 的重试逻辑在已经由 generate POST 发起生成后再次触发不必要的行为
         try {
   // 注意：utils/http.js 已经配置了 baseURL='/api'，此处不要再加 '/api' 前缀，避免出现 '/api/api/...'
-  const resp = await http.get(`/game/chapter/${workId}/${idx}/`)
+  const resp = await http.get(`/api/game/chapter/${workId}/${idx}/`)
         data = resp && resp.data ? resp.data : resp
         console.log('[fetchNextChapter] singleRequest response:', data)
         
@@ -482,30 +485,167 @@ export function useStoryAPI() {
         return data
         }
 
-        // 规范化 scenes 来源：优先使用 data.chapter.scenes（新接口），其次使用 data.scenes（兼容）
-        const scenesArray = (data && data.chapter && Array.isArray(data.chapter.scenes)) ? data.chapter.scenes : (data && Array.isArray(data.scenes) ? data.scenes : null)
+        // 规范化 scenes 来源：
+        // - 优先支持结局格式：{ endings: [ { title, summary, scenes: [...] }, ... ] }
+        //   我们只解析第一个 ending 并将其 scenes 推入 storyScenes，同时标记为结局。
+        // - 否则使用 data.chapter.scenes（新接口）或 data.scenes（兼容）
+        let scenesArray = null
+        if (data && Array.isArray(data.endings) && data.endings.length > 0) {
+        // 支持多个 endings，根据属性/状态条件选择合适的一个
+        const evaluateCondition = (condition = {}, attrsRef, statusesRef) => {
+          try {
+            if (!condition || Object.keys(condition).length === 0) return true
+            const attrs = (attrsRef && attrsRef.value) ? attrsRef.value : (attrsRef || {})
+            const statuses = (statusesRef && statusesRef.value) ? statusesRef.value : (statusesRef || {})
+
+            for (const [key, expr] of Object.entries(condition)) {
+              // 优先从 attributes 中读取其值，否则从 statuses 中读取
+              const raw = (attrs && (key in attrs)) ? attrs[key] : ((statuses && (key in statuses)) ? statuses[key] : undefined)
+              const actualRaw = raw
+              const actual = Number(actualRaw)
+
+              if (typeof expr === 'number') {
+                if (Number.isNaN(actual) || actual !== expr) return false
+                continue
+              }
+
+              if (typeof expr === 'string') {
+                const trimmed = expr.trim()
+                const m = trimmed.match(/^(>=|<=|>|<|==|=)\s*(-?\d+(?:\.\d+)?)$/)
+                if (m) {
+                  const op = m[1]
+                  const num = Number(m[2])
+                  if (Number.isNaN(actual)) return false
+                  switch (op) {
+                    case '>': if (!(actual > num)) return false; break
+                    case '<': if (!(actual < num)) return false; break
+                    case '>=': if (!(actual >= num)) return false; break
+                    case '<=': if (!(actual <= num)) return false; break
+                    case '==': if (!(actual == num)) return false; break
+                    case '=': if (!(actual == num)) return false; break
+                    default: return false
+                  }
+                  continue
+                }
+
+                if (String(actualRaw) !== trimmed) return false
+                continue
+              }
+
+              if (actualRaw !== expr) return false
+            }
+            return true
+          } catch (e) { console.warn('evaluateCondition error', e); return false }
+        }
+
+        const pickEnding = (endingsArray, attrsRef, statusesRef) => {
+          if (!Array.isArray(endingsArray)) return null
+          for (const e of endingsArray) {
+            const cond = e?.condition || {}
+            if (evaluateCondition(cond, attrsRef, statusesRef)) return e
+          }
+          // 如果没有匹配任意条件，回退到第一个结局（兼容旧行为）
+          return endingsArray[0] || null
+        }
+
+        const chosen = pickEnding(data.endings, _attributes, _statuses)
+        if (chosen && Array.isArray(chosen.scenes) && chosen.scenes.length > 0) {
+          try {
+            // 优先使用后端显式提供的 `endingIndex` 值（与后端保持一致）
+            if (typeof chosen.endingIndex === 'number' || (chosen.endingIndex != null && !isNaN(Number(chosen.endingIndex)))) {
+              lastSelectedEndingIndex.value = Number(chosen.endingIndex)
+            } else {
+              // 回退：记录 chosen 在原始列表中的索引（1-based），若找不到则置为1
+              const idx = Array.isArray(data.endings) ? data.endings.findIndex(e => e === chosen) : -1
+              lastSelectedEndingIndex.value = (idx >= 0) ? (idx + 1) : 1
+            }
+          } catch (e) { lastSelectedEndingIndex.value = 1 }
+          scenesArray = chosen.scenes.map(s => {
+            try {
+              if (!s || typeof s !== 'object') return s
+              const out = Object.assign({}, s)
+              // 将后端的 endingIndex（若存在）挂到场景上，便于调试与兼容性检查
+              if (chosen && (chosen.endingIndex != null)) out.endingIndex = chosen.endingIndex
+              out.isEnding = true
+              out.endingTitle = chosen.title || null
+              out.endingSummary = chosen.summary || null
+              return out
+            } catch (e) { return s }
+          })
+          storyEndSignaled.value = true
+          console.log('[fetchNextChapter] Selected ending:', chosen.title)
+        } else {
+          scenesArray = null
+        }
+        } else {
+        scenesArray = (data && data.chapter && Array.isArray(data.chapter.scenes)) ? data.chapter.scenes : (data && Array.isArray(data.scenes) ? data.scenes : null)
+        }
         console.log(`[fetchNextChapter] 检查scenes: data=${!!data}, scenesLength=${scenesArray ? scenesArray.length : 'null'}`)
         if (scenesArray && scenesArray.length > 0) {
         console.log('[fetchNextChapter] Processing scenes:', scenesArray.length, 'opts.replace=', opts && opts.replace)
-        // 创作者模式：始终替换当前内容，保证 storyScenes 只包含当前章节
-        // 用新章节覆盖当前 storyScenes
-        storyScenes.value = []
-        for (const sc of scenesArray) {
+
+        // 当检测到这是后端返回的结局（storyEndSignaled=true 且后端提供 endings 列表）时，
+        // 按照新规则：将用户选择并进入的结局覆盖掉“前一章”的缓存场景（chapter idx-1），而不是追加到最后。
+        const isEndingResponse = storyEndSignaled.value === true && Array.isArray(data?.endings)
+        if (isEndingResponse) {
+          const replaceChapter = (Number(idx) > 1) ? Number(idx) - 1 : Number(idx)
+          console.log('[fetchNextChapter] Ending response detected — will replace chapter', replaceChapter)
+
+          // 在现有 storyScenes 中查找属于 replaceChapter 的连续区间
+          const firstIndex = storyScenes.value.findIndex(s => Number(s.chapterIndex) === replaceChapter)
+          if (firstIndex >= 0) {
+            let lastIndex = firstIndex
+            for (let i = firstIndex; i < storyScenes.value.length; i++) {
+              if (Number(storyScenes.value[i].chapterIndex) === replaceChapter) lastIndex = i
+              else break
+            }
+
+            const before = storyScenes.value.slice(0, firstIndex)
+            const after = storyScenes.value.slice(lastIndex + 1)
+
+            // 用前段 + 结局 scenes + 后段 重建 storyScenes
+            storyScenes.value = before.slice()
+            for (const sc of scenesArray) {
+              try { pushSceneFromServer(sc) } catch (e) { console.warn('pushSceneFromServer failed for one ending entry', e) }
+            }
+            for (const s of after) {
+              try { storyScenes.value.push(s) } catch (e) { console.warn('re-append after segment failed', e) }
+            }
+
+            // 将播放位置指向被覆盖章节的开头
+            currentChapterIndex.value = replaceChapter
+            currentSceneIndex.value = storyScenes.value.findIndex(s => Number(s.chapterIndex) === replaceChapter)
+            if (currentSceneIndex.value < 0) currentSceneIndex.value = 0
+            currentDialogueIndex.value = 0
+
+            console.log('[fetchNextChapter] 已用结局覆盖前一章缓存，新的 scene count=', storyScenes.value.length)
+          } else {
+            // 未找到对应章节，回退为覆盖全部场景（兼容）
+            console.log('[fetchNextChapter] 未找到要替换的章节，回退为覆盖全部场景')
+            storyScenes.value = []
+            for (const sc of scenesArray) {
+              try { pushSceneFromServer(sc) } catch (e) { console.warn('pushSceneFromServer failed for one entry', e) }
+            }
+            currentSceneIndex.value = 0
+            currentDialogueIndex.value = 0
+            currentChapterIndex.value = idx
+          }
+        } else {
+          // 非结局场景：保持原本的覆盖当前章节行为
+          storyScenes.value = []
+          for (const sc of scenesArray) {
             try { pushSceneFromServer(sc) } catch (e) { console.warn('pushSceneFromServer failed for one entry', e) }
+          }
+          currentSceneIndex.value = 0
+          currentDialogueIndex.value = 0
+          currentChapterIndex.value = idx
+          console.log(`[Story] 成功加载第 ${idx} 章，场景数=${scenesArray.length}`)
         }
-        // 重置播放 / 对话索引以从新章节开始
-        currentSceneIndex.value = 0
-        currentDialogueIndex.value = 0
-
-        // 重要修改：更新当前章节索引（无论覆盖或追加都要更新）
-        currentChapterIndex.value = idx
-
-        console.log(`[Story] 成功加载第 ${idx} 章，共 ${data.scenes.length} 个场景`)
 
         // 如果我们已请求了超出 totalChapters 的章节（totalChapters 可用），视为已到结尾并不再继续请求下一章。
         // 注意：不要在请求到等于 totalChapters 时立即标记结束 —— 只有在请求超出范围或后端显式返回 end 时才认为结束。
         if (totalChapters.value && idx > Number(totalChapters.value)) {
-            storyEndSignaled.value = true
+          storyEndSignaled.value = true
         }
 
         return data
@@ -692,6 +832,9 @@ export function useStoryAPI() {
   let _pendingOutlineTargetChapter = null
   let _outlineEditorResolver = null
   let _loadingProgress = null
+  // attributes / statuses refs（由 useGameState 或页面传入）
+  let _attributes = null
+  let _statuses = null
 
   // 提供设置依赖的方法
   const setDependencies = (deps) => {
@@ -705,6 +848,9 @@ export function useStoryAPI() {
     _pendingOutlineTargetChapter = deps.pendingOutlineTargetChapter
     _outlineEditorResolver = deps.outlineEditorResolver
     _loadingProgress = deps.loadingProgress
+    // 可选传入 attributes/statuses 的 refs，供 endings condition 匹配使用
+    if (deps.attributes) _attributes = deps.attributes
+    if (deps.statuses) _statuses = deps.statuses
   }
 
   return {
@@ -751,6 +897,10 @@ export function useStoryAPI() {
     setGenerateChapter: (fn) => { generateChapter = fn },
     saveChapter,
     setSaveChapter: (fn) => { saveChapter = fn },
+    saveEnding,
+    setSaveEnding: (fn) => { saveEnding = fn },
+    // 记录并导出最后选中的结局索引（1-based）
+    lastSelectedEndingIndex,
     
     // 添加设置依赖的方法
     setDependencies

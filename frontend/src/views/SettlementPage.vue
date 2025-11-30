@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { fetchPersonalityReportVariants } from '../service/personality.js'
 import { getScenes, getWorkInfo } from '../service/story.js'
+import { http } from '../service/http.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -676,6 +677,105 @@ const generateBranchingGraph = async () => {
   })
 
   // 结束节点
+  // 在生成结束/汇合节点之前，尝试获取后端的结局列表并把已进入的结局显示为图像，其它结局显示为问号并在下方显示标题
+  try {
+    const resp = await http.get(`/api/game/storyending/${currentWorkId}`)
+    const payload = resp && resp.data ? resp.data : resp
+    const endings = Array.isArray(payload?.endings) ? payload.endings : []
+    if (endings.length > 0) {
+      // 优先尝试使用已记录的结局索引（比仅靠标题更可靠）
+      const storedTitle = sessionStorage.getItem(`selectedEndingTitle_${currentWorkId}`)
+      const storedIdxStr = sessionStorage.getItem(`lastSelectedEndingIndex_${currentWorkId}`)
+      const storedIdx = storedIdxStr ? Number(storedIdxStr) : null
+
+      // 如果有 selected index，则向后端请求该结局的完整详情以获取缩略图与准标题
+      let selectedEndingDetail = null
+      if (storedIdx && Number.isFinite(storedIdx)) {
+        try {
+          const det = await http.get(`/api/game/storyending/${currentWorkId}/${storedIdx}`)
+          const detPayload = det && det.data ? det.data : det
+          selectedEndingDetail = detPayload?.ending || detPayload || null
+          console.log('[Settlement] 获取已选结局详情:', storedIdx, selectedEndingDetail)
+        } catch (e) {
+          console.warn('[Settlement] 获取已选结局详细信息失败，继续使用结局列表:', e)
+          selectedEndingDetail = null
+        }
+      }
+
+      const endCount = endings.length
+      const endSpacing = 240
+      const endStartX = 400 - (endCount - 1) * endSpacing / 2
+      let endY = currentY + 40
+      // 保存进入结局前的父节点ID，所有结局分支都从该节点分出，避免将未选中结局连接到已选中结局的节点上
+      const endingsParentNodeId = lastNodeId
+      for (let ei = 0; ei < endings.length; ei++) {
+        const ed = endings[ei]
+        const ex = endStartX + ei * endSpacing
+        // list 接口返回的索引字段可能是 endingIndex
+        const listIndex = ed.endingIndex || (ei + 1)
+        // 优先使用从 detail 获取到的标题/场景（如果是用户所选的结局）
+        let etitle = ed.title || `结局 ${listIndex}`
+        let endImage = (Array.isArray(ed.scenes) && ed.scenes.length > 0) ? (ed.scenes[0].backgroundImage || null) : null
+
+        // 如果我们 fetch 了 selectedEndingDetail，并且它对应当前 list 项，则覆盖 title/image
+        if (selectedEndingDetail && storedIdx && Number(listIndex) === Number(storedIdx)) {
+          etitle = selectedEndingDetail.title || etitle
+          if (Array.isArray(selectedEndingDetail.scenes) && selectedEndingDetail.scenes.length > 0) {
+            endImage = selectedEndingDetail.scenes[0].backgroundImage || endImage
+          }
+        }
+
+        // 判断是否为已进入结局：优先使用索引匹配，其次回退到按标题匹配（兼容旧 session 存储）
+        const isEnteredByIndex = storedIdx && Number(listIndex) === Number(storedIdx)
+        const isEnteredByTitle = storedTitle && etitle === storedTitle
+
+        if (isEnteredByIndex || isEnteredByTitle) {
+          // 已进入的结局：显示首图缩略并连接为已选分支
+          const layoutE = computeNodeLayout('结局', etitle, { imageW: THUMB_W, imageH: THUMB_H })
+          const endNodeId = nodeId++
+          nodes.push({
+            id: endNodeId,
+            title: '结局',
+            type: 'ending-selected',
+            x: ex,
+            y: endY,
+            description: etitle,
+            width: layoutE.width,
+            height: layoutE.height,
+            descLines: layoutE.descLines,
+            image: endImage,
+            imageW: layoutE.imageW || 0,
+            imageH: layoutE.imageH || 0,
+            isSelected: true
+          })
+          edges.push({ from: endingsParentNodeId, to: endNodeId, label: '', isSelected: true })
+          // 不要修改 lastNodeId，这样后续未选中结局仍然从 parent 出发
+        } else {
+          // 未进入的结局：显示问号节点，但在描述中显示结局标题
+          const layoutQ = computeNodeLayout('?', etitle)
+          const qNodeId = nodeId++
+          nodes.push({
+            id: qNodeId,
+            title: '?',
+            type: 'ending-unseen',
+            x: ex,
+            y: endY,
+            description: etitle,
+            width: layoutQ.width,
+            height: layoutQ.height,
+            descLines: layoutQ.descLines,
+            imageW: layoutQ.imageW || 0,
+            imageH: layoutQ.imageH || 0
+          })
+          edges.push({ from: endingsParentNodeId, to: qNodeId, label: '', isSelected: false })
+        }
+      }
+      currentY += 220
+    }
+  } catch (e) {
+    console.warn('[Settlement] 获取结局列表失败，跳过在分支图显示结局缩略图:', e)
+  }
+
   if (gameData.value.choiceHistory.length > 0) {
     const endNodeId = nodeId++
     const layoutEnd = computeNodeLayout('主线/完结', '分支收束于主线，完成一次旅程')
@@ -747,6 +847,20 @@ const generatePersonalityReport = async () => {
     // 确保使用有效的 workId
     const currentWorkId = gameData.value.work?.id || workId
     console.log('Fetching personality report variants... workId:', currentWorkId, 'attrs/statuses:', attrs, statuses)
+    // 优先使用 sessionStorage 中已由前端 fetchReport/后端返回并保存的结算数据（避免重复请求）
+    if (sessionData && sessionData.status === 'ready' && sessionData.details) {
+      console.log('[Settlement] 使用 sessionData.details 作为个性报告', sessionData.details)
+      const d = sessionData.details
+      personalityReport.value = {
+        title: d.title || defaultPersonalityReport.title,
+        content: d.content || defaultPersonalityReport.content,
+        traits: Array.isArray(d.traits) ? d.traits : defaultPersonalityReport.traits,
+        scores: (d.scores && typeof d.scores === 'object') ? d.scores : defaultPersonalityReport.scores
+      }
+      console.log('Selected personality report from sessionData:', personalityReport.value)
+      return
+    }
+
     const variants = await fetchPersonalityReportVariants(currentWorkId, attrs, statuses)
     console.log('Variants received:', variants)
 

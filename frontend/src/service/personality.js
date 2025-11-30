@@ -1,4 +1,5 @@
 import mock from './personality.mock.js'
+import { http } from './http.js'
 
 /**
  * 请求后端返回“所有候选个性报告”列表。
@@ -14,16 +15,12 @@ export async function fetchPersonalityReportVariants(workId, attributes = {}, st
   const url = Number.isInteger(wid) ? `/api/settlement/report/${wid}/` : '/api/settlement/report/'
 
   try {
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ attributes, statuses, ...options })
-    })
-    if (!resp.ok) throw new Error('bad response')
-    const json = await resp.json()
+    // 使用统一的 http 客户端，自动携带 token / CSRF 等认证信息
+    const json = await http.post(url, { attributes, statuses, ...options })
     if (json && json.success && Array.isArray(json.reports)) return json.reports
     return mock.getPersonalityReportVariants()
   } catch (err) {
+    console.warn('[personality] fetchPersonalityReportVariants failed, using mock', err)
     return mock.getPersonalityReportVariants()
   }
 }

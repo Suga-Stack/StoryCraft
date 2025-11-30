@@ -121,11 +121,13 @@ export const saveGameData = async (gameData, slot = 'default') => {
   })
 
   // 构建符合 API 文档的 payload
+  // 如果调用方已传入完整的 state（例如包含 endingindex），优先使用该 state
+  const stateFromCaller = (gameData && typeof gameData.state === 'object') ? gameData.state : null
   const payload = {
     title: `存档 ${new Date().toLocaleString()}`,
     timestamp: Date.now(),
     thumbnail: gameData.thumbnail || null,
-    state: {
+    state: stateFromCaller ? deepClone(stateFromCaller) : {
       chapterIndex: deriveChapterIndex(),
       sceneId: deriveSceneId(),
       dialogueIndex: (gameData.currentDialogueIndex != null) ? gameData.currentDialogueIndex : (gameData.dialogueIndex || 0),
@@ -226,7 +228,10 @@ export const refreshSlotInfosUtil = async (workId, slots = ['slot1', 'slot2', 's
           data: deepClone(d),
           timestamp: d.timestamp || Date.now(),
           // 显示友好字段：章节 / 场景 id / 对话索引
+          // 支持结局存档：若 state 包含 endingindex，则标识为结局并暴露 endingIndex
           chapterIndex: d.chapterIndex != null ? d.chapterIndex : (d.currentChapterIndex != null ? d.currentChapterIndex : null),
+          isEnding: (d.endingindex != null) || (d.endingIndex != null) || false,
+          endingIndex: (d.endingindex != null) ? d.endingindex : (d.endingIndex != null ? d.endingIndex : null),
           // sceneId 以字符串形式返回（例如 "1000"）以便统一展示与比较
           sceneId: d.sceneId != null ? String(d.sceneId) : (d.currentSceneIndex != null ? String(d.currentSceneIndex) : null),
           dialogueIndex: d.dialogueIndex != null ? d.dialogueIndex : (d.currentDialogueIndex != null ? d.currentDialogueIndex : 0),

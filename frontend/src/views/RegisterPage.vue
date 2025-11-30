@@ -212,7 +212,7 @@ const handleVerify = async () => {
     isVerifying.value = true;
     
     // 调用发送验证码接口
-    const response = await http.post('/auth/send-email-code/', {
+    const response = await http.post('/api/auth/send-email-code/', {
       email: formData.value.email
     });
     if (response.data.code === 200) {
@@ -251,7 +251,7 @@ const handleRegister = async () => {
     isSubmitting.value = true;
 
     // 调用注册接口
-    const response = await http.post('/auth/register/', {
+    const response = await http.post('/api/auth/register/', {
       username: formData.value.username,
       password: formData.value.password,
       confirm_password: formData.value.confirm_password,

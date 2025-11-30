@@ -748,7 +748,7 @@
 .notice-toast { background: linear-gradient(90deg,#ffd966,#fff3d6); color:#4a2b00 }
 
 /* 选项样式 */
-.choices-container { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(37vh + 1rem); display:flex; flex-direction:column; gap:1rem; z-index: 5; align-items:center; }
+.choices-container { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(32vh + 1rem); display:flex; flex-direction:column; gap:1rem; z-index: 5; align-items:center; }
 .choices-container.disabled { pointer-events: none; opacity: 0.6; filter: grayscale(20%); }
 .choice-btn {
   /* 与对话框一致：黑底白字，无边框；选项采用“中心至四周渐隐”的尖角矩形效果 */
