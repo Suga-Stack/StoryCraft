@@ -30,6 +30,9 @@ class GameworkDetailSerializer(serializers.ModelSerializer):
     comments_by_time = serializers.SerializerMethodField()
     comments_by_hot = serializers.SerializerMethodField()
 
+    # 评分详情
+    rating_details = serializers.SerializerMethodField()
+
     class Meta:
         model = Gamework
         fields = (
@@ -38,7 +41,7 @@ class GameworkDetailSerializer(serializers.ModelSerializer):
             'favorite_count', 'average_score', 'rating_count', 'read_count', 'is_favorited',
             'is_complete', 'generated_chapters', 'total_chapters', 'modifiable', 'ai_callable',
             'initial_attributes', 'initial_statuses', 'outlines', 'chapters_status',
-            'comments_by_time', 'comments_by_hot'
+            'comments_by_time', 'comments_by_hot', 'rating_details'
         )
 
     def get_image_url(self, obj):
@@ -157,7 +160,7 @@ class GameworkDetailSerializer(serializers.ModelSerializer):
             gamework=obj,
             parent__isnull=True
         ).select_related("user").prefetch_related("replies__user")
-        return CommentSerializer(qs, many=True).data
+        return CommentSerializer(qs, many=True, context=self.context).data
     
     def get_comments_by_hot(self, obj):
         qs = Comment.objects.filter(
@@ -178,7 +181,20 @@ class GameworkDetailSerializer(serializers.ModelSerializer):
 
         return CommentSerializer(comment_list, many=True, context=self.context).data
 
-    
+    def get_rating_details(self, obj):
+        ratings = obj.ratings.select_related("user").order_by("-created_at")
+
+        result = []
+        for r in ratings:
+            result.append({
+                "username": r.user.username,
+                "profile_picture": getattr(r.user, "profile_picture", None),
+                "score": r.score,
+                "created_at": r.created_at,
+            })
+
+        return result
+
     
 class GameworkSimpleSerializer(serializers.ModelSerializer):
     author = serializers.StringRelatedField(read_only=True)

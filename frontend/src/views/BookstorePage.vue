@@ -5,9 +5,12 @@
     <div class="hot-books-carousel">
       <van-swipe :autoplay="3000" indicator-color="#d4a5a5">
         <van-swipe-item v-for="book in hotBooks" :key="book.id">
-          <div class="carousel-item" :style="{ backgroundImage: `url(${book.cover})` }">
+          <div class="carousel-item" 
+            :style="{ backgroundImage: `url(${book.image_url})` }"
+             @click="$router.push(`/works/${book.id}`)"  
+          >
             <div class="book-info">
-              <h3>{{ book.title }}</h3>
+              <h3 @click="$router.push(`/works/${book.id}`)">{{ book.title }}</h3>
               <p>{{ book.author }}</p>
             </div>
           </div>
@@ -36,14 +39,17 @@
           class="book-card" 
           v-for="book in recommendedBooks" 
           :key="book.id"
-          @click="$router.push(`/reader/${book.id}`)"
+          @click="$router.push(`/works/${book.id}`)"
         > 
             <van-image 
-                :src="book.cover" 
+                :src="book.image_url" 
                 class="book-cover"
                 fit="cover"
             />
-            <span class="book-title">{{ book.title }}</span>
+            <span class="book-title"
+              @click="$router.push(`/works/${book.id}`)">
+              {{ book.title }}
+            </span>
             <div class="author-tags">
                 <p class="book-author">{{ book.author }}</p>
                 <div class="book-tags">
@@ -73,66 +79,21 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
+import http from '../utils/http';
+import { showToast } from 'vant';
 import {useRouter} from 'vue-router';
 import bookCover1 from '../assets/book1.jpg';  
 import bookCover2 from '../assets/book2.jpg';
 import bookCover3 from '../assets/book3.jpg';
-import bookCover4 from '../assets/book4.jpg';
-import bookCover5 from '../assets/book5.jpg';
+import { recommendWorks, getRatingLeaderboard  } from '../api/user';
 
-// 模拟热门作品数据
-const hotBooks = ref([
-  {
-    id: 1,
-    title: "星辰大海",
-    author: "张三",
-    cover: bookCover1
-  },
-  {
-    id: 2,
-    title: "时光旅行者",
-    author: "李四",
-    cover: bookCover2
-  },
-  {
-    id: 3,
-    title: "城市微光",
-    author: "王五",
-    cover: bookCover3
-  }
-]);
+// 热门作品数据
+const hotBooks = ref([])
 
-// 模拟推荐作品数据（根据用户偏好标签）
-const recommendedBooks = ref([
-  {
-    id: 4,
-    title: "青春物语",
-    author: "赵六",
-    cover: bookCover4,
-    tags: ["青春", "校园"]
-  },
-  {
-    id: 5,
-    title: "职场生存指南",
-    author: "钱七",
-    cover: bookCover5,
-    tags: ["职场", "励志"]
-  },
-  {
-    id: 6,
-    title: "科幻世界",
-    author: "孙八",
-    cover: bookCover2,
-    tags: ["科幻", "未来"]
-  },
-  {
-    id: 7,
-    title: "美食日记",
-    author: "周九",
-    cover: bookCover1,
-    tags: ["美食", "生活"]
-  }
-]);
+// 推荐作品数据（根据用户偏好标签）
+const recommendedBooks = ref([]);
+const loading = ref(false);
+const error = ref('');
 
 const tagColorOptions = [
   { backgroundColor: '#e0f2fe', color: '#0284c7' },
@@ -169,13 +130,64 @@ const handleTabChange = (name) => {
       router.push('/profile');
       break;
   }
-};
+}
+
+// 添加获取评分排行榜数据的方法
+const fetchHotBooks = async () => {
+  try {
+    const response = await getRatingLeaderboard();
+    const resData = response.data;
+    
+    if (resData) { 
+      // 取前三条数据作为轮播内容
+      hotBooks.value = resData.data.slice(0, 3);
+    } else {
+      showToast(`获取排行榜失败: ${resData.message || '未知错误'}`);
+    }
+  } catch (err) {
+    console.error('排行榜请求失败:', err);
+    showToast('获取热门作品失败，请稍后重试');
+  }
+}
+
+const fetchRecommendedBooks = async () => {
+  if (loading.value) return;
+  
+  loading.value = true;
+  error.value = '';
+  
+  try {
+    const response = await recommendWorks(1);
+
+    const resData = response.data;
+    
+    if (resData.code === 200) {
+      // 正确获取嵌套在data中的数据数组
+      recommendedBooks.value = resData.data;
+      // 如果返回空数组，可以显示提示信息
+      if (recommendedBooks.value.length === 0) {
+        showToast('暂无推荐作品');
+      }
+    } else if (resData.code === 404) {
+      error.value = '您尚未设置喜欢的标签，请先去设置偏好';
+      showToast(error.value);
+    } else {
+      throw new Error(`请求失败: ${resData.message || '未知错误'}`);
+    }
+    
+  } catch (err) {
+    console.error('请求详情:', err);
+    error.value = '获取推荐作品失败，请稍后重试';
+    showToast(error.value);
+  } finally {
+    loading.value = false;
+  }
+}
 
 // 页面加载时获取数据（实际项目中替换为接口请求）
 onMounted(() => {
-  // 示例：从接口获取热门作品和推荐作品
-  // fetchHotBooks();
-  // fetchRecommendedBooks();
+  fetchHotBooks();
+  fetchRecommendedBooks();
 });
 </script>
 

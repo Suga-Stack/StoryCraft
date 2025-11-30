@@ -10,7 +10,7 @@
         @click="navigateToBookDetail(book.id)"
       >
         <van-image 
-          :src="book.cover" 
+          :src="book.image_url" 
           class="book-cover" 
           fit="cover"
         />
@@ -22,18 +22,18 @@
             <van-tag 
               v-for="tag in book.tags" 
               :key="tag"
-              type="primary"
-              round
               size="small"
+              :style="getRandomTagStyle()"
             >
               {{ tag }}
             </van-tag>
           </div>
         </div>
-        <van-icon 
-          name="star-o" 
-          class="favorite-icon"
-          @click.stop="handleFavorite(book.id)"
+         <van-icon 
+          :name="book.isPublished ? 'eye' : 'eye-o'" 
+          class="visibility-icon"
+          :class="{ active: book.isPublished }"
+          @click.stop="handlePublish(book)"
         />
       </div>
     </div>
@@ -41,66 +41,101 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import bookCover3 from '../assets/book3.jpg';  
-import bookCover4 from '../assets/book4.jpg';
-import bookCover1 from '../assets/book1.jpg';
-import bookCover2 from '../assets/book2.jpg';
+import { getMyworks, publishWorks} from '../api/user'
+
 
 const router = useRouter()
+const myCreations = ref([])
 
-// 模拟我的创作数据
-const myCreations = ref([
-  {
-    id: 101,
-    title: '科幻世界',
-    cover: bookCover3,
-    author: '张三', // 当前用户
-    description: '探索未来科技与人类社会的交互，描绘了一个充满想象力的世界...',
-    tags: ['科幻', '未来', '想象']
-  },
-  {
-    id: 102,
-    title: '美食日记',
-    cover: bookCover4,
-    author: '张三', // 当前用户
-    description: '记录各地美食体验和自制美食的 recipe，分享美食带来的快乐...',
-    tags: ['美食', '生活', '食谱']
-  },
-  {
-    id: 103,
-    title: '山间小屋',
-    cover: bookCover1,
-    author: '张三', // 当前用户
-    description: '远离城市喧嚣，在山间小屋的宁静生活记录...',
-    tags: ['生活', '自然', '散文']
-  },
-  {
-    id: 104,
-    title: '编程入门指南',
-    cover: bookCover2,
-    author: '张三', // 当前用户
-    description: '面向初学者的编程入门教程，从基础到实践...',
-    tags: ['编程', '技术', '教程']
+const tagColorOptions = [
+  { backgroundColor: '#e0f2fe', color: '#0284c7' },
+  { backgroundColor: '#dbeafe', color: '#3b82f6' },
+  { backgroundColor: '#f0fdf4', color: '#166534' },
+  { backgroundColor: '#fff7ed', color: '#c2410c' },
+  { backgroundColor: '#f5f3ff', color: '#6b21a8' },
+  { backgroundColor: '#fee2e2', color: '#b91c1c' },
+]
+
+// 在组件挂载时获取作品列表
+onMounted(() => {
+  fetchMyWorks()
+})
+
+// 获取当前用户创作的作品列表
+const fetchMyWorks = async () => {
+  try {
+    const response = await getMyworks();
+    
+    if (!response.data.code || response.data.code !== 200) {
+      throw new Error('获取作品列表失败')
+    }
+    
+    myCreations.value = response.data.data;
+  } catch (error) {
+    showToast(error.message || '获取数据失败，请稍后重试')
+    console.error('作品列表请求失败:', error)
   }
-])
+}
+
 
 // 返回上一页
 const handleBack = () => {
   router.back()
-}
+};
+
+// 随机获取一个颜色样式
+const getRandomTagStyle = () => {
+  const randomIndex = Math.floor(Math.random() * tagColorOptions.length);
+  return tagColorOptions[randomIndex];
+};
 
 // 导航到书籍详情页
 const navigateToBookDetail = (bookId) => {
-  router.push(`/book-detail/${bookId}`)
-}
+  router.push(`/works/${bookId}`)
+};
 
-// 收藏功能
-const handleFavorite = (bookId) => {
-  showToast('收藏功能已触发')
-}
+
+// 发布/隐藏功能
+const handlePublish = async (book) => {
+  try {
+    // 如果当前是未发布状态，则调用发布接口
+    if (!book.isPublished) {
+      const response = await publishWorks(book.id);
+      
+      // 假设接口返回200时表示发布成功
+      if (response.status === 200) {
+        book.isPublished = true;
+        showToast('作品已发布');
+        fetchMyWorks();
+      } else {
+        showToast('发布失败：' + (response.data.message || '未知错误'));
+      }
+    } else {
+      // 如果需要实现取消发布功能，这里可以调用取消发布接口
+      // 假设取消发布接口为 /gameworks/unpublish/${id}
+      // const response = await unpublishWorks(book.id);
+      book.isPublished = false;
+      showToast('作品已隐藏');
+    }
+  } catch (error) {
+    // 处理接口调用失败的情况
+    console.error('发布操作失败:', error);
+    // 恢复状态（因为接口调用失败，前端状态不应该改变）
+    book.isPublished = !book.isPublished;
+    
+    // 根据错误类型显示不同提示
+    if (error.response && error.response.status === 403) {
+      showToast('您没有权限发布该作品');
+    } else if (error.response && error.response.status === 404) {
+      showToast('作品未找到');
+    } else {
+      showToast('操作失败，请稍后重试');
+    }
+  }
+};
 </script>
 
 <style scoped>
@@ -125,35 +160,35 @@ const handleFavorite = (bookId) => {
 }
 
 .book-cover {
-  width: 80px;
-  height: 120px;
-  border-radius: 8px;
+  width: 150px;
+  height: 100px;
+  border-radius: 4px;
   flex-shrink: 0;
 }
 
 .book-info {
-  margin-left: 16px;
+  margin-left: 12px;
   flex-grow: 1;
   overflow: hidden;
 }
 
 .book-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 500;
-  margin: 0 0 8px 0;
+  margin: 0 0 4px 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .book-author {
-  font-size: 14px;
+  font-size: 12px;
   color: #666;
-  margin: 0 0 8px 0;
+  margin: 0 0 6px 0;
 }
 
 .book-desc {
-  font-size: 13px;
+  font-size: 12px;
   color: #888;
   margin: 0 0 10px 0;
   display: -webkit-box;
@@ -165,18 +200,25 @@ const handleFavorite = (bookId) => {
 
 .book-tags {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 4px;
 }
 
 .favorite-icon {
-  font-size: 22px;
+  font-size: 18px;
   color: #888;
   margin-left: 12px;
   flex-shrink: 0;
 }
 
 .favorite-icon.active {
-  color: #ff4d4f;
+  color: #ffcc00;
+}
+
+
+.visibility-icon {
+  font-size: 20px;
+  color: #888;
+  margin-left: 12px;
+  flex-shrink: 0;
 }
 </style>
