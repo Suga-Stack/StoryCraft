@@ -184,7 +184,7 @@ class FavoriteViewSet(viewsets.ModelViewSet):
         operation_summary="取消收藏",
         manual_parameters=[
             openapi.Parameter(
-                name="pk",
+                name="id",
                 in_=openapi.IN_PATH,
                 type=openapi.TYPE_INTEGER,
                 description="当前作品 ID",
@@ -194,7 +194,7 @@ class FavoriteViewSet(viewsets.ModelViewSet):
         responses={204: openapi.Response(description="取消收藏成功")}
     )
     def destroy(self, request, *args, **kwargs):
-        id = kwargs.get("pk")
+        id = kwargs.get("id")
 
         # 找到该用户的收藏记录
         instance = get_object_or_404(Favorite, user=request.user, gamework_id=id)
