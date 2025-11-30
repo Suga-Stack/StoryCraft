@@ -103,8 +103,14 @@ onMounted(async () => {
       work.value.title = normalized.title || work.value.title
       work.value.coverUrl = normalized.coverUrl || work.value.coverUrl
       work.value.description = normalized.description || work.value.description
-      work.value.tags = incomingTags || normalized.tags || work.value.tags
-      work.value.isFavorite = normalized.isFavorite || work.value.isFavorite
+      if (incomingTags) {
+        work.value.tags = incomingTags;
+      } else {
+        // 等待 Promise 完成后再赋值
+        const fetchedTags = await getTagsByIds(normalized.tags || []);
+        work.value.tags = fetchedTags || ['科幻', '冒险', '太空', '未来'];
+      }
+      work.value.isFavorite = normalized.isFavorited || work.value.isFavorite
       try { favoritesCount.value = payload.favorite_count || payload.favoritesCount || favoritesCount.value } catch (e) {}
       try { publishedAt.value = payload.published_at || payload.publishedAt || payload.created_at || publishedAt.value } catch (e) {}
       try { updatedAt.value = payload.updated_at || payload.updatedAt || payload.modified || updatedAt.value } catch (e) {}
@@ -837,7 +843,7 @@ const startReading = async () => {
             color: getTagColor(index).text
           }"
         >
-          {{ tag }}
+          {{ tag.name }}
         </span>
       </div>
       

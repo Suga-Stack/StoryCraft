@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '../store'
 import { showToast } from 'vant'
 import * as createWorkService from '../service/createWork.js'
+import http from '../utils/http.js'
 
 // 在本地测试时可开启 create mock（当后端不可用时）
 // 关闭 mock 以便直接调用后端进行集成测试
@@ -18,24 +19,18 @@ const router = useRouter()
 const userStore = useUserStore()
 
 // 分组的标签候选（支持折叠显示）
-const tagGroups = [
-  {
-    title: '类型',
-    tags: ['玄幻','奇幻','仙侠','武侠','科幻','都市','历史','军事','悬疑','灵异','惊悚','游戏','竞技','体育','言情','现实']
-  },
-  {
-    title: '风格',
-    tags: ['升级流','无敌流','重生','穿越','系统','无限流','种田','基建','末世','废土','爽文','轻松','搞笑','治愈','暗黑','虐心','烧脑','智斗','群像','日常','生活流','热血','争霸','权谋','扮猪吃虎','腹黑','忠犬','傲娇','病娇','萌宝','马甲','神豪','赘婿']
-  },
-  {
-    title: '世界观',
-    tags: ['现代','古代','异界','异世界','星际','未来','末世','废土','民国','原始社会','原始部落','洪荒','高武','西幻','克苏鲁','赛博朋克','蒸汽朋克']
-  },
-  {
-    title: '题材',
-    tags: ['男频','女频','甜宠','霸总','女强','女尊','宫斗','宅斗','职场','职场商战','校园','青春','耽美','百合','明星同人','二次元','轻小说','影视改编','出版小说','真人互动','多人视角','第一人称','第二人称','第三人称','单元剧']
-  }
-]
+const tagGroups = ref([])
+const isLoadingTags = ref(false);
+const tagsError = ref('');
+
+// 标签分类相关状态
+const categories = ref([
+  { name: '类型', range: [0, 15] },    // 类型标签：0-15
+  { name: '风格', range: [16, 48] },   // 风格标签：16-48
+  { name: '世界观', range: [49, 63] }, // 世界观标签：49-63
+  { name: '题材', range: [64, 88] }    // 题材标签：64-88
+]);
+const currentCategory = ref(0); // 当前选中的分类索引，默认选中"类型"
 
 const selectedTags = ref([])
 const idea = ref('') // 用户构思（可选）
@@ -52,8 +47,8 @@ const identity = ref('reader') // 'reader' | 'creator'
 
 // 折叠状态：默认折叠以节省空间（用户可展开）
 const collapsed = ref([])
-onMounted(() => {
-  collapsed.value = tagGroups.map(() => true)
+onMounted( async () => {
+  await fetchAllTags();
   // 尝试锁定竖屏（Capacitor plugin / 浏览器 API）
   try {
     // Capacitor 插件优先
@@ -65,14 +60,65 @@ onMounted(() => {
   }
 })
 
-// 选择的标签分类索引（并列的四个按钮）
-const selectedCategory = ref(0)
-const selectCategory = (idx) => {
-  selectedCategory.value = idx
-}
+// 按页数获取标签
+const fetchTagsPage = async (page = 1) => {
+  try {
+    const response = await http.get('/api/tags/', {
+      params: { page } 
+    });
+    return {
+      results: response.data?.results || [], // 当前页标签
+      totalPages: Math.ceil((response.data?.count || 0) / 10) 
+    };
+  } catch (error) {
+  //console.error(`获取第${page}页标签失败:`, error);
+    throw error; // 抛出错误让外层处理
+  }
+};
 
-// 所选分类的所有标签（不分页，全部显示）
-const selectedGroupTags = computed(() => tagGroups[selectedCategory.value].tags)
+// 获取所有标签
+const fetchAllTags = async () => {
+  isLoadingTags.value = true;
+  tagsError.value = '';
+  tagGroups.value = []; // 清空现有数据
+
+  try {
+    // 先请求第1页，获取总页数
+    const firstPage = await fetchTagsPage(1);
+    tagGroups.value.push(...firstPage.results); // 合并第1页数据
+
+    // 如果总页数大于1，循环请求剩余页数
+    if (firstPage.totalPages > 1) {
+      // 从第2页循环到最后一页
+      for (let page = 2; page <= firstPage.totalPages; page++) {
+        const currentPage = await fetchTagsPage(page);
+        tagGroups.value.push(...currentPage.results); // 合并当前页数据
+      }
+    }
+
+  //console.log('全部标签加载完成，共', tagGroups.value.length, '条');
+  } catch (error) {
+    tagsError.value = '加载标签失败，请重试';
+    showToast(tagsError.value);
+  } finally {
+    isLoadingTags.value = false;
+  }
+};
+
+// 筛选当前分类的标签
+const filteredTags = computed(() => {
+  const { range } = categories.value[currentCategory.value];
+  const [min, max] = range;
+  // 筛选出id在[min, max]范围内的标签
+  return tagGroups.value.filter(tag => tag.id >= min && tag.id <= max);
+});
+
+// 切换分类
+const switchCategory = (index) => {
+  currentCategory.value = index;
+  window.scrollTo(0, 0); // 切换时滚动到顶部
+};
+
 
 onBeforeUnmount(() => {
   try { ScreenOrientation.unlock && ScreenOrientation.unlock().catch(() => {}) } catch (e) {}
@@ -453,26 +499,26 @@ const handleTabChange = (name) => {
       <!-- 横向四个分类按钮 -->
       <div class="category-tabs">
         <button
-          v-for="(group, gi) in tagGroups"
-          :key="group.title"
+          v-for="(category, index) in categories"
+          :key="index"
           class="category-tab"
-          :class="{ active: selectedCategory === gi }"
-          @click="selectCategory(gi)"
+          :class="{ active: currentCategory === index }"
+          @click="switchCategory(index)"
         >
-          {{ group.title }}
+          {{ category.name }}
         </button>
       </div>
 
       <!-- 当前分类的标签，分页展示 -->
       <div class="tags-grid all-tags">
         <button
-          v-for="tag in selectedGroupTags"
-          :key="tag"
+          v-for="tag in filteredTags"
+          :key="tag.id"
           class="tag-btn small"
           :class="{ selected: selectedTags.includes(tag), disabled: !selectedTags.includes(tag) && selectedTags.length >= 6 }"
           @click="toggleTag(tag)"
         >
-          <span class="check" v-if="selectedTags.includes(tag)">✓</span>{{ tag }}
+          <span class="check" v-if="selectedTags.includes(tag)">✓</span>{{ tag.name }}
         </button>
       </div>
 

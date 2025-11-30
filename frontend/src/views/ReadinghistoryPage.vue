@@ -20,12 +20,12 @@
           <p class="book-desc">{{ book.description }}</p>
           <div class="book-tags">
             <van-tag 
-              v-for="tag in book.tags" 
-              :key="tag"
+              v-for="tag in book.processedTags.slice(0, 3)" 
+              :key="tag.id"
               size="small"
-              :style="getRandomTagStyle()"
+              :style="tag.color"
             >
-              {{ tag }}
+              {{ tag.name }}
             </van-tag>
           </div>
         </div>
@@ -74,7 +74,14 @@ const fetchReadingHistory = async () => {
       throw new Error('获取阅读历史失败')
     }
     
-    readingHistory.value = response.data.data;
+    const books = response.data.data;
+    
+    // 为每本书处理标签（转换ID为名称和颜色）
+    for (const book of books) {
+      book.processedTags = await getTagsByIds(book.tags || []);
+    }
+
+    readingHistory.value = books;
   } catch (error) {
     showToast(error.message || '获取数据失败，请稍后重试')
     console.error('作品列表请求失败:', error)

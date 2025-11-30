@@ -305,7 +305,6 @@ const loadFavoriteBooks = async () => {
     
     saveData();
   } catch (error) {
-    console.error('加载收藏作品失败', error);
     const savedBooks = localStorage.getItem('favoriteBooks');
     try {
       // 解析本地存储时也可能出错，需要捕获
@@ -623,7 +622,7 @@ const handleFavorite = async (book) => {
   try {
     if (book.isFavorite) {
       // 取消收藏：调用删除接口并从列表中移除
-      await deleteFavorite(book.id);
+      await deleteFavorite(book.gameworkId);
       
       // 从books数组中移除该书籍
       const index = books.value.findIndex(b => b.id === book.id);

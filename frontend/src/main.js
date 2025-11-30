@@ -13,6 +13,5 @@ const pinia = createPinia()
 app.use(Vant)
 app.use(pinia)
 app.use(router)
-
-
 app.mount('#app')
+

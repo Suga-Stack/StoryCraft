@@ -38,7 +38,7 @@ class GameworkDetailSerializer(serializers.ModelSerializer):
         fields = (
             'id', 'author', 'title', 'description', 'tags', 'image_url',
             'is_published', 'created_at', 'updated_at', 'published_at',
-            'favorite_count', 'average_score', 'rating_count', 'read_count', 'is_favorited',
+            'favorite_count', 'average_score', 'rating_count', 'read_count', 'is_favorited', 'price',
             'is_complete', 'generated_chapters', 'total_chapters', 'modifiable', 'ai_callable',
             'initial_attributes', 'initial_statuses', 'outlines', 'chapters_status',
             'comments_by_time', 'comments_by_hot', 'rating_details'
@@ -210,7 +210,7 @@ class GameworkSimpleSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'author', 'title', 'description', 'tags', 'image_url',
             'is_published', 'published_at',
-            'favorite_count', 'average_score', 'read_count', 'is_favorited'
+            'favorite_count', 'average_score', 'read_count', 'is_favorited', 'price'
         ]
     def get_image_url(self, obj):
         request = self.context.get('request')
