@@ -908,9 +908,15 @@ const startDrag = (event, node) => {
   }
 }
 
-// 返回游戏或主页
+// 返回游戏作品详情页（使用当前 workId）
 const goBack = () => {
-  router.push('/works')
+  try {
+    const targetId = gameData.value.work?.id || workId
+    router.push({ path: `/works/${targetId}` })
+  } catch (e) {
+    console.warn('goBack failed, fallback to /works', e)
+    router.push('/works')
+  }
 }
 
 const continueGame = () => {

@@ -2072,6 +2072,44 @@ export function useGameState(dependencies = {}) {
       }
       
       // 如果我们正在播放后端提供的结局场景，且已到达这些场景的最后一句，则在此触发结算
+      // 兼容读档场景：即便没有通过播放流程设置 playingEndingScenes，
+      // 但如果当前已加载内容的最后一段正是后端结局场景（例如从存档恢复），
+      // 我们也应当在读完后触发结算/创作者检查逻辑。
+      try {
+        const lastIdxCheck = storyScenes.value.length - 1
+        const lastSceneCheck = storyScenes.value[lastIdxCheck]
+        const atLastSceneCheck = currentSceneIndex.value === lastIdxCheck
+        const atLastDialogueCheck = lastSceneCheck && Array.isArray(lastSceneCheck.dialogues) ? (currentDialogueIndex.value === lastSceneCheck.dialogues.length - 1) : true
+        const isMarkedEnding = lastSceneCheck && (lastSceneCheck._isBackendEnding || lastSceneCheck.isEnding)
+        if (!playingEndingScenes.value && isMarkedEnding && atLastSceneCheck && atLastDialogueCheck) {
+          console.log('[nextDialogue] 读档/已加载末尾为后端结局，检测到读完结局，触发结算流')
+          try { justFinishedPlayingEnding.value = true } catch (e) {}
+          // 保持 playingEndingScenes 与原有播放流程一致性标记为 false（因为并非通过播放流程进入）
+          try { playingEndingScenes.value = false } catch (e) {}
+
+          const isCreator = (creatorMode && creatorMode.value) || (creatorFeatureEnabled && creatorFeatureEnabled.value) || (isCreatorIdentity && isCreatorIdentity.value)
+          // 若为创作者身份且该结局未被标记为 saved，则打开结局编辑器
+          if (isCreator && appendedEndingSaved.value !== true && !(lastSceneCheck && lastSceneCheck._endingSaved === true)) {
+            try {
+              showNotice('结局尚未保存，请在结局编辑器中确认并保存后再进入结算。', 5000)
+              if (!endingEditorVisible.value) {
+                const idx = (lastSceneCheck && lastSceneCheck._endingIndex != null) ? Number(lastSceneCheck._endingIndex) : (lastSceneCheck && lastSceneCheck.chapterIndex ? Number(lastSceneCheck.chapterIndex) : null)
+                endingEditorForm.value = endingEditorForm.value || { title: '', outline: '', userPrompt: '', endingIndex: idx, choice: null }
+                endingEditorVisible.value = true
+              }
+            } catch (e) { console.warn('open ending editor on saved-load ending failed', e) }
+            return
+          }
+
+          showNotice('结局已读，进入结算页面...', 1500)
+          setTimeout(() => {
+            storyEndSignaled.value = true
+            handleGameEnd()
+          }, 800)
+          return
+        }
+      } catch (e) { console.warn('pre-playingEndingScenes saved-load check failed', e) }
+
       if (playingEndingScenes.value) {
         try {
           const lastIdx = storyScenes.value.length - 1
