@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, onActivated } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, onActivated, onDeactivated } from 'vue'
 import { ScreenOrientation } from '@capacitor/screen-orientation'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../store'
@@ -33,6 +33,15 @@ const categories = ref([
 const currentCategory = ref(0); // 当前选中的分类索引，默认选中"类型"
 
 const selectedTags = ref([])
+// 将选中的 tag 对象规范化为字符串数组（后端需要字符串数组）
+const normalizeTags = (tags) => {
+  if (!Array.isArray(tags)) return []
+  return tags.map(t => {
+    if (typeof t === 'string') return t
+    if (t && typeof t === 'object') return t.name || String(t.id || '')
+    return String(t)
+  }).filter(Boolean)
+}
 const idea = ref('') // 用户构思（可选）
 const lengthType = ref('') // 必选：大概篇幅
 
@@ -125,6 +134,8 @@ onBeforeUnmount(() => {
   try { if (screen && screen.orientation && screen.orientation.unlock) screen.orientation.unlock().catch(() => {}) } catch (e) {}
   try { if (resumeTimer) { clearInterval(resumeTimer); resumeTimer = null } } catch (e) {}
   try { if (pollTimer) { clearInterval(pollTimer); pollTimer = null } } catch (e) {}
+  // 标记为非激活（用户离开/卸载时）
+  try { isActivePage && (isActivePage.value = false) } catch(e) {}
 })
 
 const toggleGroup = (idx) => {
@@ -150,6 +161,8 @@ const canCreate = computed(() => {
 const isLoading = ref(false)
 const progress = ref(0)
 const backendWork = ref(null)
+// 标记组件是否仍在前台激活（用户是否还在 CreateWork 页面）
+const isActivePage = ref(true)
 // 持久化创建任务（用于跨页面保留加载状态）
 const CREATION_JOB_KEY = 'creationJob'
 let resumeTimer = null
@@ -166,7 +179,7 @@ const submitToBackend = async () => {
   }
   
   const payload = {
-    tags: selectedTags.value,
+    tags: normalizeTags(selectedTags.value),
     idea: idea.value?.trim() || '',
     length: lengthType.value,
     // 严格遵循 UI 选择：只有当用户选择为创作者时才传 modifiable=true
@@ -198,7 +211,7 @@ const submitToBackend = async () => {
         sessionStorage.setItem('lastWorkMeta', JSON.stringify({
           title: backendWork.value.title || 'AI 生成作品',
           coverUrl: backendWork.value.coverUrl || '',
-          tags: selectedTags.value
+          tags: normalizeTags(selectedTags.value)
         }))
       } catch {}
     }
@@ -214,6 +227,8 @@ const submitToBackend = async () => {
       }
 
       // 严格遵循后端：不再合成本地 mock 大纲，createResult.chapterOutlines 只来自后端
+      // 保证保存的 selectedTags 也是字符串数组，便于其他页面读取并发送给后端
+      createResult.selectedTags = normalizeTags(createResult.selectedTags || [])
       sessionStorage.setItem('createResult', JSON.stringify(createResult))
       return createResult
     } catch (e) {
@@ -234,7 +249,7 @@ const startCreate = async () => {
   // 记录本次用户请求，便于后端读取或下页使用
   try {
     sessionStorage.setItem('createRequest', JSON.stringify({
-      tags: selectedTags.value,
+      tags: normalizeTags(selectedTags.value),
       idea: idea.value?.trim() || '',
       length: lengthType.value
     }))
@@ -303,10 +318,17 @@ const startCreate = async () => {
     // 服务返回后，把进度推进到 100%
     stopFakeProgress()
     progress.value = 100
-    // 给用户一个短暂的完成感（200-400ms）再跳转到作品介绍页
+    // 给用户一个短暂的完成感（200-400ms）
     await new Promise(r => setTimeout(r, 300))
-    // 跳转到作品介绍页，让用户查看作品详情并决定是否开始游戏
-    router.push('/works')
+    // 若用户仍在当前 CreateWork 页面，则自动跳转到新生成的作品详情
+    try {
+      const workId = (backendWork && (backendWork.value && (backendWork.value.id || backendWork.value.gameworkId))) || (result && result.gameworkId) || null
+      if (isActivePage && isActivePage.value && workId) {
+        router.push(`/works/${workId}`)
+      } else {
+        // 用户已离开页面，不自动跳转；生成结果已写入 sessionStorage，用户可手动查看
+      }
+    } catch (e) { /* ignore navigation errors */ }
   } catch (e) {
     // 发生错误：停止假的进度条，但保持页面处于 loading 状态，
     // 不再自动跳转到作品页。用户可以稍后重试或刷新页面以继续生成。
@@ -365,9 +387,14 @@ const restoreCreationJob = () => {
                 // stop loading and navigate
                 isLoading.value = false
                 progress.value = 100
-                // short delay for UX
+                // short delay for UX; 若用户仍在当前页面则跳转到作品详情，否则不跳转
                 setTimeout(() => {
-                  router.push('/works')
+                  try {
+                    const workId = (cr && cr.backendWork && (cr.backendWork.id || cr.backendWork.gameworkId)) || (backendWork && backendWork.value && (backendWork.value.id || backendWork.value.gameworkId)) || null
+                    if (isActivePage && isActivePage.value && workId) {
+                      router.push(`/works/${workId}`)
+                    }
+                  } catch (e) {}
                 }, 250)
               }
             } catch (e) { /* ignore parse errors */ }
@@ -379,8 +406,9 @@ const restoreCreationJob = () => {
 }
 
 // 在挂载与激活时尝试恢复，以兼容 keep-alive 场景
-onMounted(() => { try { restoreCreationJob() } catch (e) {} })
-onActivated(() => { try { restoreCreationJob() } catch (e) {} })
+onMounted(() => { isActivePage.value = true; try { restoreCreationJob() } catch (e) {} })
+onActivated(() => { isActivePage.value = true; try { restoreCreationJob() } catch (e) {} })
+onDeactivated(() => { isActivePage.value = false })
 
 // 底部导航
 const activeTab = ref('create');
@@ -438,13 +466,20 @@ const startResumeSimulation = (job) => {
           chapterOutlines: null,
           modifiable: identity.value === 'creator'
         }
-        try { sessionStorage.setItem('createResult', JSON.stringify(createResult)) } catch (e) {}
-      } catch (e) { console.warn('write finished job failed', e) }
-      // 给用户短暂完成感，但保持 isLoading true until navigation or explicit clear
-      setTimeout(() => {
-        isLoading.value = false
-        progress.value = 0
-      }, 300)
+          try { sessionStorage.setItem('createResult', JSON.stringify(createResult)) } catch (e) {}
+        } catch (e) { console.warn('write finished job failed', e) }
+        // 给用户短暂完成感后：若用户仍在当前 CreateWork 页面则跳转到作品详情，否则保持不跳转
+        setTimeout(() => {
+          try {
+            if (isActivePage && isActivePage.value) {
+              router.push(`/works/${fakeBackendWork.id}`)
+              return
+            }
+          } catch (e) {}
+          // 若未跳转，则清理加载状态
+          isLoading.value = false
+          progress.value = 0
+        }, 300)
     }
   }, 250)
 }
