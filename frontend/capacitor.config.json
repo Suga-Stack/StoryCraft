@@ -1,6 +1,6 @@
 {
   "appId": "com.f4.storycraft",
-  "appName": "StoryCraft",
+  "appName": "故事匠",
   "webDir": "dist",
   "server": {
     "androidScheme": "https",
