@@ -66,7 +66,7 @@ const handleLogin = async () => {
     showLoadingToast('登录中...');
 
     try {
-        const res = await http.post('auth/login/', {
+        const res = await http.post('/api/auth/login/', {
                     username: username.value,
                     password: password.value
                 });
@@ -80,7 +80,7 @@ const handleLogin = async () => {
         return;
         }
 
-        const { code: businessCode, message: businessMsg, tokens = {} } = res.data || {};
+        const { code: businessCode, message: businessMsg, data = {} } = res.data || {};
 
         if (typeof businessCode !== 'undefined' && businessCode !== 200) {
         showFailToast(businessMsg || '登录失败，业务处理出错');
@@ -88,20 +88,17 @@ const handleLogin = async () => {
         }
 
         // 5. 令牌检查更严谨，增加类型判断
-        if (typeof tokens !== 'object' || !tokens.access) {
+        if (typeof data !== 'object' || !data.access) {
         showFailToast('登录失败，未获取到有效的访问令牌');
         return;
         }
 
-        localStorage.setItem('token', String(tokens.access));
-        if (tokens.refresh) {
-        localStorage.setItem('refreshToken', String(tokens.refresh));
-        }
-
-        // 设置用户状态
-        userStore.login({ username: username.value }, tokens.access);
-
         showSuccessToast('登录成功，即将跳转...');
+
+        userStore.handleLoginSuccess(res.data.data.user, {
+            access: data.access,
+            refresh: data.refresh
+        })
 
         const preData = await http.get('users/preferences/');
         // 检查是否存在有效的偏好设置
@@ -115,6 +112,13 @@ const handleLogin = async () => {
 
     } catch (error) {
         showFailToast('登录失败，请检查用户名和密码');
+        // 打印错误详情到控制台
+        console.error('登录请求错误:', error);
+        // 如果是HTTP错误，可进一步解析
+        if (error.response) {
+            console.error('响应状态:', error.response.status);
+            console.error('响应数据:', error.response.data);
+        }
     }
 }
 

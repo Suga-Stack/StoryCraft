@@ -295,10 +295,13 @@ class CommentViewSet(viewsets.ModelViewSet):
                 )
             )    
         
-        if gamework_id:
-            queryset = queryset.filter(gamework_id=gamework_id, parent__isnull=True)  # 顶级评论分页
-        else:
-            queryset = queryset.filter(parent__isnull=True)
+        # 列表（list）接口仅返回顶层评论（便于分页与显示嵌套回复），
+        # 但对 detail 动作（如 like/unlike/retrieve）需要能访问到所有评论（包括回复）
+        if getattr(self, 'action', None) == 'list':
+            if gamework_id:
+                queryset = queryset.filter(gamework_id=gamework_id, parent__isnull=True)  # 顶级评论分页
+            else:
+                queryset = queryset.filter(parent__isnull=True)
         return queryset.order_by('-created_at')
 
     @swagger_auto_schema(

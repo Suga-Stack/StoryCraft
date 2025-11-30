@@ -227,10 +227,12 @@ const fetchReport = async (workId) => {
   try {
     console.log('[GamePage] fetchReport 被调用 - workId:', workId)
     
-    // 🔑 关键重构：使用 story.js 服务层的网络请求
+    // 🔑 关键重构：使用 story.js 服务层的网络请求，传递当前达成的结局索引（endingIndex）
+    const chosenEndingIdx = (typeof lastSelectedEndingIndex !== 'undefined' && lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? Number(lastSelectedEndingIndex.value) : 1
     const data = await storyService.fetchSettlementReport(workId, {
       attributes: attributes.value || {},
-      statuses: statuses.value || {}
+      statuses: statuses.value || {},
+      endingIndex: chosenEndingIdx
     })
     
     if (!data) {
@@ -329,6 +331,105 @@ const {
   handleGameEnd,
   cleanup: cleanupGameState
 } = gameStateResult
+const {
+  endingEditorVisible,
+  endingEditorBusy,
+  endingEditorForm,
+  openEndingEditor,
+  submitEndingEditor,
+  cancelEndingEditor
+} = gameStateResult
+// 如果当前场景是后端返回的结局场景且尚未被保存，我们在创作者模式下需要显示特殊的编辑/保存按钮
+const isPlayingBackendGeneratedEnding = computed(() => {
+  try {
+    const cs = currentScene.value
+    const cf = (creatorFeatureEnabled && creatorFeatureEnabled.value) || false
+    return cf && cs && cs._isBackendEnding && (cs._endingSaved !== true)
+  } catch (e) { return false }
+})
+
+// 保存当前正在播放的后端结局（将其 scenes PUT 到 /api/game/storyending/{workId}/{endingIndex}/）
+const saveCurrentEnding = async () => {
+  try {
+    try { if (typeof startLoading === 'function') startLoading() } catch (e) {}
+    const workId = work && work.value && work.value.id
+    if (!workId) { showNotice('无法识别作品 ID，保存失败'); try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}; return }
+    const endingIdx = (lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? Number(lastSelectedEndingIndex.value) : 1
+    // Helper: 将前端内部的 dialogue 项规范化为后端期望的格式
+    const normalizeDialogue = (item) => {
+      try {
+        // 如果已有后端格式（包含 narration 字段），保留
+        if (item && typeof item === 'object' && (typeof item.narration !== 'undefined' || typeof item.narration === 'string')) {
+          // 确保 narration 为字符串
+          return { narration: String(item.narration), playerChoices: item.playerChoices ?? null }
+        }
+        // 如果是字符串，直接作为 narration
+        if (typeof item === 'string') return { narration: item, playerChoices: null }
+        // 如果是对象且有 text 字段（我们内部常用 text），使用 text
+        if (item && typeof item === 'object' && typeof item.text === 'string') return { narration: item.text, playerChoices: item.playerChoices ?? null }
+        // 如果是对象且有 content 或 narrationText 等字段，尝试兜底
+        if (item && typeof item === 'object') {
+          const txt = item.text ?? item.content ?? item.narrationText ?? ''
+          return { narration: String(txt || ''), playerChoices: item.playerChoices ?? null }
+        }
+        // 其它情况返回空串，避免后端校验失败
+        return { narration: '', playerChoices: null }
+      } catch (e) { return { narration: '', playerChoices: null } }
+    }
+
+    // 从 storyScenes 中收集所有标记为 _isBackendEnding 的场景，并规范化 dialogues
+    const scenesToSave = (storyScenes.value || []).filter(s => s && s._isBackendEnding).map(s => ({
+      id: s.id ?? s.sceneId ?? undefined,
+      backgroundImage: s.backgroundImage || s.background || s.bg || '',
+      dialogues: Array.isArray(s.dialogues) ? s.dialogues.map(d => normalizeDialogue(d)) : []
+    }))
+    const title = (sessionStorage.getItem(`selectedEndingTitle_${workId}`) || (currentScene.value && currentScene.value._endingTitle) || `结局 ${endingIdx}`)
+    const body = { endingIndex: endingIdx, title, scenes: scenesToSave }
+    try {
+      await storyService.saveEnding(workId, body)
+      showNotice('已保存结局内容')
+      // 标记前端缓存为已保存
+      try { for (const s of storyScenes.value) { if (s && s._isBackendEnding) s._endingSaved = true } } catch (e) {}
+      try { await getWorkDetails(workId) } catch (e) {}
+    } catch (e) {
+      console.error('saveCurrentEnding failed', e)
+      showNotice('保存结局失败，请检查网络或控制台', 8000)
+      throw e
+    }
+  } catch (e) {
+    console.warn('saveCurrentEnding error', e)
+  } finally {
+    try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}
+  }
+}
+// 从 gameState 导出 playingEndingScenes 与 endingsAppended
+const { playingEndingScenes, endingsAppended } = gameStateResult
+
+// 全局点击处理：当没有选项/菜单/编辑时，点击屏幕任意不在交互控件上的位置进入下一句
+const onGlobalClick = (e) => {
+  try {
+    // 如果编辑中、菜单/模态/保存等覆盖层打开、或选项可见，则不要在根容器处理为 next
+    if (editingDialogue?.value) return
+    if (showMenu?.value) return
+    if (choicesVisible?.value) return
+    if (anyOverlayOpen?.value) return
+
+    // 忽略点击在表单或交互元素上的情况（按钮、链接、输入框等）
+    const tag = (e.target && e.target.tagName) ? String(e.target.tagName).toLowerCase() : ''
+    if (['button','a','input','select','textarea','label'].includes(tag)) return
+
+    // 忽略点击发生在可能的交互面板内（例如选项容器、菜单面板、编辑控件、模态面板等）
+    if (e.target && e.target.closest) {
+      const ignore = e.target.closest('.choices-container, .menu-panel, .menu-button, .edit-controls, .choice-btn, .edit-btn, .modal-panel, .modal-backdrop, .save-load-modal')
+      if (ignore) return
+    }
+
+    // 如果当前处于等待点击以显示选项的状态，nextDialogue 会在内部将其转换为显示选项
+    nextDialogue()
+  } catch (err) {
+    console.warn('onGlobalClick failed', err)
+  }
+}
 
 // 计算任意弹窗是否打开 - 在 showMenu 解构之后定义
 const anyOverlayOpen = computed(() =>
@@ -337,7 +438,8 @@ const anyOverlayOpen = computed(() =>
   showLoadModal.value ||
   showAttributesModal.value ||
   showSettingsModal.value ||
-  showOutlineEditor.value
+  showOutlineEditor.value ||
+  (endingEditorVisible && endingEditorVisible.value)
 )
 
 // 初始化自动播放功能 - 在 gameState 之后创建，使用 getter 获取 nextDialogue
@@ -955,6 +1057,9 @@ const persistCurrentChapterEdits = async (opts = {}) => {
     
     const auto = (typeof opts.auto === 'undefined') ? true : !!opts.auto
     const allowSaveGenerated = !!opts.allowSaveGenerated
+    // 控制是否对后端执行网络保存（PUT）。默认 true（兼容旧逻辑）。
+    // 在自动触发的持久化（退出创作模式、unmount、toggle creator 自动持久化）时传入 performNetworkSave:false
+    const performNetworkSave = (typeof opts.performNetworkSave === 'boolean') ? opts.performNetworkSave : true
     const chapterIndex = Number(opts.chapterIndex || currentChapterIndex.value) || 1
 
     // 如果是自动保存且当前章节处于 generated（未确认）状态，则跳过自动保存
@@ -1141,11 +1246,17 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       scenes: scenesPayload
     }
 
-    // 检测是否为结局场景：如果是结局则走结局保存接口（而不是覆盖章节）
-    const isEndingChapter = (!!storyEndSignaled && storyEndSignaled.value === true) ||
-                           (Array.isArray(scenesWithOverrides) && scenesWithOverrides.some(s => s.isChapterEnding || s.isGameEnding || s.isGameEnd || s.chapterEnd || s.end || s.isEnding))
+    // 检测是否为结局场景：只有当场景数据本身被标记为结局时才认为是结局，
+    // 避免单纯依赖 storyEndSignaled 导致普通章节被误判为结局而走错保存接口。
+    const isEndingChapter = (Array.isArray(scenesWithOverrides) && scenesWithOverrides.some(s => s.isChapterEnding || s.isGameEnding || s.isGameEnd || s.chapterEnd || s.end || s.isEnding))
     if (isEndingChapter) {
       console.log('persistCurrentChapterEdits: Detected ending chapter — will call storyending save endpoint', { workId, chapterIndex })
+      if (!performNetworkSave) {
+        console.log('persistCurrentChapterEdits: performNetworkSave=false — skip network save for ending')
+        try { await stopLoading() } catch (e) {}
+        try { showNotice && showNotice('结局已在本地生效（未发送到后端）') } catch (e) {}
+        return
+      }
       try {
         // 尝试获取后端已存在的结局列表，以便定位 endingId 与 title（兼容没有 id 的实现）
         let endingId = null
@@ -1361,10 +1472,15 @@ const persistCurrentChapterEdits = async (opts = {}) => {
   if (allowSaveGenerated && (creatorFeatureEnabled.value || isCreatorIdentity.value || modifiableFromCreate.value)) {
         // 1) 调用后端 API 保存章节并更新状态为 saved
         try {
-          console.log('persistCurrentChapterEdits: calling saveChapter API to mark as saved', { workId, chapterIndex })
-          await saveChapter(workId, chapterIndex, chapterData)
-          console.log('persistCurrentChapterEdits: saveChapter API succeeded')
-          showNotice('已将本章保存并标记为 saved')
+          if (!performNetworkSave) {
+            console.log('persistCurrentChapterEdits: performNetworkSave=false — skip saveChapter network call')
+            showNotice('已在本地应用修改（未发送到后端）')
+          } else {
+            console.log('persistCurrentChapterEdits: calling saveChapter API to mark as saved', { workId, chapterIndex })
+            await saveChapter(workId, chapterIndex, chapterData)
+            console.log('persistCurrentChapterEdits: saveChapter API succeeded')
+            showNotice('已将本章保存并标记为 saved')
+          }
           } catch (saveErr) {
           console.error('persistCurrentChapterEdits: saveChapter API failed', saveErr, saveErr?.data || (saveErr?.response && saveErr.response.data))
           showNotice('保存章节失败: ' + (saveErr?.data || saveErr?.message || '未知错误'), 5000)
@@ -1585,7 +1701,7 @@ onUnmounted(() => {
   try {
     (async () => {
       try {
-        await persistCurrentChapterEdits()
+        await persistCurrentChapterEdits({ performNetworkSave: false })
       } catch (e) { console.warn('persistCurrentChapterEdits onUnmount failed', e) }
     })()
   } catch (e) { console.warn('onUnmounted persist failed', e) }
@@ -1650,11 +1766,18 @@ watch(creatorMode, (val) => {
       try {
         (async () => {
           try {
-            // When exiting menu creatorMode (manual editing from menu), persist current chapter edits
-            // and force sending the edited content to backend (PUT). This SHOULD be independent of
-            // AI outline generation flows, so we set allowSaveGenerated=false to take the default
-            // PUT path in persistCurrentChapterEdits instead of the "local mark as saved" branch.
-            await persistCurrentChapterEdits({ auto: false, allowSaveGenerated: false, chapterIndex: currentChapterIndex.value })
+            // When exiting menu creatorMode (manual editing from menu), persist current chapter edits.
+            // If the current scene is a backend-generated ending, we should perform a network save
+            // so the edited ending is sent to the backend via PUT /api/game/storyending/{workId}/{endingIndex}/.
+            const curScene = currentScene?.value || (Array.isArray(storyScenes.value) ? storyScenes.value[currentSceneIndex.value] : null)
+            let shouldPerformNetworkSave = false
+            try {
+              if (curScene && (curScene._isBackendEnding === true || curScene.isChapterEnding || curScene.isGameEnding || curScene.isEnding || curScene.end || curScene.chapterEnd)) {
+                shouldPerformNetworkSave = true
+              }
+            } catch (e) { /* ignore and fall back to false */ }
+
+            await persistCurrentChapterEdits({ auto: false, allowSaveGenerated: false, chapterIndex: currentChapterIndex.value, performNetworkSave: shouldPerformNetworkSave })
           } catch (e) { console.warn('persistCurrentChapterEdits on exit creatorMode failed', e) }
         })()
       } catch (e) { console.warn('trigger persist on exit creatorMode failed', e) }
@@ -1810,7 +1933,10 @@ setSaveLoadDependencies({
   currentBackground,
   effectiveCoverUrl
   ,
-  lastSelectedEndingIndex
+  lastSelectedEndingIndex,
+  // 传入结局播放标记，方便读档时设置
+  playingEndingScenes,
+  endingsAppended
 })
 
 // 设置 useCreatorMode 的依赖（在 autoPlayAPI 创建之后）
@@ -2015,7 +2141,7 @@ onUnmounted(async () => {
 </script>
 
 <template>
-  <div class="game-page">
+  <div class="game-page" @click="onGlobalClick">
     <!-- 横屏准备界面 -->
     <div v-if="!isLandscapeReady" class="landscape-prompt">
       <div class="prompt-content">
@@ -2404,20 +2530,37 @@ onUnmounted(async () => {
   -->
 
   <button 
-    v-if="creatorFeatureEnabled && getChapterStatus(currentChapterIndex) === 'generated'"
+    v-if="(creatorFeatureEnabled || creatorMode) && getChapterStatus(currentChapterIndex) !== 'saved'"
     @click="openOutlineEditorManual()"
     class="creator-outline-btn" 
     title="编辑/生成章节大纲">
     📝 编辑大纲
   </button>
-
+  
+  <!-- 创作者在播放后端已生成结局时显示的编辑按钮 -->
+  <button
+    v-if="(creatorFeatureEnabled || creatorMode) && isPlayingBackendGeneratedEnding"
+    @click="() => openEndingEditor({ _endingIndex: (currentScene && typeof currentScene._endingIndex !== 'undefined' && currentScene._endingIndex !== null) ? Number(currentScene._endingIndex) : ((lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? Number(lastSelectedEndingIndex.value) : null), _endingTitle: (currentScene && currentScene._endingTitle) || (work && work.title) })"
+    class="creator-outline-btn"
+    title="编辑当前结局的大纲">
+    📝 编辑结局大纲
+  </button>
   <!-- 创作者专用：当当前章节已由 AI 生成（generated）时，可确认并保存本章，标记为 saved -->
   <button 
-    v-if="creatorFeatureEnabled && getChapterStatus(currentChapterIndex) === 'generated'" 
+    v-if="(creatorFeatureEnabled || creatorMode) && getChapterStatus(currentChapterIndex) !== 'saved' && !isPlayingBackendGeneratedEnding" 
     @click="persistCurrentChapterEdits({ auto: false, allowSaveGenerated: true })" 
     class="creator-confirm-btn" 
     title="确认并保存本章">
     ✓ 确认保存
+  </button>
+
+  <!-- 创作者在播放后端已生成结局时显示的保存按钮 -->
+  <button
+    v-if="(creatorFeatureEnabled || creatorMode) && isPlayingBackendGeneratedEnding"
+    @click="saveCurrentEnding"
+    class="creator-confirm-btn"
+    title="保存当前结局">
+    ✓ 保存结局
   </button>
 
   <!-- 创作者大纲编辑器模态（当 createResult.modifiable 且有 chapterOutlines 时显示） -->
@@ -2481,5 +2624,26 @@ onUnmounted(async () => {
     </div>
     <!-- 隐藏的文件输入：用于用户替换当前背景图 -->
     <input ref="imgInput" type="file" accept="image/*" style="display:none" @change="onImageSelected" />
+  </div>
+  
+  <!-- 创作者：结局编辑器模态 -->
+  <div v-if="endingEditorVisible" class="modal-backdrop">
+    <div class="modal-panel outline-editor-panel">
+      <h3 class="outline-editor-title">✍️ 编辑结局大纲</h3>
+      <p class="outline-editor-desc">修改结局标题与大纲，或提供生成指令。提交后会触发结局生成并轮询直到完成。</p>
+
+      <div class="outline-chapter-item">
+        <div class="chapter-label">结局索引: {{ endingEditorForm.endingIndex || '-' }}</div>
+        <input v-model="endingEditorForm.title" class="outline-textarea" placeholder="结局标题" />
+        <textarea v-model="endingEditorForm.outline" rows="4" class="outline-textarea" placeholder="结局大纲，例如：你战胜了魔王，成为了王国的英雄..."></textarea>
+        <div class="chapter-label">生成指令 (可选)</div>
+        <textarea v-model="endingEditorForm.userPrompt" rows="2" class="outline-textarea outline-textarea-small" placeholder="例如：请让结局更悲壮一些"></textarea>
+      </div>
+
+      <div class="outline-editor-actions">
+        <button class="edit-btn btn-cancel" @click="cancelEndingEditor">取消</button>
+        <button class="edit-btn btn-confirm" :disabled="endingEditorBusy" @click="submitEndingEditor">提交并生成</button>
+      </div>
+    </div>
   </div>
 </template>

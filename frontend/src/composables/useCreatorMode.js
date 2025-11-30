@@ -45,21 +45,21 @@ export function useCreatorMode(dependencies = {}) {
   let outlineEditorResolver = null
   // 本地生成锁，防止重复提交同一章节生成请求（如果未从外部依赖注入 generationLocks，则使用本地的）
   const generationLocks = ref({})
-  
+
   const overrides = ref({})
   const userId = getCurrentUserId()
-  
+
   const overridesKey = (userId, workId) => `storycraft_overrides_${userId}_${workId}`
-  
+
   const loadOverrides = (workId) => {
     try {
-      try { localStorage.removeItem(overridesKey(userId, workId)) } catch (e) {}
+      try { localStorage.removeItem(overridesKey(userId, workId)) } catch (e) { }
       const raw = sessionStorage.getItem(overridesKey(userId, workId))
       if (raw) overrides.value = JSON.parse(raw)
       else overrides.value = {}
     } catch (e) { overrides.value = {} }
   }
-  
+
   const saveOverrides = (workId) => {
     try {
       sessionStorage.setItem(overridesKey(userId, workId), JSON.stringify(overrides.value || {}))
@@ -70,7 +70,7 @@ export function useCreatorMode(dependencies = {}) {
       } catch (inner) { console.warn('保存 overrides 失败', e) }
     }
   }
-  
+
   const applyOverridesToScenes = (showText) => {
     try {
       if (!overrides.value || !overrides.value.scenes) return
@@ -116,11 +116,11 @@ export function useCreatorMode(dependencies = {}) {
       try {
         // 强制刷新场景数据
         storyScenes.value = JSON.parse(JSON.stringify(storyScenes.value || []))
-        try { showText.value = false; setTimeout(() => { showText.value = true }, 40) } catch (e) {}
+        try { showText.value = false; setTimeout(() => { showText.value = true }, 40) } catch (e) { }
       } catch (e) { console.warn('force refresh after applyOverridesToScenes failed', e) }
     } catch (e) { console.warn('applyOverridesToScenes failed', e) }
   }
-  
+
   const toggleCreatorMode = async (params = {}) => {
     try {
       // 🔑 修复：优先使用 params，如果没有则从依赖中获取
@@ -149,36 +149,93 @@ export function useCreatorMode(dependencies = {}) {
             }
           }
         }
+        // 新增：仅在创作者身份下，若当前场景是后端生成的结局且尚未被保存，则不允许通过菜单进入手动编辑模式
+        try {
+          // 如果是创作者身份或者来自 create 页面且可修改（modifiableFromCreate），
+          // 都应当被视为需要额外的已保存检查，避免未保存的后端结局被菜单直接进入手动编辑。
+          if (isCreatorIdentity?.value || modifiableFromCreate?.value) {
+            const cs = (dependencies && dependencies.currentScene) || params.currentScene
+            const cur = cs && cs.value ? cs.value : (cs || null)
+            if (cur && (cur._isBackendEnding || cur.isGameEnding || cur.isEnding) && cur._endingSaved !== true) {
+              if (showNotice) showNotice('当前结局未保存(saved)状态，无法进入手动编辑模式，请先保存结局或使用“编辑结局大纲”')
+              return
+            }
+          }
+        } catch (e) { /* ignore */ }
         // if (_creatorFeatureEnabled && !_creatorFeatureEnabled.value) {
         //   if (showNotice) showNotice('进入手动编辑：当前作品未开启 AI 自动生成，仅支持人工调整后保存。')
+        // 如果是创作者身份，则在已保存状态下阻止编辑大纲；阅读者身份不受该限制
+        try {
+          if (isCreatorIdentity?.value) {
+            if (typeof checkCurrentChapterSaved === 'function') {
+              const isSaved = await checkCurrentChapterSaved()
+              if (isSaved) {
+                // 如果当前场景是后端结局且该结局已被标记为已保存，允许进入手动编辑（编辑结局与阅读者模式一致）
+                try {
+                  const cs = (dependencies && dependencies.currentScene) || params.currentScene
+                  const cur = cs && cs.value ? cs.value : (cs || null)
+                  if (cur && (cur._isBackendEnding || cur.isGameEnding || cur.isEnding) && cur._endingSaved === true) {
+                    // 允许进入创作者手动编辑模式（不阻止）
+                  } else {
+                    showNotice?.('当前章节已保存，无法编辑大纲')
+                    return
+                  }
+                } catch (e) {
+                  showNotice?.('当前章节已保存，无法编辑大纲')
+                  return
+                }
+              }
+            }
+          }
+        } catch (e) { /* ignore */ }
         // }
         // 进入创作者模式时停止自动播放
         if (_stopAutoPlayTimer) {
-          try { _stopAutoPlayTimer() } catch (e) {}
+          try { _stopAutoPlayTimer() } catch (e) { }
         }
       } else {
         // 退出创作者模式时，如果开启了自动播放则恢复
         if (_autoPlayEnabled?.value && _startAutoPlayTimer) {
-          try { _startAutoPlayTimer() } catch (e) {}
+          try { _startAutoPlayTimer() } catch (e) { }
         }
-        // 退出时持久化当前章节编辑
+        // 退出时持久化当前章节编辑（仅本地持久化，不自动发送到后端）
         if (_persistCurrentChapterEdits) {
-          try { await _persistCurrentChapterEdits({ auto: true }) } catch (e) {}
+          try { await _persistCurrentChapterEdits({ auto: true, performNetworkSave: false }) } catch (e) { }
         }
       }
       creatorMode.value = !creatorMode.value
     } catch (e) { console.warn('toggleCreatorMode failed', e) }
   }
-  
+
   // 修改：不再从调用方传入各个 ref，避免模板自动解包导致传入原始值（string/array）而出现 "Cannot create property 'value' on string ''"。
   // 直接使用闭包中的 outlineEdits/outlineUserPrompt 等 refs。
   const openOutlineEditorManual = async (params = {}) => {
     try {
-      const allowed = (isCreatorIdentity?.value || modifiableFromCreate?.value)
-      if (!allowed) {
-        try { showNotice('您无权编辑本作品的大纲（非作者或作品未开启编辑）。') } catch(e){}
-        return
-      }
+      // 允许所有身份（包括阅读者）打开手动大纲编辑
+      // 只有在创作者身份下，才会阻止"已保存"状态下的编辑行为。
+      try {
+        // 同上：打开大纲编辑时，对于创作者或 createResult 可修改的用户，需要限制已保存状态
+        if (isCreatorIdentity?.value || modifiableFromCreate?.value) {
+          if (typeof checkCurrentChapterSaved === 'function') {
+            const isSaved = await checkCurrentChapterSaved()
+            if (isSaved) {
+              try {
+                const cs = (dependencies && dependencies.currentScene) || params.currentScene
+                const cur = cs && cs.value ? cs.value : (cs || null)
+                if (cur && (cur._isBackendEnding || cur.isGameEnding || cur.isEnding) && cur._endingSaved === true) {
+                  // 允许进入创作者手动编辑（编辑结局与阅读者模式一致）
+                } else {
+                  showNotice?.('当前章节已保存，无法编辑大纲')
+                  return
+                }
+              } catch (e) {
+                showNotice?.('当前章节已保存，无法编辑大纲')
+                return
+              }
+            }
+          }
+        }
+      } catch (e) { /* ignore */ }
 
       // 🔑 关键修复：使用依赖中的 currentChapterIndex 和 totalChapters
       const start = Number(currentChapterIndex?.value || params.currentChapterIndex?.value || 1) || 1
@@ -202,7 +259,7 @@ export function useCreatorMode(dependencies = {}) {
           // 合并标题与大纲正文：title + 空行 + outline/summary
           try {
             const title = (ch && (ch.title ?? ch.chapter_title)) || ''
-            const body  = (ch && (ch.outline ?? ch.summary)) || ''
+            const body = (ch && (ch.outline ?? ch.summary)) || ''
             outlinesMap[ci] = (title && body) ? `${title}\n\n${body}` : (title || body || JSON.stringify(ch))
           } catch (e) { outlinesMap[ci] = JSON.stringify(ch) }
           if (ci > maxIdx) maxIdx = ci
@@ -219,23 +276,23 @@ export function useCreatorMode(dependencies = {}) {
         }
       }
       outlineUserPrompt.value = createRaw?.userPrompt || ''
-      try { originalOutlineSnapshot.value = JSON.parse(JSON.stringify(outlineEdits.value || [])) } catch(e) { originalOutlineSnapshot.value = (outlineEdits.value || []).slice() }
+      try { originalOutlineSnapshot.value = JSON.parse(JSON.stringify(outlineEdits.value || [])) } catch (e) { originalOutlineSnapshot.value = (outlineEdits.value || []).slice() }
       outlineCurrentPage.value = 0  // 初始化为第一页
       editorInvocation.value = 'manual'
       pendingOutlineTargetChapter.value = start
       showOutlineEditor.value = true
     } catch (e) { console.warn('openOutlineEditorManual failed', e) }
   }
-  
+
   const cancelOutlineEdits = (params) => {
-    try { showOutlineEditor.value = false } catch (e) {}
-    
+    try { showOutlineEditor.value = false } catch (e) { }
+
     (async () => {
       try {
         const workId = work.value.id
         if (editorInvocation.value === 'auto' || creatorMode.value) {
-      // 后端 ChapterGenerateSerializer 期望字段名为 outline 而不是 summary
-      const payloadOutlines = (originalOutlineSnapshot.value || []).map(o => ({ chapterIndex: o.chapterIndex, outline: o.outline }))
+          // 后端 ChapterGenerateSerializer 期望字段名为 outline 而不是 summary
+          const payloadOutlines = (originalOutlineSnapshot.value || []).map(o => ({ chapterIndex: o.chapterIndex, outline: o.outline }))
           try {
             const tChap = payloadOutlines[0]?.chapterIndex || 1
             const lockKey = `${workId}:${tChap}`
@@ -248,25 +305,38 @@ export function useCreatorMode(dependencies = {}) {
               } catch (e) {
                 console.warn('cancelOutlineEdits generate failed', e)
               } finally {
-                try { delete generationLocks.value[lockKey] } catch (ee) {}
+                try { delete generationLocks.value[lockKey] } catch (ee) { }
               }
             }
           } catch (e) { console.warn('cancelOutlineEdits generate flow failed', e) }
         }
       } catch (e) { console.warn('cancelOutlineEdits async failed', e) }
     })()
-    
+
     if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(false); outlineEditorResolver = null }
     pendingOutlineTargetChapter.value = null
   }
-  
+
   const confirmOutlineEdits = async (params = {}) => {
     const { startLoading, stopLoading } = params
-    
+    // 仅在创作者身份下，确认大纲前再次校验章节是否已保存，若已保存阻止提交；阅读者不受该限制
+    try {
+      if (isCreatorIdentity?.value) {
+        if (typeof checkCurrentChapterSaved === 'function') {
+          const isSaved = await checkCurrentChapterSaved()
+          if (isSaved) {
+            showNotice?.('当前章节已保存，无法确认大纲')
+            if (stopLoading) stopLoading()
+            return
+          }
+        }
+      }
+    } catch (e) { /* ignore */ }
+
     try {
       // 关闭编辑器界面
       showOutlineEditor.value = false
-      
+
       // 立即显示加载界面
       if (startLoading) {
         try {
@@ -283,7 +353,7 @@ export function useCreatorMode(dependencies = {}) {
         if (stopLoading) {
           try {
             await stopLoading()
-          } catch (e) {}
+          } catch (e) { }
         }
         return
       }
@@ -307,7 +377,7 @@ export function useCreatorMode(dependencies = {}) {
         if (stopLoading) {
           try {
             await stopLoading()
-          } catch (e) {}
+          } catch (e) { }
         }
         return
       }
@@ -334,12 +404,12 @@ export function useCreatorMode(dependencies = {}) {
         showNotice?.('提交生成失败，请稍后重试')
         if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(false); outlineEditorResolver = null }
       } finally {
-        try { delete generationLocks.value[lockKey] } catch (e) {}
+        try { delete generationLocks.value[lockKey] } catch (e) { }
         // 生成完成后关闭加载界面
         if (stopLoading) {
           try {
             await stopLoading()
-          } catch (e) {}
+          } catch (e) { }
         }
       }
       pendingOutlineTargetChapter.value = null
@@ -351,23 +421,23 @@ export function useCreatorMode(dependencies = {}) {
       if (stopLoading) {
         try {
           await stopLoading()
-        } catch (e) {}
+        } catch (e) { }
       }
     }
   }
-  
+
   const startEdit = async (params = {}) => {
     // 🔑 修复：优先使用 params，如果没有则从依赖中获取
     const _work = params.work || work
     const _checkCurrentChapterSaved = params.checkCurrentChapterSaved || checkCurrentChapterSaved
     const _showMenu = params.showMenu || dependencies.showMenu
     const _currentDialogue = params.currentDialogue || dependencies.currentDialogue
-    
+
     if (!creatorMode.value) {
       if (_showMenu) _showMenu.value = true
       return
     }
-    
+
     if (_work?.value?.ai_callable !== false) {
       if (_checkCurrentChapterSaved) {
         const isSaved = await _checkCurrentChapterSaved()
@@ -377,53 +447,53 @@ export function useCreatorMode(dependencies = {}) {
         }
       }
     }
-    
+
     editableText.value = (_currentDialogue?.value || _currentDialogue || currentDialogue?.value || '')
     editingDialogue.value = true
-    
+
     setTimeout(() => {
       try {
         const el = editableDiv.value || document.querySelector('.dialogue-text[contenteditable]')
         if (el) {
-          try { el.innerText = editableText.value } catch (e) {}
+          try { el.innerText = editableText.value } catch (e) { }
           el.focus()
-          try { 
+          try {
             const range = document.createRange()
             const sel = window.getSelection()
             range.selectNodeContents(el)
             range.collapse(false)
             sel.removeAllRanges()
             sel.addRange(range)
-          } catch (e) {}
+          } catch (e) { }
         }
-      } catch (e) {}
+      } catch (e) { }
     }, 50)
   }
-  
+
   const onEditableInput = (e) => {
     try {
       if (!isComposing.value) editableText.value = e.target.innerText
     } catch (err) { console.warn('onEditableInput failed', err) }
   }
-  
+
   const onCompositionStart = () => {
     try { isComposing.value = true } catch (err) { console.warn('onCompositionStart failed', err) }
   }
-  
+
   const onCompositionEnd = (e) => {
-    try { 
+    try {
       isComposing.value = false
-      editableText.value = e.target.innerText 
+      editableText.value = e.target.innerText
     } catch (err) { console.warn('onCompositionEnd failed', err) }
   }
-  
+
   const cancelEdit = (params = {}) => {
     // 🔑 修复：优先使用 params，如果没有则从依赖中获取
     const _currentDialogue = params.currentDialogue || params || dependencies.currentDialogue
     editableText.value = (_currentDialogue?.value || _currentDialogue || '')
     editingDialogue.value = false
   }
-  
+
   const finishEdit = (params = {}) => {
     // 🔑 修复：优先使用 params，如果没有则从依赖中获取
     const _currentScene = params.currentScene || dependencies.currentScene
@@ -437,13 +507,13 @@ export function useCreatorMode(dependencies = {}) {
     const _editingDialogue = params.editingDialogue || dependencies.editingDialogue
     const _allowAdvance = params.allowAdvance || allowAdvance
     const _showText = params.showText || dependencies.showText
-    
+
     try {
       const scene = _currentScene?.value || _currentScene
       if (!scene) return
-      
+
       const sid = (scene._uid || scene.sceneId || scene.id || `idx_${_currentSceneIndex.value}`)
-      
+
       // 🔑 关键修复：移除同步到选项后续对话的代码，这会导致重复
       // 这段代码会错误地将编辑后的文本同时写入原始场景和overrides，导致重复显示
       // try {
@@ -466,27 +536,27 @@ export function useCreatorMode(dependencies = {}) {
       _overrides.value.scenes = _overrides.value.scenes || {}
       _overrides.value.scenes[sid] = _overrides.value.scenes[sid] || { dialogues: {} }
       _overrides.value.scenes[sid].dialogues = _overrides.value.scenes[sid].dialogues || {}
-      
+
       // 🔑 关键修复：直接存储编辑后的文本，不保留原始结构
       // 确保只存储纯文本，避免对象嵌套导致的重复
       _overrides.value.scenes[sid].dialogues[_currentDialogueIndex.value] = editableText.value
-      
+
       if (_saveOverrides) _saveOverrides(work.value.id)
       if (_applyOverridesToScenes) _applyOverridesToScenes(_showText)
-      
-      try { if (_previewSnapshot) _previewSnapshot.value = null } catch (e) {}
+
+      try { if (_previewSnapshot) _previewSnapshot.value = null } catch (e) { }
     } catch (e) { console.warn('finishEdit failed', e) }
-    
+
     console.log('dialogue edit finished', _overrides.value)
     editingDialogue.value = false
     if (_allowAdvance) _allowAdvance.value = false
-    
+
     try {
       if (_showText) {
         _showText.value = false
         setTimeout(() => { _showText.value = true }, 60)
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   // 辅助：判断一条对话是否为旁白（narration）
@@ -541,7 +611,7 @@ export function useCreatorMode(dependencies = {}) {
       if (insertIndex < 0 || insertIndex > scene.dialogues.length) insertIndex = scene.dialogues.length
 
       const newText = params.text || '（新增旁白，请编辑内容）'
-  const narrationObj = { text: newText, type: 'narration', __narration: true, speaker: null }
+      const narrationObj = { text: newText, type: 'narration', __narration: true, speaker: null }
       scene.dialogues.splice(insertIndex, 0, narrationObj)
 
       // 更新 overrides：对话索引后移
@@ -550,7 +620,7 @@ export function useCreatorMode(dependencies = {}) {
       _overrides.value.scenes[sid] = _overrides.value.scenes[sid] || { dialogues: {} }
       const od = _overrides.value.scenes[sid].dialogues || {}
       // 先将需要后移的索引从末尾向后移动，避免覆盖
-      const existingKeys = Object.keys(od).map(k => Number(k)).filter(k => !isNaN(k)).sort((a,b) => b - a)
+      const existingKeys = Object.keys(od).map(k => Number(k)).filter(k => !isNaN(k)).sort((a, b) => b - a)
       for (const k of existingKeys) {
         if (k >= insertIndex) {
           od[k + 1] = od[k]
@@ -564,7 +634,7 @@ export function useCreatorMode(dependencies = {}) {
       if (_applyOverridesToScenes) _applyOverridesToScenes(_showText)
 
       // 将当前编辑索引跳到新旁白
-      try { _currentDialogueIndex.value = insertIndex } catch (e) {}
+      try { _currentDialogueIndex.value = insertIndex } catch (e) { }
       showNotice?.('已插入旁白')
     } catch (e) {
       console.warn('addNarration failed', e)
@@ -655,23 +725,23 @@ export function useCreatorMode(dependencies = {}) {
       showNotice?.('删除旁白失败')
     }
   }
-  
+
   const triggerImagePicker = async (params = {}) => {
     // 🔑 修复：优先使用 params，如果没有则从依赖中获取
     const _work = params.work || work
     const _checkCurrentChapterSaved = params.checkCurrentChapterSaved || checkCurrentChapterSaved
     const _showMenu = params.showMenu || dependencies.showMenu
-    
+
     const allowed = (isCreatorIdentity?.value || modifiableFromCreate?.value)
-    if (!creatorMode.value) { 
+    if (!creatorMode.value) {
       if (_showMenu) _showMenu.value = true
-      return 
+      return
     }
-    if (!allowed) { 
+    if (!allowed) {
       if (showNotice) showNotice('您无权替换图片：非作者或作品未开启编辑')
-      return 
+      return
     }
-    
+
     if (_work?.value?.ai_callable !== false) {
       if (_checkCurrentChapterSaved) {
         const isSaved = await _checkCurrentChapterSaved()
@@ -681,10 +751,10 @@ export function useCreatorMode(dependencies = {}) {
         }
       }
     }
-    
-    try { imgInput.value && imgInput.value.click() } catch (e) {}
+
+    try { imgInput.value && imgInput.value.click() } catch (e) { }
   }
-  
+
   const onImageSelected = async (ev, params = {}) => {
     // 🔑 修复：优先使用 params，如果没有则从依赖中获取
     const _currentScene = params.currentScene || dependencies.currentScene
@@ -694,30 +764,30 @@ export function useCreatorMode(dependencies = {}) {
     const _applyOverridesToScenes = params.applyOverridesToScenes || applyOverridesToScenes
     const _previewSnapshot = params.previewSnapshot || previewSnapshot
     const _showText = params.showText || dependencies.showText
-    
+
     try {
       const f = ev?.target?.files?.[0]
       if (!f) return
       if (!/^image\//.test(f.type)) return
-      
+
       const reader = new FileReader()
       reader.onload = async () => {
         const data = reader.result
         const scene = _currentScene?.value || _currentScene
         if (!scene) return
         const sid = (scene._uid || scene.sceneId || scene.id || `idx_${_currentSceneIndex.value}`)
-        
+
         _overrides.value.scenes = _overrides.value.scenes || {}
         _overrides.value.scenes[sid] = _overrides.value.scenes[sid] || { dialogues: {} }
         _overrides.value.scenes[sid].backgroundImage = data
         if (_saveOverrides) _saveOverrides(work.value.id)
         if (_applyOverridesToScenes) _applyOverridesToScenes(_showText)
-        
+
         try {
           const form = new FormData()
           form.append('file', f)
           try {
-            const resp = await http.post('/game/upload-image/', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+            const resp = await http.post('/api/game/upload-image/', form, { headers: { 'Content-Type': 'multipart/form-data' } })
             const imageUrl = (resp && resp.data && (resp.data.imageUrl || resp.data.imageUrl)) || (resp && resp.imageUrl) || null
             if (imageUrl) {
               _overrides.value.scenes[sid].backgroundImage = imageUrl
@@ -734,28 +804,28 @@ export function useCreatorMode(dependencies = {}) {
           }
         } catch (e) { console.warn('image upload flow failed', e) }
 
-        try { if (_previewSnapshot) _previewSnapshot.value = null } catch (e) {}
-        try { 
+        try { if (_previewSnapshot) _previewSnapshot.value = null } catch (e) { }
+        try {
           if (_showText) {
             _showText.value = false
             setTimeout(() => { _showText.value = true }, 40)
           }
-        } catch (e) {}
+        } catch (e) { }
       }
       reader.readAsDataURL(f)
     } catch (e) { console.warn('onImageSelected failed', e) }
   }
-  
+
   const playNextAfterEdit = (params = {}) => {
     // 🔑 修复：优先使用 params，如果没有则从依赖中获取
     const _allowAdvance = params.allowAdvance || allowAdvance
     const _showMenu = params.showMenu || dependencies.showMenu
     const _nextDialogue = params.nextDialogue || dependencies.nextDialogue
-    
+
     try {
       if (_allowAdvance) _allowAdvance.value = true
-      try { if (_showMenu) _showMenu.value = false } catch (e) {}
-      setTimeout(() => { 
+      try { if (_showMenu) _showMenu.value = false } catch (e) { }
+      setTimeout(() => {
         if (_nextDialogue) {
           if (typeof _nextDialogue === 'function') {
             _nextDialogue()
@@ -766,7 +836,7 @@ export function useCreatorMode(dependencies = {}) {
       }, 60)
     } catch (e) { console.warn('playNextAfterEdit failed', e) }
   }
-  
+
   const setupCreatorModeWatch = (params) => {
     const { creatorMode, creatorEntry, currentSceneIndex, currentDialogueIndex, allowAdvance, stopAutoPlayTimer, startAutoPlayTimer, autoPlayEnabled, showText, persistCurrentChapterEdits, pendingNextChapter, fetchNextChapter, startLoading, stopLoading } = params
     watch(creatorMode, (val) => {
@@ -776,18 +846,18 @@ export function useCreatorMode(dependencies = {}) {
           // 修改：记录进入时的对话索引，而不是强制设为0
           creatorEntry.dialogueIndex = currentDialogueIndex.value
           allowAdvance.value = false
-          try { stopAutoPlayTimer() } catch (e) {}
+          try { stopAutoPlayTimer() } catch (e) { }
         } catch (e) { console.warn('enter creatorMode failed', e) }
       } else {
         try {
           try {
             (async () => {
               try {
-                await persistCurrentChapterEdits({ auto: false, allowSaveGenerated: false })
+                await persistCurrentChapterEdits({ auto: false, allowSaveGenerated: false, performNetworkSave: false })
               } catch (e) { console.warn('persistCurrentChapterEdits on exit creatorMode failed', e) }
             })()
           } catch (e) { console.warn('trigger persist on exit creatorMode failed', e) }
-          
+
           if (creatorEntry.sceneIndex != null) {
             currentSceneIndex.value = creatorEntry.sceneIndex
             // 修改：恢复到进入时记录的对话索引
@@ -795,40 +865,40 @@ export function useCreatorMode(dependencies = {}) {
             showText.value = true
           }
           allowAdvance.value = true
-          try { if (autoPlayEnabled.value) startAutoPlayTimer() } catch (e) {}
-          
+          try { if (autoPlayEnabled.value) startAutoPlayTimer() } catch (e) { }
+
           try {
             if (pendingNextChapter.value != null) {
               const chap = pendingNextChapter.value
               pendingNextChapter.value = null
-              (async () => {
-                try {
-                  startLoading()
-                  await fetchNextChapter(work.value.id, chap)
-                } catch (e) { console.warn('load pending next chapter failed', e) }
-                try { await stopLoading() } catch (e) {}
-              })()
+                (async () => {
+                  try {
+                    startLoading()
+                    await fetchNextChapter(work.value.id, chap)
+                  } catch (e) { console.warn('load pending next chapter failed', e) }
+                  try { await stopLoading() } catch (e) { }
+                })()
             }
           } catch (e) { console.warn('trigger pending next chapter failed', e) }
-          
+
           try {
             if (previewSnapshot.value) {
               console.log('Restoring previewSnapshot on exit creatorMode')
-              try { storyScenes.value = deepClone(previewSnapshot.value.storyScenes || []) } catch(e) { storyScenes.value = previewSnapshot.value.storyScenes || [] }
+              try { storyScenes.value = deepClone(previewSnapshot.value.storyScenes || []) } catch (e) { storyScenes.value = previewSnapshot.value.storyScenes || [] }
               currentSceneIndex.value = previewSnapshot.value.currentSceneIndex || 0
               currentDialogueIndex.value = previewSnapshot.value.currentDialogueIndex || 0
-              try { attributes.value = deepClone(previewSnapshot.value.attributes || {}) } catch(e) { attributes.value = previewSnapshot.value.attributes || {} }
-              try { statuses.value = deepClone(previewSnapshot.value.statuses || {}) } catch(e) { statuses.value = previewSnapshot.value.statuses || {} }
-              try { choiceHistory.value = deepClone(previewSnapshot.value.choiceHistory || []) } catch(e) { choiceHistory.value = previewSnapshot.value.choiceHistory || [] }
+              try { attributes.value = deepClone(previewSnapshot.value.attributes || {}) } catch (e) { attributes.value = previewSnapshot.value.attributes || {} }
+              try { statuses.value = deepClone(previewSnapshot.value.statuses || {}) } catch (e) { statuses.value = previewSnapshot.value.statuses || {} }
+              try { choiceHistory.value = deepClone(previewSnapshot.value.choiceHistory || []) } catch (e) { choiceHistory.value = previewSnapshot.value.choiceHistory || [] }
               previewSnapshot.value = null
-              try { restoreChoiceFlagsFromHistory() } catch(e) {}
+              try { restoreChoiceFlagsFromHistory() } catch (e) { }
             }
-          } catch(e) { console.warn('restore previewSnapshot failed', e) }
+          } catch (e) { console.warn('restore previewSnapshot failed', e) }
         } catch (e) { console.warn('exit creatorMode failed', e) }
       }
     })
   }
-  
+
   // 提供方法来更新依赖（类似 useSaveLoad 和 useStoryAPI）
   const setDependencies = (deps) => {
     if (deps.stopAutoPlayTimer) dependencies.stopAutoPlayTimer = deps.stopAutoPlayTimer
@@ -842,7 +912,7 @@ export function useCreatorMode(dependencies = {}) {
     if (deps.currentScene) dependencies.currentScene = deps.currentScene
     if (deps.nextDialogue) dependencies.nextDialogue = deps.nextDialogue
   }
-  
+
   return {
     creatorMode,
     showOutlineEditor,
@@ -862,12 +932,12 @@ export function useCreatorMode(dependencies = {}) {
     pendingOutlineTargetChapter,
     overrides,
     outlineEditorResolver,
-    
+
     // 方法
     toggleCreatorMode,
     openOutlineEditorManual,
     cancelOutlineEdits,
-  confirmOutlineEdits,
+    confirmOutlineEdits,
     startEdit,
     finishEdit,
     cancelEdit,
@@ -877,19 +947,19 @@ export function useCreatorMode(dependencies = {}) {
     onEditableInput,
     onCompositionStart,
     onCompositionEnd,
-  // Narration 新增功能
-  addNarration,
-  deleteNarration,
-  isNarration,
-    
+    // Narration 新增功能
+    addNarration,
+    deleteNarration,
+    isNarration,
+
     // Overrides 相关
     loadOverrides,
     saveOverrides,
     applyOverridesToScenes,
-    
+
     // Setup
     setupCreatorModeWatch,
-    
+
     // 依赖管理
     setDependencies
   }

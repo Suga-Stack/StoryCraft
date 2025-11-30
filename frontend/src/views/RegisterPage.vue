@@ -212,7 +212,7 @@ const handleVerify = async () => {
     isVerifying.value = true;
     
     // 调用发送验证码接口
-    const response = await http.post('/auth/send-email-code/', {
+    const response = await http.post('/api/auth/send-email-code/', {
       email: formData.value.email
     });
     if (response.data.code === 200) {
@@ -251,7 +251,7 @@ const handleRegister = async () => {
     isSubmitting.value = true;
 
     // 调用注册接口
-    const response = await http.post('/auth/register/', {
+    const response = await http.post('/api/auth/register/', {
       username: formData.value.username,
       password: formData.value.password,
       confirm_password: formData.value.confirm_password,
@@ -259,17 +259,16 @@ const handleRegister = async () => {
       email_code: formData.value.email_code
     });
 
-    if (response.status === 201) {
-      // 注册成功后，如果后端返回了 token，保存到 localStorage
-      if (response.data && response.data.tokens) {
-        const tokens = response.data.tokens;
-        if (tokens.access) {
-          localStorage.setItem('token', String(tokens.access));
-          if (tokens.refresh) {
-            localStorage.setItem('refreshToken', String(tokens.refresh));
-          }
-        }
+    if (response.code === 201) {
+      // 处理token存储
+      const { tokens = {} } = res.data || {};
+      if (tokens.access) {
+        localStorage.setItem('token', tokens.access);
       }
+      if (tokens.refresh) {
+        localStorage.setItem('refreshToken', tokens.refresh);
+      }
+      localStorage.setItem('userInfo', JSON.stringify(data.user));
       router.push('/preferences');
     } else {
       // 处理正常响应中的错误信息

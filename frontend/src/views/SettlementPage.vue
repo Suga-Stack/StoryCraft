@@ -683,7 +683,25 @@ const generateBranchingGraph = async () => {
     const payload = resp && resp.data ? resp.data : resp
     const endings = Array.isArray(payload?.endings) ? payload.endings : []
     if (endings.length > 0) {
+      // 优先尝试使用已记录的结局索引（比仅靠标题更可靠）
       const storedTitle = sessionStorage.getItem(`selectedEndingTitle_${currentWorkId}`)
+      const storedIdxStr = sessionStorage.getItem(`lastSelectedEndingIndex_${currentWorkId}`)
+      const storedIdx = storedIdxStr ? Number(storedIdxStr) : null
+
+      // 如果有 selected index，则向后端请求该结局的完整详情以获取缩略图与准标题
+      let selectedEndingDetail = null
+      if (storedIdx && Number.isFinite(storedIdx)) {
+        try {
+          const det = await http.get(`/api/game/storyending/${currentWorkId}/${storedIdx}`)
+          const detPayload = det && det.data ? det.data : det
+          selectedEndingDetail = detPayload?.ending || detPayload || null
+          console.log('[Settlement] 获取已选结局详情:', storedIdx, selectedEndingDetail)
+        } catch (e) {
+          console.warn('[Settlement] 获取已选结局详细信息失败，继续使用结局列表:', e)
+          selectedEndingDetail = null
+        }
+      }
+
       const endCount = endings.length
       const endSpacing = 240
       const endStartX = 400 - (endCount - 1) * endSpacing / 2
@@ -693,10 +711,26 @@ const generateBranchingGraph = async () => {
       for (let ei = 0; ei < endings.length; ei++) {
         const ed = endings[ei]
         const ex = endStartX + ei * endSpacing
-        const etitle = ed.title || `结局 ${ei + 1}`
-        if (storedTitle && etitle === storedTitle) {
+        // list 接口返回的索引字段可能是 endingIndex
+        const listIndex = ed.endingIndex || (ei + 1)
+        // 优先使用从 detail 获取到的标题/场景（如果是用户所选的结局）
+        let etitle = ed.title || `结局 ${listIndex}`
+        let endImage = (Array.isArray(ed.scenes) && ed.scenes.length > 0) ? (ed.scenes[0].backgroundImage || null) : null
+
+        // 如果我们 fetch 了 selectedEndingDetail，并且它对应当前 list 项，则覆盖 title/image
+        if (selectedEndingDetail && storedIdx && Number(listIndex) === Number(storedIdx)) {
+          etitle = selectedEndingDetail.title || etitle
+          if (Array.isArray(selectedEndingDetail.scenes) && selectedEndingDetail.scenes.length > 0) {
+            endImage = selectedEndingDetail.scenes[0].backgroundImage || endImage
+          }
+        }
+
+        // 判断是否为已进入结局：优先使用索引匹配，其次回退到按标题匹配（兼容旧 session 存储）
+        const isEnteredByIndex = storedIdx && Number(listIndex) === Number(storedIdx)
+        const isEnteredByTitle = storedTitle && etitle === storedTitle
+
+        if (isEnteredByIndex || isEnteredByTitle) {
           // 已进入的结局：显示首图缩略并连接为已选分支
-          const endImage = (Array.isArray(ed.scenes) && ed.scenes.length > 0) ? (ed.scenes[0].backgroundImage || null) : null
           const layoutE = computeNodeLayout('结局', etitle, { imageW: THUMB_W, imageH: THUMB_H })
           const endNodeId = nodeId++
           nodes.push({
@@ -813,6 +847,20 @@ const generatePersonalityReport = async () => {
     // 确保使用有效的 workId
     const currentWorkId = gameData.value.work?.id || workId
     console.log('Fetching personality report variants... workId:', currentWorkId, 'attrs/statuses:', attrs, statuses)
+    // 优先使用 sessionStorage 中已由前端 fetchReport/后端返回并保存的结算数据（避免重复请求）
+    if (sessionData && sessionData.status === 'ready' && sessionData.details) {
+      console.log('[Settlement] 使用 sessionData.details 作为个性报告', sessionData.details)
+      const d = sessionData.details
+      personalityReport.value = {
+        title: d.title || defaultPersonalityReport.title,
+        content: d.content || defaultPersonalityReport.content,
+        traits: Array.isArray(d.traits) ? d.traits : defaultPersonalityReport.traits,
+        scores: (d.scores && typeof d.scores === 'object') ? d.scores : defaultPersonalityReport.scores
+      }
+      console.log('Selected personality report from sessionData:', personalityReport.value)
+      return
+    }
+
     const variants = await fetchPersonalityReportVariants(currentWorkId, attrs, statuses)
     console.log('Variants received:', variants)
 
@@ -860,9 +908,15 @@ const startDrag = (event, node) => {
   }
 }
 
-// 返回游戏或主页
+// 返回游戏作品详情页（使用当前 workId）
 const goBack = () => {
-  router.push('/works')
+  try {
+    const targetId = gameData.value.work?.id || workId
+    router.push({ path: `/works/${targetId}` })
+  } catch (e) {
+    console.warn('goBack failed, fallback to /works', e)
+    router.push('/works')
+  }
 }
 
 const continueGame = () => {

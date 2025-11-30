@@ -125,7 +125,7 @@ const FetchTags = async (page = 1) => {
     isLoadingTags.value = true;
     tagsError.value = '';
 
-    const newTagsRes = await http.get('/tags/', {
+    const newTagsRes = await http.get('/api/tags/', {
       params: { page }
     });
     console.log('标签接口返回数据:', newTagsRes); 
@@ -149,7 +149,7 @@ onMounted(async () => {
     
     await FetchTags();
     // 再获取用户偏好
-    const res = await http.get('/users/preferences/');
+    const res = await http.get('/api/users/preferences/');
     if (res.code === 200 && res.data?.preferences) {
       const { gender, favoriteTags } = res.data.preferences;
       selectedGender.value = gender || '';
@@ -223,7 +223,7 @@ const handleSubmit = async () => {
       liked_tags: selectedTags.value.map(tagId => parseInt(tagId, 10)) // 转换为整数
     };
 
-    const response = await http.put('/users/preferences/', submitData);
+    const response = await http.put('/api/users/preferences/', submitData);
 
     if (response.status === 200) {
       userStore.setPreferences(response.data.preferences);

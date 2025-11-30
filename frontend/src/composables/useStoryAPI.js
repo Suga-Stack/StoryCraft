@@ -12,7 +12,7 @@ export function useStoryAPI() {
   let generateChapter = storyService.generateChapter
   let saveChapter = storyService.saveChapter
   let saveEnding = storyService.saveEnding
-  
+
   // 故事场景数据
   const storyScenes = ref([])
   const currentSceneIndex = ref(0)
@@ -25,23 +25,23 @@ export function useStoryAPI() {
   const isGeneratingSettlement = ref(false)
   // 记录后端返回并被选中的结局索引（1-based），用于存档/读档定位
   const lastSelectedEndingIndex = ref(null)
-  
+
   // 章节状态
   const chaptersStatus = ref([])
   const generationLocks = ref({})
   const lastLoadedGeneratedChapter = ref(null)
-  
+
   // 用户交互
   const choiceHistory = ref([])
   const isFetchingChoice = ref(false)
   const lastChoiceTimestamp = ref(0)
   const suppressAutoShowChoices = ref(false)
-  
+
   // 计算属性
   const currentScene = computed(() => {
     return storyScenes.value[currentSceneIndex.value] || null
   })
-  
+
   const getDialogueItem = (scene, idx) => {
     if (!scene) return null
     const item = scene.dialogues?.[idx]
@@ -60,26 +60,26 @@ export function useStoryAPI() {
     }
     return null
   }
-  
+
   const currentDialogue = computed(() => {
     const scene = currentScene.value
     const item = getDialogueItem(scene, currentDialogueIndex.value)
     return item?.text || ''
   })
-  
+
   const currentBackground = computed(() => {
     const scene = currentScene.value
     const item = getDialogueItem(scene, currentDialogueIndex.value)
     if (item?.backgroundImage) return item.backgroundImage
     return scene?.backgroundImage || ''
   })
-  
+
   const currentSpeaker = computed(() => {
     const scene = currentScene.value
     const item = getDialogueItem(scene, currentDialogueIndex.value)
     return (item && typeof item.speaker === 'string' && item.speaker.trim()) ? item.speaker.trim() : ''
   })
-  
+
   // 辅助方法
   const getChapterStatus = (chapterIdx) => {
     try {
@@ -87,7 +87,7 @@ export function useStoryAPI() {
       return found ? (found.status || null) : null
     } catch (e) { return null }
   }
-  
+
   const checkCurrentChapterSaved = async (modifiableFromCreate, aiCallable) => {
     try {
       if (modifiableFromCreate && aiCallable === false) {
@@ -101,33 +101,33 @@ export function useStoryAPI() {
       return false
     }
   }
-  
+
   const getWorkDetails = async (workId) => {
     try {
       if (!workId) workId = work.value.id
-      const url = `/gameworks/gameworks/${encodeURIComponent(workId)}/`
+      const url = `/api/gameworks/gameworks/${encodeURIComponent(workId)}/`
       const resp = await http.get(url)
       const body = resp && resp.data ? resp.data : resp
-      
+
       const mergeServerStatuses = (serverList) => {
         try {
           const server = Array.isArray(serverList) ? serverList : []
           const local = Array.isArray(chaptersStatus.value) ? chaptersStatus.value : []
           const map = new Map()
           server.forEach(s => map.set(Number(s.chapterIndex), Object.assign({}, s)))
-          (local || []).forEach(l => {
-            const idx = Number(l.chapterIndex)
-            if (map.has(idx)) {
-              const existing = map.get(idx)
-              if (l.status === 'saved') existing.status = 'saved'
-              map.set(idx, existing)
-            } else {
-              map.set(idx, Object.assign({}, l))
-            }
-          })
+            (local || []).forEach(l => {
+              const idx = Number(l.chapterIndex)
+              if (map.has(idx)) {
+                const existing = map.get(idx)
+                if (l.status === 'saved') existing.status = 'saved'
+                map.set(idx, existing)
+              } else {
+                map.set(idx, Object.assign({}, l))
+              }
+            })
           chaptersStatus.value = Array.from(map.values())
         } catch (e) {
-          try { chaptersStatus.value = serverList } catch (err) {}
+          try { chaptersStatus.value = serverList } catch (err) { }
         }
       }
 
@@ -145,7 +145,7 @@ export function useStoryAPI() {
       return null
     }
   }
-  
+
   const pollWorkStatus = async (workId, targetChapter, opts = { interval: 1500, timeout: 120000 }) => {
     const start = Date.now()
     while (true) {
@@ -155,12 +155,12 @@ export function useStoryAPI() {
         const status = cs ? cs.status : null
         if (Array.isArray(data?.chapters_status)) chaptersStatus.value = data.chapters_status
         if (status === 'generated' || status === 'saved') return status
-      } catch (e) {}
+      } catch (e) { }
       if (Date.now() - start > (opts && opts.timeout ? opts.timeout : 120000)) throw new Error('pollWorkStatus timeout')
       await new Promise(r => setTimeout(r, opts && opts.interval ? opts.interval : 1500))
     }
   }
-  
+
   const pushSceneFromServer = (sceneObj) => {
     try {
       console.log('[pushSceneFromServer] Received sceneObj:', sceneObj)
@@ -176,7 +176,7 @@ export function useStoryAPI() {
       const dialogues = []
       let extractedChoices = null
       let hasExtractedChoices = false
-      
+
       for (let i = 0; i < (raw.dialogues || []).length; i++) {
         const d = raw.dialogues[i]
         if (typeof d === 'string') {
@@ -186,7 +186,7 @@ export function useStoryAPI() {
           const item = { text: narration }
           if (d.backgroundImage) item.backgroundImage = d.backgroundImage
           if (d.speaker) item.speaker = d.speaker
-          
+
           // 🔑 关键修复：提取选项并记录正确的触发索引
           if (!hasExtractedChoices && Array.isArray(d.playerChoices) && d.playerChoices.length > 0) {
             // 触发索引应该是当前对话在 dialogues 数组中的位置
@@ -207,9 +207,9 @@ export function useStoryAPI() {
             })
             extractedChoices = { index: choiceDialogueIndex, choices: pcs }
             hasExtractedChoices = true
-            console.log('[pushSceneFromServer] 提取选项:', { 
-              originalDialogueIndex: i, 
-              choiceTriggerIndex: choiceDialogueIndex, 
+            console.log('[pushSceneFromServer] 提取选项:', {
+              originalDialogueIndex: i,
+              choiceTriggerIndex: choiceDialogueIndex,
               choicesCount: pcs.length,
               dialoguesLengthBefore: dialogues.length,
               extractedChoices: pcs
@@ -239,9 +239,9 @@ export function useStoryAPI() {
       if (extractedChoices) {
         scene.choiceTriggerIndex = extractedChoices.index
         scene.choices = extractedChoices.choices
-        console.log('[pushSceneFromServer] 设置场景选项:', { 
-          sceneId: scene.id, 
-          choiceTriggerIndex: scene.choiceTriggerIndex, 
+        console.log('[pushSceneFromServer] 设置场景选项:', {
+          sceneId: scene.id,
+          choiceTriggerIndex: scene.choiceTriggerIndex,
           choicesCount: scene.choices.length,
           dialoguesCount: scene.dialogues.length,
           // 打印触发句的内容以便调试
@@ -259,19 +259,19 @@ export function useStoryAPI() {
       }
       // 否则,如果场景级别有 choices,使用场景级别的选项(向后兼容)
       else if (Array.isArray(raw.choices) && raw.choices.length > 0) {
-        scene.choices = raw.choices.map((c, idx) => ({ 
+        scene.choices = raw.choices.map((c, idx) => ({
           id: c.id ?? c.choiceId ?? `${id}-c-${idx}`,
           choiceId: c.choiceId ?? c.id ?? (idx + 1),
-          text: c.text ?? '', 
-          attributesDelta: c.attributesDelta ?? {}, 
-          statusesDelta: c.statusesDelta ?? {}, 
-          subsequentDialogues: c.subsequentDialogues ?? [] 
+          text: c.text ?? '',
+          attributesDelta: c.attributesDelta ?? {},
+          statusesDelta: c.statusesDelta ?? {},
+          subsequentDialogues: c.subsequentDialogues ?? []
         }))
         scene.choiceTriggerIndex = typeof raw.choiceTriggerIndex === 'number' ? raw.choiceTriggerIndex : (scene.dialogues.length - 1)
-        console.log('[pushSceneFromServer] 使用场景级选项:', { 
-          sceneId: scene.id, 
-          choiceTriggerIndex: scene.choiceTriggerIndex, 
-          choicesCount: scene.choices.length 
+        console.log('[pushSceneFromServer] 使用场景级选项:', {
+          sceneId: scene.id,
+          choiceTriggerIndex: scene.choiceTriggerIndex,
+          choicesCount: scene.choices.length
         })
       }
 
@@ -286,211 +286,211 @@ export function useStoryAPI() {
         console.log('[pushSceneFromServer] Total scenes after push:', storyScenes.value.length)
       } catch (e) {
         console.warn('[pushSceneFromServer] deepClone failed, using fallback')
-        try { 
-          storyScenes.value.push(scene) 
+        try {
+          storyScenes.value.push(scene)
         } catch (err) { console.warn('pushSceneFromServer push failed', err) }
       }
     } catch (e) { console.warn('pushSceneFromServer failed', e) }
   }
   const fetchNextChapter = async (workId, chapterIndex = null, opts = { replace: true }) => {
     try {
-        if (!workId) workId = work.value.id
-        // 计算希望请求的章节索引（1-based）
-        let idx = Number(chapterIndex) || null
-        if (!idx || idx <= 0) idx = currentChapterIndex.value || 1
+      if (!workId) workId = work.value.id
+      // 计算希望请求的章节索引（1-based）
+      let idx = Number(chapterIndex) || null
+      if (!idx || idx <= 0) idx = currentChapterIndex.value || 1
 
-        console.log(`[fetchNextChapter] 开始获取第 ${idx} 章内容...`)
+      console.log(`[fetchNextChapter] 开始获取第 ${idx} 章内容...`)
 
-        // 对于创作者身份，在加载新章节前检查上一章是否已保存
-        if (_creatorFeatureEnabled?.value && idx > 1) {
+      // 对于创作者身份，在加载新章节前检查上一章是否已保存
+      if (_creatorFeatureEnabled?.value && idx > 1) {
         try {
-            await getWorkDetails(workId)
-            const prevChapterStatus = getChapterStatus(idx - 1)
-            console.log(`[fetchNextChapter] 检查上一章 ${idx - 1} 的状态:`, prevChapterStatus)
-            
-            if (prevChapterStatus !== 'saved') {
+          await getWorkDetails(workId)
+          const prevChapterStatus = getChapterStatus(idx - 1)
+          console.log(`[fetchNextChapter] 检查上一章 ${idx - 1} 的状态:`, prevChapterStatus)
+
+          if (prevChapterStatus !== 'saved') {
             console.warn(`[fetchNextChapter] 上一章 ${idx - 1} 状态为 ${prevChapterStatus}，阻止加载第 ${idx} 章`)
             if (_showNotice) _showNotice(`第 ${idx - 1} 章尚未保存，请先确认并保存该章内容后再继续。`, 8000)
             // 不抛出异常，只是返回 null，让调用方知道加载被阻止
             return null
-            }
+          }
         } catch (e) {
-            console.warn('[fetchNextChapter] 检查上一章状态失败:', e)
+          console.warn('[fetchNextChapter] 检查上一章状态失败:', e)
         }
-        }
+      }
 
-    // 若后端/创建页标记允许创作功能（creatorFeatureEnabled），则在每一章加载前弹出大纲编辑器供创作者确认/修改后再真正请求章节内容
-    // 注意：menu 中的 creatorMode 仍然负责页面内手动编辑权限；这里的 creatorFeatureEnabled 用于在进入每章前自动弹出可编辑大纲
-    // 但如果调用时传递了 suppressAutoEditor: true，则跳过自动编辑器
-    if (_creatorFeatureEnabled?.value && !(opts && opts.suppressAutoEditor)) {
+      // 若后端/创建页标记允许创作功能（creatorFeatureEnabled），则在每一章加载前弹出大纲编辑器供创作者确认/修改后再真正请求章节内容
+      // 注意：menu 中的 creatorMode 仍然负责页面内手动编辑权限；这里的 creatorFeatureEnabled 用于在进入每章前自动弹出可编辑大纲
+      // 但如果调用时传递了 suppressAutoEditor: true，则跳过自动编辑器
+      if (_creatorFeatureEnabled?.value && !(opts && opts.suppressAutoEditor)) {
         try {
-            // Only auto-open outline editor when chapter is not yet generated (not_generated or unknown)
-            const chapterStatus = getChapterStatus(idx)
-            if (!chapterStatus || chapterStatus === 'not_generated') {
+          // Only auto-open outline editor when chapter is not yet generated (not_generated or unknown)
+          const chapterStatus = getChapterStatus(idx)
+          if (!chapterStatus || chapterStatus === 'not_generated') {
             // 尝试从 sessionStorage.createResult 获得原始大纲（若存在）
             let createRaw = null
             try { createRaw = JSON.parse(sessionStorage.getItem('createResult') || 'null') } catch (e) { createRaw = null }
-                // 优先读取 createResult.chapterOutlines；若不存在则尝试使用 createResult.backendWork.outlines 或 work.value 中的 outlines
-                let rawOutlines = []
-                if (createRaw && Array.isArray(createRaw.chapterOutlines) && createRaw.chapterOutlines.length) {
-                rawOutlines = createRaw.chapterOutlines
-                } else if (createRaw && createRaw.backendWork && Array.isArray(createRaw.backendWork.outlines) && createRaw.backendWork.outlines.length) {
-                rawOutlines = createRaw.backendWork.outlines
-                } else if (createRaw && createRaw.data && Array.isArray(createRaw.data.outlines) && createRaw.data.outlines.length) {
-                rawOutlines = createRaw.data.outlines
-                } else if (work.value && Array.isArray(work.value.outlines) && work.value.outlines.length) {
-                rawOutlines = work.value.outlines
-                } else {
-                rawOutlines = []
-                }
+            // 优先读取 createResult.chapterOutlines；若不存在则尝试使用 createResult.backendWork.outlines 或 work.value 中的 outlines
+            let rawOutlines = []
+            if (createRaw && Array.isArray(createRaw.chapterOutlines) && createRaw.chapterOutlines.length) {
+              rawOutlines = createRaw.chapterOutlines
+            } else if (createRaw && createRaw.backendWork && Array.isArray(createRaw.backendWork.outlines) && createRaw.backendWork.outlines.length) {
+              rawOutlines = createRaw.backendWork.outlines
+            } else if (createRaw && createRaw.data && Array.isArray(createRaw.data.outlines) && createRaw.data.outlines.length) {
+              rawOutlines = createRaw.data.outlines
+            } else if (work.value && Array.isArray(work.value.outlines) && work.value.outlines.length) {
+              rawOutlines = work.value.outlines
+            } else {
+              rawOutlines = []
+            }
             // 展示从当前请求章节 idx 到末章的所有大纲供编辑（若后端未返回则合成到 total_chapters）
             // 构建一个基于 chapterIndex 的映射，避免当 rawOutlines 是从某章截取或不包含完整序列时发生后移或提前的问题
             const outlinesMap = {}
             let maxIdx = 0
             if (Array.isArray(rawOutlines)) {
-                for (let i = 0; i < rawOutlines.length; i++) {
+              for (let i = 0; i < rawOutlines.length; i++) {
                 const ch = rawOutlines[i]
                 let ci = null
                 try {
-                    if (ch && (typeof ch.chapterIndex !== 'undefined')) ci = Number(ch.chapterIndex)
-                    else if (ch && (typeof ch.chapter_index !== 'undefined')) ci = Number(ch.chapter_index)
-                    else ci = i + 1
+                  if (ch && (typeof ch.chapterIndex !== 'undefined')) ci = Number(ch.chapterIndex)
+                  else if (ch && (typeof ch.chapter_index !== 'undefined')) ci = Number(ch.chapter_index)
+                  else ci = i + 1
                 } catch (e) { ci = i + 1 }
-        // 合并标题与大纲正文：title + 空行 + outline/summary
-        try {
-          const title = (ch && (ch.title ?? ch.chapter_title)) || ''
-          const body  = (ch && (ch.outline ?? ch.summary)) || ''
-          outlinesMap[ci] = (title && body) ? `${title}\n\n${body}` : (title || body || JSON.stringify(ch))
-        } catch (e) {
-          outlinesMap[ci] = JSON.stringify(ch)
-        }
-                if (ci > maxIdx) maxIdx = ci
+                // 合并标题与大纲正文：title + 空行 + outline/summary
+                try {
+                  const title = (ch && (ch.title ?? ch.chapter_title)) || ''
+                  const body = (ch && (ch.outline ?? ch.summary)) || ''
+                  outlinesMap[ci] = (title && body) ? `${title}\n\n${body}` : (title || body || JSON.stringify(ch))
+                } catch (e) {
+                  outlinesMap[ci] = JSON.stringify(ch)
                 }
+                if (ci > maxIdx) maxIdx = ci
+              }
             }
             const total = Math.max((Number(totalChapters.value) || 5), maxIdx)
             if (_outlineEdits) {
               _outlineEdits.value = []
               for (let j = idx; j <= total; j++) {
-                  if (typeof outlinesMap[j] !== 'undefined') {
+                if (typeof outlinesMap[j] !== 'undefined') {
                   _outlineEdits.value.push({ chapterIndex: j, outline: outlinesMap[j] })
-                  } else {
+                } else {
                   _outlineEdits.value.push({ chapterIndex: j, outline: `第${j}章：请在此编辑/补充本章大纲以指导生成。` })
-                  }
+                }
               }
             }
             if (_outlineUserPrompt) {
               _outlineUserPrompt.value = (createRaw && createRaw.userPrompt) ? createRaw.userPrompt : ''
             }
-            } else {
+          } else {
             // chapter already generating/generated/saved => skip auto editor
             if (_outlineEdits) _outlineEdits.value = []
             if (_outlineUserPrompt) _outlineUserPrompt.value = ''
-            }
+          }
         } catch (e) {
-            if (_outlineEdits) {
-              _outlineEdits.value = [{ chapterIndex: idx, outline: `第${idx}章：请在此编辑/补充本章大纲以指导生成。` }]
-            }
-            if (_outlineUserPrompt) _outlineUserPrompt.value = ''
+          if (_outlineEdits) {
+            _outlineEdits.value = [{ chapterIndex: idx, outline: `第${idx}章：请在此编辑/补充本章大纲以指导生成。` }]
+          }
+          if (_outlineUserPrompt) _outlineUserPrompt.value = ''
         }
 
         // 自动触发的编辑器（章节前弹出）应以 auto 模式打开，允许编辑并生成（仅当章节未生成时）
         if (_editorInvocation) _editorInvocation.value = 'auto'
         // 记录原始大纲快照（用于取消时按原始大纲生成）
         if (_originalOutlineSnapshot && _outlineEdits) {
-          try { 
-            _originalOutlineSnapshot.value = JSON.parse(JSON.stringify(_outlineEdits.value || [])) 
-          } catch(e) { 
-            _originalOutlineSnapshot.value = (_outlineEdits.value || []).slice() 
+          try {
+            _originalOutlineSnapshot.value = JSON.parse(JSON.stringify(_outlineEdits.value || []))
+          } catch (e) {
+            _originalOutlineSnapshot.value = (_outlineEdits.value || []).slice()
           }
         }
-        
+
         // 检查章节状态，只有 not_generated 时才弹出编辑器
         const chapterStatus = getChapterStatus(idx)
         if (!chapterStatus || chapterStatus === 'not_generated') {
-        // 标记 pending target 为当前自动弹出的章节
-        if (_pendingOutlineTargetChapter) _pendingOutlineTargetChapter.value = idx
-        if (_showOutlineEditor) _showOutlineEditor.value = true
-        const confirmed = await new Promise((resolve) => { 
-          if (_outlineEditorResolver) _outlineEditorResolver = resolve 
-        })
-        // 注意：确认按钮会调用 confirmOutlineEdits，在那里已经处理了 generateChapter、轮询和 fetchNextChapter
-        // 所以这里不需要再做任何操作，直接返回，避免重复调用
-        if (confirmed) {
+          // 标记 pending target 为当前自动弹出的章节
+          if (_pendingOutlineTargetChapter) _pendingOutlineTargetChapter.value = idx
+          if (_showOutlineEditor) _showOutlineEditor.value = true
+          const confirmed = await new Promise((resolve) => {
+            if (_outlineEditorResolver) _outlineEditorResolver = resolve
+          })
+          // 注意：确认按钮会调用 confirmOutlineEdits，在那里已经处理了 generateChapter、轮询和 fetchNextChapter
+          // 所以这里不需要再做任何操作，直接返回，避免重复调用
+          if (confirmed) {
             // confirmOutlineEdits 已经处理了所有逻辑（包括显示加载界面、生成章节、轮询、加载内容）
             return null
-        } else {
+          } else {
             // 用户取消了，不生成章节
             return null
-        }
+          }
         } else {
-        // 章节已经生成或正在生成中，直接跳过编辑器，只加载内容
-        console.log(`[fetchNextChapter] 章节 ${idx} 状态为 ${chapterStatus}，跳过编辑器直接加载`)
+          // 章节已经生成或正在生成中，直接跳过编辑器，只加载内容
+          console.log(`[fetchNextChapter] 章节 ${idx} 状态为 ${chapterStatus}，跳过编辑器直接加载`)
         }
-    }
+      }
 
-    let data = null
-    if (opts && opts.singleRequest) {
+      let data = null
+      if (opts && opts.singleRequest) {
         // 只进行一次 GET 请求，避免 getScenes 的重试逻辑在已经由 generate POST 发起生成后再次触发不必要的行为
         try {
-  // 注意：utils/http.js 已经配置了 baseURL='/api'，此处不要再加 '/api' 前缀，避免出现 '/api/api/...'
-  const resp = await http.get(`/game/chapter/${workId}/${idx}/`)
-        data = resp && resp.data ? resp.data : resp
-        console.log('[fetchNextChapter] singleRequest response:', data)
-        
-        // 验证返回的数据格式
-        if (!data) {
+          // 注意：utils/http.js 已经配置了 baseURL='/api'，此处不要再加 '/api' 前缀，避免出现 '/api/api/...'
+          const resp = await http.get(`/api/game/chapter/${workId}/${idx}/`)
+          data = resp && resp.data ? resp.data : resp
+          console.log('[fetchNextChapter] singleRequest response:', data)
+
+          // 验证返回的数据格式
+          if (!data) {
             console.error('[fetchNextChapter] singleRequest 返回空数据')
             throw new Error('后端返回空数据')
-        }
-        
-        // 检查是否有场景数据
-        const hasScenes = (data.chapter && Array.isArray(data.chapter.scenes) && data.chapter.scenes.length > 0) ||
-                            (Array.isArray(data.scenes) && data.scenes.length > 0)
-        
-        if (!hasScenes) {
+          }
+
+          // 检查是否有场景数据
+          const hasScenes = (data.chapter && Array.isArray(data.chapter.scenes) && data.chapter.scenes.length > 0) ||
+            (Array.isArray(data.scenes) && data.scenes.length > 0)
+
+          if (!hasScenes) {
             console.error('[fetchNextChapter] singleRequest 返回数据中没有场景:', data)
             throw new Error('后端返回数据中没有场景内容')
-        }
+          }
         } catch (e) {
-        console.error('[fetchNextChapter] singleRequest http.get failed', e)
-        throw e
+          console.error('[fetchNextChapter] singleRequest http.get failed', e)
+          throw e
         }
-    } else {
+      } else {
         data = await getScenes(workId, idx, {
-        onProgress: (progress) => {
+          onProgress: (progress) => {
             console.log(`[Story] 章节 ${idx} 生成进度:`, progress)
             // 可以在这里更新UI显示进度
             if (progress.status === 'generating' && progress.progress && _loadingProgress) {
-            _loadingProgress.value = Math.min(90, (progress.progress.currentChapter / progress.progress.totalChapters) * 100)
+              _loadingProgress.value = Math.min(90, (progress.progress.currentChapter / progress.progress.totalChapters) * 100)
             }
-        }
+          }
         })
-    }
+      }
 
-        console.log(`[fetchNextChapter] getScenes返回数据:`, data)
-        console.log(`[fetchNextChapter] 数据类型检查:`, {
+      console.log(`[fetchNextChapter] getScenes返回数据:`, data)
+      console.log(`[fetchNextChapter] 数据类型检查:`, {
         data: typeof data,
         dataIsObject: data && typeof data === 'object',
         hasScenes: data && 'scenes' in data,
         scenesType: data && data.scenes ? typeof data.scenes : 'undefined',
         scenesIsArray: data && Array.isArray(data.scenes),
         scenesLength: data && data.scenes ? data.scenes.length : 'undefined'
-        })
+      })
 
-        // 支持多种后端返回格式：
-        // - 传统 polling 接口返回 { status: 'generating'|'ready', chapter: { chapterIndex, title, scenes } }
-        // - 旧版或兼容格式可能直接返回 { scenes: [...] } 或 { generating: true }
-        if (data && (data.generating === true || data.status === 'generating' || data.status === 'pending')) {
+      // 支持多种后端返回格式：
+      // - 传统 polling 接口返回 { status: 'generating'|'ready', chapter: { chapterIndex, title, scenes } }
+      // - 旧版或兼容格式可能直接返回 { scenes: [...] } 或 { generating: true }
+      if (data && (data.generating === true || data.status === 'generating' || data.status === 'pending')) {
         console.log(`[fetchNextChapter] 后端返回生成中状态`, data)
         return data
-        }
+      }
 
-        // 规范化 scenes 来源：
-        // - 优先支持结局格式：{ endings: [ { title, summary, scenes: [...] }, ... ] }
-        //   我们只解析第一个 ending 并将其 scenes 推入 storyScenes，同时标记为结局。
-        // - 否则使用 data.chapter.scenes（新接口）或 data.scenes（兼容）
-        let scenesArray = null
-        if (data && Array.isArray(data.endings) && data.endings.length > 0) {
+      // 规范化 scenes 来源：
+      // - 优先支持结局格式：{ endings: [ { title, summary, scenes: [...] }, ... ] }
+      //   我们只解析第一个 ending 并将其 scenes 推入 storyScenes，同时标记为结局。
+      // - 否则使用 data.chapter.scenes（新接口）或 data.scenes（兼容）
+      let scenesArray = null
+      if (data && Array.isArray(data.endings) && data.endings.length > 0) {
         // 支持多个 endings，根据属性/状态条件选择合适的一个
         const evaluateCondition = (condition = {}, attrsRef, statusesRef) => {
           try {
@@ -577,11 +577,11 @@ export function useStoryAPI() {
         } else {
           scenesArray = null
         }
-        } else {
+      } else {
         scenesArray = (data && data.chapter && Array.isArray(data.chapter.scenes)) ? data.chapter.scenes : (data && Array.isArray(data.scenes) ? data.scenes : null)
-        }
-        console.log(`[fetchNextChapter] 检查scenes: data=${!!data}, scenesLength=${scenesArray ? scenesArray.length : 'null'}`)
-        if (scenesArray && scenesArray.length > 0) {
+      }
+      console.log(`[fetchNextChapter] 检查scenes: data=${!!data}, scenesLength=${scenesArray ? scenesArray.length : 'null'}`)
+      if (scenesArray && scenesArray.length > 0) {
         console.log('[fetchNextChapter] Processing scenes:', scenesArray.length, 'opts.replace=', opts && opts.replace)
 
         // 当检测到这是后端返回的结局（storyEndSignaled=true 且后端提供 endings 列表）时，
@@ -649,25 +649,25 @@ export function useStoryAPI() {
         }
 
         return data
-        } else {
-            console.error(`[Story] 第 ${idx} 章返回空场景数据`, data)
-            throw new Error(`第 ${idx} 章没有可用的场景数据`)
-            }
-        } catch (e) {
-            console.error('fetchNextChapter error', e)
-            throw e // 重新抛出错误以便调用方处理
-        }
+      } else {
+        console.error(`[Story] 第 ${idx} 章返回空场景数据`, data)
+        throw new Error(`第 ${idx} 章没有可用的场景数据`)
+      }
+    } catch (e) {
+      console.error('fetchNextChapter error', e)
+      throw e // 重新抛出错误以便调用方处理
     }
+  }
   const fetchNextContent = async (workId, chapterIndex) => {
     try {
       console.log('[Story] fetchNextContent chapter =', chapterIndex)
       const resp = await getScenes(workId, chapterIndex)
       if (!resp) return null
       if (resp.generating) return { generating: true, end: false, scenes: [] }
-      
+
       const isEnd = (resp.end === true) || (resp.isGameEnding === true) || (resp.isGameEnd === true)
       const scenes = Array.isArray(resp.scenes) ? resp.scenes : (Array.isArray(resp) ? resp : [])
-      
+
       if (scenes.length > 0) {
         const startIdx = storyScenes.value.length
         for (const sc of scenes) {
@@ -677,11 +677,11 @@ export function useStoryAPI() {
             pushSceneFromServer(sc)
           } catch (e) { console.warn('pushSceneFromServer failed while fetching next content', e) }
         }
-        
+
         if (resp.chapterIndex) {
           currentChapterIndex.value = resp.chapterIndex
         }
-        
+
         if (resp.lastSeq) lastSeq.value = Math.max(lastSeq.value, resp.lastSeq)
       }
 
@@ -691,7 +691,7 @@ export function useStoryAPI() {
       return { generating: false, end: false, scenes: [] }
     }
   }
-  
+
   const restoreChoiceFlagsFromHistory = () => {
     try {
       console.log('[restoreChoiceFlagsFromHistory] 开始恢复选项标记')
@@ -699,10 +699,10 @@ export function useStoryAPI() {
       console.log('[restoreChoiceFlagsFromHistory] 选择历史数:', choiceHistory.value ? choiceHistory.value.length : 0)
       console.log('[restoreChoiceFlagsFromHistory] 当前场景索引:', currentSceneIndex.value)
       console.log('[restoreChoiceFlagsFromHistory] 当前对话索引:', currentDialogueIndex.value)
-      
+
       if (Array.isArray(storyScenes.value)) {
         storyScenes.value.forEach(s => {
-          try { if (s) { s.choiceConsumed = false; s.chosenChoiceId = null } } catch (e) {}
+          try { if (s) { s.choiceConsumed = false; s.chosenChoiceId = null } } catch (e) { }
         })
       }
       if (Array.isArray(choiceHistory.value)) {
@@ -715,8 +715,8 @@ export function useStoryAPI() {
             console.log(`[restoreChoiceFlagsFromHistory] 历史记录 ${idx}: sceneId=${sid}, 找到场景索引=${foundIdx}, choiceId=${h.choiceId}, triggerIndex=${h.choiceTriggerIndex}`)
             if (foundIdx >= 0 && storyScenes.value[foundIdx]) {
               const scene = storyScenes.value[foundIdx]
-              try { scene.chosenChoiceId = h.choiceId || h.choiceId } catch (e) {}
-              try { 
+              try { scene.chosenChoiceId = h.choiceId || h.choiceId } catch (e) { }
+              try {
                 scene.choiceConsumed = true
                 // 保存历史记录中的 choiceTriggerIndex 到场景对象，用于后续判断
                 if (typeof h.choiceTriggerIndex === 'number') {
@@ -727,8 +727,8 @@ export function useStoryAPI() {
                     console.log(`[restoreChoiceFlagsFromHistory] 场景 ${foundIdx} 没有 choiceTriggerIndex，使用历史记录值: ${h.choiceTriggerIndex}`)
                   }
                 }
-              } catch (e) {}
-              console.log('[restoreChoiceFlagsFromHistory] 恢复场景选项标记:', foundIdx, '选项ID:', h.choiceId, '触发索引:', h.choiceTriggerIndex, 
+              } catch (e) { }
+              console.log('[restoreChoiceFlagsFromHistory] 恢复场景选项标记:', foundIdx, '选项ID:', h.choiceId, '触发索引:', h.choiceTriggerIndex,
                 '场景有choices:', Array.isArray(scene.choices), '场景有choiceTriggerIndex:', typeof scene.choiceTriggerIndex === 'number')
             } else {
               console.warn(`[restoreChoiceFlagsFromHistory] 未找到 sceneId=${sid} 对应的场景`)
@@ -750,7 +750,7 @@ export function useStoryAPI() {
             const curId = String(cur.id || cur.sceneId)
             return sid === curId
           })
-          
+
           // 确定选项的触发索引（优先使用历史记录中的，其次使用场景自身的）
           let triggerIndex = null
           if (historyRecord && typeof historyRecord.choiceTriggerIndex === 'number') {
@@ -758,7 +758,7 @@ export function useStoryAPI() {
           } else if (typeof cur.choiceTriggerIndex === 'number') {
             triggerIndex = cur.choiceTriggerIndex
           }
-          
+
           // 如果能确定触发索引，根据当前对话位置决定选项状态
           if (triggerIndex !== null && typeof currentDialogueIndex.value === 'number') {
             // 🔑 关键修复：根据读档位置和选择历史决定选项状态
@@ -767,10 +767,10 @@ export function useStoryAPI() {
               if (historyRecord) {
                 // 如果历史中有这个场景的选择记录，但读档位置在触发点之前，
                 // 说明是回到了选择之前的状态，应清除标记
-                try { 
+                try {
                   cur.choiceConsumed = false
-                  cur.chosenChoiceId = null 
-                } catch (e) {}
+                  cur.chosenChoiceId = null
+                } catch (e) { }
                 console.log('[restoreChoiceFlagsFromHistory] 读档位置(' + currentDialogueIndex.value + ')在选项触发点(' + triggerIndex + ')之前，清除选项标记')
               }
             } else if (currentDialogueIndex.value === triggerIndex) {
@@ -780,14 +780,14 @@ export function useStoryAPI() {
                 try {
                   cur.choiceConsumed = true
                   cur.chosenChoiceId = historyRecord.choiceId
-                } catch (e) {}
+                } catch (e) { }
                 console.log('[restoreChoiceFlagsFromHistory] ✅ 读档位置(' + currentDialogueIndex.value + ')等于触发点(' + triggerIndex + ')，且已有选择记录，确保choiceConsumed=true')
               } else {
                 // 如果历史中没有选择记录，说明用户可能存档在触发点但还未选择，清除标记
-                try { 
+                try {
                   cur.choiceConsumed = false
-                  cur.chosenChoiceId = null 
-                } catch (e) {}
+                  cur.chosenChoiceId = null
+                } catch (e) { }
                 console.log('[restoreChoiceFlagsFromHistory] 读档位置(' + currentDialogueIndex.value + ')等于触发点(' + triggerIndex + ')，但无选择记录，清除选项标记')
               }
             } else {
@@ -797,14 +797,14 @@ export function useStoryAPI() {
                 try {
                   cur.choiceConsumed = true
                   cur.chosenChoiceId = historyRecord.choiceId
-                } catch (e) {}
+                } catch (e) { }
                 console.log('[restoreChoiceFlagsFromHistory] ✅ 读档位置(' + currentDialogueIndex.value + ')在触发点(' + triggerIndex + ')之后，且已有选择记录，确保choiceConsumed=true')
               } else {
                 // 如果历史中没有选择记录但位置在触发点之后，这是异常情况
                 // 为安全起见，标记为已消费，不显示选项
                 try {
                   cur.choiceConsumed = true
-                } catch (e) {}
+                } catch (e) { }
                 console.warn('[restoreChoiceFlagsFromHistory] ⚠️ 读档位置(' + currentDialogueIndex.value + ')在触发点(' + triggerIndex + ')之后，但无选择记录（异常），强制设置choiceConsumed=true')
               }
             }
@@ -820,7 +820,7 @@ export function useStoryAPI() {
       console.warn('restoreChoiceFlagsFromHistory failed', e)
     }
   }
-  
+
   // 添加依赖项的存储
   let _creatorFeatureEnabled = null
   let _showNotice = null
@@ -872,13 +872,13 @@ export function useStoryAPI() {
     isFetchingChoice,
     lastChoiceTimestamp,
     suppressAutoShowChoices,
-    
+
     // 计算属性
     currentScene,
     currentDialogue,
     currentBackground,
     currentSpeaker,
-    
+
     // 方法
     getDialogueItem,
     getChapterStatus,
@@ -889,7 +889,7 @@ export function useStoryAPI() {
     fetchNextContent,
     fetchNextChapter,  // 确保导出
     restoreChoiceFlagsFromHistory,
-    
+
     // 服务引用（改为直接返回函数而不是getter）
     getScenes,
     setGetScenes: (fn) => { getScenes = fn },
@@ -901,7 +901,7 @@ export function useStoryAPI() {
     setSaveEnding: (fn) => { saveEnding = fn },
     // 记录并导出最后选中的结局索引（1-based）
     lastSelectedEndingIndex,
-    
+
     // 添加设置依赖的方法
     setDependencies
   }
