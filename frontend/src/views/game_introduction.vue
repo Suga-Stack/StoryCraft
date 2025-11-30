@@ -42,6 +42,8 @@ const normalizeBackendWork = (raw) => {
     averageScore: raw.average_score || raw.averageScore || 0,
     ratingCount: raw.rating_count || raw.ratingCount || 0,
     wordCount: raw.word_count || null,
+    // 兼容后端可能使用的 price 或 unlock_points_needed 字段，用于解锁/付费显示
+    price: typeof raw.price !== 'undefined' ? raw.price : (typeof raw.unlock_points_needed !== 'undefined' ? raw.unlock_points_needed : undefined),
     readCount: raw.read_count || 0
   }
 }
@@ -125,10 +127,23 @@ onMounted(async () => {
       averageScore.value = normalized.averageScore
       ratingCount.value = normalized.ratingCount
       readCount.value = normalized.readCount
-      // 如果后端返回积分相关字段，更新前端显示
+      // 如果后端返回积分相关字段，更新前端显示（兼容 price / unlock_points_needed / 嵌套 gamwork.data）
       try {
-        if (typeof payload.unlock_points_needed !== 'undefined') unlockPointsNeeded.value = payload.unlock_points_needed
-        if (typeof payload.user_given_points !== 'undefined') userGivenPoints.value = payload.user_given_points
+        if (typeof payload.unlock_points_needed !== 'undefined') {
+          unlockPointsNeeded.value = payload.unlock_points_needed
+        } else if (typeof payload.price !== 'undefined') {
+          unlockPointsNeeded.value = payload.price
+        } else if (payload.gamework && typeof payload.gamework.price !== 'undefined') {
+          unlockPointsNeeded.value = payload.gamework.price
+        } else if (payload.data && typeof payload.data.price !== 'undefined') {
+          unlockPointsNeeded.value = payload.data.price
+        }
+
+        if (typeof payload.user_given_points !== 'undefined') {
+          userGivenPoints.value = payload.user_given_points
+        } else if (payload.gamework && typeof payload.gamework.user_given_points !== 'undefined') {
+          userGivenPoints.value = payload.gamework.user_given_points
+        }
       } catch (e) {}
       if (normalized.wordCount !== null) {
         backendWordCount.value = normalized.wordCount
@@ -258,7 +273,8 @@ const readCount = ref(backendWorkRaw?.readCount || 0)
 const backendWordCount = ref(backendWorkRaw?.wordCount || null)
 
 // 积分/打赏相关（用于作品简介与评论评分之间的“送积分”模块）
-const unlockPointsNeeded = ref(backendWorkRaw?.unlock_points_needed || 100) // 解锁该作品需要的积分（后端可返回字段）
+// 优先从后端返回的 price 字段，否则使用 unlock_points_needed，默认 100
+const unlockPointsNeeded = ref((backendWorkRaw?.price !== undefined) ? backendWorkRaw.price : (backendWorkRaw?.unlock_points_needed || 100)) // 解锁该作品需要的积分（后端可返回字段）
 const userGivenPoints = ref(backendWorkRaw?.user_given_points || 0) // 当前用户已在该作品上送出的积分
 const sendingPoints = ref(false)
 // 页面内 modal 控制：改为页面内弹窗输入数量

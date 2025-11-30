@@ -139,8 +139,10 @@ export function useCreatorMode(dependencies = {}) {
       }
 
       if (!creatorMode.value) {
-        // 检查当前章节是否已保存
-        if (_work?.value?.ai_callable !== false) {
+        // 统一规则：当作品允许 AI 调用时（ai_callable !== false），进入手动编辑前必须为 saved；
+        // 当作品禁用 AI（ai_callable === false）时，不强制要求 saved，可以直接进入手动编辑。
+        const aiCallable = _work?.value?.ai_callable
+        if (aiCallable !== false) {
           if (_checkCurrentChapterSaved) {
             const isSaved = await _checkCurrentChapterSaved()
             if (!isSaved) {
@@ -148,47 +150,18 @@ export function useCreatorMode(dependencies = {}) {
               return
             }
           }
-        }
-        // 新增：仅在创作者身份下，若当前场景是后端生成的结局且尚未被保存，则不允许通过菜单进入手动编辑模式
-        try {
-          // 如果是创作者身份或者来自 create 页面且可修改（modifiableFromCreate），
-          // 都应当被视为需要额外的已保存检查，避免未保存的后端结局被菜单直接进入手动编辑。
-          if (isCreatorIdentity?.value || modifiableFromCreate?.value) {
+
+          // 额外保护：如果当前场景是后端生成的结局且尚未保存，提示并阻止进入
+          try {
             const cs = (dependencies && dependencies.currentScene) || params.currentScene
             const cur = cs && cs.value ? cs.value : (cs || null)
             if (cur && (cur._isBackendEnding || cur.isGameEnding || cur.isEnding) && cur._endingSaved !== true) {
               if (showNotice) showNotice('当前结局未保存(saved)状态，无法进入手动编辑模式，请先保存结局或使用“编辑结局大纲”')
               return
             }
-          }
-        } catch (e) { /* ignore */ }
-        // if (_creatorFeatureEnabled && !_creatorFeatureEnabled.value) {
-        //   if (showNotice) showNotice('进入手动编辑：当前作品未开启 AI 自动生成，仅支持人工调整后保存。')
-      // 如果是创作者身份，则在已保存状态下阻止编辑大纲；阅读者身份不受该限制
-      try {
-        if (isCreatorIdentity?.value) {
-          if (typeof checkCurrentChapterSaved === 'function') {
-            const isSaved = await checkCurrentChapterSaved()
-            if (isSaved) {
-              // 如果当前场景是后端结局且该结局已被标记为已保存，允许进入手动编辑（编辑结局与阅读者模式一致）
-              try {
-                const cs = (dependencies && dependencies.currentScene) || params.currentScene
-                const cur = cs && cs.value ? cs.value : (cs || null)
-                if (cur && (cur._isBackendEnding || cur.isGameEnding || cur.isEnding) && cur._endingSaved === true) {
-                  // 允许进入创作者手动编辑模式（不阻止）
-                } else {
-                  showNotice?.('当前章节已保存，无法编辑大纲')
-                  return
-                }
-              } catch (e) {
-                showNotice?.('当前章节已保存，无法编辑大纲')
-                return
-              }
-            }
-          }
+          } catch (e) { /* ignore */ }
         }
-      } catch (e) { /* ignore */ }
-        // }
+
         // 进入创作者模式时停止自动播放
         if (_stopAutoPlayTimer) {
           try { _stopAutoPlayTimer() } catch (e) {}

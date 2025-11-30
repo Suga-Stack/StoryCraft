@@ -119,31 +119,32 @@ export const moveFavorite = (id, folderId) => {
 
 //获取评论
 export const getComments = (page, gameworkId) => {
-  return http.get('/interactions/comments/', {page, gameworkId})
+  return http.get('/api/interactions/comments/', {page, gameworkId})
 }
 
 //发表评论
 export const postComments = (content, gamework, parent) => {
-  return http.post('/interactions/comments/', {content, gamework, parent})
+  return http.post('/api/interactions/comments/', {content, gamework, parent})
 }
 
 // 点赞评论
 export const likeComment = (commentId) => {
-  return http.post(`/interactions/comments/${commentId}/like/`)
+  return http.post(`/api/interactions/comments/${commentId}/like/`)
 }
 
 // 取消点赞评论
 export const unlikeComment = (commentId) => {
-  return http.post(`/interactions/comments/${commentId}/unlike/`)
+  return http.post(`/api/interactions/comments/${commentId}/unlike/`)
 }
 
 export const recommendWorks = (page) => {
   return http.get('/api/gameworks/recommend/', page)
 }
 
-// 发布作品
-export const publishWorks = (id) => {
-  return http.post(`/api/gameworks/publish/${id}/`)
+// 发布作品（可传解锁积分 price）
+export const publishWorks = (id, price) => {
+  const body = (price !== undefined && price !== null) ? { price } : {}
+  return http.post(`/api/gameworks/publish/${id}/`, body)
 }
 
 // 取消发布作品
