@@ -23,21 +23,12 @@ load_dotenv(BASE_DIR / ".env")
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-k$yb$ixo21c3ci)k)l)mp*#79)7u0_5%xbfr-r_hrv1@p5$$ud'
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-secure-default-key--k$yb$ixo21c3ci)k)l)mp*#79)7u0_5%xbfr-r_hrv1@p5$$ud')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'True') == 'True'
+DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = [
-    '',
-    'localhost',
-    'localhost:8000',
-    '127.0.0.1',
-    'http://localhost:5173', 
-    'http://127.0.0.1:5173', 
-    '0.0.0.0',
-    'web',  # Docker service name
-]
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1,web').split(',')
 
 
 # Application definition
@@ -98,22 +89,7 @@ WSGI_APPLICATION = 'project.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
-"""
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.mysql',  # MySQL 数据库引擎
-        'NAME': 'mydatabase',          # 数据库名
-        'USER': 'test_user',               # 数据库用户名
-        'PASSWORD': 'test_password',           # 数据库密码
-        'HOST': 'localhost',                   # 数据库主机，默认本地 localhost
-        'PORT': '3306',                        # MySQL 默认端口
-        'OPTIONS': {                           # 可选配置
-            'charset': 'utf8mb4',              # 字符集
-            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
-        },
-    }
-}
-"""
+
 if os.getenv('DB_ENGINE') == 'django.db.backends.mysql':
     DATABASES = {
         'default': {
@@ -148,7 +124,6 @@ else:
     }
 
 
-
 # Password validation
 # https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators
 
@@ -171,13 +146,12 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
 STATIC_URL = 'static/'
-STATIC_ROOT = BASE_DIR / 'staticfiles'  # 新增：用于 collectstatic 收集静态文件
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
-# 用于拼接绝对 URL（例如为 AI 生成的图片或 media 文件构造完整访问地址）
-# 可通过环境变量 SITE_DOMAIN 覆盖（例如在生产中设置为 https://yourdomain.com）
+# 用于拼接绝对 URL
 SITE_DOMAIN = os.getenv('SITE_DOMAIN', 'http://localhost:8000')
 
 # Default primary key field type
@@ -311,18 +285,13 @@ LOGGING = {
 # CORS配置
 # ============================================
 
-# 方法1：允许所有 origins（开发环境）
-CORS_ALLOW_ALL_ORIGINS = True
+# 生产环境通常设为 False，通过 CORS_ALLOWED_ORIGINS 控制
+CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'False') == 'True'
 
-# 或者方法2：指定允许的 origins
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
-]
+# 从环境变量读取允许的源，逗号分隔
+CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:5173,http://127.0.0.1:5173').split(',')
 
-# 允许携带凭证（cookies, authorization headers 等）
+# 允许携带凭证
 CORS_ALLOW_CREDENTIALS = True
 
 # 允许的 HTTP 方法
@@ -352,21 +321,13 @@ CORS_ALLOW_HEADERS = [
     'User-Agent',
 ]
 
-# 如果需要，也可以显式设置允许的 origins（与 CORS_ALLOWED_ORIGINS 相同）
-ALLOWED_HOSTS = [
-    'localhost',
-    '127.0.0.1',
-    '0.0.0.0',
-]
+# CSRF 信任源
+CSRF_TRUSTED_ORIGINS = os.getenv('CSRF_TRUSTED_ORIGINS', 'http://localhost:5173,http://127.0.0.1:5173').split(',')
 
-CSRF_TRUSTED_ORIGINS = [
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-]
-AI_MODEL_FOR_TEXT = "DeepSeek-V3.2-Exp"
-AI_API_KEY_FOR_TEXT = "sk-PAF8gzAL93s9xKlaybzSQw"
-AI_BASE_URL_FOR_TEXT = "https://llmapi.paratera.com/v1/"
+AI_MODEL_FOR_TEXT = os.getenv("AI_MODEL_FOR_TEXT", "DeepSeek-V3.2-Exp")
+AI_API_KEY_FOR_TEXT = os.getenv("AI_API_KEY_FOR_TEXT", "")
+AI_BASE_URL_FOR_TEXT = os.getenv("AI_BASE_URL_FOR_TEXT", "https://llmapi.paratera.com/v1/")
 
-AI_MODEL_FOR_IMAGE = "doubao-seedream-4-0-250828"
-AI_API_KEY_FOR_IMAGE = "3199d359-bb9f-4bee-9678-439d9cfa1533"
-AI_BASE_URL_FOR_IMAGE = "https://ark.cn-beijing.volces.com/api/v3"
+AI_MODEL_FOR_IMAGE = os.getenv("AI_MODEL_FOR_IMAGE", "doubao-seedream-4-0-250828")
+AI_API_KEY_FOR_IMAGE = os.getenv("AI_API_KEY_FOR_IMAGE", "")
+AI_BASE_URL_FOR_IMAGE = os.getenv("AI_BASE_URL_FOR_IMAGE", "https://ark.cn-beijing.volces.com/api/v3")

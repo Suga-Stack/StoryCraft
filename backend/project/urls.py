@@ -57,5 +57,6 @@ urlpatterns = [
 ]
 
 # 开发环境下，配置媒体文件访问
+# 生产环境下由 Nginx 处理，Django 不再介入
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
