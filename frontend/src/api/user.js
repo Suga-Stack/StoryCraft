@@ -2,32 +2,32 @@ import http from '../utils/http'
 
 // 登录接口
 export const login = (username, password) => {
-  return http.post('/auth/login/', {username, password})
+  return http.post('/api/auth/login/', {username, password})
 }
 
 // 注册接口
 export const register = (username, password, confirm_password, email, email_code) => {
-  return http.post('/auth/register/', {username, password, confirm_password, email, email_code})
+  return http.post('/api/auth/register/', {username, password, confirm_password, email, email_code})
 }
 
 // 退出登录接口
 export const logout = (refresh) => {
-  return http.post('/auth/logout/', {refresh})
+  return http.post('/api/auth/logout/', {refresh})
 }
 
 // 发送邮箱验证码接口
 export const sendEmailCode = (email) => {
-  return http.post('/auth/send-email-code/', {email})
+  return http.post('/api/auth/send-email-code/', {email})
 }
 
 // 保存用户偏好
 export const savePreferences = (gender, liked_tags) => {
-  return http.put('/users/preferences/', {gender, liked_tags}) 
+  return http.put('/api/users/preferences/', {gender, liked_tags}) 
 }
 
 // 获取用户偏好
 export const getPreferences = () => {
-  return http.get('/users/preferences/')
+  return http.get('/api/users/preferences/')
 }
 
 // 获取用户信息
@@ -125,6 +125,16 @@ export const getComments = (page, gameworkId) => {
 //发表评论
 export const postComments = (content, gamework, parent) => {
   return http.post('/interactions/comments/', {content, gamework, parent})
+}
+
+// 点赞评论
+export const likeComment = (commentId) => {
+  return http.post(`/interactions/comments/${commentId}/like/`)
+}
+
+// 取消点赞评论
+export const unlikeComment = (commentId) => {
+  return http.post(`/interactions/comments/${commentId}/unlike/`)
 }
 
 export const recommendWorks = (page) => {

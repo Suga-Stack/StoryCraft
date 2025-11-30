@@ -6,11 +6,10 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db import transaction, OperationalError
 from .serializers import (
-    GameCreateSerializer, GameworkCreateResponseSerializer, 
-    GameChapterStatusResponseSerializer, SettlementRequestSerializer, 
-    SettlementResponseSerializer, GameSavePayloadSerializer,
-    ChapterGenerateSerializer, GameChapterResponseSerializer,
-    GameChapterManualUpdateSerializer
+    GameCreateSerializer,
+    GameChapterStatusResponseSerializer, GameSavePayloadSerializer,
+    ChapterGenerateSerializer,GameEndingManualUpdateSerializer,
+    GameChapterManualUpdateSerializer, EndingGenerateSerializer
 )
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -18,7 +17,7 @@ from . import services
 from rest_framework.generics import get_object_or_404
 from gameworks.models import Gamework
 from .models import GameSave
-from stories.models import Story, StoryChapter, StoryScene
+from stories.models import Story, StoryChapter, StoryScene, StoryEnding
 from rest_framework.parsers import MultiPartParser, FormParser
 import uuid
 from django.core.files.storage import default_storage
@@ -84,8 +83,8 @@ class GameCreateView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_summary="创建新游戏并启动章节生成",
-        operation_description="根据用户选择的标签、构思和篇幅，调用AI生成并创建一个新的游戏作品，同时在后台异步生成所有章节。",
+        operation_summary="创建新作品",
+        operation_description="根据用户选择的标签、构思和篇幅，调用AI生成并创建一个新的游戏作品。",
         request_body=GameCreateSerializer,  
         responses={
             status.HTTP_201_CREATED: openapi.Response(description='{"gameworkId": 123}'), 
@@ -185,30 +184,154 @@ class GameChapterView(views.APIView):
                 "status": StoryChapter.ChapterStatus.SAVED  # 标记为已保存
             }
         )
-        
-        # 使用事务确保场景更新的原子性
-        from django.db import transaction
-        with transaction.atomic():
-            # 获取请求中的场景ID列表
-            incoming_scene_ids = {scene_data.get("id") for scene_data in chapter_data.get("scenes", [])}
-            
-            # 删除不在新数据中的场景
-            chapter_obj.scenes.exclude(scene_index__in=incoming_scene_ids).delete()
-            
-            # 更新或创建场景
-            for scene_data in chapter_data.get("scenes", []):
-                StoryScene.objects.update_or_create(
-                    chapter=chapter_obj,
-                    scene_index=scene_data.get("id"),
-                    defaults={
-                        "background_image": scene_data.get("backgroundImage", ""), 
-                        "background_image_url": scene_data.get("backgroundImage", ""), # 实际 URL
-                        "dialogues": scene_data.get("dialogues")
-                    }
-                )
+        chapter_obj.scenes.all().delete()
+
+        for scene_data in chapter_data.get("scenes", []):
+            StoryScene.objects.create(
+                chapter=chapter_obj,
+                scene_index=scene_data.get("id"), 
+                background_image_url=scene_data.get("backgroundImage", ""), 
+                dialogues=scene_data.get("dialogues")
+            )
         
         return Response({"ok": True}, status=status.HTTP_200_OK)
 
+
+class GameEndingView(views.APIView):
+    """查询游戏结局列表（摘要）"""
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="获取游戏结局列表",
+        operation_description="返回所有结局的摘要信息（不含场景）。",
+        manual_parameters=[
+            openapi.Parameter('gameworkId', openapi.IN_PATH, description="作品ID", type=openapi.TYPE_INTEGER, required=True),
+        ],
+        responses={
+            status.HTTP_200_OK: openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'status': openapi.Schema(type=openapi.TYPE_STRING, description="状态: pending, ready"),
+                    'endings': openapi.Schema(
+                        type=openapi.TYPE_ARRAY,
+                        items=openapi.Schema(
+                            type=openapi.TYPE_OBJECT,
+                            properties={
+                                'endingIndex': openapi.Schema(type=openapi.TYPE_INTEGER),
+                                'title': openapi.Schema(type=openapi.TYPE_STRING),
+                                'condition': openapi.Schema(type=openapi.TYPE_OBJECT),
+                                'outline': openapi.Schema(type=openapi.TYPE_STRING, description="结局梗概"),
+                                'status': openapi.Schema(type=openapi.TYPE_STRING, description="not_generated/generating/generated/saved")
+                            }
+                        )
+                    )
+                }
+            ),
+            status.HTTP_404_NOT_FOUND: openapi.Response(description="作品不存在"),
+        }
+    )
+    def get(self, request, gameworkId: int, *args, **kwargs):
+        try:
+            try:
+                gamework = get_object_or_404(Gamework, pk=gameworkId)
+            except Exception:
+                return Response({"error":"指定的作品不存在"}, status=status.HTTP_404_NOT_FOUND)
+            
+            result = services.get_story_endings(gamework)
+            return Response(result, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(
+                "查询结局列表时发生错误 - gamework_id: %s, error: %s",
+                gameworkId, e, exc_info=True
+            )
+            return Response(
+                {"error": "服务器出错，请稍后重试。"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class GameEndingDetailView(views.APIView):
+    """获取单个结局的详细内容或手动更新结局"""
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="获取单个结局详情",
+        operation_description="返回指定结局的详细内容（包含场景）。",
+        responses={
+            status.HTTP_200_OK: openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'status': openapi.Schema(type=openapi.TYPE_STRING),
+                    'ending': openapi.Schema(
+                        type=openapi.TYPE_OBJECT,
+                        properties={
+                            'endingIndex': openapi.Schema(type=openapi.TYPE_INTEGER),
+                            'title': openapi.Schema(type=openapi.TYPE_STRING),
+                            'condition': openapi.Schema(type=openapi.TYPE_OBJECT),
+                            'outline': openapi.Schema(type=openapi.TYPE_STRING),
+                            'status': openapi.Schema(type=openapi.TYPE_STRING),
+                            'scenes': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_OBJECT))
+                        }
+                    )
+                }
+            ),
+            status.HTTP_404_NOT_FOUND: openapi.Response(description="结局不存在"),
+        }
+    )
+    def get(self, request, gameworkId: int, endingIndex: int, *args, **kwargs):
+        try:
+            gamework = get_object_or_404(Gamework, pk=gameworkId)
+            result = services.get_single_story_ending(gamework, endingIndex)
+            if result.get("status") == "error":
+                return Response(result, status=status.HTTP_404_NOT_FOUND)
+            return Response(result, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"查询结局详情失败: {e}", exc_info=True)
+            return Response({"error": "服务器出错"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @swagger_auto_schema(
+        operation_summary="手动保存修改后的结局内容",
+        request_body=GameEndingManualUpdateSerializer,
+        responses={
+            status.HTTP_200_OK: openapi.Response(description='{"ok": true}'),
+            status.HTTP_403_FORBIDDEN: openapi.Response(description='无权修改'),
+            status.HTTP_404_NOT_FOUND: openapi.Response(description='结局不存在'),
+            status.HTTP_400_BAD_REQUEST: openapi.Response(description='参数错误'),
+        }
+    )
+    def put(self, request, gameworkId: int, endingIndex: int, *args, **kwargs):
+        gamework = get_object_or_404(Gamework, pk=gameworkId)
+        if gamework.author != request.user:
+            return Response({"error": "您没有权限修改此作品。"}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = GameEndingManualUpdateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        data = serializer.validated_data
+        
+        # 校验 endingIndex 是否匹配
+        if data.get('endingIndex') != endingIndex:
+            return Response({"error": "URL中的结局索引与请求体中的不匹配。"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            ending_obj = StoryEnding.objects.get(story__gamework=gamework, ending_index=endingIndex)
+        except StoryEnding.DoesNotExist:
+            return Response({"error": "指定的结局不存在"}, status=status.HTTP_404_NOT_FOUND)
+
+        ending_obj.title = data.get("title")
+        ending_obj.status = StoryEnding.EndingStatus.SAVED # 标记为已保存
+        ending_obj.save()
+        
+        ending_obj.scenes.all().delete()
+        for scene_data in data.get("scenes", []):
+            StoryScene.objects.create(
+                ending=ending_obj,
+                scene_index=scene_data.get("id"), 
+                background_image_url=scene_data.get("backgroundImage", ""), 
+                dialogues=scene_data.get("dialogues")
+            )
+        
+        return Response({"ok": True}, status=status.HTTP_200_OK)
 
 class ChapterGenerateView(views.APIView):
     """为创作者启动指定章节的生成"""
@@ -246,6 +369,45 @@ class ChapterGenerateView(views.APIView):
             logger.error(f"启动章节生成失败: {e}", exc_info=True)
             return Response({"error": "启动生成失败"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+class EndingGenerateView(views.APIView):
+    """为创作者启动指定结局的生成"""
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_summary="启动结局生成(创作者模式)",
+        request_body=EndingGenerateSerializer,
+        responses={
+            status.HTTP_200_OK: openapi.Response(description='{"ok": true}'),
+            status.HTTP_403_FORBIDDEN: openapi.Response(description='无权操作或非创作者模式'),
+            status.HTTP_400_BAD_REQUEST: openapi.Response(description='参数错误'),
+        }
+    )
+    def post(self, request, gameworkId: int, endingIndex: int, *args, **kwargs):
+        gamework = get_object_or_404(Gamework, pk=gameworkId)
+        if gamework.author != request.user:
+            return Response({"error": "您没有权限操作此作品。"}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = EndingGenerateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        validated_data = serializer.validated_data
+        try:
+            services.start_single_ending_generation(
+                gamework=gamework,
+                ending_index=endingIndex,
+                title=validated_data.get("title", ""),
+                outline=validated_data.get("outline", ""),
+                user_prompt=validated_data.get("userPrompt", "")
+            )
+            return Response({"ok": True}, status=status.HTTP_200_OK)
+        except ValueError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except PermissionError as e:
+            return Response({"error": str(e)}, status=status.HTTP_403_FORBIDDEN)
+        except Exception as e:
+            logger.error(f"启动结局生成失败: {e}", exc_info=True)
+            return Response({"error": "启动生成失败"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class GameSaveDetailView(views.APIView):
     """存档详情：PUT 保存/更新； GET 读取； DELETE 删除"""
@@ -274,8 +436,9 @@ class GameSaveDetailView(views.APIView):
         state = payload.get("state")
         cover_url = services.resolve_scene_cover_url(
             gamework,
-            state.get("chapterIndex"),
-            state.get("sceneId")
+            chapter_index=state.get("chapterIndex"),
+            scene_index=state.get("sceneId"),
+            ending_index=state.get("endingIndex")
         ) or ""
 
         # 添加重试机制处理 SQLite 数据库锁定问题
@@ -372,40 +535,56 @@ class GameSaveListView(views.APIView):
         items = []
         for save in saves:
             state = save.state 
-            items.append({
+            item = {
                 "slot": save.slot,
                 "title": save.title,
                 "timestamp": save.timestamp,
-                "chapterIndex": state.get("chapterIndex"),
-                "sceneId": state.get("sceneId"),
-                "dialogueIndex": state.get("dialogueIndex"),
                 "coverUrl": save.cover_url
-            })
+            }
+            
+            if "chapterIndex" in state:
+                item["chapterIndex"] = state["chapterIndex"]
+            if "endingIndex" in state:
+                item["endingIndex"] = state["endingIndex"]
+            if "sceneId" in state:
+                item["sceneId"] = state["sceneId"]
+            if "dialogueIndex" in state:
+                item["dialogueIndex"] = state["dialogueIndex"]
+
+            items.append(item)
 
         return Response({"saves": items}, status=status.HTTP_200_OK)
 
-class SettlementReportView(views.APIView):
+class GameReportView(views.APIView):
     """
-    结算报告候选生成
-    路径：POST /api/settlement/report/:workId
+    结算报告
     """
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_summary="生成结算报告候选 variants",
-        operation_description="后端返回满足业务的所有候选报告，前端根据 attributes/statuses 自行匹配。",
-        request_body=SettlementRequestSerializer,
-        responses={status.HTTP_200_OK: SettlementResponseSerializer}
+        operation_summary="获取结算报告",
+        operation_description="根据结局和属性获取个性化报告",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'attributes': openapi.Schema(type=openapi.TYPE_OBJECT, description="玩家最终属性值")
+            }
+        ),
+        responses={
+            200: openapi.Response(description="报告内容")
+        }
     )
-    def post(self, request, workId: int, *args, **kwargs):
-        # 校验作品存在
-        _ = get_object_or_404(Gamework, pk=workId)
-
-        attrs = request.data.get("attributes", {}) or {}
-        stats = request.data.get("statuses", {}) or {}
-
-        if not isinstance(attrs, dict) or not isinstance(stats, dict):
-            return Response({"detail": "attributes/statuses 必须为对象"}, status=status.HTTP_400_BAD_REQUEST)
-
-        result = services.build_settlement_variants(attrs, stats)
-        return Response(result, status=status.HTTP_200_OK)
+    def post(self, request, gameworkId: int, endingIndex: int, *args, **kwargs):
+        try:
+            _ = get_object_or_404(Gamework, pk=gameworkId)
+        except Exception:
+            return Response({"error":"指定的作品不存在"}, status=status.HTTP_404_NOT_FOUND)
+        
+        attributes = request.data.get("attributes", {})
+        
+        try:
+            result = services.get_ending_report(gameworkId, endingIndex, attributes)
+            return Response(result, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f"获取报告失败: {e}", exc_info=True)
+            return Response({"error": "获取报告失败"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

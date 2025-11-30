@@ -156,11 +156,8 @@ const switchCategory = (index) => {
   window.scrollTo(0, 0); // 切换时滚动到顶部
 };
 
-// 按页数获取标签
-const fetchTagsPage = async (page = 1) => {
-  try {
-    const response = await http.get('/tags/', {
-      params: { page } 
+    const newTagsRes = await http.get('/api/tags/', {
+      params: { page }
     });
     return {
       results: response.data?.results || [], // 当前页标签
@@ -208,7 +205,7 @@ onMounted(async () => {
     
     await fetchAllTags();
     // 再获取用户偏好
-    const res = await http.get('/users/preferences/');
+    const res = await http.get('/api/users/preferences/');
     if (res.code === 200 && res.data?.preferences) {
       const { gender, favoriteTags } = res.data.preferences;
       selectedGender.value = gender || '';
@@ -282,7 +279,7 @@ const handleSubmit = async () => {
       liked_tags: selectedTags.value.map(tagId => parseInt(tagId, 10)) // 转换为整数
     };
 
-    const response = await http.put('/users/preferences/', submitData);
+    const response = await http.put('/api/users/preferences/', submitData);
 
     if (response.status === 200) {
       userStore.setPreferences(response.data.preferences);

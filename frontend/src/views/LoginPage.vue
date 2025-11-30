@@ -66,7 +66,7 @@ const handleLogin = async () => {
     showLoadingToast('登录中...');
 
     try {
-        const res = await http.post('auth/login/', {
+        const res = await http.post('/api/auth/login/', {
                     username: username.value,
                     password: password.value
                 });

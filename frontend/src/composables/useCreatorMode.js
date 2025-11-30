@@ -149,8 +149,45 @@ export function useCreatorMode(dependencies = {}) {
             }
           }
         }
+        // 新增：仅在创作者身份下，若当前场景是后端生成的结局且尚未被保存，则不允许通过菜单进入手动编辑模式
+        try {
+          // 如果是创作者身份或者来自 create 页面且可修改（modifiableFromCreate），
+          // 都应当被视为需要额外的已保存检查，避免未保存的后端结局被菜单直接进入手动编辑。
+          if (isCreatorIdentity?.value || modifiableFromCreate?.value) {
+            const cs = (dependencies && dependencies.currentScene) || params.currentScene
+            const cur = cs && cs.value ? cs.value : (cs || null)
+            if (cur && (cur._isBackendEnding || cur.isGameEnding || cur.isEnding) && cur._endingSaved !== true) {
+              if (showNotice) showNotice('当前结局未保存(saved)状态，无法进入手动编辑模式，请先保存结局或使用“编辑结局大纲”')
+              return
+            }
+          }
+        } catch (e) { /* ignore */ }
         // if (_creatorFeatureEnabled && !_creatorFeatureEnabled.value) {
         //   if (showNotice) showNotice('进入手动编辑：当前作品未开启 AI 自动生成，仅支持人工调整后保存。')
+      // 如果是创作者身份，则在已保存状态下阻止编辑大纲；阅读者身份不受该限制
+      try {
+        if (isCreatorIdentity?.value) {
+          if (typeof checkCurrentChapterSaved === 'function') {
+            const isSaved = await checkCurrentChapterSaved()
+            if (isSaved) {
+              // 如果当前场景是后端结局且该结局已被标记为已保存，允许进入手动编辑（编辑结局与阅读者模式一致）
+              try {
+                const cs = (dependencies && dependencies.currentScene) || params.currentScene
+                const cur = cs && cs.value ? cs.value : (cs || null)
+                if (cur && (cur._isBackendEnding || cur.isGameEnding || cur.isEnding) && cur._endingSaved === true) {
+                  // 允许进入创作者手动编辑模式（不阻止）
+                } else {
+                  showNotice?.('当前章节已保存，无法编辑大纲')
+                  return
+                }
+              } catch (e) {
+                showNotice?.('当前章节已保存，无法编辑大纲')
+                return
+              }
+            }
+          }
+        }
+      } catch (e) { /* ignore */ }
         // }
         // 进入创作者模式时停止自动播放
         if (_stopAutoPlayTimer) {
@@ -161,9 +198,9 @@ export function useCreatorMode(dependencies = {}) {
         if (_autoPlayEnabled?.value && _startAutoPlayTimer) {
           try { _startAutoPlayTimer() } catch (e) {}
         }
-        // 退出时持久化当前章节编辑
+        // 退出时持久化当前章节编辑（仅本地持久化，不自动发送到后端）
         if (_persistCurrentChapterEdits) {
-          try { await _persistCurrentChapterEdits({ auto: true }) } catch (e) {}
+          try { await _persistCurrentChapterEdits({ auto: true, performNetworkSave: false }) } catch (e) {}
         }
       }
       creatorMode.value = !creatorMode.value
@@ -174,11 +211,31 @@ export function useCreatorMode(dependencies = {}) {
   // 直接使用闭包中的 outlineEdits/outlineUserPrompt 等 refs。
   const openOutlineEditorManual = async (params = {}) => {
     try {
-      const allowed = (isCreatorIdentity?.value || modifiableFromCreate?.value)
-      if (!allowed) {
-        try { showNotice('您无权编辑本作品的大纲（非作者或作品未开启编辑）。') } catch(e){}
-        return
-      }
+      // 允许所有身份（包括阅读者）打开手动大纲编辑
+      // 只有在创作者身份下，才会阻止"已保存"状态下的编辑行为。
+      try {
+        // 同上：打开大纲编辑时，对于创作者或 createResult 可修改的用户，需要限制已保存状态
+        if (isCreatorIdentity?.value || modifiableFromCreate?.value) {
+          if (typeof checkCurrentChapterSaved === 'function') {
+            const isSaved = await checkCurrentChapterSaved()
+            if (isSaved) {
+              try {
+                const cs = (dependencies && dependencies.currentScene) || params.currentScene
+                const cur = cs && cs.value ? cs.value : (cs || null)
+                if (cur && (cur._isBackendEnding || cur.isGameEnding || cur.isEnding) && cur._endingSaved === true) {
+                  // 允许进入创作者手动编辑（编辑结局与阅读者模式一致）
+                } else {
+                  showNotice?.('当前章节已保存，无法编辑大纲')
+                  return
+                }
+              } catch (e) {
+                showNotice?.('当前章节已保存，无法编辑大纲')
+                return
+              }
+            }
+          }
+        }
+      } catch (e) { /* ignore */ }
 
       // 🔑 关键修复：使用依赖中的 currentChapterIndex 和 totalChapters
       const start = Number(currentChapterIndex?.value || params.currentChapterIndex?.value || 1) || 1
@@ -262,6 +319,19 @@ export function useCreatorMode(dependencies = {}) {
   
   const confirmOutlineEdits = async (params = {}) => {
     const { startLoading, stopLoading } = params
+    // 仅在创作者身份下，确认大纲前再次校验章节是否已保存，若已保存阻止提交；阅读者不受该限制
+    try {
+      if (isCreatorIdentity?.value) {
+        if (typeof checkCurrentChapterSaved === 'function') {
+          const isSaved = await checkCurrentChapterSaved()
+          if (isSaved) {
+            showNotice?.('当前章节已保存，无法确认大纲')
+            if (stopLoading) stopLoading()
+            return
+          }
+        }
+      }
+    } catch (e) { /* ignore */ }
     
     try {
       // 关闭编辑器界面
@@ -592,8 +662,24 @@ export function useCreatorMode(dependencies = {}) {
       const target = scene.dialogues[idx]
       if (!isNarration(target)) { showNotice?.('当前项不是旁白，无法删除'); return }
 
+      // 如果该场景包含选项，并且当前索引正好是触发选项的那句旁白，则禁止删除
+      const hasChoices = Array.isArray(scene.choices) && scene.choices.length > 0
+      const triggerIdx = (typeof scene.choiceTriggerIndex === 'number') ? scene.choiceTriggerIndex : null
+      if (hasChoices && triggerIdx !== null && idx === triggerIdx) {
+        showNotice?.('无法删除触发选项的旁白，请先移动或修改选项触发点');
+        return
+      }
+
+      // 记录旧的 trigger 索引，以便在删除靠前项时调整
+      const oldTriggerIdx = triggerIdx
+
       // 删除
       scene.dialogues.splice(idx, 1)
+
+      // 如果删除的项在触发点之前，触发索引需要左移一位，以保持触发旁白不变
+      if (hasChoices && oldTriggerIdx !== null && idx < oldTriggerIdx) {
+        try { scene.choiceTriggerIndex = oldTriggerIdx - 1 } catch (e) { /* ignore */ }
+      }
 
       // 更新 overrides：重建索引映射，保持其它被编辑的文本
       const sid = (scene._uid || scene.sceneId || scene.id || `idx_${_currentSceneIndex.value}`)
@@ -701,7 +787,7 @@ export function useCreatorMode(dependencies = {}) {
           const form = new FormData()
           form.append('file', f)
           try {
-            const resp = await http.post('/game/upload-image/', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+            const resp = await http.post('/api/game/upload-image/', form, { headers: { 'Content-Type': 'multipart/form-data' } })
             const imageUrl = (resp && resp.data && (resp.data.imageUrl || resp.data.imageUrl)) || (resp && resp.imageUrl) || null
             if (imageUrl) {
               _overrides.value.scenes[sid].backgroundImage = imageUrl
@@ -767,7 +853,7 @@ export function useCreatorMode(dependencies = {}) {
           try {
             (async () => {
               try {
-                await persistCurrentChapterEdits({ auto: false, allowSaveGenerated: false })
+                await persistCurrentChapterEdits({ auto: false, allowSaveGenerated: false, performNetworkSave: false })
               } catch (e) { console.warn('persistCurrentChapterEdits on exit creatorMode failed', e) }
             })()
           } catch (e) { console.warn('trigger persist on exit creatorMode failed', e) }

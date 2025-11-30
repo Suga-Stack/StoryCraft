@@ -350,5 +350,5 @@ AI_API_KEY_FOR_TEXT = "sk-PAF8gzAL93s9xKlaybzSQw"
 AI_BASE_URL_FOR_TEXT = "https://llmapi.paratera.com/v1/"
 
 AI_MODEL_FOR_IMAGE = "doubao-seedream-4-0-250828"
-AI_API_KEY_FOR_IMAGE = "d62d3ca8-3892-446f-9400-e2164e441bee"
+AI_API_KEY_FOR_IMAGE = "3199d359-bb9f-4bee-9678-439d9cfa1533"
 AI_BASE_URL_FOR_IMAGE = "https://ark.cn-beijing.volces.com/api/v3"
