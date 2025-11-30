@@ -259,23 +259,32 @@ const handleRegister = async () => {
       email_code: formData.value.email_code
     });
 
-    if (response.code === 201) {
-      // 处理token存储
-      const { tokens = {} } = res.data || {};
-      if (tokens.access) {
+    // 兼容后端返回结构：后端可能返回 { code: 200, message: '注册成功', data: { tokens, user } }
+    const resData = response?.data || {};
+    const code = resData.code || response.status;
+
+    if (code === 200 || code === 201) {
+      // 注册成功：尝试从响应中提取 tokens 与 user
+      const tokens = (resData.data && (resData.data.tokens || resData.data.tokens)) || resData.tokens || {};
+      const user = (resData.data && resData.data.user) || resData.user || null;
+
+      if (tokens && tokens.access) {
         localStorage.setItem('token', tokens.access);
       }
-      if (tokens.refresh) {
+      if (tokens && tokens.refresh) {
         localStorage.setItem('refreshToken', tokens.refresh);
       }
-      localStorage.setItem('userInfo', JSON.stringify(data.user));
+      if (user) {
+        localStorage.setItem('userInfo', JSON.stringify(user));
+      }
+
+      // 根据需求跳转到偏好设置页面
       router.push('/preferences');
     } else {
       // 处理正常响应中的错误信息
-      const errorMsg = Array.isArray(response.message) 
-        ? response.message.join('; ') 
-        : response.message || '注册失败，请稍后重试';
-      alert(errorMsg); 
+      const msg = resData.message || (resData.data && resData.data.message) || '注册失败，请稍后重试';
+      const errorMsg = Array.isArray(msg) ? msg.join('; ') : msg;
+      alert(errorMsg);
     }
   }// 处理注册
   catch (error) {
