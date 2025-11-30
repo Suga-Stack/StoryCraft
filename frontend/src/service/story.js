@@ -190,12 +190,21 @@ export async function saveChapter(gameworkId, chapterIndex, chapterData = {}) {
 }
 
 /**
- * 将创作者在前端修改后的结局内容持久化到后端（PUT /api/game/storyending/{gameworkId}）
+ * 将创作者在前端修改后的结局内容持久化到后端。
+ * 优先使用新的按逻辑结局索引的接口：PUT /api/game/storyending/{gameworkId}/{endingIndex}/
+ * 如果 body 中包含 `endingIndex` 字段，则会使用上面的新路径；否则为兼容性回退到旧路径。
  * @param {number|string} gameworkId
- * @param {Object} body - { endingId, title, scenes }
+ * @param {Object} body - { endingIndex, title, scenes }
  */
 export async function saveEnding(gameworkId, body = {}) {
   try {
+    // 如果提供了逻辑上的 endingIndex，则把请求发送到带索引的接口
+    const idx = (body && (body.endingIndex != null)) ? Number(body.endingIndex) : null
+    if (idx != null && !isNaN(idx)) {
+      return await http.put(`/api/game/storyending/${gameworkId}/${idx}/`, body)
+    }
+
+    // 否则保持向后兼容：调用旧的端点
     return await http.put(`/api/game/storyending/${gameworkId}/`, body)
   } catch (e) {
     console.error('saveEnding failed', e)
@@ -244,16 +253,28 @@ export async function getInitialScenes(workId) {
  */
 export async function fetchSettlementReport(workId, gameState = {}) {
   try {
-    const { attributes = {}, statuses = {} } = gameState
-    
-    console.log('[Story] 请求结算报告 - workId:', workId)
+    // 支持多种调用方式：
+    // - fetchSettlementReport(workId, { attributes, statuses, endingIndex })
+    // - 向后兼容：fetchSettlementReport(workId, { attributes, statuses }) 最终回退到旧接口
+    const { attributes = {}, statuses = {}, endingIndex = null } = gameState
+
+    console.log('[Story] 请求结算报告 - workId:', workId, 'endingIndex:', endingIndex)
     console.log('[Story] 游戏状态 - attributes:', attributes, 'statuses:', statuses)
-    
-    const data = await http.post(
-      `/api/settlement/report/${workId}/`,
-      { attributes, statuses }
-    )
-    
+
+    const wid = Number(workId)
+    const idx = (endingIndex != null && !isNaN(Number(endingIndex))) ? Number(endingIndex) : null
+
+    // 优先调用新的接口：/api/game/report/{gameworkId}/{endingIndex}/
+    // 如果未提供 endingIndex 或者 workId 非整数，则回退到旧的 /api/settlement/report/ 接口以保持兼容性
+    let url
+    if (idx != null && Number.isInteger(wid)) {
+      url = `/api/game/report/${wid}/${idx}/`
+    } else {
+      url = Number.isInteger(wid) ? `/api/settlement/report/${wid}/` : '/api/settlement/report/'
+    }
+
+    const data = await http.post(url, { attributes, statuses })
+
     console.log('[Story] 结算报告获取成功:', data)
     return data
   } catch (error) {

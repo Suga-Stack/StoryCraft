@@ -105,7 +105,7 @@ export function useStoryAPI() {
   const getWorkDetails = async (workId) => {
     try {
       if (!workId) workId = work.value.id
-      const url = `/gameworks/gameworks/${encodeURIComponent(workId)}/`
+      const url = `/api/gameworks/gameworks/${encodeURIComponent(workId)}/`
       const resp = await http.get(url)
       const body = resp && resp.data ? resp.data : resp
       
@@ -433,7 +433,7 @@ export function useStoryAPI() {
         // 只进行一次 GET 请求，避免 getScenes 的重试逻辑在已经由 generate POST 发起生成后再次触发不必要的行为
         try {
   // 注意：utils/http.js 已经配置了 baseURL='/api'，此处不要再加 '/api' 前缀，避免出现 '/api/api/...'
-  const resp = await http.get(`/game/chapter/${workId}/${idx}/`)
+  const resp = await http.get(`/api/game/chapter/${workId}/${idx}/`)
         data = resp && resp.data ? resp.data : resp
         console.log('[fetchNextChapter] singleRequest response:', data)
         

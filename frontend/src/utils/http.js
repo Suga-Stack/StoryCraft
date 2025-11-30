@@ -1,8 +1,11 @@
 import axios from 'axios';
 
 // 创建Axios实例
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
+
 const http = axios.create({
-  baseURL: '', // 不设置全局 /api 前缀，API 路径在调用处指定（避免 /api/api 重复）
+  // 默认指向后端主机，调用方仍可使用以 `/api/` 开头的路径
+  baseURL: API_BASE,
   timeout: 10000 // 超时时间10秒
 });
 
