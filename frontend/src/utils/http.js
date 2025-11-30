@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // 创建Axios实例
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
+const API_BASE = 'http://127.0.0.1:8000/'
 
 const http = axios.create({
   // 默认指向后端主机，调用方仍可使用以 `/api/` 开头的路径

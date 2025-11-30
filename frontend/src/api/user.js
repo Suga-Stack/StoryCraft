@@ -32,89 +32,89 @@ export const getPreferences = () => {
 
 // 获取用户信息
 export const getUserInfo = (id) => {
-  return http.get(`/users/admin/${id}/`)
+  return http.get(`/api/users/admin/${id}/`)
 }
 
 // 更新用户信息
 export const updateUserInfo = (id, data) => {
-  return http.patch(`/users/admin/${id}/`, data)
+  return http.patch(`/api/users/admin/${id}/`, data)
 }
 
 export const uploadProfilePicture = (file) => {
-  return http.post(`/game/upload-iamge/`, file )
+  return http.post(`/api/game/upload-iamge/`, file )
 }
 
 export const recommend = () => {
-  return http.get('/gameworks/recommend/')
+  return http.get('/api/gameworks/recommend/')
 }
 
 export const getReadingHistory = () => {
-  return http.get('/users/read/'); 
+  return http.get('/api/users/read/'); 
 }
 
 export const getRecentReadingHistory = () => {
-  return http.get('/users/read/recent/'); 
+  return http.get('/api/users/read/recent/'); 
 }
 
 export const getMyworks = () => {
-  return http.get('/users/myworks/'); 
+  return http.get('/api/users/myworks/'); 
 }
 
 export const getRecentMyworks = () => {
-  return http.get('/users/myworks/recent/'); 
+  return http.get('/api/users/myworks/recent/'); 
 }
 
 export const search = (page, q, author, tag) => {
-  return http.get('/gameworks/search/', {params: {page, q, author, tag}});
+  return http.get('/api/gameworks/search/', {params: {page, q, author, tag}});
 }
 
 export const getFavoriteLeaderboard = () => {
-  return http.get('/gameworks/favorite-leaderboard/');
+  return http.get('/api/gameworks/favorite-leaderboard/');
 }
 
 export const getRatingLeaderboard = () => {
-  return http.get('/gameworks/rating-leaderboard/');
+  return http.get('/api/gameworks/rating-leaderboard/');
 }
 
 export const getHotLeaderboard = (range) => {
-  return http.get('/gameworks/hot-leaderboard/', {
+  return http.get('/api/gameworks/hot-leaderboard/', {
     params: { range }
   })
 }
 
 //创建收藏夹
 export const createFolders = (name) => {
-  return http.post('/interactions/favorite-folders/',{name});
+  return http.post('/api/interactions/favorite-folders/',{name});
 }
 
 //获取所有的收藏夹
 export const getFolders = () => {
-  return http.get('/interactions/favorite-folders/');
+  return http.get('/api/interactions/favorite-folders/');
 }
 
 //删除收藏夹
 export const deleteFolders = (id) => {
-  return http.delete(`/interactions/favorite-folders/${id}/`);
+  return http.delete(`/api/interactions/favorite-folders/${id}/`);
 }
 
 // 获取收藏夹中的作品列表
 export const searchFavorites = (search, page, folder) => {
-  return http.get('/interactions/favorites/',{search, page, folder});//folder筛选所属收藏夹ID（send empty value或为 null 显示未分组，不传显示全部）
+  return http.get('/api/interactions/favorites/',{search, page, folder});//folder筛选所属收藏夹ID（send empty value或为 null 显示未分组，不传显示全部）
 }
 
 // 把作品添加到收藏
 export const addFavorite = (gamework_id, folder) => {
-  return http.post('/interactions/favorites/', {gamework_id, folder});
+  return http.post('/api/interactions/favorites/', {gamework_id, folder});
 }
 
 // 取消收藏
 export const deleteFavorite = (id) => {
-  return http.delete(`/interactions/favorites/${id}/`)
+  return http.delete(`/api/interactions/favorites/${id}/`)
 }
 
 //移动到其他收藏夹
 export const moveFavorite = (id, folderId) => {
-  return http.patch(`/interactions/favorites/${id}/`, {folderId, id})
+  return http.patch(`/api/interactions/favorites/${id}/`, {folderId, id})
 }
 
 //获取评论
@@ -138,35 +138,35 @@ export const unlikeComment = (commentId) => {
 }
 
 export const recommendWorks = (page) => {
-  return http.get('/gameworks/recommend/', page)
+  return http.get('/api/gameworks/recommend/', page)
 }
 
 // 发布作品
 export const publishWorks = (id) => {
-  return http.post(`/gameworks/publish/${id}/`)
+  return http.post(`/api/gameworks/publish/${id}/`)
 }
 
 // 取消发布作品
 export const unpublishWorks = (id, price) => {
-  return http.post(`/gameworks/unpublish/${id}/`, price)
+  return http.post(`/api/gameworks/unpublish/${id}/`, price)
 }
 
 // 获取签到日期
 export const getSignInDates = () => {
-  return http.get('/users/signin/')
+  return http.get('/api/users/signin/')
 }
 
 // 用户签到
 export const userSignIn = () => {
-  return http.post('/users/signin/')
+  return http.post('/api/users/signin/')
 }
 
 // 积分充值
 export const rechargeCredits = (credits) => {
-  return http.post('/users/recharge/', {credits})
+  return http.post('/api/users/recharge/', {credits})
 }
 
 // 获取积分流水
 export const getCreditsLog = (page) => {
-  return http.get('/users/creditlog/', {page})
+  return http.get('/api/users/creditlog/', {page})
 }

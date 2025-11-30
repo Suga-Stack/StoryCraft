@@ -305,7 +305,6 @@ const loadFavoriteBooks = async () => {
     
     saveData();
   } catch (error) {
-    console.error('加载收藏作品失败', error);
     const savedBooks = localStorage.getItem('favoriteBooks');
     try {
       // 解析本地存储时也可能出错，需要捕获

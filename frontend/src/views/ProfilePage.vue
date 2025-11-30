@@ -276,7 +276,7 @@ const uploadImage = async (file) => {
   const formData = new FormData();
   formData.append('file', file); 
 
-  const response = await http.post('/game/upload-image/', formData, {
+  const response = await http.post('/api/game/upload-image/', formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   });
 
@@ -399,7 +399,7 @@ const handleLogout = async () => {
     const refreshToken = localStorage.getItem('refreshToken');
     if (refreshToken) {
       // 调用后端logout接口
-      await http.post('/auth/logout/', {
+      await http.post('/api/auth/logout/', {
         refresh: refreshToken
       });
     }

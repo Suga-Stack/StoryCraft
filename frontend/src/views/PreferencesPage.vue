@@ -140,6 +140,107 @@ const categories = ref([
   { name: '世界观', range: [49, 63] }, // 世界观标签：49-63
   { name: '题材', range: [64, 88] }    // 题材标签：64-88
 ]);
+
+// 前端默认标签列表（按分类划分）
+const defaultTags = [
+  // 类型标签（0-15）
+  { id: 0, name: '玄幻' },
+  { id: 1, name: '奇幻' },
+  { id: 2, name: '仙侠' },
+  { id: 3, name: '武侠' },
+  { id: 4, name: '科幻' },
+  { id: 5, name: '都市' },
+  { id: 6, name: '历史' },
+  { id: 7, name: '军事' },
+  { id: 8, name: '悬疑' },
+  { id: 9, name: '灵异' },
+  { id: 10, name: '惊悚' },
+  { id: 11, name: '游戏' },
+  { id: 12, name: '竞技' },
+  { id: 13, name: '体育' },
+  { id: 14, name: '言情' },
+  { id: 15, name: '现实' },
+
+  // 风格标签（16-48）
+  { id: 16, name: '升级流' },
+  { id: 17, name: '无敌流' },
+  { id: 18, name: '重生' },
+  { id: 19, name: '穿越' },
+  { id: 20, name: '系统' },
+  { id: 21, name: '无限流' },
+  { id: 22, name: '种田' },
+  { id: 23, name: '基建' },
+  { id: 24, name: '末世' },
+  { id: 25, name: '废土' },
+  { id: 26, name: '爽文' },
+  { id: 27, name: '轻松' },
+  { id: 28, name: '搞笑' },
+  { id: 29, name: '治愈' },
+  { id: 30, name: '暗黑' },
+  { id: 31, name: '虐心' },
+  { id: 32, name: '烧脑' },
+  { id: 33, name: '智斗' },
+  { id: 34, name: '群像' },
+  { id: 35, name: '日常' },
+  { id: 36, name: '生活流' },
+  { id: 37, name: '热血' },
+  { id: 38, name: '争霸' },
+  { id: 39, name: '权谋' },
+  { id: 40, name: '扮猪吃虎' },
+  { id: 41, name: '腹黑' },
+  { id: 42, name: '忠犬' },
+  { id: 43, name: '傲娇' },
+  { id: 44, name: '病娇' },
+  { id: 45, name: '萌宝' },
+  { id: 46, name: '马甲' },
+  { id: 47, name: '神豪' },
+  { id: 48, name: '赘婿' },
+
+  // 世界观标签（49-63）
+  { id: 49, name: '现代' },
+  { id: 50, name: '古代' },
+  { id: 51, name: '异界' },
+  { id: 52, name: '异世界' },
+  { id: 53, name: '星际' },
+  { id: 54, name: '未来' },
+  { id: 55, name: '民国' },
+  { id: 56, name: '原始社会' },
+  { id: 57, name: '原始部落' },
+  { id: 58, name: '洪荒' },
+  { id: 59, name: '高武' },
+  { id: 60, name: '西幻' },
+  { id: 61, name: '克鲁苏' },
+  { id: 62, name: '赛博朋克' },
+  { id: 63, name: '蒸汽朋克' },
+
+  // 题材标签（64-88）
+  { id: 64, name: '男频' },
+  { id: 65, name: '女频' },
+  { id: 66, name: '甜宠' },
+  { id: 67, name: '霸总' },
+  { id: 68, name: '女强' },
+  { id: 69, name: '女尊' },
+  { id: 70, name: '宫斗' },
+  { id: 71, name: '宅斗' },
+  { id: 72, name: '职场' },
+  { id: 73, name: '职场商战' },
+  { id: 74, name: '校园' },
+  { id: 75, name: '青春' },
+  { id: 76, name: '耽美' },
+  { id: 77, name: '百合' },
+  { id: 78, name: '明星同人' },
+  { id: 79, name: '二次元' },
+  { id: 80, name: '轻小说' },
+  { id: 81, name: '影视改编' },
+  { id: 82, name: '出版小说' },
+  { id: 83, name: '真人互动' },
+  { id: 84, name: '多人视角' },
+  { id: 85, name: '第一人称' },
+  { id: 86, name: '第二人称' },
+  { id: 87, name: '第三人称' },
+  { id: 88, name: '单元剧' }
+];
+
 const currentCategory = ref(0); // 当前选中的分类索引，默认选中"类型"
 
 // 筛选当前分类的标签
@@ -156,8 +257,11 @@ const switchCategory = (index) => {
   window.scrollTo(0, 0); // 切换时滚动到顶部
 };
 
-    const newTagsRes = await http.get('/api/tags/', {
-      params: { page }
+// 按页数获取标签
+const fetchTagsPage = async (page = 1) => {
+  try {
+    const response = await http.get('/api/tags/', {
+      params: { page } 
     });
     return {
       results: response.data?.results || [], // 当前页标签
@@ -189,6 +293,11 @@ const fetchAllTags = async () => {
       }
     }
 
+     // 检查是否获取到数据
+    if (allTags.value.length === 0) {
+      console.warn('后端返回空标签列表，使用默认标签');
+      allTags.value = [...defaultTags];
+    }
   //console.log('全部标签加载完成，共', allTags.value.length, '条');
   } catch (error) {
     tagsError.value = '加载标签失败，请重试';

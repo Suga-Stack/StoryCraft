@@ -100,7 +100,7 @@ const handleLogin = async () => {
             refresh: data.refresh
         })
 
-        const preData = await http.get('users/preferences/');
+        const preData = await http.get('/api/users/preferences/');
         // 检查是否存在有效的偏好设置
         const haspreferences = preData.data && Array.isArray(preData.data.liked_tags) && preData.data.liked_tags.length > 0;
 

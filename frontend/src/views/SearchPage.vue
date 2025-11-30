@@ -684,7 +684,7 @@ const fetchTags = async (page = 1) => {
     isLoadingTags.value = true;
     tagsError.value = '';
 
-    const newTagsRes = await http.get('/tags/', {
+    const newTagsRes = await http.get('/api/tags/', {
       params: { page }
     });
     

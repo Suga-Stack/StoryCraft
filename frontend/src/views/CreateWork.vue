@@ -63,7 +63,7 @@ onMounted( async () => {
 // 按页数获取标签
 const fetchTagsPage = async (page = 1) => {
   try {
-    const response = await http.get('/tags/', {
+    const response = await http.get('/api/tags/', {
       params: { page } 
     });
     return {
