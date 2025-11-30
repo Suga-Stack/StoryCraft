@@ -37,6 +37,20 @@
         <!-- 标签选择页面 -->
         <div class="section tags-section">
           <h3 class="section-title">选择感兴趣的标签（至少选1个）</h3>
+
+          <!-- 分类切换按钮 -->
+          <div class="category-buttons">
+            <van-button 
+              v-for="(category, index) in categories" 
+              :key="index"
+              :type="currentCategory === index ? 'primary' : 'default'"
+              @click="switchCategory(index)"
+              round
+              size="small"
+            >
+              {{ category.name }}
+            </van-button>
+          </div>
           
           <!-- 加载状态 -->
           <van-loading v-if="isLoadingTags" color="#c78c8c" size="24" class="loading-indicator" />
@@ -44,18 +58,18 @@
           <!-- 标签容器（加载完成且无错误时显示） -->
           <div v-else-if="!tagsError" class="tags-container">
             <van-tag 
-              v-for="(tag, index) in allTags"  
+              v-for="(tag, index) in filteredTags"  
               :key="tag.id"
-              :name="tag.id"
+              :name="tag.name"
               :checked="selectedTags.includes(tag.id)"
               @click="toggleTag(tag.id)"
               type="primary"
               class="custom-tag"
               :style="{
-              backgroundColor: selectedTags.includes(tag.id) ? '#e5b7b7' : '#fff',
-              color: selectedTags.includes(tag.id) ? '#fff' : '#c78c8c',
-              borderColor: '#c78c8c'
-            }" 
+                backgroundColor: selectedTags.includes(tag.id) ? '#D4A5A5' : '#fff',
+                color: selectedTags.includes(tag.id) ? '#ffffff' : '#444444',
+                borderColor: selectedTags.includes(tag.id) ? '#e5b7b7' : '#b88484'
+              }"
             >
               {{ tag.name }}
             </van-tag>
@@ -92,7 +106,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useUserStore } from '../store';
 import { showToast, Loading } from 'vant';
@@ -119,35 +133,77 @@ const allTags = ref([]);
 const isLoadingTags = ref(false);
 const tagsError = ref('');
 
-// 整合标签初始化和获取的函数
-const FetchTags = async (page = 1) => {
-  try {
-    isLoadingTags.value = true;
-    tagsError.value = '';
+// 标签分类相关状态
+const categories = ref([
+  { name: '类型', range: [0, 15] },    // 类型标签：0-15
+  { name: '风格', range: [16, 48] },   // 风格标签：16-48
+  { name: '世界观', range: [49, 63] }, // 世界观标签：49-63
+  { name: '题材', range: [64, 88] }    // 题材标签：64-88
+]);
+const currentCategory = ref(0); // 当前选中的分类索引，默认选中"类型"
+
+// 筛选当前分类的标签
+const filteredTags = computed(() => {
+  const { range } = categories.value[currentCategory.value];
+  const [min, max] = range;
+  // 筛选出id在[min, max]范围内的标签
+  return allTags.value.filter(tag => tag.id >= min && tag.id <= max);
+});
+
+// 切换分类
+const switchCategory = (index) => {
+  currentCategory.value = index;
+  window.scrollTo(0, 0); // 切换时滚动到顶部
+};
 
     const newTagsRes = await http.get('/api/tags/', {
       params: { page }
     });
-    console.log('标签接口返回数据:', newTagsRes); 
-    allTags.value = newTagsRes.data?.results || [];
-    // 新增日志：打印赋值后的allTags
-    console.log('allTags赋值后:', allTags.value); 
-    } catch (error) {
-    console.error('标签初始化/获取失败:', error);
-    tagsError.value = error.response?.data?.message || '网络错误，无法获取标签';
+    return {
+      results: response.data?.results || [], // 当前页标签
+      totalPages: Math.ceil((response.data?.count || 0) / 10) 
+    };
+  } catch (error) {
+//  console.error(`获取第${page}页标签失败:`, error);
+    throw error; // 抛出错误让外层处理
+  }
+};
+
+// 获取所有标签
+const fetchAllTags = async () => {
+  isLoadingTags.value = true;
+  tagsError.value = '';
+  allTags.value = []; // 清空现有数据
+
+  try {
+    // 先请求第1页，获取总页数
+    const firstPage = await fetchTagsPage(1);
+    allTags.value.push(...firstPage.results); // 合并第1页数据
+
+    // 如果总页数大于1，循环请求剩余页数
+    if (firstPage.totalPages > 1) {
+      // 从第2页循环到最后一页
+      for (let page = 2; page <= firstPage.totalPages; page++) {
+        const currentPage = await fetchTagsPage(page);
+        allTags.value.push(...currentPage.results); // 合并当前页数据
+      }
+    }
+
+  //console.log('全部标签加载完成，共', allTags.value.length, '条');
+  } catch (error) {
+    tagsError.value = '加载标签失败，请重试';
     showToast(tagsError.value);
   } finally {
     isLoadingTags.value = false;
   }
 };
 
-
 // 初始化：获取已保存的偏好和标签列表
 onMounted(async () => {
   // 并行请求：同时获取偏好设置和标签列表
   try {
     
-    await FetchTags();
+    await fetchAllTags();
     // 再获取用户偏好
     const res = await http.get('/api/users/preferences/');
     if (res.code === 200 && res.data?.preferences) {
@@ -242,7 +298,6 @@ const handleSubmit = async () => {
 </script>
 
 <style scoped>
-/* 原有样式保持不变，增加加载指示器样式 */
 .loading-indicator {
   text-align: center;
   padding: 20px 0;
@@ -311,20 +366,43 @@ const handleSubmit = async () => {
 .tags-container {
   display: grid;
   margin: 0 auto;
-  width: 80%;
+  width: 94%;
   grid-template-columns: repeat(3, 1fr); /* 每3个标签一行 */
-  gap: 12px;
+  gap: 8px;
   padding: 0 8px;
+  border-radius: 15px;
+  background-color: #ffffff;
+  padding: 15px 20px;
 }
 
-::v-deep .custom-tag{
+.category-buttons {
+  display: flex;
+  gap: 8px;
+  margin: 0 16px 20px;
+  overflow-x: auto; /* 防止按钮过多时溢出 */
+  padding-bottom: 8px;
+}
+
+/* 自定义按钮样式 */
+::v-deep .van-button--primary {
+  background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
+  border: none;
+}
+
+::v-deep .van-button--default {
+  background-color: #fff;
+  color: #c78c8c;
+  border: 1px solid #c78c8c;
+}
+
+::v-deep .custom-tag {
   border-radius: 12px; 
-  padding: 14px 0; 
-  font-size: 17px; 
+  padding: 10px 0; 
+  font-size: 14px; 
   display: flex;
   justify-content: center;
   align-items: center;
-  width: 80px;
+  width: 90px;
 }
 
 /* 按钮样式 */

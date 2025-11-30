@@ -4,7 +4,7 @@
     <div class="search-bar">
       <van-search
         v-model="searchValue"
-        placeholder="搜索作品或作者..."
+        placeholder="搜索作品..."
         shape="round"
         background="#f5f5f5"
         :right-icon="showAdvancedFilter ? 'arrow-up' : 'arrow-down'"
@@ -25,7 +25,7 @@
     </div>
 
     <!-- 高级搜索筛选区 -->
-    <div class="advanced-filter" v-if="showAdvancedFilter">
+    <div class="advanced-filter" v-if="showAdvancedFilter && !isSearchCompleted ">
       <van-row :gutter="16" class="filter-row">
         <van-col span="12">
           <van-field
@@ -51,11 +51,11 @@
         v-model:show="showTagPopup"
         round
         position="bottom"
-        :style="{ height: '70%' }"
+        :style="{ height: '50%' }"
       >
         <div class="tag-popup-header">
           <span>选择标签</span>
-          <van-button type="text" @click="showTagPopup = false">取消</van-button>
+          <span class="close-btn" @click="showTagPopup = false">x</span>
         </div>
         <div class="tag-list" @scroll="handleTagListScroll">
           <!-- 加载状态 -->
@@ -68,11 +68,11 @@
           <van-tag
             v-for="tag in allTags"
             :key="tag.id"
-            :color="getTagColorById(tag.id)"
-            :text-color="selectedTagIds.includes(tag.id) ? '#fff' : ''"
-            round
+            :color="getTagColorById(tag.id).backgroundColor"
+            :text-color="getTagColorById(tag.id).color"
             clickable
             @click="selectTag(tag)"
+            :class="{ 'selected-tag': selectedTagIds.includes(tag.id) }"
           >
             {{ tag.name }}
           </van-tag>
@@ -104,7 +104,7 @@
 
 
     <!-- 导航按钮栏 -->
-    <div class="nav-buttons" v-if="searchValue === ''">
+    <div class="nav-buttons" v-if="!isSearchCompleted">
       <button 
         class="primary-btn" 
         :class="{ active: currentTab === 'total' }"
@@ -143,7 +143,7 @@
     </div>
 
     <!-- 搜索历史 -->
-    <div class="search-history" v-if="searchValue === '' && searchHistory.length">
+    <div class="search-history" v-if="searchValue === '' && searchHistory.length && !isSearchCompleted">
       <div class="history-header">
         <span>搜索历史</span>
         <van-icon name="delete" @click="clearHistory" />
@@ -163,13 +163,13 @@
     </div>
 
     <!-- 排行榜区域 -->
-    <div class="rankings" v-if="searchValue === ''">
+    <div class="rankings" v-if="!isSearchCompleted">
       <div class="ranking-section">
         <div class="ranking-header">
-          <van-icon 
-            :name="currentTab === 'rating' ? 'grade' : currentTab === 'collection' ? 'star' : 'fire'" 
-            :color="currentTab === 'rating' ? '#ff7d00' : currentTab === 'collection' ? '#ffb400' : '#ff4d4f'" 
-          />
+         <van-icon 
+          :name="currentTab === 'rating' ? 'star' : currentTab === 'collection' ? 'like' : 'fire'" 
+          :color="currentTab === 'rating' ? '#ffd700' : currentTab === 'collection' ? '#ff4d4f' : '#ff7a45'" 
+        />
           <span>{{ currentTabText }}</span>
         </div>
         
@@ -206,13 +206,14 @@
                   </span>
                   <div class="tags">
                     <van-tag 
-                      v-for="tagId in item.tags.slice(0, 2)" 
+                      v-for="(tagId, index) in item.tags.slice(0, 2)" 
                       :key="tagId"
-                      :color="getTagColorById(tagId)"
+                      :color="getTagColorById(tagId).backgroundColor"
+                      :text-color="getTagColorById(tagId).color"
                       size="mini"
                       round
                     >
-                      {{ tagId }}
+                      {{ item.tagNames[index] }}
                     </van-tag>
                   </div>
                 </div>
@@ -221,10 +222,11 @@
           </div>
         </div>
       </div>
+    </div>
         
 
     <!-- 搜索结果区域 -->
-    <div class="search-result" v-if="searchValue !== ''">
+    <div class="search-result" v-if="isSearchCompleted">
       <div class="result-header">
         <span>搜索结果: "{{ searchValue }}"</span>
       </div>
@@ -241,18 +243,26 @@
             fit="cover"
           />
           <div class="result-info">
-            <h3 class="result-title">{{ item.title }}</h3>
-            <p class="result-author">作者: {{ item.author }}</p>
-            <div class="result-tags">
-              <van-tag 
-                v-for="(tagId, index) in item.tags.slice(0, 2)"
-                :key="tagId"
-                :color="getTagColorById(tagId)"
-                size="small"
-                round
-              >
-                {{ tagId }}
-              </van-tag>
+            <div class="result-draft">
+              <p class="result-title">{{ item.title }}</p>
+              <div class="author-tags-container">
+                <p class="result-author">作者: {{ item.author }}</p>
+                <div class="result-tags">
+                  <van-tag 
+                    v-for="(tagId, index) in item.tags.slice(0, 2)"
+                    :key="tagId"
+                    :color="getTagColorById(tagId).backgroundColor" 
+                    :text-color="getTagColorById(tagId).color"  
+                    size="small"
+                    round
+                  >
+                    {{ item.tagNames[index] }}
+                  </van-tag>
+                </div>
+              </div>
+            </div>    
+            <div class="result-description">
+              {{ item.description }}
             </div>
           </div>
         </div>
@@ -262,7 +272,6 @@
       </div>
     </div>
   </div>
-</div>
 </template>
 
 <script setup>
@@ -272,6 +281,7 @@ import { showToast } from 'vant'
 import { getFavoriteLeaderboard, search, getRatingLeaderboard, getHotLeaderboard } from '../api/user' 
 import { useTags } from '../composables/useTags';
 import http from '../utils/http'
+import { get } from 'vant/lib/utils';
 // 路由实例
 const router = useRouter()
 
@@ -303,57 +313,12 @@ const currentTab = ref('total') // total, month, week, rating
 const currentPage = ref(1)
 const pageSize = ref(20)
 
-// 生成模拟数据
-const generateRankData = (type, count = 50) => {
-  const baseCovers = [
-    'https://img01.yzcdn.cn/vant/cat.jpeg',
-    'https://img02.yzcdn.cn/vant/dog.jpeg',
-    'https://img03.yzcdn.cn/vant/bird.jpeg',
-    'https://img04.yzcdn.cn/vant/rabbit.jpeg',
-    'https://img05.yzcdn.cn/vant/fox.jpeg',
-    'https://img06.yzcdn.cn/vant/elephant.jpeg',
-    'https://img07.yzcdn.cn/vant/tiger.jpeg',
-    'https://img08.yzcdn.cn/vant/lion.jpeg',
-    'https://img09.yzcdn.cn/vant/panda.jpeg',
-    'https://img10.yzcdn.cn/vant/bear.jpeg',
-  ]
-  
-  const tags = ['科幻', '文学', '历史', '科普', '小说', '哲学', '经济', '艺术', '传记', '悬疑']
-  const authors = ['作者A', '作者B', '作者C', '作者D', '作者E', '作者F', '作者G', '作者H', '作者I', '作者J']
-  const titles = ['作品标题', '经典名著', '畅销书籍', '精选读物', '推荐好书', '热门作品', '高分图书', '必读书目']
-
-  return Array.from({ length: count }, (_, i) => {
-    const id = i + 1
-    const randomBase = Math.random()
-    return {
-      id: `${type}-${id}`,
-      // 原有字段保持不变...
-      hotScore: Math.floor(randomBase * 100000),
-      rating: 3 + randomBase * 2,
-      collectionCount: Math.floor(randomBase * 5000),  // 新增收藏数字段
-      tags: [
-        tags[Math.floor(Math.random() * tags.length)],
-        tags[Math.floor(Math.random() * tags.length)]
-      ]
-    }
-  }).sort((a, b) => {
-    // 新增收藏榜排序逻辑
-    if (type === 'collection') {
-      return b.collectionCount - a.collectionCount
-    }
-    // 原有排序逻辑保持不变
-    return type === 'rating' 
-      ? b.rating - a.rating 
-      : b.hotScore - a.hotScore
-  })
-}
-
 // 排行榜数据
-const totalRank = ref(generateRankData('total'))
-const monthRank = ref(generateRankData('month'))
-const weekRank = ref(generateRankData('week'))
-const ratingRank = ref(generateRankData('rating'))
-const collectionRank = ref(generateRankData('collection'))
+const totalRank = ref([])
+const monthRank = ref([])
+const weekRank = ref([])
+const ratingRank = ref([])
+const collectionRank = ref([])
 
 // 计算当前显示的排行榜数据
 const currentRankList = computed(() => {
@@ -392,16 +357,21 @@ const fetchFavoriteLeaderboard = async () => {
   try {
     const response = await getFavoriteLeaderboard()
     const itemsWithTags = await Promise.all(
-      response.data.data.map(async (item) => ({
-        id: item.id.toString(),  // 统一转为字符串ID
-        title: item.title,
-        author: item.author,
-        cover: item.image_url,  // 映射到cover字段
-        tags: await convertTagIdsToNames(item.tags),
-        hotScore: item.read_count,  // 热度使用阅读量
-        rating: item.average_score, // 评分
-        collectionCount: item.favorite_count  // 收藏数
-      }))
+      response.data.data.map(async (item) => {
+        const tagNames = await convertTagIdsToNames(item.tags);
+        return{
+          ...item,
+          id: item.id.toString(),  // 统一转为字符串ID
+          title: item.title,
+          author: item.author,
+          cover: item.image_url,  // 映射到cover字段
+          tags: item.tags,
+          tagNames: tagNames,
+          hotScore: item.read_count,  // 热度使用阅读量
+          rating: item.average_score, // 评分
+          collectionCount: item.favorite_count  // 收藏数
+        }
+      })
     )
     // 按收藏数排序
     collectionRank.value = itemsWithTags.sort((a, b) => b.collectionCount - a.collectionCount)
@@ -419,15 +389,20 @@ const fetchRatingLeaderboard = async () => {
     // 转换接口返回数据为统一格式
     if (response.data) {
       const itemsWithTags = await Promise.all(
-        response.data.data.map(async (item) => ({
-          id: item.id.toString(),  // 统一转为字符串ID
-          title: item.title,
-          author: item.author,
-          cover: item.image_url,  // 映射到cover字段
-          tags: await convertTagIdsToNames(item.tags), // 等待标签名称解析完成
-          rating: item.average_score, // 评分
-          collectionCount: item.favorite_count  // 收藏数
-        }))
+        response.data.data.map(async (item) => {
+          const tagNames = await convertTagIdsToNames(item.tags);
+          return{
+            ...item,
+            id: item.id.toString(),  // 统一转为字符串ID
+            title: item.title,
+            author: item.author,
+            cover: item.image_url,  // 映射到cover字段
+            tags: item.tags, // 等待标签名称解析完成
+            tagNames: tagNames,
+            rating: item.average_score, // 评分
+            collectionCount: item.favorite_count  // 收藏数
+          }
+        })
       )
       ratingRank.value = itemsWithTags.sort((a, b) => b.average_score - a.average_score);
     }
@@ -443,48 +418,60 @@ const fetchHotLeaderboard = async () => {
     // 获取总榜
     const totalResponse = await getHotLeaderboard('total')
     const totalItems = await Promise.all(
-      totalResponse.data.data.map(async (item) => ({
-        id: item.id.toString(),
-        title: item.title,
-        author: item.author,
-        cover: item.image_url,
-        tags: await convertTagIdsToNames(item.tags),
-        hotScore: item.hot_score,
-        rating: item.average_score,
-        collectionCount: item.favorite_count
-      }))
+      totalResponse.data.data.map(async (item) => {
+        const tagNames = await convertTagIdsToNames(item.tags);
+        return {
+          ...item,
+          id: item.id.toString(),
+          title: item.title,
+          author: item.author,
+          cover: item.image_url,
+          tags: item.tags, // 保留原始标签ID
+          tagNames: tagNames, // 存储转换后的标签名称
+          rating: item.average_score,
+          collectionCount: item.favorite_count
+        }
+      })
     )
     totalRank.value = totalItems
 
     // 获取月榜
     const monthResponse = await getHotLeaderboard('month')
     const monthItems = await Promise.all(
-      monthResponse.data.data.map(async (item) => ({
-        id: item.id.toString(),
-        title: item.title,
-        author: item.author,
-        cover: item.image_url,
-        tags: await convertTagIdsToNames(item.tags),
-        hotScore: item.hot_score,
-        rating: item.average_score,
-        collectionCount: item.favorite_count
-      }))
+      monthResponse.data.data.map(async (item) => {
+        const tagNames = await convertTagIdsToNames(item.tags);
+        return {
+          ...item,
+          id: item.id.toString(),
+          title: item.title,
+          author: item.author,
+          cover: item.image_url,
+          tags: item.tags, // 保留原始标签ID
+          tagNames: tagNames, // 存储转换后的标签名称
+          rating: item.average_score,
+          collectionCount: item.favorite_count
+        }
+      })
     )
     monthRank.value = monthItems
 
     // 获取周榜
     const weekResponse = await getHotLeaderboard('week')
     const weekItems = await Promise.all(
-      weekResponse.data.data.map(async (item) => ({
-        id: item.id.toString(),
-        title: item.title,
-        author: item.author,
-        cover: item.image_url,
-        tags: await convertTagIdsToNames(item.tags),
-        hotScore: item.hot_score,
-        rating: item.average_score,
-        collectionCount: item.favorite_count
-      }))
+      weekResponse.data.data.map(async (item) => {
+        const tagNames = await convertTagIdsToNames(item.tags);
+        return {
+          ...item,
+          id: item.id.toString(),
+          title: item.title,
+          author: item.author,
+          cover: item.image_url,
+          tags: item.tags, // 保留原始标签ID
+          tagNames: tagNames, // 存储转换后的标签名称
+          rating: item.average_score,
+          collectionCount: item.favorite_count
+        }
+      })
     )
     weekRank.value = weekItems
     
@@ -578,17 +565,32 @@ const handleSearch = async (value = searchValue.value) => {
   searchCurrentPage.value = 1
   
   try {
-    // 改用导入的search接口函数
-    const response = await search(
+    const searchResponse = await search(
       searchCurrentPage.value,  // page参数
       searchText,               // q参数
       authorText,               // author参数
       tagText                   // tag参数
     )
-    
-    searchResults.value = response.data.results
-    searchTotalItems.value = response.data.count
+    const searchItems = await Promise.all(
+      searchResponse.data.data.map(async (item) => {
+        const tagNames = await convertTagIdsToNames(item.tags);
+        return {
+          ...item,
+          id: item.id.toString(),
+          title: item.title,
+          author: item.author,
+          cover: item.image_url,
+          tags: item.tags, // 保留原始标签ID
+          tagNames: tagNames, // 存储转换后的标签名称
+          rating: item.average_score,
+          collectionCount: item.favorite_count,
+          description: item.description
+        }
+      })
+    )
+    searchResults.value = searchItems
     isSearchCompleted.value = true
+    console.log("搜索成功", isSearchCompleted.value)
   } catch (error) {
     console.error('搜索失败', error)
     showToast('搜索失败，请稍后重试')
@@ -707,7 +709,6 @@ const fetchTags = async (page = 1) => {
 const toggleTagPopup = () => {
   // 切换弹窗显示状态（true→false 或 false→true）
   showTagPopup.value = !showTagPopup.value;
-  console.log('toggleTagPopup called, current showTagPopup:', showTagPopup.value)  
   // 只有当弹窗被打开，且标签数据为空、没有正在加载时，才加载第一页标签
   if (showTagPopup.value && allTags.value.length === 0 && !isLoadingTags.value) {
     fetchTags(1);
@@ -753,7 +754,15 @@ const handleTagListScroll = (e) => {
   margin-bottom: 12px;
 }
 
+.van-popup {
+  display: flex;
+  flex-direction: column;
+  z-index: 9999 !important; 
+  
+}
+
 .tag-popup-header {
+  height: 44px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -761,13 +770,37 @@ const handleTagListScroll = (e) => {
   border-bottom: 1px solid #eee;
 }
 
+.close-btn {
+  font-size: 18px;
+}
+
+.tag-popup-footer {
+  height: 44px;
+  width: 100%;
+  padding: 0 20px;
+}
+
 .tag-list {
   padding: 16px;
   display: flex;
   flex-wrap: wrap;
+  align-content: flex-start;
   gap: 10px;
   overflow-y: auto;
-  height: calc(100% - 58px);
+  flex: 0.9;
+}
+
+::v-deep .tag-list .van-tag {
+  padding: 2px 10px !important; 
+  border-radius: 20px !important; 
+  font-size: 12px !important;
+  height: 30px;
+}
+
+::v-deep .tag-list .van-tag.selected-tag {
+  filter: brightness(0.8);
+  border: 1px solid #d4a5a5 !important;
+  position: relative;
 }
 
 .active-filters {
@@ -810,10 +843,6 @@ const handleTagListScroll = (e) => {
   padding: 10px 0;
   color: #888;
   font-size: 14px;
-}
-
-.van-popup {
-  z-index: 9999 !important; /* 确保弹窗在最上层 */
 }
 
 /* 搜索栏样式 */
@@ -1034,21 +1063,28 @@ const handleTagListScroll = (e) => {
 }
 
 .result-cover {
-  width: 70px;
-  height: 100px;
+  width: 80px;
+  height: 110px;
   border-radius: 6px;
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 .result-info {
-  margin-left: 12px;
+  margin-left: 15px;
   flex-grow: 1;
+}
+
+.author-tags-container {
+  overflow: hidden;
+  display: flex;
+  flex-direction: row;
+  margin: 5px 0;
 }
 
 .result-title {
   font-size: 16px;
   font-weight: 500;
-  margin: 0 0 6px 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1057,13 +1093,20 @@ const handleTagListScroll = (e) => {
 .result-author {
   font-size: 13px;
   color: #666;
-  margin: 0 0 8px 0;
+  margin: 0 20px 0 0;
 }
 
 .result-tags {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.result-description {
+  font-size: 14px;
+  color: #444444;
+  height: 60px;
+  overflow: hidden;
 }
 
 .empty-result {

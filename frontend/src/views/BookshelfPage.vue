@@ -623,7 +623,7 @@ const handleFavorite = async (book) => {
   try {
     if (book.isFavorite) {
       // 取消收藏：调用删除接口并从列表中移除
-      await deleteFavorite(book.id);
+      await deleteFavorite(book.gameworkId);
       
       // 从books数组中移除该书籍
       const index = books.value.findIndex(b => b.id === book.id);

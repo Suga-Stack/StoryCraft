@@ -43,6 +43,8 @@
         :value="`${userPoints} 积分`"
         icon="points"
         value-class="points-value"
+        is-link
+        @click="navigateToCreditsCharge"
       />
 
       <!-- 性别信息 -->
@@ -192,8 +194,7 @@ const fetchUserInfo = async (userId) => {
     const errorMsg = `获取用户信息失败: ${error.message}`;
     showToast(errorMsg);
     throw error;
-  }
-  
+  } 
 }
 
 const getUserIdFromStorage = () => {
@@ -372,6 +373,11 @@ const navigateToPreferences = () => {
   router.push('/preferences')
 }
 
+//导航到积分充值页
+const navigateToCreditsCharge = () => {
+  router.push('/charge')
+}
+
 // 导航到阅读历史页
 const navigateToReadingHistory = () => {
   router.push('/ReadingHistory')
@@ -435,7 +441,7 @@ const handleTabChange = (tabName) => {
 <style scoped>
 .profile-page {
   padding: 20px 16px;
-  background-color: #f5f5f5;
+  background-color: #faf8f3;
   min-height: 100vh;
   /* 为底部导航栏预留空间 */
   padding-bottom: 60px;

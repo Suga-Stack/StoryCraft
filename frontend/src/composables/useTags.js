@@ -5,16 +5,16 @@ import { showToast } from 'vant';
 export function useTags() {
   // 1. 定义10种预设颜色（对应0-9的个位数）
   const colorList = [
-    '#ff4d4f', // 0-红色
-    '#1890ff', // 1-蓝色
-    '#52c41a', // 2-绿色
-    '#faad14', // 3-黄色
-    '#722ed1', // 4-紫色
-    '#f5222d', // 5-深红
-    '#13c2c2', // 6-青色
-    '#fa8c16', // 7-橙色
-    '#7b1fe4', // 8-深紫
-    '#f7ba1e'  // 9-浅黄
+  { backgroundColor: '#e0f2fe', color: '#0284c7' },
+  { backgroundColor: '#dbeafe', color: '#3b82f6' },
+  { backgroundColor: '#f0fdf4', color: '#166534' },
+  { backgroundColor: '#fff7ed', color: '#c2410c' },
+  { backgroundColor: '#f5f3ff', color: '#6b21a8' },
+  { backgroundColor: '#fee2e2', color: '#b91c1c' },
+  { backgroundColor: '#fef3c7', color: '#92400e' }, 
+  { backgroundColor: '#e0e7ff', color: '#4338ca' }, 
+  { backgroundColor: '#d1fae5', color: '#065f46' }, 
+  { backgroundColor: '#fce7f3', color: '#9d174d' }  
   ];
 
   // 2. 标签名称缓存
@@ -22,7 +22,6 @@ export function useTags() {
 
   // 3. 根据tagId的个位数获取颜色
   const getTagColorById = (tagId) => {
-    console.log('tagId:', tagId, '类型:', typeof tagId); // 检查ID格式
     // 处理非数字ID的情况
     if (typeof tagId !== 'number' && typeof tagId !== 'string') {
       return '#8c8c8c'; // 默认灰色

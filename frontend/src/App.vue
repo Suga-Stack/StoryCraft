@@ -1,5 +1,5 @@
 <script setup>
-// 路由视图容器
+import { ref } from 'vue'
 </script>
 
 <template>

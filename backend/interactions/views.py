@@ -75,6 +75,8 @@ class FavoriteViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [filters.SearchFilter]
     search_fields = ['gamework__title']
+    lookup_field = "gamework_id"
+    lookup_url_kwarg = "id"
 
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):

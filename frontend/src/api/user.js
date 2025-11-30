@@ -65,7 +65,7 @@ export const getRecentMyworks = () => {
 }
 
 export const search = (page, q, author, tag) => {
-  return http.get('/gameworks/search/', {page, q, author, tag});
+  return http.get('/gameworks/search/', {params: {page, q, author, tag}});
 }
 
 export const getFavoriteLeaderboard = () => {
@@ -141,6 +141,32 @@ export const recommendWorks = (page) => {
   return http.get('/gameworks/recommend/', page)
 }
 
+// 发布作品
 export const publishWorks = (id) => {
   return http.post(`/gameworks/publish/${id}/`)
+}
+
+// 取消发布作品
+export const unpublishWorks = (id, price) => {
+  return http.post(`/gameworks/unpublish/${id}/`, price)
+}
+
+// 获取签到日期
+export const getSignInDates = () => {
+  return http.get('/users/signin/')
+}
+
+// 用户签到
+export const userSignIn = () => {
+  return http.post('/users/signin/')
+}
+
+// 积分充值
+export const rechargeCredits = (credits) => {
+  return http.post('/users/recharge/', {credits})
+}
+
+// 获取积分流水
+export const getCreditsLog = (page) => {
+  return http.get('/users/creditlog/', {page})
 }

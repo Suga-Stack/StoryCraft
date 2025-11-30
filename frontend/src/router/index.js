@@ -13,6 +13,7 @@ import BookstorePage from '../views/BookstorePage.vue'
 import ProfilePage from '../views/ProfilePage.vue'
 import MyCreationsPage from '../views/MyCreationsPage.vue'
 import ReadingHistoryPage from '../views/ReadinghistoryPage.vue'
+import CreditsChargePage from '../views/CreditsChargePage.vue'
 
 const routes = [
    {
@@ -84,6 +85,11 @@ const routes = [
     path: '/search',
     name: 'search',
     component: SearchPage
+  },
+  {
+    path: '/charge',
+    name: 'charge',
+    component: CreditsChargePage
   }
 ]
 
