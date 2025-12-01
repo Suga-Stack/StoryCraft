@@ -137,7 +137,13 @@ onMounted(async () => {
           unlockPointsNeeded.value = payload.data.price
         }
 
-        if (typeof payload.user_given_points !== 'undefined') {
+        // 后端可能使用多种字段表示“当前用户已送出积分”的值：优先使用 user_reward_amount（明确表示当前用户当次/累计送出数），
+        // 然后回退到 user_given_points 或嵌套对象中的同名字段。
+        if (typeof payload.user_reward_amount !== 'undefined') {
+          userGivenPoints.value = payload.user_reward_amount
+        } else if (payload.data && typeof payload.data.user_reward_amount !== 'undefined') {
+          userGivenPoints.value = payload.data.user_reward_amount
+        } else if (typeof payload.user_given_points !== 'undefined') {
           userGivenPoints.value = payload.user_given_points
         } else if (payload.gamework && typeof payload.gamework.user_given_points !== 'undefined') {
           userGivenPoints.value = payload.gamework.user_given_points
