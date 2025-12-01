@@ -1,4 +1,4 @@
-﻿<script setup>
+﻿﻿<script setup>
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import './GamePage.css'
 import { useRouter, useRoute } from 'vue-router'
@@ -377,12 +377,46 @@ const saveCurrentEnding = async () => {
       } catch (e) { return { narration: '', playerChoices: null } }
     }
 
-    // 从 storyScenes 中收集所有标记为 _isBackendEnding 的场景，并规范化 dialogues
-    const scenesToSave = (storyScenes.value || []).filter(s => s && s._isBackendEnding).map(s => ({
-      id: s.id ?? s.sceneId ?? undefined,
-      backgroundImage: s.backgroundImage || s.background || s.bg || '',
-      dialogues: Array.isArray(s.dialogues) ? s.dialogues.map(d => normalizeDialogue(d)) : []
-    }))
+    // 🔑 过滤掉"结局选项"场景的辅助函数
+    const isEndingSelectionScene = (scene) => {
+      try {
+        // 检查场景是否包含多个结局选择（通常是"请选择一个结局"的场景）
+        if (!Array.isArray(scene.dialogues) || scene.dialogues.length === 0) return false
+        
+        for (const dialogue of scene.dialogues) {
+          // 如果有 playerChoices 且选项数量 >= 2，并且 narration 包含"结局"关键字
+          const choices = dialogue.playerChoices || dialogue.choices
+          if (Array.isArray(choices) && choices.length >= 2) {
+            const narration = String(dialogue.narration || dialogue.text || '').toLowerCase()
+            // 检查是否为结局选择场景
+            if (narration.includes('结局') || narration.includes('选择')) {
+              return true
+            }
+            // 检查选项文本是否都包含结局名称特征
+            const endingChoiceCount = choices.filter(c => {
+              const text = String(c.text || '').toLowerCase()
+              return text.includes('>=') || text.includes('结局') || /\(.+\)/.test(text)
+            }).length
+            // 如果超过一半的选项看起来像结局选择，则判定为结局选项场景
+            if (endingChoiceCount >= Math.max(2, choices.length / 2)) {
+              return true
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('isEndingSelectionScene check failed:', e)
+      }
+      return false
+    }
+
+    // 从 storyScenes 中收集所有标记为 _isBackendEnding 的场景，过滤掉结局选项场景，并规范化 dialogues
+    const scenesToSave = (storyScenes.value || [])
+      .filter(s => s && s._isBackendEnding && !isEndingSelectionScene(s))
+      .map(s => ({
+        id: s.id ?? s.sceneId ?? undefined,
+        backgroundImage: s.backgroundImage || s.background || s.bg || '',
+        dialogues: Array.isArray(s.dialogues) ? s.dialogues.map(d => normalizeDialogue(d)) : []
+      }))
     const title = (sessionStorage.getItem(`selectedEndingTitle_${workId}`) || (currentScene.value && currentScene.value._endingTitle) || `结局 ${endingIdx}`)
     const body = { endingIndex: endingIdx, title, scenes: scenesToSave }
     try {
@@ -404,6 +438,32 @@ const saveCurrentEnding = async () => {
 }
 // 从 gameState 导出 playingEndingScenes 与 endingsAppended
 const { playingEndingScenes, endingsAppended } = gameStateResult
+
+// 全局点击处理：当没有选项/菜单/编辑时，点击屏幕任意不在交互控件上的位置进入下一句
+const onGlobalClick = (e) => {
+  try {
+    // 如果编辑中、菜单/模态/保存等覆盖层打开、或选项可见，则不要在根容器处理为 next
+    if (editingDialogue?.value) return
+    if (showMenu?.value) return
+    if (choicesVisible?.value) return
+    if (anyOverlayOpen?.value) return
+
+    // 忽略点击在表单或交互元素上的情况（按钮、链接、输入框等）
+    const tag = (e.target && e.target.tagName) ? String(e.target.tagName).toLowerCase() : ''
+    if (['button','a','input','select','textarea','label'].includes(tag)) return
+
+    // 忽略点击发生在可能的交互面板内（例如选项容器、菜单面板、编辑控件、模态面板等）
+    if (e.target && e.target.closest) {
+      const ignore = e.target.closest('.choices-container, .menu-panel, .menu-button, .edit-controls, .choice-btn, .edit-btn, .modal-panel, .modal-backdrop, .save-load-modal')
+      if (ignore) return
+    }
+
+    // 如果当前处于等待点击以显示选项的状态，nextDialogue 会在内部将其转换为显示选项
+    nextDialogue()
+  } catch (err) {
+    console.warn('onGlobalClick failed', err)
+  }
+}
 
 // 计算任意弹窗是否打开 - 在 showMenu 解构之后定义
 const anyOverlayOpen = computed(() =>
@@ -1196,6 +1256,71 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       return { id: Number(sid), backgroundImage: bg || '', dialogues }
     })
 
+    // 🔑 硬检查：场景ID去重，每个ID只保留最后一次出现
+    // 使用 Map 来追踪每个 ID 最后出现的场景，自动覆盖之前的重复项
+    const deduplicatedScenesMap = new Map()
+    for (const scene of scenesPayload) {
+      deduplicatedScenesMap.set(scene.id, scene)
+    }
+    const deduplicatedScenes = Array.from(deduplicatedScenesMap.values())
+    
+    // 🔑 记录去重结果
+    if (scenesPayload.length !== deduplicatedScenes.length) {
+      const removedCount = scenesPayload.length - deduplicatedScenes.length
+      console.warn(`[persistCurrentChapterEdits] 场景ID去重：移除了 ${removedCount} 个重复场景`)
+      console.warn('[persistCurrentChapterEdits] 原始场景ID列表:', scenesPayload.map(s => s.id))
+      console.warn('[persistCurrentChapterEdits] 去重后场景ID列表:', deduplicatedScenes.map(s => s.id))
+      
+      // 找出哪些ID是重复的
+      const sceneIds = scenesPayload.map(s => s.id)
+      const duplicateIds = sceneIds.filter((id, index) => sceneIds.indexOf(id) !== index)
+      const uniqueDuplicateIds = [...new Set(duplicateIds)]
+      console.warn('[persistCurrentChapterEdits] 重复的场景ID:', uniqueDuplicateIds)
+    } else {
+      console.log('[persistCurrentChapterEdits] 场景ID检查通过：无重复')
+    }
+    
+    // 🔑 对于结局场景，额外过滤掉"结局选项"场景
+    const isEndingSelectionScene = (scene) => {
+      try {
+        if (!Array.isArray(scene.dialogues) || scene.dialogues.length === 0) return false
+        
+        for (const dialogue of scene.dialogues) {
+          const choices = dialogue.playerChoices
+          if (Array.isArray(choices) && choices.length >= 2) {
+            const narration = String(dialogue.narration || '').toLowerCase()
+            if (narration.includes('结局') || narration.includes('选择')) {
+              return true
+            }
+            const endingChoiceCount = choices.filter(c => {
+              const text = String(c.text || '').toLowerCase()
+              return text.includes('>=') || text.includes('结局') || /\(.+\)/.test(text)
+            }).length
+            if (endingChoiceCount >= Math.max(2, choices.length / 2)) {
+              return true
+            }
+          }
+        }
+      } catch (e) {}
+      return false
+    }
+
+    // 检测是否为结局场景
+    const isEndingChapterCheck = (Array.isArray(scenesWithOverrides) && scenesWithOverrides.some(s => s.isChapterEnding || s.isGameEnding || s.isGameEnd || s.chapterEnd || s.end || s.isEnding))
+    
+    // 如果是结局场景，过滤掉结局选项场景
+    const finalScenesPayload = isEndingChapterCheck 
+      ? deduplicatedScenes.filter(s => !isEndingSelectionScene(s))
+      : deduplicatedScenes
+    
+    // 记录过滤结果
+    if (isEndingChapterCheck && deduplicatedScenes.length !== finalScenesPayload.length) {
+      const removedCount = deduplicatedScenes.length - finalScenesPayload.length
+      console.log(`[persistCurrentChapterEdits] 结局场景过滤：移除了 ${removedCount} 个结局选项场景`)
+    }
+
+    // 使用过滤和去重后的场景列表
+
     // 获取章节标题
     const getFallbackTitle = () => {
       try {
@@ -1217,7 +1342,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
     const chapterData = {
       chapterIndex: Number(chapterIndex),
       title: getFallbackTitle(),
-      scenes: scenesPayload
+      scenes: finalScenesPayload  // 🔑 使用去重后的场景列表
     }
 
     // 检测是否为结局场景：只有当场景数据本身被标记为结局时才认为是结局，
@@ -1234,7 +1359,8 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       try {
         // 尝试获取后端已存在的结局列表，以便定位 endingId 与 title（兼容没有 id 的实现）
         let endingId = null
-        let endingTitle = chapterData.title || ''
+        // 🔑 修改：优先从 sessionStorage 或 currentScene._endingTitle 获取结局 title，而不是使用章节的 outline
+        let endingTitle = (sessionStorage.getItem(`selectedEndingTitle_${workId}`) || (currentScene.value && currentScene.value._endingTitle) || '')
         try {
           const resp = await storyService.getWorkInfo(workId)
           // 如果 getWorkInfo 包含 endings 字段（某些后端可能返回在作品详情里），尝试读取
@@ -1245,7 +1371,8 @@ const persistCurrentChapterEdits = async (opts = {}) => {
             const chosen = endingsFromWork[idx] || endingsFromWork[0]
             if (chosen) {
               endingId = chosen.id ?? chosen.endingId ?? null
-              endingTitle = endingTitle || chosen.title || chosen.name || endingTitle
+              // 只在 endingTitle 为空时才使用后端返回的 title
+              endingTitle = endingTitle || chosen.title || chosen.name
             }
           } else {
             // 否则再尝试直接读取 /api/game/storyending 接口
@@ -1317,8 +1444,9 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         if (!existingEndings || existingEndings.length === 0) {
           const single = {
             endingIndex: currentEndingIndex,
-            title: safeTitle(endingTitle || chapterData.title || `结局 ${currentEndingIndex}`),
-            scenes: scenesPayload
+            // 🔑 修改：结局 title 始终使用自己的 title，不使用章节 outline
+            title: safeTitle(endingTitle || `结局 ${currentEndingIndex}`),
+            scenes: finalScenesPayload  // 🔑 使用去重后的场景列表
           }
           try {
             await storyService.saveEnding(workId, single)
@@ -1380,8 +1508,9 @@ const persistCurrentChapterEdits = async (opts = {}) => {
             const backendTitle = getBackendTitle(idx)
             payloads.push({
               endingIndex: idx,
-              title: safeTitle( backendTitle || (idx === currentEndingIndex ? (endingTitle || chapterData.title) : (e.title || e.name || `结局 ${idx}`)) ),
-              scenes: (idx === currentEndingIndex) ? scenesPayload : (Array.isArray(e.scenes) ? e.scenes : [])
+              // 🔑 修改：当前结局使用自己的 title，其他结局使用后端 title，不使用章节 outline
+              title: safeTitle( backendTitle || (idx === currentEndingIndex ? (endingTitle || `结局 ${idx}`) : (e.title || e.name || `结局 ${idx}`)) ),
+              scenes: (idx === currentEndingIndex) ? finalScenesPayload : (Array.isArray(e.scenes) ? e.scenes : [])  // 🔑 使用去重后的场景列表
             })
           }
           // Append fallback (unknown-index) endings preserving their original scenes
@@ -1402,8 +1531,9 @@ const persistCurrentChapterEdits = async (opts = {}) => {
             const backendTitleForCurrent = getBackendTitle(currentEndingIndex)
             payloads.push({
               endingIndex: currentEndingIndex,
-              title: safeTitle( backendTitleForCurrent || endingTitle || chapterData.title || `结局 ${currentEndingIndex}` ),
-              scenes: scenesPayload
+              // 🔑 修改：结局 title 始终使用自己的 title，不使用章节 outline
+              title: safeTitle( backendTitleForCurrent || endingTitle || `结局 ${currentEndingIndex}` ),
+              scenes: finalScenesPayload  // 🔑 使用去重后的场景列表
             })
           }
 
@@ -1461,10 +1591,12 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           throw saveErr
         }
         
-        // 2) 刷新作品详情以获取最新章节状态
+        // 🔑 关键修复：保存成功后立即获取作品详情以获取最新章节状态
         try {
+          console.log('persistCurrentChapterEdits: 立即获取作品详情以刷新状态')
           await getWorkDetails(workId)
-          console.log('persistCurrentChapterEdits: refreshed work details, chapter status:', getChapterStatus(chapterIndex))
+          const updatedStatus = getChapterStatus(chapterIndex)
+          console.log('persistCurrentChapterEdits: 刷新后的章节状态:', updatedStatus)
         } catch (e) {
           console.warn('persistCurrentChapterEdits: failed to refresh work details', e)
         }
@@ -1472,78 +1604,137 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         // 2) 清除已生成但未保存标记
         try { lastLoadedGeneratedChapter.value = null } catch (e) {}
 
-        // 3) 如果用户已经阅读到本章末尾，则立即准备并弹出下一章的大纲编辑器；
-        //    否则仅将下一章标记为 pending（不弹窗），用户继续阅读到章末时会触发后续流程。
-        try {
-          const nextChap = Number(chapterIndex) + 1
+        // 🔑 关键修复：基于更新后的状态判断后续操作
+        // 3) 检查是否已读到当前章的末尾
+        const isAtChapterEnd = (currentSceneIndex.value >= (storyScenes.value.length - 1)) &&
+                               (currentDialogueIndex.value >= ((storyScenes.value[currentSceneIndex.value]?.dialogues?.length || 1) - 1))
+        
+        console.log('保存后检查章节状态 - 已读到章末:', isAtChapterEnd, '当前场景:', currentSceneIndex.value, '总场景数:', storyScenes.value.length)
+        
+        // 4) 检查当前章是否为末章
+        const isLastChapter = totalChapters.value && Number(chapterIndex) === Number(totalChapters.value)
+        console.log('保存后检查是否为末章 - 当前章:', chapterIndex, '总章数:', totalChapters.value, '是否末章:', isLastChapter)
 
-          const isAtChapterEnd = (currentSceneIndex.value >= (storyScenes.value.length - 1)) &&
-                                 (currentDialogueIndex.value >= ((storyScenes.value[currentSceneIndex.value]?.dialogues?.length || 1) - 1))
-
-          if (!isAtChapterEnd) {
-            // 不在章末：设置 pendingNextChapter，使后续到达章末时能正常触发加载/编辑器流程
-            try {
-              pendingNextChapter.value = nextChap
-            } catch (e) { console.warn('set pendingNextChapter failed', e) }
-            showNotice('已保存本章，阅读至本章末尾后将弹出下一章大纲编辑器')
-            try { await stopLoading() } catch (e) {}
-            return
-          }
-
-          // 在章末的情况：准备并弹出下一章的大纲编辑器（复用原有逻辑）
-          // 构建下一章的大纲占位（尽量复用已有 createResult 或 outlineEdits）
-          let createRaw = null
-          try { createRaw = JSON.parse(sessionStorage.getItem('createResult') || 'null') } catch (e) { createRaw = null }
-          let rawOutlines = []
-          if (createRaw && Array.isArray(createRaw.chapterOutlines) && createRaw.chapterOutlines.length) rawOutlines = createRaw.chapterOutlines
-          else if (createRaw && createRaw.backendWork && Array.isArray(createRaw.backendWork.outlines) && createRaw.backendWork.outlines.length) rawOutlines = createRaw.backendWork.outlines
-          else rawOutlines = []
-
-          // 尝试找到 nextChap 对应的大纲，否则使用占位文本
-          let nextOutlineText = `第${nextChap}章：请在此编辑/补充本章大纲以指导生成。`
+        // 🔑 新功能：如果是末章保存成功，检测并删除结局选项场景
+        if (isLastChapter && performNetworkSave) {
           try {
-            if (Array.isArray(rawOutlines) && rawOutlines.length) {
-              const found = rawOutlines.find(x => Number(x.chapterIndex) === Number(nextChap)) || rawOutlines[nextChap - 1]
-              if (found) {
-                const title = (found && (found.title ?? found.chapter_title)) || ''
-                const body = (found && (found.outline ?? found.summary)) || ''
-                const combined = (title && body) ? `${title}\n\n${body}` : (title || body)
-                if (combined) nextOutlineText = combined
+            const beforeCount = storyScenes.value.length
+            // 过滤掉结局选项场景
+            storyScenes.value = storyScenes.value.filter(scene => !isEndingSelectionScene(scene))
+            const afterCount = storyScenes.value.length
+            
+            if (beforeCount !== afterCount) {
+              const removedCount = beforeCount - afterCount
+              console.log(`[persistCurrentChapterEdits] 末章保存成功，已从前端缓存中删除 ${removedCount} 个结局选项场景`)
+              
+              // 调整当前场景索引，防止越界
+              if (currentSceneIndex.value >= storyScenes.value.length) {
+                currentSceneIndex.value = Math.max(0, storyScenes.value.length - 1)
+                currentDialogueIndex.value = 0
+                console.log(`[persistCurrentChapterEdits] 场景索引已调整为 ${currentSceneIndex.value}`)
               }
             }
-          } catch (e) { console.warn('prepare next outline failed', e) }
-
-          // 构建 nextChap 以及其后的所有章节大纲（若 totalChapters 不可用则至少包含 nextChap）
-          const outlinesToShow = []
-          const total = Math.max((Number(totalChapters.value) || 5), nextChap)
-          for (let c = nextChap; c <= total; c++) {
-            let text = `第${c}章：请在此编辑/补充本章大纲以指导生成。`
-            try {
-              if (Array.isArray(rawOutlines) && rawOutlines.length) {
-                const foundC = rawOutlines.find(x => Number(x.chapterIndex) === Number(c)) || rawOutlines[c - 1]
-                if (foundC) {
-                  const title = (foundC && (foundC.title ?? foundC.chapter_title)) || ''
-                  const body = (foundC && (foundC.outline ?? foundC.summary)) || ''
-                  const combined = (title && body) ? `${title}\n\n${body}` : (title || body)
-                  if (combined) text = combined
-                }
-              }
-            } catch (e) { console.warn('prepare outline for chapter', c, 'failed', e) }
-            outlinesToShow.push({ chapterIndex: c, outline: text })
+          } catch (e) {
+            console.warn('[persistCurrentChapterEdits] 删除结局选项场景时出错', e)
           }
+        }
 
-          // 将多个章节的大纲写入编辑器，默认聚焦到 nextChap
-          outlineEdits.value = outlinesToShow
-          outlineUserPrompt.value = (createRaw && createRaw.userPrompt) ? createRaw.userPrompt : ''
-          originalOutlineSnapshot.value = JSON.parse(JSON.stringify(outlineEdits.value || []))
-          pendingOutlineTargetChapter.value = nextChap
-          editorInvocation.value = 'auto'
-          // 直接弹出编辑器，不进行 fetchNextChapter（避免前端 PUT 或 GET）
+        if (!isAtChapterEnd) {
+          // 情况1: 未读到章末 - 设置 pendingNextChapter，使后续到达章末时能正常触发加载/编辑器流程
+          const nextChap = Number(chapterIndex) + 1
+          try {
+            pendingNextChapter.value = nextChap
+          } catch (e) { console.warn('set pendingNextChapter failed', e) }
+          showNotice('已保存本章，阅读至本章末尾后将弹出下一章大纲编辑器')
+          try { await stopLoading() } catch (e) {}
+          return
+        }
+
+        // 已读到章末的情况
+        if (isLastChapter) {
+          // 情况2: 末章已保存且已读完 - 进入结算页面
+          console.log('末章已保存并读完，准备进入结算')
+          showNotice('作品已完结，即将进入结算页面', 3000)
+          setTimeout(async () => {
+            try {
+              // 标记将在进入结局判定时显示特殊加载界面
+              storyEndSignaled.value = true
+              isEndingLoading.value = true
+              // 启动常规加载界面（复用现有加载逻辑）
+              try { startLoading() } catch (e) { /* ignore */ }
+              // 平滑显示进度
+              try { await simulateLoadTo100(800) } catch (e) { /* ignore */ }
+              // 调用结局处理（可能会导航到结算页面）
+              await handleGameEnd()
+            } catch (e) {
+              console.warn('进入结算处理失败', e)
+            } finally {
+              // 关闭结局专用加载标记（如果组件还在）
+              try { isEndingLoading.value = false } catch (e) {}
+              try { await stopLoading() } catch (e) {}
+            }
+          }, 3000)
+          return
+        }
+
+        // 情况3: 非末章已保存且已读完 - 弹出下一章的大纲编辑器
+        console.log('非末章已保存并读完，准备弹出下一章大纲编辑器')
+        const nextChap = Number(chapterIndex) + 1
+        
+        // 构建下一章的大纲占位（尽量复用已有 createResult 或 outlineEdits）
+        let createRaw = null
+        try { createRaw = JSON.parse(sessionStorage.getItem('createResult') || 'null') } catch (e) { createRaw = null }
+        let rawOutlines = []
+        if (createRaw && Array.isArray(createRaw.chapterOutlines) && createRaw.chapterOutlines.length) rawOutlines = createRaw.chapterOutlines
+        else if (createRaw && createRaw.backendWork && Array.isArray(createRaw.backendWork.outlines) && createRaw.backendWork.outlines.length) rawOutlines = createRaw.backendWork.outlines
+        else rawOutlines = []
+
+        // 尝试找到 nextChap 对应的大纲，否则使用占位文本
+        let nextOutlineText = `第${nextChap}章：请在此编辑/补充本章大纲以指导生成。`
+        try {
+          if (Array.isArray(rawOutlines) && rawOutlines.length) {
+            const found = rawOutlines.find(x => Number(x.chapterIndex) === Number(nextChap)) || rawOutlines[nextChap - 1]
+            if (found) {
+              const title = (found && (found.title ?? found.chapter_title)) || ''
+              const body = (found && (found.outline ?? found.summary)) || ''
+              const combined = (title && body) ? `${title}\n\n${body}` : (title || body)
+              if (combined) nextOutlineText = combined
+            }
+          }
+        } catch (e) { console.warn('prepare next outline failed', e) }
+
+        // 构建 nextChap 以及其后的所有章节大纲（若 totalChapters 不可用则至少包含 nextChap）
+        const outlinesToShow = []
+        const total = Math.max((Number(totalChapters.value) || 5), nextChap)
+        for (let c = nextChap; c <= total; c++) {
+          let text = `第${c}章：请在此编辑/补充本章大纲以指导生成。`
+          try {
+            if (Array.isArray(rawOutlines) && rawOutlines.length) {
+              const foundC = rawOutlines.find(x => Number(x.chapterIndex) === Number(c)) || rawOutlines[c - 1]
+              if (foundC) {
+                const title = (foundC && (foundC.title ?? foundC.chapter_title)) || ''
+                const body = (foundC && (foundC.outline ?? foundC.summary)) || ''
+                const combined = (title && body) ? `${title}\n\n${body}` : (title || body)
+                if (combined) text = combined
+              }
+            }
+          } catch (e) { console.warn('prepare outline for chapter', c, 'failed', e) }
+          outlinesToShow.push({ chapterIndex: c, outline: text })
+        }
+
+        // 将多个章节的大纲写入编辑器，默认聚焦到 nextChap
+        outlineEdits.value = outlinesToShow
+        outlineUserPrompt.value = (createRaw && createRaw.userPrompt) ? createRaw.userPrompt : ''
+        originalOutlineSnapshot.value = JSON.parse(JSON.stringify(outlineEdits.value || []))
+        pendingOutlineTargetChapter.value = nextChap
+        editorInvocation.value = 'auto'
+        showNotice('即将进入下一章的大纲编辑', 2000)
+        
+        // 延迟弹出编辑器，给用户一个视觉反馈
+        setTimeout(() => {
           showOutlineEditor.value = true
           console.log('persistCurrentChapterEdits: opened outline editor for next chapter range', nextChap, '->', total)
-        } catch (openErr) {
-          console.warn('打开下一章大纲编辑器失败', openErr)
-        }
+        }, 2000)
 
         // 结束该分支：已经向后端保存并更新了章节状态
         try { await stopLoading() } catch (e) {}
@@ -1557,8 +1748,15 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       
       showNotice('已将本章修改保存到后端')
       
-      // 刷新作品详情以获取最新章节状态
-      await getWorkDetails(workId).catch(() => {})
+      // 🔑 关键修复：保存成功后立即获取作品详情以获取最新章节状态
+      try {
+        console.log('persistCurrentChapterEdits: 立即获取作品详情以刷新状态')
+        await getWorkDetails(workId)
+        const updatedStatus = getChapterStatus(chapterIndex)
+        console.log('persistCurrentChapterEdits: 刷新后的章节状态:', updatedStatus)
+      } catch (e) {
+        console.warn('persistCurrentChapterEdits: failed to refresh work details', e)
+      }
       
       // 如果这是手动确认保存，则清除已生成但未保存标记
       if (allowSaveGenerated) lastLoadedGeneratedChapter.value = null
@@ -1574,84 +1772,6 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         }
         sessionStorage.setItem('createResult', JSON.stringify(prev))
       } catch (e) { console.warn('persistCurrentChapterEdits: update createResult failed', e, e?.data || (e?.response && e.response.data)) }
-
-      // 如果是手动确认保存（allowSaveGenerated为true），检查是否已读完当前章，如果已读完且不是末章，则弹出下一章编辑器
-  if (allowSaveGenerated && (creatorFeatureEnabled.value || isCreatorIdentity.value || modifiableFromCreate.value)) {
-        try {
-          // 检查是否已读到当前章的末尾
-          const isAtChapterEnd = currentSceneIndex.value >= storyScenes.value.length - 1 && 
-                                 currentDialogueIndex.value >= (storyScenes.value[currentSceneIndex.value]?.dialogues?.length - 1 || 0)
-          
-          console.log('保存后检查章节状态 - 已读到章末:', isAtChapterEnd, '当前场景:', currentSceneIndex.value, '总场景数:', storyScenes.value.length)
-          
-          // 检查当前章是否为末章
-          const isLastChapter = totalChapters.value && Number(chapterIndex) === Number(totalChapters.value)
-          console.log('保存后检查是否为末章 - 当前章:', chapterIndex, '总章数:', totalChapters.value, '是否末章:', isLastChapter)
-          
-          if (isLastChapter) {
-            // 是末章，如果已读完就跳转到结算页面
-            if (isAtChapterEnd) {
-              console.log('末章已保存并读完，准备进入结算')
-              showNotice('作品已完结，即将进入结算页面', 3000)
-              setTimeout(async () => {
-                try {
-                  // 标记将在进入结局判定时显示特殊加载界面
-                  storyEndSignaled.value = true
-                  isEndingLoading.value = true
-                  // 启动常规加载界面（复用现有加载逻辑）
-                  try { startLoading() } catch (e) { /* ignore */ }
-                  // 平滑显示进度
-                  try { await simulateLoadTo100(800) } catch (e) { /* ignore */ }
-                  // 调用结局处理（可能会导航到结算页面）
-                  await handleGameEnd()
-                } catch (e) {
-                  console.warn('进入结算处理失败', e)
-                } finally {
-                  // 关闭结局专用加载标记（如果组件还在）
-                  try { isEndingLoading.value = false } catch (e) {}
-                  try { await stopLoading() } catch (e) {}
-                }
-              }, 3000)
-            } else {
-              console.log('末章已保存但未读完，提示用户读完后将进入结算')
-              showNotice('最后一章已保存，读完后将进入结算页面', 3000)
-            }
-          } else if (isAtChapterEnd) {
-            // 不是末章，且已读完，弹出下一章的大纲编辑器
-            console.log('非末章已保存并读完，准备弹出下一章大纲编辑器 - 下一章:', chapterIndex + 1)
-            showNotice('即将进入下一章的大纲编辑', 2000)
-            
-            setTimeout(async () => {
-              try {
-                // 章节索引+1，准备加载下一章
-                currentChapterIndex.value = chapterIndex + 1
-                startLoading()
-                
-                // 调用 fetchNextChapter 来处理下一章的大纲编辑和生成
-                // fetchNextChapter 会自动检查章节状态，如果是 not_generated 则弹出大纲编辑器
-                await fetchNextChapter(workId, currentChapterIndex.value, { replace: true, suppressAutoEditor: false })
-                await stopLoading()
-                
-                // 加载成功后，重置场景和对话索引
-                currentSceneIndex.value = 0
-                currentDialogueIndex.value = 0
-                choicesVisible.value = false
-                showText.value = false
-                setTimeout(() => {
-                  showText.value = true
-                  console.log('已切换到下一章:', currentChapterIndex.value)
-                }, 300)
-              } catch (e) {
-                console.error('加载下一章失败:', e)
-                showNotice('加载下一章时出错，请刷新页面重试。')
-                await stopLoading()
-              }
-            }, 2000)
-          }
-        } catch (e) {
-          console.warn('保存后检查章节状态失败:', e)
-        }
-      }
       
     } catch (e) {
       console.error('persistCurrentChapterEdits: saveChapter failed', e?.response?.data || e)
@@ -1668,10 +1788,6 @@ const persistCurrentChapterEdits = async (opts = {}) => {
 onMounted(() => {
   loadOverrides()
   applyOverridesToScenes()
-  // 注册全局点击处理器：当没有弹窗/选项并且不在编辑模式时，点击任意非交互元素推进下一句
-  try {
-    document.addEventListener('click', globalClickHandler)
-  } catch (e) { console.warn('register globalClickHandler failed', e) }
 })
 
 // 在组件卸载时自动持久化当前章节（如果可手动编辑）
@@ -1682,33 +1798,8 @@ onUnmounted(() => {
         await persistCurrentChapterEdits({ performNetworkSave: false })
       } catch (e) { console.warn('persistCurrentChapterEdits onUnmount failed', e) }
     })()
-    try { document.removeEventListener('click', globalClickHandler) } catch (e) { /* ignore */ }
   } catch (e) { console.warn('onUnmounted persist failed', e) }
 })
-
-// 全局点击处理函数（放在文件末尾以便使用到上面定义的 reactive refs）
-function globalClickHandler(e) {
-  try {
-    // 编辑模式正在编辑文本时不要推进
-    if (typeof editingDialogue !== 'undefined' && editingDialogue && editingDialogue.value) return
-    // 如果正在显示选项，不响应全局推进
-    if (typeof choicesVisible !== 'undefined' && choicesVisible && choicesVisible.value) return
-    // 如果任意弹窗打开，也不响应
-    if (typeof anyOverlayOpen !== 'undefined' && anyOverlayOpen && anyOverlayOpen.value) return
-
-    const target = e && e.target
-    if (target && typeof target.closest === 'function') {
-      // 如果点击落在交互元素上（按钮/链接/输入/选择/菜单/弹窗/选项等），忽略
-      const skip = target.closest('button, a, input, textarea, select, .menu-panel, .modal-panel, .choice-btn, .edit-btn, .menu-button, .van-popup, .van-dialog, .menu-item')
-      if (skip) return
-    }
-
-    // 最终调用 nextDialogue 推进（保护调用）
-    try { if (typeof nextDialogue === 'function') nextDialogue() } catch (e) { /* ignore */ }
-  } catch (err) {
-    console.warn('globalClickHandler error', err)
-  }
-}
 
 
 // 观察 creatorMode：进入记录位置并禁用 advance；退出回到 entry 的那句话（修改版）并恢复播放权限
@@ -2144,7 +2235,7 @@ onUnmounted(async () => {
 </script>
 
 <template>
-  <div class="game-page">
+  <div class="game-page" @click="onGlobalClick">
     <!-- 横屏准备界面 -->
     <div v-if="!isLandscapeReady" class="landscape-prompt">
       <div class="prompt-content">
@@ -2255,8 +2346,8 @@ onUnmounted(async () => {
         </div>
       </div>
       
-      <!-- 文字栏 - 🔑 修复：编辑状态下阻止点击触发对话切换 -->
-      <div class="text-box" :class="{ editing: editingDialogue, 'creator-mode': creatorMode }" @click="editingDialogue ? $event.stopPropagation() : nextDialogue()">
+      <!-- 文字栏 - 🔑 修复：点击对话框时停止冒泡，避免触发全局点击导致双重跳转 -->
+      <div class="text-box" :class="{ editing: editingDialogue, 'creator-mode': creatorMode }" @click.stop="editingDialogue ? null : nextDialogue()">
         <!-- 说话人标签（可选） -->
         <div v-if="currentSpeaker" class="speaker-badge">{{ currentSpeaker }}</div>
         <transition name="text-fade">
@@ -2318,7 +2409,7 @@ onUnmounted(async () => {
       <!-- 菜单面板 -->
       <transition name="slide-down">
         <div v-if="showMenu" class="menu-panel" @click.stop>
-          <button class="menu-item" @click="goBack">
+          <button class="menu-item" @click="goBack" :disabled="creatorMode">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
               <path d="M19 12H5M12 19l-7-7 7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
@@ -2334,13 +2425,13 @@ onUnmounted(async () => {
 
           <!-- 整合功能入口：存档 / 读档 / 属性 / 设置（并列网格） -->
           <div class="menu-grid">
-            <button class="menu-item" @click="showMenu = false; openSaveModal()">
+            <button class="menu-item" @click="showMenu = false; openSaveModal()" :disabled="creatorMode">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <path d="M5 20h14a1 1 0 0 0 1-1V7l-4-4H6a1 1 0 0 0-1 1v16zM8 8h8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
               <span>存档</span>
             </button>
-            <button class="menu-item" @click="showMenu = false; openLoadModal()">
+            <button class="menu-item" @click="showMenu = false; openLoadModal()" :disabled="creatorMode">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M7 9l5 5 5-5M12 14V3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
@@ -2533,7 +2624,7 @@ onUnmounted(async () => {
   -->
 
   <button 
-    v-if="creatorFeatureEnabled && getChapterStatus(currentChapterIndex) !== 'saved'"
+    v-if="(creatorFeatureEnabled || creatorMode) && getChapterStatus(currentChapterIndex) !== 'saved'"
     @click="openOutlineEditorManual()"
     class="creator-outline-btn" 
     title="编辑/生成章节大纲">
@@ -2550,7 +2641,7 @@ onUnmounted(async () => {
   </button>
   <!-- 创作者专用：当当前章节已由 AI 生成（generated）时，可确认并保存本章，标记为 saved -->
   <button 
-    v-if="creatorFeatureEnabled && getChapterStatus(currentChapterIndex) !== 'saved' && !isPlayingBackendGeneratedEnding" 
+    v-if="(creatorFeatureEnabled || creatorMode) && getChapterStatus(currentChapterIndex) !== 'saved' && !isPlayingBackendGeneratedEnding" 
     @click="persistCurrentChapterEdits({ auto: false, allowSaveGenerated: true })" 
     class="creator-confirm-btn" 
     title="确认并保存本章">

@@ -139,29 +139,39 @@ export function useCreatorMode(dependencies = {}) {
       }
 
       if (!creatorMode.value) {
-        // 统一规则：当作品允许 AI 调用时（ai_callable !== false），进入手动编辑前必须为 saved；
-        // 当作品禁用 AI（ai_callable === false）时，不强制要求 saved，可以直接进入手动编辑。
-        const aiCallable = _work?.value?.ai_callable
-        if (aiCallable !== false) {
-          if (_checkCurrentChapterSaved) {
-            const isSaved = await _checkCurrentChapterSaved()
-            if (!isSaved) {
-              if (showNotice) showNotice('当前章节未保存(saved)状态，无法进入创作者模式')
-              return
+        // 🔑 新增：如果 modifiable=true 且 ai_callable=false，无论章节状态如何都允许进入手动编辑模式
+        const isManualEditOnly = modifiableFromCreate?.value && _work?.value?.ai_callable === false
+        
+        if (isManualEditOnly) {
+          console.log('[toggleCreatorMode] 检测到手动编辑模式 (modifiable=true, ai_callable=false)，跳过所有章节状态检查')
+          // 直接跳过后续所有检查，允许进入手动编辑模式
+        } else {
+          // 检查当前章节是否已保存
+          if (_work?.value?.ai_callable !== false) {
+            if (_checkCurrentChapterSaved) {
+              const isSaved = await _checkCurrentChapterSaved()
+              if (!isSaved) {
+                if (showNotice) showNotice('当前章节未保存(saved)状态，无法进入创作者模式')
+                return
+              }
             }
           }
-
-          // 额外保护：如果当前场景是后端生成的结局且尚未保存，提示并阻止进入
-          try {
+        }
+        // 新增：仅在创作者身份下，若当前场景是后端生成的结局且尚未被保存，则不允许通过菜单进入手动编辑模式
+        try {
+          // 如果是创作者身份或者来自 create 页面且可修改（modifiableFromCreate），
+          // 都应当被视为需要额外的已保存检查，避免未保存的后端结局被菜单直接进入手动编辑。
+          if (!isManualEditOnly && (isCreatorIdentity?.value || modifiableFromCreate?.value)) {
             const cs = (dependencies && dependencies.currentScene) || params.currentScene
             const cur = cs && cs.value ? cs.value : (cs || null)
             if (cur && (cur._isBackendEnding || cur.isGameEnding || cur.isEnding) && cur._endingSaved !== true) {
-              if (showNotice) showNotice('当前结局未保存(saved)状态，无法进入手动编辑模式，请先保存结局或使用“编辑结局大纲”')
+              if (showNotice) showNotice('当前结局未保存(saved)状态，无法进入手动编辑模式，请先保存结局或使用"编辑结局大纲"')
               return
             }
-          } catch (e) { /* ignore */ }
-        }
-
+          }
+        } catch (e) { /* ignore */ }
+        // if (_creatorFeatureEnabled && !_creatorFeatureEnabled.value) {
+        //   if (showNotice) showNotice('进入手动编辑：当前作品未开启 AI 自动生成，仅支持人工调整后保存。')
         // 进入创作者模式时停止自动播放
         if (_stopAutoPlayTimer) {
           try { _stopAutoPlayTimer() } catch (e) {}

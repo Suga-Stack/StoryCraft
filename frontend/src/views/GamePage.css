@@ -828,6 +828,18 @@
 
 .menu-item:hover { background: rgba(212, 165, 165, 0.15); }
 
+.menu-item.disabled,
+.menu-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.menu-item.disabled:hover,
+.menu-item:disabled:hover {
+  background: transparent;
+}
+
 .menu-item svg {
   width: 20px;
   height: 20px;

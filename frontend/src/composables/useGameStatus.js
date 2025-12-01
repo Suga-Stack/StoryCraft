@@ -533,7 +533,13 @@ export function useGameState(dependencies = {}) {
             console.log('退出横屏失败:', err)
         }
         
-        router.push('/works')
+        // 🔑 修复：路由到 /works/{workId} 而不是 /works
+        const workId = work && work.value && work.value.id
+        if (workId) {
+            router.push(`/works/${workId}`)
+        } else {
+            router.push('/works')
+        }
     }
 
     
@@ -541,7 +547,8 @@ export function useGameState(dependencies = {}) {
     const handleGameEnd = async () => {
         console.log('handleGameEnd 被调用 - creatorFeatureEnabled:', creatorFeatureEnabled.value, 'currentChapter:', currentChapterIndex.value)
         
-        // 对于创作者身份，在进入结算前进行最终检查
+        // 🔑 关键修复：对于创作者身份，在任何操作之前先进行章节保存状态检查
+        // 这样可以避免在未保存状态下生成结局选项场景
         if (creatorFeatureEnabled.value) {
             try {
             console.log('开始获取作品详情以检查章节状态...')
@@ -551,9 +558,9 @@ export function useGameState(dependencies = {}) {
             const currentStatus = getChapterStatus(currentChapterIndex.value)
             console.log('handleGameEnd 检查当前章节:', currentChapterIndex.value, '状态:', currentStatus)
             
-            // 如果当前章节未保存，阻止进入结算
+            // 🔑 关键修复：如果当前章节未保存，立即阻止所有后续操作（包括获取结局详情）
             if (currentStatus !== 'saved') {
-                console.warn('handleGameEnd 阻止结算 - 当前章节未保存')
+                console.warn('handleGameEnd 阻止 - 当前章节未保存')
                 showNotice('当前章节（第' + currentChapterIndex.value + '章）尚未保存，请先确认并保存本章内容后再进入结算页面。', 10000)
                 // 重置加载状态
                 isGeneratingSettlement.value = false
@@ -567,7 +574,7 @@ export function useGameState(dependencies = {}) {
                 console.log('handleGameEnd 检查前一章节:', currentChapterIndex.value - 1, '状态:', prevStatus)
                 
                 if (prevStatus !== 'saved') {
-                console.warn('handleGameEnd 阻止结算 - 前一章节未保存')
+                console.warn('handleGameEnd 阻止 - 前一章节未保存')
                 showNotice('第' + (currentChapterIndex.value - 1) + '章尚未保存，请先确认并保存该章内容后再进入结算页面。', 10000)
                 isGeneratingSettlement.value = false
                 isLoading.value = false
@@ -575,7 +582,7 @@ export function useGameState(dependencies = {}) {
                 }
             }
             
-            console.log('handleGameEnd 所有章节检查通过，允许进入结算')
+            console.log('handleGameEnd 所有章节检查通过，允许进入结算和获取结局')
             } catch (e) {
             console.error('handleGameEnd 检查创作者章节状态失败:', e)
             // 如果检查失败，也阻止跳转，让创作者手动处理
@@ -587,6 +594,7 @@ export function useGameState(dependencies = {}) {
         }
         
         // 在进入生成结算前，先尝试在「阅读者」模式下从后端获取结局场景并播放
+        // 🔑 创作者模式：只有在章节状态为 saved 后才会执行到这里
         // 如果当前正在等待创作者触发的指定结局生成，则保持加载状态，不展示占位或结局选项
         try {
           if (creatorMode && creatorMode.value && pendingGeneratedEnding.value && pendingGeneratedEnding.value.workId === work.value.id) {
@@ -667,6 +675,16 @@ export function useGameState(dependencies = {}) {
                   isChapterEnding: false
                 }
 
+                // 🔑 创作者模式下，结局选项覆盖末章场景而非追加
+                startIdx = storyScenes.value.length
+                if (creatorMode && creatorMode.value) {
+                  // 清空当前所有场景（末章缓存），用结局选项场景替换
+                  const beforeCount = storyScenes.value.length
+                  storyScenes.value = []
+                  console.log(`[handleGameEnd] 创作者模式：清空末章的 ${beforeCount} 个场景，准备用结局选项覆盖`)
+                  startIdx = 0
+                }
+
                 try { 
                   pushSceneFromServer(choiceScene) 
                   // pushSceneFromServer 会规范化 choices 字段，可能会丢弃我们直接放入的自定义字段。
@@ -711,7 +729,7 @@ export function useGameState(dependencies = {}) {
               if (scenes && Array.isArray(scenes) && scenes.length > 0) {
                 // 记录结局 saved 状态（兼容多种后端字段）
                 try { appendedEndingSaved.value = (payload?.status === 'saved') || (payload?.ending?.status === 'saved') || appendedEndingSaved.value } catch (e) {}
-                const startIdx = storyScenes.value.length
+                startIdx = storyScenes.value.length
                 console.log('[handleGameEnd] 收到后端结局场景，追加', scenes.length, '个场景，startIdx:', startIdx)
                 for (const s of scenes) {
                   try {
@@ -1573,6 +1591,16 @@ export function useGameState(dependencies = {}) {
                 }
               }),
               isChapterEnding: false
+            }
+
+            // 🔑 创作者模式下，结局选项覆盖末章场景而非追加
+            startIdx = storyScenes.value.length
+            if (creatorMode && creatorMode.value) {
+              // 清空当前所有场景（末章缓存），用结局选项场景替换
+              const beforeCount = storyScenes.value.length
+              storyScenes.value = []
+              console.log(`[requestNextIfNeeded] 创作者模式：清空末章的 ${beforeCount} 个场景，准备用结局选项覆盖`)
+              startIdx = 0
             }
 
             try {
