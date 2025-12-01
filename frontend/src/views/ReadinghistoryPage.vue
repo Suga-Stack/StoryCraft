@@ -29,12 +29,6 @@
             </van-tag>
           </div>
         </div>
-        <van-icon 
-          :name="book.isFavorite ? 'star' : 'star-o'" 
-          class="favorite-icon"
-          :class="{ active: book.isFavorite }"
-          @click.stop="handleFavorite(book)"
-        />
       </div>
     </div>
   </div>
@@ -46,19 +40,13 @@ import { useRouter, useRoute } from 'vue-router'
 import { showToast } from 'vant'
 import { getReadingHistory } from '../api/user'
 import { addFavorite, deleteFavorite } from '../api/user'
+import { useTags } from '../composables/useTags'
+
+// 初始化标签工具
+const { getTagsByIds } = useTags();
 
 const router = useRouter()
-const route = useRoute()
 const readingHistory = ref([])
-
-const tagColorOptions = [
-  { backgroundColor: '#e0f2fe', color: '#0284c7' },
-  { backgroundColor: '#dbeafe', color: '#3b82f6' },
-  { backgroundColor: '#f0fdf4', color: '#166534' },
-  { backgroundColor: '#fff7ed', color: '#c2410c' },
-  { backgroundColor: '#f5f3ff', color: '#6b21a8' },
-  { backgroundColor: '#fee2e2', color: '#b91c1c' },
-]
 
 // 在组件挂载时获取阅读历史
 onMounted(() => {
@@ -94,39 +82,13 @@ const handleBack = () => {
   router.back()
 }
 
-// 随机获取一个颜色样式
-const getRandomTagStyle = () => {
-  const randomIndex = Math.floor(Math.random() * tagColorOptions.length);
-  return tagColorOptions[randomIndex];
-};
-
 
 // 导航到书籍详情页
 const navigateToBookDetail = (bookId) => {
   router.push(`/works/${bookId}`)
 };
 
-// 收藏功能
-const handleFavorite = async (book) => {
-  try {
-    if (!book.isFavorite) {
-      // 添加收藏
-      await addFavorite(book.id); // 这里的文件夹名称可根据实际需求调整或从参数获取
-      book.isFavorite = true;
-      showToast('已收藏');
-    } else {
-      // 取消收藏 - 假设book对象包含收藏记录的id(favoriteId)，如果没有需要调整接口参数
-      await deleteFavorite(book.favoriteId); 
-      book.isFavorite = false;
-      showToast('取消收藏');
-    }
-  } catch (error) {
-    console.error('收藏操作失败:', error);
-    showToast('操作失败，请稍后重试');
-    // 失败时回滚状态
-    book.isFavorite = !book.isFavorite;
-  }
-};
+
 </script>
 
 <style scoped>

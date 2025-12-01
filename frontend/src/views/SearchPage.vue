@@ -47,60 +47,68 @@
     </div>
 
       <!-- 标签选择弹窗 -->
-      <van-popup
-        v-model:show="showTagPopup"
-        round
-        position="bottom"
-        :style="{ height: '50%' }"
-      >
-        <div class="tag-popup-header">
-          <span>选择标签</span>
-          <span class="close-btn" @click="showTagPopup = false">x</span>
-        </div>
-        <div class="tag-list" @scroll="handleTagListScroll">
-          <!-- 加载状态 -->
-          <van-loading v-if="isLoadingTags && allTags.length === 0" color="#c78c8c" size="24" class="loading-indicator" />
-          
-          <!-- 错误提示 -->
-          <p class="error-text" v-if="tagsError && allTags.length === 0">{{ tagsError }}</p>
-          
-          <!-- 标签列表 -->
-          <van-tag
-            v-for="tag in allTags"
-            :key="tag.id"
-            :color="getTagColorById(tag.id).backgroundColor"
-            :text-color="getTagColorById(tag.id).color"
-            clickable
-            @click="selectTag(tag)"
-            :class="{ 'selected-tag': selectedTagIds.includes(tag.id) }"
-          >
-            {{ tag.name }}
-          </van-tag>
-          <!-- 加载更多提示 -->
-          <div v-if="isLoadingTags && allTags.length > 0" class="loading-more">
-            <van-loading size="16" />
+      <teleport to="body">
+        <van-popup
+          v-model:show="showTagPopup"
+          round
+          position="bottom"
+          :style="{ 
+            height: '50%',
+            position: 'fixed',  // 强制固定定位
+            bottom: '0',        // 固定在底部
+            left: '0',          // 左侧对齐
+            right: '0',         // 右侧对齐（确保宽度满屏）
+            transform: 'translateY(0)'  // 强制取消位移
+          }"
+        >
+          <div class="tag-popup-header">
+            <span>选择标签</span>
+            <span class="close-btn" @click="showTagPopup = false">x</span>
           </div>
-          
-          <!-- 没有更多数据提示 -->
-          <div v-if="!hasMoreTags && !isLoadingTags && allTags.length > 0" class="no-more">
-            没有更多标签了
+          <div class="tag-list" @scroll="handleTagListScroll">
+            <!-- 加载状态 -->
+            <van-loading v-if="isLoadingTags && allTags.length === 0" color="#c78c8c" size="24" class="loading-indicator" />
+            
+            <!-- 错误提示 -->
+            <p class="error-text" v-if="tagsError && allTags.length === 0">{{ tagsError }}</p>
+            
+            <!-- 标签列表 -->
+            <van-tag
+              v-for="tag in allTags"
+              :key="tag.id"
+              :color="getTagColorById(tag.id).backgroundColor"
+              :text-color="getTagColorById(tag.id).color"
+              clickable
+              @click="selectTag(tag)"
+              :class="{ 'selected-tag': selectedTagIds.includes(tag.id) }"
+            >
+              {{ tag.name }}
+            </van-tag>
+            <!-- 加载更多提示 -->
+            <div v-if="isLoadingTags && allTags.length > 0" class="loading-more">
+              <van-loading size="16" />
+            </div>
+            
+            <!-- 没有更多数据提示 -->
+            <div v-if="!hasMoreTags && !isLoadingTags && allTags.length > 0" class="no-more">
+              没有更多标签了
+            </div>
           </div>
-        </div>
-        <div class="tag-popup-footer">
-          <van-button 
-            type="primary" 
-            block 
-            @click="confirmTagSelection"
-            :style="{ 
-              background: 'linear-gradient(135deg, #d4a5a5 0%, #b88484 100%)',
-              border: 'none'
-            }"
-          >
-            确定
-          </van-button>
-        </div>
-      </van-popup>
-    
+          <div class="tag-popup-footer">
+            <van-button 
+              type="primary" 
+              block 
+              @click="confirmTagSelection"
+              :style="{ 
+                background: 'linear-gradient(135deg, #d4a5a5 0%, #b88484 100%)',
+                border: 'none'
+              }"
+            >
+              确定
+            </van-button>
+          </div>
+        </van-popup>
+      </teleport>
 
 
     <!-- 导航按钮栏 -->

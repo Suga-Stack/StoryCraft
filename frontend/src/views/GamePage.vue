@@ -56,6 +56,7 @@ const {
   restoreChoiceFlagsFromHistory,
   getDialogueItem,
   // 服务引用
+  getScenes,
   setGetScenes,
   generateChapter,
   setGenerateChapter,
@@ -157,7 +158,7 @@ const {
   previewSnapshot,
   pendingOutlineTargetChapter,
   overrides,
-
+  outlineEditorResolver,
   
   toggleCreatorMode,
   openOutlineEditorManual,
@@ -184,10 +185,6 @@ const {
   setupCreatorModeWatch,
   setDependencies: setCreatorModeDependencies
 } = creatorModeAPI
-
-// 修改为 let
-let { getScenes, someOtherData } = useSomeComposable();
-let outlineEditorResolver = null;
 
 // 当前对话对象（可能是字符串或对象）
 const currentDialogueObject = computed(() => {
@@ -407,32 +404,6 @@ const saveCurrentEnding = async () => {
 }
 // 从 gameState 导出 playingEndingScenes 与 endingsAppended
 const { playingEndingScenes, endingsAppended } = gameStateResult
-
-// 全局点击处理：当没有选项/菜单/编辑时，点击屏幕任意不在交互控件上的位置进入下一句
-const onGlobalClick = (e) => {
-  try {
-    // 如果编辑中、菜单/模态/保存等覆盖层打开、或选项可见，则不要在根容器处理为 next
-    if (editingDialogue?.value) return
-    if (showMenu?.value) return
-    if (choicesVisible?.value) return
-    if (anyOverlayOpen?.value) return
-
-    // 忽略点击在表单或交互元素上的情况（按钮、链接、输入框等）
-    const tag = (e.target && e.target.tagName) ? String(e.target.tagName).toLowerCase() : ''
-    if (['button','a','input','select','textarea','label'].includes(tag)) return
-
-    // 忽略点击发生在可能的交互面板内（例如选项容器、菜单面板、编辑控件、模态面板等）
-    if (e.target && e.target.closest) {
-      const ignore = e.target.closest('.choices-container, .menu-panel, .menu-button, .edit-controls, .choice-btn, .edit-btn, .modal-panel, .modal-backdrop, .save-load-modal')
-      if (ignore) return
-    }
-
-    // 如果当前处于等待点击以显示选项的状态，nextDialogue 会在内部将其转换为显示选项
-    nextDialogue()
-  } catch (err) {
-    console.warn('onGlobalClick failed', err)
-  }
-}
 
 // 计算任意弹窗是否打开 - 在 showMenu 解构之后定义
 const anyOverlayOpen = computed(() =>
@@ -2144,7 +2115,7 @@ onUnmounted(async () => {
 </script>
 
 <template>
-  <div class="game-page" @click="onGlobalClick">
+  <div class="game-page">
     <!-- 横屏准备界面 -->
     <div v-if="!isLandscapeReady" class="landscape-prompt">
       <div class="prompt-content">
@@ -2533,7 +2504,7 @@ onUnmounted(async () => {
   -->
 
   <button 
-    v-if="(creatorFeatureEnabled || creatorMode) && getChapterStatus(currentChapterIndex) !== 'saved'"
+    v-if="creatorFeatureEnabled && getChapterStatus(currentChapterIndex) !== 'saved'"
     @click="openOutlineEditorManual()"
     class="creator-outline-btn" 
     title="编辑/生成章节大纲">
@@ -2550,7 +2521,7 @@ onUnmounted(async () => {
   </button>
   <!-- 创作者专用：当当前章节已由 AI 生成（generated）时，可确认并保存本章，标记为 saved -->
   <button 
-    v-if="(creatorFeatureEnabled || creatorMode) && getChapterStatus(currentChapterIndex) !== 'saved' && !isPlayingBackendGeneratedEnding" 
+    v-if="creatorFeatureEnabled && getChapterStatus(currentChapterIndex) !== 'saved' && !isPlayingBackendGeneratedEnding" 
     @click="persistCurrentChapterEdits({ auto: false, allowSaveGenerated: true })" 
     class="creator-confirm-btn" 
     title="确认并保存本章">

@@ -4,6 +4,10 @@ import { useRoute } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { http } from '../service/http.js'
 import { addFavorite, deleteFavorite, getComments, postComments, likeComment, unlikeComment } from '../api/user.js'
+import { useTags } from '../composables/useTags'; // 导入标签工具函数
+
+// 初始化标签工具
+const { getTagsByIds } = useTags();
 
 const router = useRouter()
 
@@ -17,9 +21,6 @@ const state = history.state || {}
 // 若存在 createResult，则优先使用 sessionStorage.createResult 中的 backendWork
 let sessionCreate = null
 try { sessionCreate = JSON.parse(sessionStorage.getItem('createResult')) } catch (e) { sessionCreate = null }
-const incomingTags = (state.selectedTags && Array.isArray(state.selectedTags))
-  ? state.selectedTags
-  : (() => { try { return JSON.parse(sessionStorage.getItem('createRequest'))?.tags } catch { return null } })()
 
 // 规范化后端返回的数据字段（兼容 image_url / coverUrl / cover_url 等差异）
 const normalizeBackendWork = (raw) => {
@@ -42,6 +43,8 @@ const normalizeBackendWork = (raw) => {
     averageScore: raw.average_score || raw.averageScore || 0,
     ratingCount: raw.rating_count || raw.ratingCount || 0,
     wordCount: raw.word_count || null,
+    // 兼容后端可能使用的 price 或 unlock_points_needed 字段，用于解锁/付费显示
+    price: typeof raw.price !== 'undefined' ? raw.price : (typeof raw.unlock_points_needed !== 'undefined' ? raw.unlock_points_needed : undefined),
     readCount: raw.read_count || 0
   }
 }
@@ -53,7 +56,7 @@ const work = ref({
   title: backendWorkRaw?.title || '锦瑟深宫',
   coverUrl: backendWorkRaw?.coverUrl || 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=800&h=500&fit=crop',
   authorId: backendWorkRaw?.authorId || 'user_12345',
-  tags: incomingTags || backendWorkRaw?.tags || ['科幻', '冒险', '太空', '未来'],
+  tags: backendWorkRaw?.tags || ['科幻', '冒险', '太空', '未来'],
   description: backendWorkRaw?.description || `柳晚晚穿越成后宫小透明，她把宫斗当成终身职业来经营。
 不争宠不夺权，只求平安活到退休。
  
@@ -103,13 +106,10 @@ onMounted(async () => {
       work.value.title = normalized.title || work.value.title
       work.value.coverUrl = normalized.coverUrl || work.value.coverUrl
       work.value.description = normalized.description || work.value.description
-      if (incomingTags) {
-        work.value.tags = incomingTags;
-      } else {
-        // 等待 Promise 完成后再赋值
-        const fetchedTags = await getTagsByIds(normalized.tags || []);
-        work.value.tags = fetchedTags || ['科幻', '冒险', '太空', '未来'];
-      }
+     
+      const fetchedTags = await getTagsByIds(normalized.tags || []);
+      work.value.tags = fetchedTags || ['科幻', '冒险', '太空', '未来'];
+      
       work.value.isFavorite = normalized.isFavorited || work.value.isFavorite
       try { favoritesCount.value = payload.favorite_count || payload.favoritesCount || favoritesCount.value } catch (e) {}
       try { publishedAt.value = payload.published_at || payload.publishedAt || payload.created_at || publishedAt.value } catch (e) {}
@@ -125,10 +125,23 @@ onMounted(async () => {
       averageScore.value = normalized.averageScore
       ratingCount.value = normalized.ratingCount
       readCount.value = normalized.readCount
-      // 如果后端返回积分相关字段，更新前端显示
+      // 如果后端返回积分相关字段，更新前端显示（兼容 price / unlock_points_needed / 嵌套 gamwork.data）
       try {
-        if (typeof payload.unlock_points_needed !== 'undefined') unlockPointsNeeded.value = payload.unlock_points_needed
-        if (typeof payload.user_given_points !== 'undefined') userGivenPoints.value = payload.user_given_points
+        if (typeof payload.unlock_points_needed !== 'undefined') {
+          unlockPointsNeeded.value = payload.unlock_points_needed
+        } else if (typeof payload.price !== 'undefined') {
+          unlockPointsNeeded.value = payload.price
+        } else if (payload.gamework && typeof payload.gamework.price !== 'undefined') {
+          unlockPointsNeeded.value = payload.gamework.price
+        } else if (payload.data && typeof payload.data.price !== 'undefined') {
+          unlockPointsNeeded.value = payload.data.price
+        }
+
+        if (typeof payload.user_given_points !== 'undefined') {
+          userGivenPoints.value = payload.user_given_points
+        } else if (payload.gamework && typeof payload.gamework.user_given_points !== 'undefined') {
+          userGivenPoints.value = payload.gamework.user_given_points
+        }
       } catch (e) {}
       if (normalized.wordCount !== null) {
         backendWordCount.value = normalized.wordCount
@@ -258,7 +271,8 @@ const readCount = ref(backendWorkRaw?.readCount || 0)
 const backendWordCount = ref(backendWorkRaw?.wordCount || null)
 
 // 积分/打赏相关（用于作品简介与评论评分之间的“送积分”模块）
-const unlockPointsNeeded = ref(backendWorkRaw?.unlock_points_needed || 100) // 解锁该作品需要的积分（后端可返回字段）
+// 优先从后端返回的 price 字段，否则使用 unlock_points_needed，默认 100
+const unlockPointsNeeded = ref((backendWorkRaw?.price !== undefined) ? backendWorkRaw.price : (backendWorkRaw?.unlock_points_needed || 100)) // 解锁该作品需要的积分（后端可返回字段）
 const userGivenPoints = ref(backendWorkRaw?.user_given_points || 0) // 当前用户已在该作品上送出的积分
 const sendingPoints = ref(false)
 // 页面内 modal 控制：改为页面内弹窗输入数量
