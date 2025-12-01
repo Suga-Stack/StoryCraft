@@ -279,7 +279,7 @@ const handleRegister = async () => {
       }
 
       // 根据需求跳转到偏好设置页面
-      router.push('/preferences');
+      router.push('/login');
     } else {
       // 处理正常响应中的错误信息
       const msg = resData.message || (resData.data && resData.data.message) || '注册失败，请稍后重试';

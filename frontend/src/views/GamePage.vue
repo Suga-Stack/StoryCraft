@@ -1668,6 +1668,10 @@ const persistCurrentChapterEdits = async (opts = {}) => {
 onMounted(() => {
   loadOverrides()
   applyOverridesToScenes()
+  // 注册全局点击处理器：当没有弹窗/选项并且不在编辑模式时，点击任意非交互元素推进下一句
+  try {
+    document.addEventListener('click', globalClickHandler)
+  } catch (e) { console.warn('register globalClickHandler failed', e) }
 })
 
 // 在组件卸载时自动持久化当前章节（如果可手动编辑）
@@ -1678,8 +1682,33 @@ onUnmounted(() => {
         await persistCurrentChapterEdits({ performNetworkSave: false })
       } catch (e) { console.warn('persistCurrentChapterEdits onUnmount failed', e) }
     })()
+    try { document.removeEventListener('click', globalClickHandler) } catch (e) { /* ignore */ }
   } catch (e) { console.warn('onUnmounted persist failed', e) }
 })
+
+// 全局点击处理函数（放在文件末尾以便使用到上面定义的 reactive refs）
+function globalClickHandler(e) {
+  try {
+    // 编辑模式正在编辑文本时不要推进
+    if (typeof editingDialogue !== 'undefined' && editingDialogue && editingDialogue.value) return
+    // 如果正在显示选项，不响应全局推进
+    if (typeof choicesVisible !== 'undefined' && choicesVisible && choicesVisible.value) return
+    // 如果任意弹窗打开，也不响应
+    if (typeof anyOverlayOpen !== 'undefined' && anyOverlayOpen && anyOverlayOpen.value) return
+
+    const target = e && e.target
+    if (target && typeof target.closest === 'function') {
+      // 如果点击落在交互元素上（按钮/链接/输入/选择/菜单/弹窗/选项等），忽略
+      const skip = target.closest('button, a, input, textarea, select, .menu-panel, .modal-panel, .choice-btn, .edit-btn, .menu-button, .van-popup, .van-dialog, .menu-item')
+      if (skip) return
+    }
+
+    // 最终调用 nextDialogue 推进（保护调用）
+    try { if (typeof nextDialogue === 'function') nextDialogue() } catch (e) { /* ignore */ }
+  } catch (err) {
+    console.warn('globalClickHandler error', err)
+  }
+}
 
 
 // 观察 creatorMode：进入记录位置并禁用 advance；退出回到 entry 的那句话（修改版）并恢复播放权限
