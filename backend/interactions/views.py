@@ -70,7 +70,7 @@ class FavoriteViewSet(viewsets.ModelViewSet):
     - PATCH: 移动收藏到其他收藏夹
     - DELETE: 取消收藏
     """
-    http_method_names = ['get', 'post', 'patch', 'delete']
+    http_method_names = ['get', 'post', 'delete']
     serializer_class = FavoriteSerializer
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [filters.SearchFilter]
@@ -147,54 +147,20 @@ class FavoriteViewSet(viewsets.ModelViewSet):
         }, status=status.HTTP_201_CREATED)
 
     @swagger_auto_schema(
-        operation_summary="移动收藏到其他收藏夹",
-        request_body=openapi.Schema(
-            type=openapi.TYPE_OBJECT,
-            properties={
-                'folder': openapi.Schema(type=openapi.TYPE_INTEGER, description='目标收藏夹ID，可为空（移出收藏夹）')
-            }
-        ),
-        responses={200: openapi.Response(description="移动成功")}
-    )
-    def partial_update(self, request, *args, **kwargs):
-        """移动收藏到其他收藏夹或移出收藏夹"""
-        instance = self.get_object()
-        folder_id = request.data.get('folder')
-
-        if folder_id is not None:
-            try:
-                if folder_id == "" or folder_id == "null":
-                    folder = None
-                else:
-                    folder = FavoriteFolder.objects.get(id=folder_id, user=request.user)
-            except FavoriteFolder.DoesNotExist:
-                return Response({"code": 400, "message": "收藏夹不存在"}, status=status.HTTP_400_BAD_REQUEST)
-        else:
-            folder = None
-
-        instance.folder = folder
-        instance.save()
-        return Response({
-            "code": 200,
-            "message": "移动收藏成功",
-            "data": self.get_serializer(instance).data
-        }, status=status.HTTP_200_OK)
-
-    @swagger_auto_schema(
         operation_summary="取消收藏",
         manual_parameters=[
             openapi.Parameter(
-                name="pk",
+                name="id",
                 in_=openapi.IN_PATH,
                 type=openapi.TYPE_INTEGER,
                 description="当前作品 ID",
                 required=True
             )
         ],
-        responses={204: openapi.Response(description="取消收藏成功")}
+        responses={200: openapi.Response(description="取消收藏成功")}
     )
     def destroy(self, request, *args, **kwargs):
-        id = kwargs.get("pk")
+        id = kwargs["id"]
 
         # 找到该用户的收藏记录
         instance = get_object_or_404(Favorite, user=request.user, gamework_id=id)
@@ -202,8 +168,8 @@ class FavoriteViewSet(viewsets.ModelViewSet):
         instance.delete()
 
         return Response(
-            {"code": 204, "message": "取消收藏成功"},
-            status=status.HTTP_204_NO_CONTENT
+            {"code": 200, "message": "取消收藏成功"},
+            status=status.HTTP_200_OK
         )
 
     @swagger_auto_schema(
