@@ -1,6 +1,6 @@
 from .models import CreditLog
 
-def change_user_credits(user, amount, log_type, remark=None):
+def change_user_credits(user, amount, log_type, remark=None, gamework=None):
     """
     修改用户积分并记录流水
     :param user: User 对象
@@ -20,7 +20,8 @@ def change_user_credits(user, amount, log_type, remark=None):
         before_balance=before,
         after_balance=after,
         type=log_type,
-        remark=remark
+        remark=remark,
+        gamework=gamework
     )
 
     return after
