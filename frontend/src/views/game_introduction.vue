@@ -310,9 +310,12 @@ const confirmSendPoints = async () => {
   }
   try {
     sendingPoints.value = true
-    const res = await http.post(`/api/gameworks/gameworks/${work.value.id}/give_points/`, { amount })
-    if (res && res.data && typeof res.data.user_given_points !== 'undefined') {
-      userGivenPoints.value = res.data.user_given_points
+    // 后端：POST /api/users/reward/  { "gamework_id": <id>, "amount": <amount> }
+    const res = await http.post('/api/users/reward/', { gamework_id: work.value.id, amount })
+    // 后端返回示例：{ code:200, message:'打赏成功', amount: 20, author: '作者用户名' }
+    if (res && res.data && typeof res.data.amount !== 'undefined') {
+      // 将用户已送出积分更新为后端返回的总数（若后端返回累计值）
+      userGivenPoints.value = res.data.amount
     } else {
       userGivenPoints.value += amount
     }
