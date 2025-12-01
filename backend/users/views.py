@@ -735,7 +735,8 @@ class RewardViewSet(viewsets.ViewSet):
             user=user,
             amount=-amount,
             log_type="reward_out",
-            remark=f'打赏作品《{gamework.title}》'
+            remark=f'打赏作品《{gamework.title}》',
+            gamework=gamework
         )
 
         author.refresh_from_db()
