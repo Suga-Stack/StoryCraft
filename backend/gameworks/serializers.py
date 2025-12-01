@@ -1,7 +1,8 @@
 from rest_framework import serializers
 from .models import Gamework
 from tags.models import Tag
-from django.db.models import Avg
+from users.models import CreditLog
+from django.db.models import Avg, Sum
 from interactions.models import Comment
 from interactions.serializers import CommentSerializer
 
@@ -25,6 +26,7 @@ class GameworkDetailSerializer(serializers.ModelSerializer):
     initial_statuses = serializers.SerializerMethodField()
     outlines = serializers.SerializerMethodField()
     chapters_status = serializers.SerializerMethodField()
+    user_reward_amount = serializers.SerializerMethodField()
 
     # 作品评论
     comments_by_time = serializers.SerializerMethodField()
@@ -39,7 +41,7 @@ class GameworkDetailSerializer(serializers.ModelSerializer):
             'id', 'author', 'title', 'description', 'tags', 'image_url',
             'is_published', 'created_at', 'updated_at', 'published_at',
             'favorite_count', 'average_score', 'rating_count', 'read_count', 'is_favorited', 'price',
-            'is_complete', 'generated_chapters', 'total_chapters', 'modifiable', 'ai_callable',
+            'user_reward_amount', 'is_complete', 'generated_chapters', 'total_chapters', 'modifiable', 'ai_callable',
             'initial_attributes', 'initial_statuses', 'outlines', 'chapters_status',
             'comments_by_time', 'comments_by_hot', 'rating_details'
         )
@@ -88,6 +90,22 @@ class GameworkDetailSerializer(serializers.ModelSerializer):
             return len(obj.user_favorites) > 0
 
         return obj.favorited_by.filter(user=user).exists()
+    
+    def get_user_reward_amount(self, obj):
+        request = self.context.get('request')
+        user = getattr(request, "user", None)
+
+        if not (user and user.is_authenticated):
+            return 0
+
+        total = CreditLog.objects.filter(
+            user=user,
+            gamework=obj,
+            type="reward_out"
+        ).aggregate(total=Sum("change_amount"))["total"] or 0
+
+        # reward_out 是负数 → 转正
+        return abs(total)
 
     def get_is_complete(self, obj):
         return getattr(obj.story, 'is_complete', False)
