@@ -1,19 +1,38 @@
 /**
  * HTTP 客户端配置
- * 基于 fetch API 实现的轻量级 HTTP 客户端
+ * 基于 axios 实现的 HTTP 客户端
  */
+
+import axios from 'axios'
+
+// 检测是否在 Capacitor 应用中
+const isCapacitor = () => {
+  return window.Capacitor !== undefined
+}
 
 // 获取后端 API 基础 URL
 const getBaseURL = () => {
-  // 可以从环境变量或配置文件获取
+  // 优先使用环境变量
   if (import.meta.env.VITE_API_BASE_URL) {
-    return import.meta.env.VITE_API_BASE_URL
+    const url = import.meta.env.VITE_API_BASE_URL
+    console.log('[getBaseURL] 使用环境变量 VITE_API_BASE_URL:', url)
+    return url
   }
-  // 开发环境默认使用本地后端（Django runserver 默认端口 8000）
-  return import.meta.env.DEV ? 'http://localhost:8000' : '/api'
+  
+  // 在 Capacitor Android 应用中,默认使用远程服务器
+  // (因为 10.0.2.2 只能在模拟器中访问宿主机,真机需要实际 IP)
+  if (isCapacitor()) {
+    console.log('[getBaseURL] Capacitor 环境,使用远程服务器')
+    return 'http://82.157.231.8:8000'
+  }
+  
+  // 浏览器环境:默认使用远程服务器地址
+  console.log('[getBaseURL] 浏览器环境,使用远程服务器')
+  return 'http://82.157.231.8:8000'
 }
 
 const BASE_URL = getBaseURL()
+console.log('[HTTP Client] 初始化,BASE_URL:', BASE_URL)
 
 /**
  * 获取认证 Token
@@ -69,194 +88,116 @@ export function getUserId() {
 class HttpClient {
   constructor(baseURL) {
     this.baseURL = baseURL
-  }
-
-  /**
-   * 构建完整 URL
-   */
-  buildURL(endpoint, params = {}) {
-    const url = new URL(endpoint.startsWith('http') ? endpoint : `${this.baseURL}${endpoint}`)
-    
-    // 添加查询参数
-    Object.keys(params).forEach(key => {
-      if (params[key] !== undefined && params[key] !== null) {
-        url.searchParams.append(key, params[key])
+    this.axiosInstance = axios.create({
+      baseURL: baseURL,
+      timeout: 30000,
+      withCredentials: false, // 暂时关闭跨域凭证（CORS 配置问题）
+      headers: {
+        'Content-Type': 'application/json'
       }
     })
-    
-    return url.toString()
-  }
 
-  /**
-   * 构建请求头
-   */
-  buildHeaders(customHeaders = {}) {
-    const headers = {
-      'Content-Type': 'application/json',
-      ...customHeaders
-    }
+    // 请求拦截器：添加 Token 和 CSRF
+    this.axiosInstance.interceptors.request.use(
+      (config) => {
+        console.log(`[HTTP] ${config.method?.toUpperCase()} ${config.url}`, {
+          params: config.params,
+          data: config.data
+        })
 
-    // 添加认证 token
-    const token = getAuthToken()
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`
-      console.log('[buildHeaders] 已添加 Authorization header')
-    } else {
-      console.warn('[buildHeaders] 未找到 token，请求可能会被拒绝')
-    }
-
-    // 如果没有提供 Authorization（例如使用 session auth），则尝试添加 CSRF token
-    // 这有助于通过 Django 的 SessionAuthentication 的 CSRF 校验（开发/本地测试场景）
-    if (!headers['Authorization']) {
-      const csrf = getCSRFToken()
-      if (csrf) {
-        headers['X-CSRFToken'] = csrf
-      }
-    }
-
-    return headers
-  }
-
-  /**
-   * 处理响应
-   */
-  async handleResponse(response) {
-    // 处理 204 No Content
-    if (response.status === 204) {
-      return null
-    }
-
-    const contentType = response.headers.get('content-type')
-    const isJSON = contentType && contentType.includes('application/json')
-
-    if (!response.ok) {
-      const error = new Error(response.statusText || 'Request failed')
-      error.status = response.status
-      
-      if (isJSON) {
-        try {
-          error.data = await response.json()
-        } catch (e) {
-          // JSON 解析失败,忽略
+        // 添加认证 token
+        const token = getAuthToken()
+        if (token) {
+          config.headers['Authorization'] = `Bearer ${token}`
+          console.log('[HTTP] 已添加 Authorization header')
+        } else {
+          console.warn('[HTTP] 未找到 token，请求可能会被拒绝')
         }
-      }
-      
-      throw error
-    }
 
-    return isJSON ? response.json() : response.text()
+        // 如果没有 Authorization，尝试添加 CSRF token
+        if (!config.headers['Authorization']) {
+          const csrf = getCSRFToken()
+          if (csrf) {
+            config.headers['X-CSRFToken'] = csrf
+          }
+        }
+
+        return config
+      },
+      (error) => {
+        console.error('[HTTP] 请求配置错误:', error)
+        return Promise.reject(error)
+      }
+    )
+
+    // 响应拦截器：处理响应和错误
+    this.axiosInstance.interceptors.response.use(
+      (response) => {
+        console.log(`[HTTP] 响应成功:`, {
+          status: response.status,
+          url: response.config.url,
+          data: response.data
+        })
+        // axios 自动处理 JSON，直接返回 data
+        return response.data
+      },
+      async (error) => {
+        console.error('[HTTP] 请求失败:', {
+          message: error.message,
+          code: error.code,
+          url: error.config?.url,
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          responseData: error.response?.data
+        })
+
+        // 统一错误格式
+        const customError = new Error(error.response?.statusText || error.message || 'Request failed')
+        customError.status = error.response?.status
+        customError.data = error.response?.data
+        customError.code = error.code
+
+        throw customError
+      }
+    )
   }
 
   /**
    * GET 请求
    */
   async get(endpoint, params = {}, options = {}) {
-    const url = this.buildURL(endpoint, params)
-    const headers = this.buildHeaders(options.headers)
-    
-    console.log(`[HTTP] GET ${url}`)
-    console.log(`[HTTP] Headers:`, headers)
-
-    try {
-      const response = await fetch(url, {
-        method: 'GET',
-        headers,
-        // 在本地开发或跨域代理场景下需要携带 cookie（session）以通过 CSRF 校验
-        credentials: 'include',
-        ...options
-      })
-      return await this.handleResponse(response)
-    } catch (error) {
-      console.error('GET request failed:', endpoint, error)
-      throw error
-    }
+    return await this.axiosInstance.get(endpoint, {
+      params,
+      ...options
+    })
   }
 
   /**
    * POST 请求
    */
   async post(endpoint, data = {}, options = {}) {
-    const url = this.buildURL(endpoint)
-    const headers = this.buildHeaders(options.headers)
-
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(data),
-        credentials: 'include',
-        ...options
-      })
-      return await this.handleResponse(response)
-    } catch (error) {
-      console.error('POST request failed:', endpoint, error)
-      throw error
-    }
+    return await this.axiosInstance.post(endpoint, data, options)
   }
 
   /**
    * PUT 请求
    */
   async put(endpoint, data = {}, options = {}) {
-    const url = this.buildURL(endpoint)
-    const headers = this.buildHeaders(options.headers)
-
-    try {
-      const response = await fetch(url, {
-        method: 'PUT',
-        headers,
-        body: JSON.stringify(data),
-        credentials: 'include',
-        ...options
-      })
-      return await this.handleResponse(response)
-    } catch (error) {
-      console.error('PUT request failed:', endpoint, error)
-      throw error
-    }
+    return await this.axiosInstance.put(endpoint, data, options)
   }
 
   /**
    * DELETE 请求
    */
   async delete(endpoint, options = {}) {
-    const url = this.buildURL(endpoint)
-    const headers = this.buildHeaders(options.headers)
-
-    try {
-      const response = await fetch(url, {
-        method: 'DELETE',
-        headers,
-        credentials: 'include',
-        ...options
-      })
-      return await this.handleResponse(response)
-    } catch (error) {
-      console.error('DELETE request failed:', endpoint, error)
-      throw error
-    }
+    return await this.axiosInstance.delete(endpoint, options)
   }
 
   /**
    * PATCH 请求
    */
   async patch(endpoint, data = {}, options = {}) {
-    const url = this.buildURL(endpoint)
-    const headers = this.buildHeaders(options.headers)
-
-    try {
-      const response = await fetch(url, {
-        method: 'PATCH',
-        headers,
-        body: JSON.stringify(data),
-        credentials: 'include',
-        ...options
-      })
-      return await this.handleResponse(response)
-    } catch (error) {
-      console.error('PATCH request failed:', endpoint, error)
-      throw error
-    }
+    return await this.axiosInstance.patch(endpoint, data, options)
   }
 }
 

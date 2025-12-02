@@ -134,12 +134,10 @@ export const ENV_CONFIG = {
   IS_PROD: import.meta.env.PROD,
   
   // API 基础 URL
-  API_BASE_URL: import.meta.env.VITE_API_BASE_URL || 
-                (import.meta.env.DEV ? 'http://localhost:8000' : ''),
+  API_BASE_URL: import.meta.env.VITE_API_BASE_URL || 'http://82.157.231.8:8000',
   
   // WebSocket 基础 URL
-  WS_BASE_URL: import.meta.env.VITE_WS_BASE_URL || 
-               (import.meta.env.DEV ? 'ws://localhost:8000' : `ws://${window.location.host}`),
+  WS_BASE_URL: import.meta.env.VITE_WS_BASE_URL || 'ws://82.157.231.8:8000',
   
   // 是否启用 Mock
   USE_MOCK: import.meta.env.VITE_USE_MOCK === 'true'

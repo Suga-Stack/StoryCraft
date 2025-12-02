@@ -3,9 +3,16 @@
   "appName": "故事匠",
   "webDir": "dist",
   "server": {
-    "androidScheme": "https",
-    "hostname": "storycraft.app",
-    "cleartext": true
+    "androidScheme": "http",
+    "cleartext": true,
+    "allowNavigation": [
+      "http://82.157.231.8:8000",
+      "ws://82.157.231.8:8000",
+      "http://10.0.2.2:8000",
+      "ws://10.0.2.2:8000",
+      "http://localhost:8000",
+      "ws://localhost:8000"
+    ]
   },
   "android": {
     "buildOptions": {
@@ -15,13 +22,17 @@
   },
   "plugins": {
     "SplashScreen": {
-      "launchShowDuration": 2000,
+      "launchShowDuration": 5000,
       "launchAutoHide": true,
       "backgroundColor": "#ffffff",
       "androidScaleType": "CENTER_CROP",
-      "showSpinner": false,
+      "showSpinner": true,
       "splashFullScreen": true,
       "splashImmersive": true
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#000000"
     }
   }
 }
