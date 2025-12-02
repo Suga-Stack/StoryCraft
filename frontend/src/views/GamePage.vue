@@ -1,8 +1,9 @@
-﻿﻿<script setup>
+﻿<script setup>
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import './GamePage.css'
 import { useRouter, useRoute } from 'vue-router'
 import { ScreenOrientation } from '@capacitor/screen-orientation'
+import { StatusBar, Style } from '@capacitor/status-bar'
 import { useUserStore } from '../store/index.js'
 import http from '../utils/http.js'
 import * as storyService from '../service/story.js'
@@ -735,7 +736,7 @@ const effectiveCoverUrl = computed(() => {
     if (!raw) return defaultImg
     if (/^https?:\/\//i.test(raw)) return raw
     // 如果是相对路径（例如 /media/xxx），为开发环境补齐后端地址
-    return 'http://localhost:8000' + (raw.startsWith('/') ? raw : ('/' + raw))
+    return 'http://82.157.231.8:8000' + (raw.startsWith('/') ? raw : ('/' + raw))
   } catch (e) {
     return 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=1600&h=900&fit=crop'
   }
@@ -938,6 +939,14 @@ let isRequestingNext = false
 
 // 当用户开始进入页面或重新加载时，尝试从 createResult 初始化；否则请求第一章
 onMounted(async () => {
+  // 隐藏状态栏，实现全屏游戏体验
+  try {
+    await StatusBar.hide()
+    console.log('[GamePage] 状态栏已隐藏，进入全屏模式')
+  } catch (e) {
+    console.warn('[GamePage] 隐藏状态栏失败（可能在浏览器环境）:', e)
+  }
+  
   if (USE_MOCK_STORY) {
     try {
       const mock = await import('../service/story.mock.js')
@@ -2229,6 +2238,15 @@ onUnmounted(async () => {
   } catch (err) {
     console.log('解锁屏幕方向失败:', err)
   }
+  
+  // 恢复状态栏显示
+  try {
+    await StatusBar.show()
+    console.log('[GamePage] 状态栏已恢复显示')
+  } catch (e) {
+    console.warn('[GamePage] 恢复状态栏失败:', e)
+  }
+  
   // 清理挂载时添加的侦听
   if (onMounted._cleanup) try { onMounted._cleanup() } catch {}
 })

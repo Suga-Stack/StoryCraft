@@ -27,7 +27,7 @@ const normalizeBackendWork = (raw) => {
   if (!raw) return null
   const coverCandidate = raw.coverUrl || raw.cover_url || raw.image_url || raw.imageUrl || raw.cover || (raw.image && raw.image.url) || ''
   let cover = coverCandidate || ''
-  if (cover && /^\//.test(cover)) cover = 'http://localhost:8000' + cover
+  if (cover && /^\//.test(cover)) cover = 'http://82.157.231.8:8000' + cover
   // 如果已经是完整 URL，保留原样
   return {
     id: raw.id,
@@ -52,26 +52,12 @@ const normalizeBackendWork = (raw) => {
 let backendWorkRaw = normalizeBackendWork(state.backendWork || sessionCreate?.backendWork || null)
 
 const work = ref({
-  id: backendWorkRaw?.id || 1,
-  title: backendWorkRaw?.title || '锦瑟深宫',
-  coverUrl: backendWorkRaw?.coverUrl || 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=800&h=500&fit=crop',
-  authorId: backendWorkRaw?.authorId || 'user_12345',
-  tags: backendWorkRaw?.tags || ['科幻', '冒险', '太空', '未来'],
-  description: backendWorkRaw?.description || `柳晚晚穿越成后宫小透明，她把宫斗当成终身职业来经营。
-不争宠不夺权，只求平安活到退休。
- 
-别人算计位份，她研究菜谱
-别人争抢赏赐，她核算份例
-在步步惊心的深宫里，她用一口小锅涮出温暖天地。
- 
-皇帝觉得她省心，妃嫔当她没威胁。直到风波来临，众人才发现——这个整天算账吃饭的鹌鹑，早把生存智慧练到满级。
-
-当六宫争得头破血流时，
-她正捧着账本慢悠悠打算盘："这个月份例还能省出两顿火锅，
-至于恩宠？那是什么，能吃吗？"
-
-在这吃人的后宫，不想争宠的干饭人，
-正在悄悄苟成最后赢家。`,
+  id: backendWorkRaw?.id || null,
+  title: backendWorkRaw?.title || '',
+  coverUrl: backendWorkRaw?.coverUrl || '',
+  authorId: backendWorkRaw?.authorId || '',
+  tags: backendWorkRaw?.tags || [],
+  description: backendWorkRaw?.description || '',
   isFavorite: backendWorkRaw?.isFavorited || false
 })
 
@@ -108,7 +94,7 @@ onMounted(async () => {
       work.value.description = normalized.description || work.value.description
      
       const fetchedTags = await getTagsByIds(normalized.tags || []);
-      work.value.tags = fetchedTags || ['科幻', '冒险', '太空', '未来'];
+      work.value.tags = fetchedTags || [];
       
       work.value.isFavorite = normalized.isFavorited || work.value.isFavorite
       try { favoritesCount.value = payload.favorite_count || payload.favoritesCount || favoritesCount.value } catch (e) {}
@@ -230,7 +216,18 @@ onMounted(async () => {
     }
 
   } catch (e) {
-    console.warn('fetch work details failed:', e)
+    console.error('[game_introduction] fetch work details failed:', e)
+    console.error('[game_introduction] Error details:', {
+      message: e.message,
+      status: e.status,
+      code: e.code,
+      candidateId,
+      baseURL: http.baseURL || 'unknown'
+    })
+    // 在开发环境显示错误提示（帮助调试真机问题）
+    if (import.meta.env.DEV) {
+      alert(`[调试信息] 获取作品详情失败\nID: ${candidateId}\n错误: ${e.message}\n请检查网络连接和后端服务器`)
+    }
   }
 })
 
@@ -485,10 +482,7 @@ const totalCommentsCount = computed(() => {
 
 // 评分系统（切换评论区为评分分页）
 const showingRatings = ref(false)
-const ratings = ref([
-  // sample ratings can be empty; kept for initial demo
-  // { id: 1, author: 'user_010', stars: 5, time: '1天前', timestamp: Date.now() - 24 * 60 * 60 * 1000 }
-])
+const ratings = ref([])
 const selectedStars = ref(0)
 // 当前操作用户的用户名（尝试从 window 全局或 localStorage 中读取）
 const currentUsername = ref(null)

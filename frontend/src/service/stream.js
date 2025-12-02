@@ -26,8 +26,10 @@ export function createSSEConnection(workId, options = {}) {
   } = options
 
   const userId = getUserId()
-  const baseURL = import.meta.env.VITE_API_BASE_URL || 
-                  (import.meta.env.DEV ? 'http://localhost:8000' : '')
+  // 检测是否在 Capacitor 环境
+  const isCapacitor = window.Capacitor !== undefined
+  const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://82.157.231.8:8000'
+  console.log('[startSSE] isCapacitor:', isCapacitor, 'baseURL:', baseURL)
   
   // 构建 SSE URL
   let url = `${baseURL}/api/story/${workId}/stream?userId=${userId}`
@@ -150,8 +152,10 @@ export function createWebSocketConnection(workId, options = {}) {
   } = options
 
   const userId = getUserId()
-  const baseURL = import.meta.env.VITE_WS_BASE_URL || 
-                  (import.meta.env.DEV ? 'ws://localhost:8000' : `ws://${window.location.host}`)
+  // 检测是否在 Capacitor 环境
+  const isCapacitor = window.Capacitor !== undefined
+  const baseURL = import.meta.env.VITE_WS_BASE_URL || 'ws://82.157.231.8:8000'
+  console.log('[startWebSocket] isCapacitor:', isCapacitor, 'baseURL:', baseURL)
   
   // 构建 WebSocket URL
   let url = `${baseURL}/api/story/${workId}/ws?userId=${userId}`

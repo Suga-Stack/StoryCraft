@@ -6,15 +6,17 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:android": "vite build --mode android && cap sync android",
+    "build:prod": "vite build --mode production && cap sync android",
     "preview": "vite preview",
     "cap:sync": "cap sync",
-    "cap:android": "cap open android",
-    "build:android": "npm run build && cap sync android"
+    "cap:android": "cap open android"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.3",
     "@capacitor/preferences": "^7.0.2",
     "@capacitor/screen-orientation": "^7.0.2",
+    "@capacitor/status-bar": "^7.0.2",
     "axios": "^1.13.2",
     "pinia": "^3.0.4",
     "vant": "^4.9.21",

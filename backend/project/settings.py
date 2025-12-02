@@ -35,7 +35,9 @@ ALLOWED_HOSTS = [
     '127.0.0.1',
     'http://localhost:5173', 
     'http://127.0.0.1:5173', 
-    '0.0.0.0'
+    '0.0.0.0',
+    '82.157.231.8',
+    '192.168.88.1',
 ]
 
 
@@ -302,6 +304,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:5173",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
+    "http://192.168.88.1:5173",
+    "http://82.157.231.8:8000",
 ]
 
 # 允许携带凭证（cookies, authorization headers 等）
@@ -339,11 +343,15 @@ ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
     '0.0.0.0',
+    '82.157.231.8',
+    '192.168.88.1',
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
+    'http://192.168.88.1:5173',
+    'http://82.157.231.8:8000',
 ]
 AI_MODEL_FOR_TEXT = "DeepSeek-V3.2-Exp"
 AI_API_KEY_FOR_TEXT = "sk-PAF8gzAL93s9xKlaybzSQw"
