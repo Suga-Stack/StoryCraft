@@ -207,19 +207,31 @@ const handleDelete = async (book) => {
   if (!confirm('确认要删除此作品吗？此操作不可恢复。')) return
   try {
     let res = null
-    // 首选后端指定的 DELETE 路径（无 /api 前缀）
-    try {
-      res = await http.delete(`/gameworks/gameworks/${book.id}/`)
-    } catch (e) {
-      // 回退到有 /api 的常见路径，再尝试其他备用端点
+    // 优先尝试后端规定的 DELETE（带 /api 且带尾斜杠）
+    const endpoints = [
+      `/api/gameworks/gameworks/${book.id}/`,
+      `/api/gameworks/gameworks/${book.id}`,
+      `/gameworks/gameworks/${book.id}/`,
+      `/gameworks/gameworks/${book.id}`,
+      `/api/interactions/gameworks/${book.id}/`,
+      `/api/interactions/gameworks/${book.id}`
+    ]
+
+    for (const ep of endpoints) {
       try {
-        res = await http.delete(`/api/gameworks/gameworks/${book.id}/`)
-      } catch (e2) {
-        try {
-          res = await http.post(`/api/gameworks/gameworks/${book.id}/delete/`)
-        } catch (e3) {
-          try { res = await http.delete(`/api/interactions/gameworks/${book.id}/`) } catch (e4) { /* ignore */ }
+        res = await http.delete(ep)
+        if (res) break
+      } catch (err) {
+        // 如果是 405，记录并继续尝试其他变体，同时将 Allow 头打印出来帮助定位
+        if (err && err.response && err.response.status === 405) {
+          console.warn(`DELETE ${ep} returned 405 Method Not Allowed. Allow:`, err.response.headers && err.response.headers.allow)
+          // 显示友好提示，告知后端可能未开放 DELETE
+          showToast('删除操作被服务器拒绝（405）。请检查后端是否允许 DELETE 或需要额外权限。', 'warning')
+          // 继续尝试下一个 endpoint
+          continue
         }
+        // 其它错误继续尝试下一个 endpoint
+        continue
       }
     }
 
