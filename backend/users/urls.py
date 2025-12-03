@@ -1,5 +1,6 @@
 from django.urls import path, include
 from .views import UserPreferenceView, UserViewSet, ReadGameworkListView, RecentReadGameworksView, MyGameworkListView, RecentMyGameworksView, UserSignInView, RechargeViewSet, CreditLogViewSet, RewardViewSet
+from .views import GameworkReportViewSet, CommentReportViewSet
 from .views import SaveDetailView, SaveListView
 
 urlpatterns = [
@@ -14,6 +15,10 @@ urlpatterns = [
     path('recharge/', RechargeViewSet.as_view({'post': 'create'}), name='user-recharge'),
     path('reward/', RewardViewSet.as_view({'post': 'create'}), name='user-reward'),
     path('creditlog/', CreditLogViewSet.as_view({'get': 'list'}), name='user-creditlog'),
+    path('report/gamework/', GameworkReportViewSet.as_view({'get': 'list', 'post': 'create'}), name='gamework-report'),
+    path('reports/gameworks/<int:pk>/', GameworkReportViewSet.as_view({'get': 'retrieve', 'delete': 'destroy', 'patch': 'resolve'}), name='gamework-report-detail'),
+    path('reports/comments/', CommentReportViewSet.as_view({'get': 'list', 'post': 'create'}), name='comment-report'),
+    path('reports/comments/<int:pk>/', CommentReportViewSet.as_view({'get': 'retrieve', 'delete': 'destroy', 'patch': 'resolve'}), name='comment-report-detail'),
     # 存档接口
     path('<int:userId>/saves/<int:workId>/<str:slot>/', SaveDetailView.as_view(), name='user-save-detail'),
     path('<int:userId>/saves/<int:workId>/', SaveListView.as_view(), name='user-save-list'),
