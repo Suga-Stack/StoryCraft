@@ -134,7 +134,7 @@ export const ENV_CONFIG = {
   IS_PROD: import.meta.env.PROD,
   
   // API 基础 URL
-  API_BASE_URL: import.meta.env.VITE_API_BASE_URL || 'https://storycraft.work.gd',
+  API_BASE_URL: import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/',
   
   // WebSocket 基础 URL
   WS_BASE_URL: import.meta.env.VITE_WS_BASE_URL || 'ws://storycraft.work.gd',

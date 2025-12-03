@@ -28,7 +28,7 @@ export function createSSEConnection(workId, options = {}) {
   const userId = getUserId()
   // 检测是否在 Capacitor 环境
   const isCapacitor = window.Capacitor !== undefined
-  const baseURL = import.meta.env.VITE_API_BASE_URL || 'https://storycraft.work.gd'
+  const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/'
   console.log('[startSSE] isCapacitor:', isCapacitor, 'baseURL:', baseURL)
   
   // 构建 SSE URL

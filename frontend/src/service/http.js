@@ -23,12 +23,12 @@ const getBaseURL = () => {
   // (因为 10.0.2.2 只能在模拟器中访问宿主机,真机需要实际 IP)
   if (isCapacitor()) {
     console.log('[getBaseURL] Capacitor 环境,使用远程服务器')
-    return 'https://storycraft.work.gd'
+    return 'http://127.0.0.1:8000/'
   }
   
   // 浏览器环境:默认使用远程服务器地址
   console.log('[getBaseURL] 浏览器环境,使用远程服务器')
-  return 'https://storycraft.work.gd'
+  return 'http://127.0.0.1:8000/'
 }
 
 const BASE_URL = getBaseURL()
