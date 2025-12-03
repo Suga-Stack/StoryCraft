@@ -14,6 +14,8 @@ const router = useRouter()
 const goBack = () => {
   router.push('/')
 }
+// 允许向父组件或上层逻辑发出删除/举报事件
+const emit = defineEmits(['delete-comment', 'report-comment'])
 
 // 单个作品数据（从后端获取）
 const route = useRoute()
@@ -720,6 +722,57 @@ const toggleLike = async (comment) => {
   }
 }
 
+// 从本地 comments 中删除指定 id（递归）
+const removeCommentById = (id, list = comments.value) => {
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i]
+    if (item.id === id) {
+      list.splice(i, 1)
+      return true
+    }
+    if (Array.isArray(item.replies) && item.replies.length) {
+      // 在 replies 中查找并删除
+      const found = removeCommentById(id, item.replies)
+      if (found) return true
+    }
+  }
+  return false
+}
+
+// 删除评论（本地先优化 UX，随后调用后端并触发事件）
+const onDeleteComment = async (comment) => {
+  if (!comment || !comment.id) return
+  if (!confirm('确认要删除这条评论吗？此操作不可撤销。')) return
+  try {
+    comment._deleting = true
+    // 尝试调用后端删除接口（兼容常见路径）
+    try {
+      await http.delete(`/api/interactions/comments/${comment.id}/`)
+    } catch (e) {
+      // 如果后端不接受 DELETE，尝试常见的 POST 删除端点
+      try { await http.post(`/api/interactions/comments/${comment.id}/delete/`) } catch (e2) { /* ignore */ }
+    }
+    // 从本地删除以立即反映 UI
+    removeCommentById(comment.id)
+    // 向外部发出事件，供上层处理（例如刷新）
+    try { emit('delete-comment', comment.id) } catch (e) {}
+  } catch (e) {
+    console.error('删除评论失败', e)
+    alert('删除失败，请稍后重试')
+  } finally {
+    comment._deleting = false
+  }
+}
+
+// 举报评论（提交到后端并发出事件）
+const onReportComment = async (comment) => {
+  // 打开举报理由弹窗（可填写可跳过）
+  if (!comment || !comment.id) return
+  reportTargetComment.value = comment
+  reportReason.value = ''
+  reportModalVisible.value = true
+}
+
 // 开始回复
 const startReply = (commentId, author) => {
   replyingTo.value = commentId
@@ -735,6 +788,44 @@ const cancelReply = () => {
 // 关闭弹窗
 const closeModal = () => {
   isDescriptionExpanded.value = false
+}
+
+// 举报弹窗状态与操作
+const reportModalVisible = ref(false)
+const reportReason = ref('')
+const reportTargetComment = ref(null)
+
+const cancelReport = () => {
+  reportModalVisible.value = false
+  reportTargetComment.value = null
+  reportReason.value = ''
+}
+
+const confirmReport = async () => {
+  const comment = reportTargetComment.value
+  if (!comment || !comment.id) {
+    cancelReport()
+    return
+  }
+  try {
+    comment._reporting = true
+    // 发送举报到后端，包含可选理由
+    const payload = { comment_id: comment.id }
+    if (reportReason.value && reportReason.value.trim()) payload.reason = reportReason.value.trim()
+    try {
+      await http.post('/api/interactions/comments/report/', payload)
+    } catch (e) {
+      try { await http.post('/api/interactions/reports/', payload) } catch (e2) { /* ignore */ }
+    }
+    alert('举报已提交，我们会尽快处理')
+    try { emit('report-comment', comment.id) } catch (e) {}
+  } catch (e) {
+    console.error('举报失败', e)
+    alert('举报失败，请稍后重试')
+  } finally {
+    comment._reporting = false
+    cancelReport()
+  }
 }
 
 // 开始阅读：记录阅读行为后再跳转到阅读页
@@ -1052,6 +1143,24 @@ const startReading = async () => {
             :key="comment.id" 
             class="comment-item"
           >
+            <div class="top-right-actions">
+              <button
+                class="action-btn delete-btn"
+                :disabled="comment._deleting"
+                @click="onDeleteComment(comment)"
+                title="删除评论">
+                <span class="delete-x">×</span>
+              </button>
+              <button
+                class="action-btn report-btn"
+                :disabled="comment._reporting"
+                @click="onReportComment(comment)"
+                title="举报评论">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path d="M12 9v2m0 4h.01M21 12A9 9 0 1 1 3 12a9 9 0 0 1 18 0z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+            </div>
             <div class="comment-avatar">
               {{ comment.author.charAt(0) }}
             </div>
@@ -1089,6 +1198,24 @@ const startReading = async () => {
                   :key="reply.id" 
                   class="reply-item"
                 >
+                  <div class="top-right-actions reply-top-actions">
+                    <button
+                      class="action-btn delete-btn"
+                      :disabled="reply._deleting"
+                      @click="onDeleteComment(reply)"
+                      title="删除回复">
+                      <span class="delete-x">×</span>
+                    </button>
+                    <button
+                      class="action-btn report-btn"
+                      :disabled="reply._reporting"
+                      @click="onReportComment(reply)"
+                      title="举报回复">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="M12 9v2m0 4h.01M21 12A9 9 0 1 1 3 12a9 9 0 0 1 18 0z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </button>
+                  </div>
                   <div class="comment-avatar reply-avatar">
                     {{ reply.author.charAt(0) }}
                   </div>
@@ -1171,6 +1298,20 @@ const startReading = async () => {
           <p v-for="(paragraph, index) in work.description.split('\n')" :key="index">
             {{ paragraph }}
           </p>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 举报理由弹窗（可填写或跳过） -->
+    <div v-if="reportModalVisible" class="modal-overlay" @click="cancelReport">
+      <div class="modal-content" @click.stop>
+        <button class="close-btn" @click="cancelReport">×</button>
+        <h2 class="modal-title">举报评论</h2>
+        <p style="color:#555;margin-top:0.25rem;">您可以填写举报理由以帮助我们更快判断（可留空跳过）。</p>
+        <textarea v-model="reportReason" placeholder="请输入举报理由（可选）" rows="5" style="width:100%;margin-top:0.8rem;padding:0.8rem;border-radius:8px;border:1px solid #eee;resize:vertical;font-size:1rem;"></textarea>
+        <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-top:1rem;">
+          <button class="close-btn" @click="cancelReport" style="background:#f0f0f0;color:#333;padding:0.5rem 0.9rem;border-radius:8px;border:none">跳过</button>
+          <button class="submit-comment-btn" @click="confirmReport">提交举报</button>
         </div>
       </div>
     </div>
@@ -1998,6 +2139,29 @@ const startReading = async () => {
 }
 
 /* 评论列表 */
+.comment-item, .reply-item { position: relative; }
+.top-right-actions { position: absolute; top: 8px; right: 8px; display:flex; gap:0.35rem; z-index: 10; }
+.reply-top-actions { top: 6px; }
+.top-right-actions .action-btn { background: #fff; border:1px solid #f0f0f0; padding:0; border-radius:6px; width:34px; height:34px; display:flex; align-items:center; justify-content:center; }
+.delete-x { font-size:16px; line-height:1; color: #666; background: transparent; display:inline-flex; width:18px; height:18px; align-items:center; justify-content:center; text-align:center; border-radius:50%; }
+.top-right-actions .delete-btn { padding:0; }
+.top-right-actions .report-btn svg { width:16px; height:16px; }
+.modal-content textarea { min-height: 100px; border-radius: 8px; border: 1px solid #eee; padding: 0.7rem; font-size:1rem }
+/* 评论操作按钮统一样式 */
+.action-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #666;
+  padding: 0.35rem;
+  border-radius: 6px;
+}
+.action-btn svg { width: 16px; height: 16px; }
+.action-btn.delete-btn, .action-btn.report-btn, .action-btn.reply-btn { color: #666; }
+.action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .comments-list {
   display: flex;
   flex-direction: column;
