@@ -149,16 +149,18 @@ class CreditLogSerializer(serializers.ModelSerializer):
 
 class GameworkReportSerializer(serializers.ModelSerializer):
     reporter = serializers.ReadOnlyField(source='reporter.username')
+    gamework_title = serializers.ReadOnlyField(source='gamework.title')
 
     class Meta:
         model = GameworkReport
-        fields = ['id', 'reporter', 'gamework', 'tag', 'remark', 'created_at', 'is_resolved']
-        read_only_fields = ['reporter', 'created_at', 'is_resolved']
+        fields = ['id', 'reporter', 'gamework', 'gamework_title', 'tag', 'remark', 'created_at', 'is_resolved']
+        read_only_fields = ['reporter', 'created_at', 'is_resolved', 'gamework_title']
 
 class CommentReportSerializer(serializers.ModelSerializer):
     reporter = serializers.ReadOnlyField(source='reporter.username')
+    comment_content = serializers.ReadOnlyField(source='comment.content')
 
     class Meta:
         model = CommentReport
-        fields = ['id', 'reporter', 'comment', 'tag', 'remark', 'created_at', 'is_resolved']
-        read_only_fields = ['reporter', 'created_at', 'is_resolved']
+        fields = ['id', 'reporter', 'comment', 'comment_content', 'tag', 'remark', 'created_at', 'is_resolved']
+        read_only_fields = ['reporter', 'created_at', 'is_resolved', 'comment_content']
