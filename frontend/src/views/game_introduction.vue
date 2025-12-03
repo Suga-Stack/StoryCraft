@@ -43,7 +43,7 @@ const normalizeBackendWork = (raw) => {
   if (!raw) return null
   const coverCandidate = raw.coverUrl || raw.cover_url || raw.image_url || raw.imageUrl || raw.cover || (raw.image && raw.image.url) || ''
   let cover = coverCandidate || ''
-  if (cover && /^\//.test(cover)) cover = 'https://storycraft.work.gd' + cover
+  if (cover && /^\//.test(cover)) cover = 'http://127.0.0.1:8000/' + cover
   // 如果已经是完整 URL，保留原样
   return {
     id: raw.id,
@@ -762,14 +762,15 @@ const onDeleteComment = async (comment) => {
     let deleted = false
     // 尝试调用后端删除接口（兼容常见路径），仅在成功时从本地删除
     try {
-      const res = await http.delete(`https://storycraft.work.gd/api/interactions/comments/${comment.id}/`, { params: { id: comment.id } })
-      // 如果后端返回 2xx 则视为成功
-      if (res && (res.status >= 200 && res.status < 300)) deleted = true
+      // 使用相对路径让 http 实例处理 baseURL 与拦截器返回值
+      await http.delete(`/api/interactions/comments/${comment.id}/`, { params: { id: comment.id } })
+      // axios 请求未抛出异常，则视为成功（http 实例可能返回 data 而非原始 response）
+      deleted = true
     } catch (e) {
       // 如果后端不接受 DELETE，尝试常见的 POST 删除端点（使用指定域名），并在 body 中包含 id
       try {
-        const res2 = await http.post(`https://storycraft.work.gd/api/interactions/comments/${comment.id}/delete/`, { id: comment.id })
-        if (res2 && (res2.status >= 200 && res2.status < 300)) deleted = true
+        await http.post(`/api/interactions/comments/${comment.id}/delete/`, { id: comment.id })
+        deleted = true
       } catch (e2) {
         deleted = false
       }

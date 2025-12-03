@@ -736,7 +736,7 @@ const effectiveCoverUrl = computed(() => {
     if (!raw) return defaultImg
     if (/^https?:\/\//i.test(raw)) return raw
     // 如果是相对路径（例如 /media/xxx），为开发环境补齐后端地址
-    return 'https://storycraft.work.gd' + (raw.startsWith('/') ? raw : ('/' + raw))
+    return 'http://127.0.0.1:8000/' + (raw.startsWith('/') ? raw : ('/' + raw))
   } catch (e) {
     return 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=1600&h=900&fit=crop'
   }

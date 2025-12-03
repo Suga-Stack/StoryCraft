@@ -17,12 +17,12 @@ const getBaseURL = () => {
   // 在 Capacitor Android 应用中,使用远程服务器
   if (isCapacitor()) {
     console.log('[utils/http] Capacitor 环境,使用远程服务器');
-    return 'https://storycraft.work.gd';
+    return 'http://127.0.0.1:8000/';
   }
   
   // 浏览器环境:默认使用远程服务器地址
   console.log('[utils/http] 浏览器环境,使用远程服务器');
-  return 'https://storycraft.work.gd';
+  return 'http://127.0.0.1:8000/';
 };
 
 const API_BASE = getBaseURL();
@@ -134,7 +134,24 @@ function redirectToLogin() {
   // 动态导入 router 避免循环依赖
   // 注意: 这里可能需要根据实际路由配置调整
   if (window.location) {
-    window.location.href = '/login';
+    // 使用路由跳转以兼容 Hash 模式（避免在编译为 Capacitor/HashRouter 时产生 /login 和 /login#/ 间来回切换）
+    try {
+      // 动态导入 router 避免循环依赖
+      import('../router').then((m) => {
+        const router = m.default;
+        if (router && typeof router.push === 'function') {
+          router.push('/login');
+          return;
+        }
+        // 回退到 hash 路由的直接替换
+        window.location.href = '/#/login';
+      }).catch(() => {
+        // 如果动态导入失败，回退到 hash 路由
+        window.location.href = '/#/login';
+      });
+    } catch (e) {
+      window.location.href = '/#/login';
+    }
   }
 }
 
