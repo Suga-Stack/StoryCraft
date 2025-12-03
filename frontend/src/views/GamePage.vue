@@ -21,7 +21,7 @@ const route = useRoute()
 
 // 使用 useStoryAPI composable
 const storyAPI = useStoryAPI()
-const {
+let {
   // 状态
   work,
   lastSeq,

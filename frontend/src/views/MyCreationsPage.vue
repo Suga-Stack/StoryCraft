@@ -33,6 +33,12 @@
           class="visibility-icon"
           @click="handleIconClick(book)"
         />
+        <van-icon
+          name="delete"
+          class="delete-icon"
+          @click="handleDelete(book)"
+          title="删除作品"
+        />
       </div>
     </div>
   </div>
@@ -139,6 +145,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { getMyworks, publishWorks, unpublishWorks} from '../api/user'
+import { http } from '../service/http.js'
 import { useTags } from '../composables/useTags'
 
 // 初始化标签工具
@@ -192,6 +199,41 @@ const fetchMyWorks = async () => {
 const handleIconClick = (book) => {
     showPublishModel.value = true;
     currentBook.value = book;
+}
+
+// 删除作品
+const handleDelete = async (book) => {
+  if (!book || !book.id) return
+  if (!confirm('确认要删除此作品吗？此操作不可恢复。')) return
+  try {
+    let res = null
+    // 首选后端指定的 DELETE 路径（无 /api 前缀）
+    try {
+      res = await http.delete(`/gameworks/gameworks/${book.id}/`)
+    } catch (e) {
+      // 回退到有 /api 的常见路径，再尝试其他备用端点
+      try {
+        res = await http.delete(`/api/gameworks/gameworks/${book.id}/`)
+      } catch (e2) {
+        try {
+          res = await http.post(`/api/gameworks/gameworks/${book.id}/delete/`)
+        } catch (e3) {
+          try { res = await http.delete(`/api/interactions/gameworks/${book.id}/`) } catch (e4) { /* ignore */ }
+        }
+      }
+    }
+
+    const ok = res && (res.status === 200 || res.status === 204 || (res.data && (res.data.code === 200 || res.data.success)))
+    if (ok) {
+      myCreations.value = myCreations.value.filter(b => b.id !== book.id)
+      showToast('作品已删除', 'success')
+    } else {
+      showToast('删除失败，请稍后重试', 'error')
+    }
+  } catch (e) {
+    console.error('删除作品失败', e)
+    showToast((e?.response?.data?.message) || '删除失败，请稍后重试', 'error')
+  }
 }
 
 //取消发布接口
@@ -365,6 +407,13 @@ const handlePublish = async (book) => {
   font-size: 20px;
   margin-left: 12px;
   flex-shrink: 0;
+}
+
+.delete-icon {
+  font-size: 20px;
+  margin-left: 8px;
+  color: #e74c3c;
+  cursor: pointer;
 }
 
 .model-overlay{
