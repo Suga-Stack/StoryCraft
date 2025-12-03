@@ -759,20 +759,34 @@ const onDeleteComment = async (comment) => {
   if (!confirm('确认要删除这条评论吗？此操作不可撤销。')) return
   try {
     comment._deleting = true
-    // 尝试调用后端删除接口（兼容常见路径）
+    let deleted = false
+    // 尝试调用后端删除接口（兼容常见路径），仅在成功时从本地删除
     try {
-      await http.delete(`/api/interactions/comments/${comment.id}/`)
+      const res = await http.delete(`https://storycraft.work.gd/api/interactions/comments/${comment.id}/`, { params: { id: comment.id } })
+      // 如果后端返回 2xx 则视为成功
+      if (res && (res.status >= 200 && res.status < 300)) deleted = true
     } catch (e) {
-      // 如果后端不接受 DELETE，尝试常见的 POST 删除端点
-      try { await http.post(`/api/interactions/comments/${comment.id}/delete/`) } catch (e2) { /* ignore */ }
+      // 如果后端不接受 DELETE，尝试常见的 POST 删除端点（使用指定域名），并在 body 中包含 id
+      try {
+        const res2 = await http.post(`https://storycraft.work.gd/api/interactions/comments/${comment.id}/delete/`, { id: comment.id })
+        if (res2 && (res2.status >= 200 && res2.status < 300)) deleted = true
+      } catch (e2) {
+        deleted = false
+      }
     }
-    // 从本地删除以立即反映 UI
-    removeCommentById(comment.id)
-    // 向外部发出事件，供上层处理（例如刷新）
-    try { emit('delete-comment', comment.id) } catch (e) {}
+
+    if (deleted) {
+      // 从本地删除以立即反映 UI
+      removeCommentById(comment.id)
+      // 向外部发出事件，供上层处理（例如刷新）
+      try { emit('delete-comment', comment.id) } catch (e) {}
+      showToast('删除成功', 'success')
+    } else {
+      // 删除失败，不应在前端移除评论
+      showToast('删除失败，请稍后重试', 'error')
+    }
   } catch (e) {
     console.error('删除评论失败', e)
-    showToast('删除失败，请稍后重试', 'error')
   } finally {
     comment._deleting = false
   }
