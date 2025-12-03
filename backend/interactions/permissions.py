@@ -10,6 +10,9 @@ class IsOwnerOrReadOnly(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return True
 
+        if request.user.is_staff:
+            return True
+
         # 检查属性
         owner = getattr(obj, 'user', None)
         if owner is None:

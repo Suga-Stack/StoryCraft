@@ -86,7 +86,6 @@ app/src/main/res/xml/config.xml
 *.tmp
 *.bak
 *.swp
-<<<<<<< HEAD
 .DS_Store
 
 # Python bytecode
