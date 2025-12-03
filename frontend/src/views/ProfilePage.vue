@@ -114,6 +114,33 @@
       </div>
     </div>
 
+    <!-- 举报列表区域 -->
+    <div class="section-container">
+      <van-cell 
+        title="举报列表" 
+        value="查看全部"
+        icon="report"
+        is-link
+        @click="navigateToStaff"
+        class="section-title-cell"
+      />
+      <div class="books-grid">
+        <div 
+          class="book-item" 
+          v-for="(r, idx) in myReports" 
+          :key="r.id || idx"
+          @click.stop="navigateToReportDetail(r.id)"
+        >
+          <div style="padding:8px;display:flex;flex-direction:column;justify-content:center;height:100%;">
+            <div class="book-title" style="font-size:13px;font-weight:600;">{{ r.title }}</div>
+            <div style="font-size:12px;color:#666;margin-top:6px;">原因：{{ r.reason }}</div>
+            <div style="font-size:12px;color:#999;margin-top:6px;">状态：{{ r.status }}</div>
+          </div>
+        </div>
+        <div v-if="myReports.length === 0" style="padding:16px;color:#999">暂无举报记录</div>
+      </div>
+    </div>
+
     <!-- 退出登录按钮 -->
     <van-button 
       class="logout-btn" 
@@ -154,7 +181,7 @@ import { updateUserInfo } from '../api/user';
 import { getUserInfo } from '../api/user';
 import http from '../utils/http';
 import { getRecentReadingHistory } from '../api/user';
-import { getRecentMyworks } from '../api/user';
+import { getRecentMyworks, getMyReports } from '../api/user';
 import { useUserStore } from '../store';
 
 // 路由实例
@@ -178,6 +205,9 @@ const readingHistory = ref([])
 
 // 我的创作数据
 const myCreations = ref([])
+
+// 我的举报列表
+const myReports = ref([])
 
 // 添加用户信息获取接口
 const fetchUserInfo = async (userId) => {
@@ -245,6 +275,30 @@ const fetchMyCreations = async () => {
   }
 }
 
+// 获取当前用户的举报列表
+const fetchMyReports = async () => {
+  try {
+    const response = await getMyReports();
+    // 兼容不同后端返回格式
+    const data = response?.data || response
+    let list = []
+    if (Array.isArray(data.results)) list = data.results
+    else if (Array.isArray(data)) list = data
+    else if (data && Array.isArray(data.data)) list = data.data
+
+    myReports.value = list.map(item => ({
+      id: item.id,
+      title: item.target_title || item.work_title || item.title || (item.gamework && item.gamework.title) || '未知',
+      reason: item.reason || item.type || item.detail || '—',
+      status: item.status || item.state || item.result || '未知',
+      created_at: item.created_at || item.created || item.timestamp || null
+    }))
+  } catch (error) {
+    console.error('获取举报列表失败', error)
+    showToast(error.message || '加载举报列表出错')
+  }
+}
+
 // 页面挂载时设置当前活跃标签
 onMounted(async () => {
   activeTab.value = 'profile'
@@ -262,6 +316,7 @@ onMounted(async () => {
 
     await fetchReadingHistory()
     await fetchMyCreations()
+    await fetchMyReports()
   } catch (error) {
     console.error('获取用户信息失败', error)
   }
@@ -386,6 +441,17 @@ const navigateToReadingHistory = () => {
 // 导航到我的创作页
 const navigateToMyCreations = () => {
   router.push('/MyCreations')
+}
+
+// 导航到举报详情页（如果有）
+const navigateToReportDetail = (reportId) => {
+  if (!reportId) return
+  router.push(`/reports/${reportId}`)
+}
+
+// 导航到 staff 举报管理页面（查看全部）
+const navigateToStaff = () => {
+  router.push('/staff')
 }
 
 // 导航到书籍详情页

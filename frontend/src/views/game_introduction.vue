@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { http } from '../service/http.js'
 import { addFavorite, deleteFavorite, getComments, postComments, likeComment, unlikeComment } from '../api/user.js'
+import { sanitize } from '../utils/sensitiveFilter'
 import { useTags } from '../composables/useTags'; // 导入标签工具函数
 
 // 初始化标签工具
@@ -397,8 +398,9 @@ const submitComment = async () => {
   if (!newComment.value.trim()) return
   try {
     const parent = replyingTo.value || null
-    // 调用后端发表评论接口
-    await postComments(newComment.value.trim(), work.value.id, parent)
+    // 在提交前进行前端敏感词过滤（将敏感词替换为星号）
+    const contentToPost = sanitize(newComment.value.trim())
+    await postComments(contentToPost, work.value.id, parent)
     // 发布成功后刷新评论（优先尝试通过作品详情获取树状 comments）
     try {
       const details = await http.get(`/api/gameworks/gameworks/${work.value.id}/`)

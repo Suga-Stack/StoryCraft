@@ -91,6 +91,12 @@ const routes = [
     name: 'charge',
     component: CreditsChargePage
   }
+ ,
+  {
+    path: '/staff',
+    name: 'staff',
+    component: () => import('../views/staff.vue')
+  }
 ]
 
 const router = createRouter({

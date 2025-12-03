@@ -60,6 +60,12 @@ export const getMyworks = () => {
   return http.get('/api/users/myworks/'); 
 }
 
+// 获取当前用户的举报列表（后端可能位于 interactions/reports 或 gamelogs）
+export const getMyReports = () => {
+  // 默认尝试常见的 reports endpoint，后端可按需调整
+  return http.get('/api/interactions/reports/');
+}
+
 export const getRecentMyworks = () => {
   return http.get('/api/users/myworks/recent/'); 
 }

@@ -4,6 +4,7 @@
  */
 
 import { http, getUserId } from './http.js'
+import { sanitize } from '../utils/sensitiveFilter.js'
 import { POLL_DETAILS_INTERVAL_MS, POLL_DETAILS_TIMEOUT_MS } from '../config/polling.js'
 
 /**
@@ -33,11 +34,14 @@ export async function createWorkOnBackend(payload = {}) {
   // 按 game-api.md 要求：POST /api/game/create
   const body = {
     tags: payload.tags || [],
-    idea: payload.idea || '',
+    idea: sanitize(payload.idea || ''),
     length: payload.length || 'medium',
     // 如果前端告诉后端 modifiable=true，后端应返回章节大纲（chapterOutlines）而不是直接生成完整章节内容
     modifiable: payload.modifiable === true
   }
+  // sanitize 可选文本字段
+  if (payload.title) body.title = sanitize(payload.title)
+  if (payload.description) body.description = sanitize(payload.description)
   // POST 创建作品，后端应返回 { gameworkId: number }
   const res = await http.post('/api/game/create/', body)
 
