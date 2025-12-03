@@ -125,6 +125,7 @@ class SendEmailCodeView(APIView):
                     properties={
                         "code": openapi.Schema(type=openapi.TYPE_INTEGER),
                         "message": openapi.Schema(type=openapi.TYPE_STRING),
+                        "email_code": openapi.Schema(type=openapi.TYPE_STRING),
                     }
                 )
             ),
@@ -152,7 +153,7 @@ class SendEmailCodeView(APIView):
         except Exception as e:
             return Response({'code': 500, 'message': f'邮件发送失败: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        return Response({'code': 200, 'message': '验证码已发送'}, status=status.HTTP_200_OK)
+        return Response({'code': 200, 'message': '验证码已发送', 'email_code': code}, status=status.HTTP_200_OK)
         
 
 class RegisterView(APIView):
@@ -735,7 +736,8 @@ class RewardViewSet(viewsets.ViewSet):
             user=user,
             amount=-amount,
             log_type="reward_out",
-            remark=f'打赏作品《{gamework.title}》'
+            remark=f'打赏作品《{gamework.title}》',
+            gamework=gamework
         )
 
         author.refresh_from_db()

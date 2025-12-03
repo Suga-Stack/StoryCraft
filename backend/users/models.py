@@ -70,6 +70,13 @@ class CreditLog(models.Model):
 
     type = models.CharField(max_length=20, choices=TYPE_CHOICES)
     remark = models.CharField(max_length=255, blank=True, null=True)
+    gamework = models.ForeignKey(
+        "gameworks.Gamework",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="credit_logs"
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
 
