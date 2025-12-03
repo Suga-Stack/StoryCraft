@@ -5,7 +5,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { ScreenOrientation } from '@capacitor/screen-orientation'
 import { StatusBar, Style } from '@capacitor/status-bar'
 import { useUserStore } from '../store/index.js'
-import http from '../utils/http.js'
+import http from '../service/http.js'
 import * as storyService from '../service/story.js'
 import { getCurrentUserId, deepClone } from '../utils/auth.js'
 import { USE_MOCK_STORY, USE_MOCK_SAVE, FORCE_CREATOR_FOR_TEST, isCreatorIdentity, editorInvocation, creatorFeatureEnabled, modifiableFromCreate } from '../config/gamepage.js'
@@ -736,7 +736,7 @@ const effectiveCoverUrl = computed(() => {
     if (!raw) return defaultImg
     if (/^https?:\/\//i.test(raw)) return raw
     // 如果是相对路径（例如 /media/xxx），为开发环境补齐后端地址
-    return 'http://82.157.231.8:8000' + (raw.startsWith('/') ? raw : ('/' + raw))
+    return 'https://storycraft.work.gd' + (raw.startsWith('/') ? raw : ('/' + raw))
   } catch (e) {
     return 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=1600&h=900&fit=crop'
   }
@@ -881,8 +881,17 @@ const initFromCreateResult = async (opts = {}) => {
           // 标记 pending target 为首章（createResult 路径用于首章生成，target = 1）
           pendingOutlineTargetChapter.value = 1
           showOutlineEditor.value = true
-          // 等待用户确认或取消（confirmOutlineEdits/cancelOutlineEdits 会 resolve outlineEditorResolver）
-          await new Promise((resolve) => { outlineEditorResolver = resolve })
+          
+          // 🔑 修复：不直接赋值 outlineEditorResolver，而是通过 watch 等待编辑器关闭
+          // 等待用户确认或取消（监听 showOutlineEditor 的变化）
+          await new Promise((resolve) => {
+            const unwatch = watch(showOutlineEditor, (newVal) => {
+              if (!newVal) {
+                unwatch()
+                resolve()
+              }
+            })
+          })
           // 如果用户确认，confirmOutlineEdits 已调用 generateChapter，后端可能仍在生成，getScenes 会轮询等待
         } else {
           // 第一章已经生成或保存，跳过编辑器直接加载
@@ -1373,7 +1382,8 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         try {
           const resp = await storyService.getWorkInfo(workId)
           // 如果 getWorkInfo 包含 endings 字段（某些后端可能返回在作品详情里），尝试读取
-          const payload = resp && resp.data ? resp.data : resp
+          // axios 响应拦截器已经返回 response.data
+          const payload = resp
           const endingsFromWork = Array.isArray(payload?.endings) ? payload.endings : []
           if (endingsFromWork.length > 0) {
             const idx = (lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? (Number(lastSelectedEndingIndex.value) - 1) : 0
@@ -1387,7 +1397,8 @@ const persistCurrentChapterEdits = async (opts = {}) => {
             // 否则再尝试直接读取 /api/game/storyending 接口
             try {
               const resp2 = await http.get(`/api/game/storyending/${workId}`)
-              const payload2 = resp2 && resp2.data ? resp2.data : resp2
+              // axios 响应拦截器已经返回 response.data
+              const payload2 = resp2
               const endings2 = Array.isArray(payload2?.endings) ? payload2.endings : []
               if (endings2.length > 0) {
                 const idx2 = (lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? (Number(lastSelectedEndingIndex.value) - 1) : 0
@@ -1405,13 +1416,15 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         try {
           // 优先使用作品详情中的 endings 字段
           const resp = await storyService.getWorkInfo(workId)
-          const payload = resp && resp.data ? resp.data : resp
+          // axios 响应拦截器已经返回 response.data
+          const payload = resp
           existingEndings = Array.isArray(payload?.endings) ? payload.endings : []
         } catch (e) {
           // 如果作品详情没有返回 endings，尝试直接读取 storyending 列表接口
           try {
             const resp2 = await http.get(`/api/game/storyending/${workId}/`)
-            const p2 = resp2 && resp2.data ? resp2.data : resp2
+            // axios 响应拦截器已经返回 response.data
+            const p2 = resp2
             existingEndings = Array.isArray(p2?.endings) ? p2.endings : []
           } catch (e2) {
             // 忽略，后面会至少保存当前编辑的结局

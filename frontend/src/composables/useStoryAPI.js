@@ -107,7 +107,8 @@ export function useStoryAPI() {
       if (!workId) workId = work.value.id
       const url = `/api/gameworks/gameworks/${encodeURIComponent(workId)}/`
       const resp = await http.get(url)
-      const body = resp && resp.data ? resp.data : resp
+      // 🔑 关键修复：utils/http.js 返回的是完整的 response 对象，需要访问 resp.data
+      const body = resp.data || resp
       
       const mergeServerStatuses = (serverList) => {
         try {
@@ -434,7 +435,8 @@ export function useStoryAPI() {
         try {
   // 注意：utils/http.js 已经配置了 baseURL='/api'，此处不要再加 '/api' 前缀，避免出现 '/api/api/...'
   const resp = await http.get(`/api/game/chapter/${workId}/${idx}/`)
-        data = resp && resp.data ? resp.data : resp
+        // axios 响应拦截器已经返回 response.data
+        data = resp
         console.log('[fetchNextChapter] singleRequest response:', data)
         
         // 验证返回的数据格式

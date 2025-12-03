@@ -680,7 +680,8 @@ const generateBranchingGraph = async () => {
   // 在生成结束/汇合节点之前，尝试获取后端的结局列表并把已进入的结局显示为图像，其它结局显示为问号并在下方显示标题
   try {
     const resp = await http.get(`/api/game/storyending/${currentWorkId}`)
-    const payload = resp && resp.data ? resp.data : resp
+    // axios 响应拦截器已经返回 response.data
+    const payload = resp
     const endings = Array.isArray(payload?.endings) ? payload.endings : []
     if (endings.length > 0) {
       // 优先尝试使用已记录的结局索引（比仅靠标题更可靠）
@@ -693,7 +694,8 @@ const generateBranchingGraph = async () => {
       if (storedIdx && Number.isFinite(storedIdx)) {
         try {
           const det = await http.get(`/api/game/storyending/${currentWorkId}/${storedIdx}`)
-          const detPayload = det && det.data ? det.data : det
+          // axios 响应拦截器已经返回 response.data
+          const detPayload = det
           selectedEndingDetail = detPayload?.ending || detPayload || null
           console.log('[Settlement] 获取已选结局详情:', storedIdx, selectedEndingDetail)
         } catch (e) {

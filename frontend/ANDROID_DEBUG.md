@@ -78,9 +78,9 @@ npx cap open android
 应用会输出以下关键日志:
 
 ```javascript
-[HTTP Client] 初始化,BASE_URL: http://82.157.231.8:8000
+[HTTP Client] 初始化,BASE_URL: http://storycraft.work.gd
 [getBaseURL] Capacitor 环境,使用远程服务器
-[HTTP] GET http://82.157.231.8:8000/api/...
+[HTTP] GET http://storycraft.work.gd/api/...
 [buildHeaders] 已添加 Authorization header
 ```
 
@@ -112,7 +112,7 @@ npx cap open android
 ```python
 # backend/project/settings.py
 CORS_ALLOWED_ORIGINS = [
-    "http://82.157.231.8:8000",
+    "http://storycraft.work.gd",
     "https://capacitor://localhost",  # Capacitor iOS
     "capacitor://localhost",  # Capacitor Android
 ]
@@ -139,7 +139,7 @@ CORS_ALLOW_ALL_ORIGINS = True
 
 ```dotenv
 # .env.android
-VITE_API_BASE_URL=http://82.157.231.8:8000  # 公网 IP
+VITE_API_BASE_URL=http://storycraft.work.gd  # 公网 IP
 # 或
 VITE_API_BASE_URL=http://192.168.1.100:8000  # 局域网 IP
 ```
@@ -149,8 +149,8 @@ VITE_API_BASE_URL=http://192.168.1.100:8000  # 局域网 IP
 ### .env.android (Android 构建专用)
 
 ```dotenv
-VITE_API_BASE_URL=http://82.157.231.8:8000
-VITE_WS_BASE_URL=ws://82.157.231.8:8000
+VITE_API_BASE_URL=http://storycraft.work.gd
+VITE_WS_BASE_URL=ws://storycraft.work.gd
 VITE_USE_MOCK=false
 VITE_DEBUG=true
 ```
@@ -158,8 +158,8 @@ VITE_DEBUG=true
 ### .env.development (网页开发)
 
 ```dotenv
-VITE_API_BASE_URL=http://82.157.231.8:8000
-VITE_WS_BASE_URL=ws://82.157.231.8:8000
+VITE_API_BASE_URL=http://storycraft.work.gd
+VITE_WS_BASE_URL=ws://storycraft.work.gd
 VITE_USE_MOCK=false
 VITE_DEBUG=true
 ```
@@ -167,8 +167,8 @@ VITE_DEBUG=true
 ### .env.production (生产环境)
 
 ```dotenv
-VITE_API_BASE_URL=http://82.157.231.8:8000
-VITE_WS_BASE_URL=ws://82.157.231.8:8000
+VITE_API_BASE_URL=http://storycraft.work.gd
+VITE_WS_BASE_URL=ws://storycraft.work.gd
 VITE_USE_MOCK=false
 VITE_DEBUG=false
 ```
@@ -191,7 +191,7 @@ VITE_DEBUG=false
 
 4. **检查网络请求**:
    - DevTools Network 标签应该显示请求
-   - 请求 URL 应该是 `http://82.157.231.8:8000/api/...`
+   - 请求 URL 应该是 `http://storycraft.work.gd/api/...`
    - 响应状态应该是 200 或其他正常状态码
 
 ## 性能优化建议

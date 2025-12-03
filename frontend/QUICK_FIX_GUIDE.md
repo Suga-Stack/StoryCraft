@@ -73,13 +73,13 @@ npm run cap:android
 3. **查看日志**:
    在 Console 中应该看到:
    ```
-   [HTTP Client] 初始化,BASE_URL: http://82.157.231.8:8000
+   [HTTP Client] 初始化,BASE_URL: http://storycraft.work.gd
    [getBaseURL] Capacitor 环境,使用远程服务器
    ```
 
 4. **测试功能**:
    - 尝试登录
-   - 查看 Network 标签,应该能看到请求发送到 `http://82.157.231.8:8000/api/...`
+   - 查看 Network 标签,应该能看到请求发送到 `http://storycraft.work.gd/api/...`
    - 检查请求状态码和响应
 
 ## 🔍 验证修复成功的标志
@@ -113,7 +113,7 @@ npm run cap:android
 **检查**:
 1. Android 权限:打开 `AndroidManifest.xml`,确认有 `<uses-permission android:name="android.permission.INTERNET" />` (✅已配置)
 2. 网络安全配置:检查 `network_security_config.xml` (✅已配置)
-3. 后端是否运行:访问 `http://82.157.231.8:8000/api/` 测试
+3. 后端是否运行:访问 `http://storycraft.work.gd/api/` 测试
 
 ### 问题 3: CORS 错误
 
@@ -141,8 +141,8 @@ pip install django-cors-headers
 
 当前配置 (`.env.android`):
 ```dotenv
-VITE_API_BASE_URL=http://82.157.231.8:8000
-VITE_WS_BASE_URL=ws://82.157.231.8:8000
+VITE_API_BASE_URL=http://storycraft.work.gd
+VITE_WS_BASE_URL=ws://storycraft.work.gd
 VITE_USE_MOCK=false
 VITE_DEBUG=true
 ```

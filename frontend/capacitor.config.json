@@ -6,8 +6,8 @@
     "androidScheme": "http",
     "cleartext": true,
     "allowNavigation": [
-      "http://82.157.231.8:8000",
-      "ws://82.157.231.8:8000",
+      "http://storycraft.work.gd",
+      "ws://storycraft.work.gd",
       "http://10.0.2.2:8000",
       "ws://10.0.2.2:8000",
       "http://localhost:8000",

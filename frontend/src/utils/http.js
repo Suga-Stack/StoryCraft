@@ -17,12 +17,12 @@ const getBaseURL = () => {
   // 在 Capacitor Android 应用中,使用远程服务器
   if (isCapacitor()) {
     console.log('[utils/http] Capacitor 环境,使用远程服务器');
-    return 'http://82.157.231.8:8000';
+    return 'https://storycraft.work.gd';
   }
   
   // 浏览器环境:默认使用远程服务器地址
   console.log('[utils/http] 浏览器环境,使用远程服务器');
-  return 'http://82.157.231.8:8000';
+  return 'https://storycraft.work.gd';
 };
 
 const API_BASE = getBaseURL();

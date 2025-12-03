@@ -305,7 +305,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:8000",
     "http://127.0.0.1:8000",
     "http://192.168.88.1:5173",
-    "http://82.157.231.8:8000",
+    "http://storycraft.work.gd",
 ]
 
 # 允许携带凭证（cookies, authorization headers 等）
@@ -351,7 +351,7 @@ CSRF_TRUSTED_ORIGINS = [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
     'http://192.168.88.1:5173',
-    'http://82.157.231.8:8000',
+    'http://storycraft.work.gd',
 ]
 AI_MODEL_FOR_TEXT = "DeepSeek-V3.2-Exp"
 AI_API_KEY_FOR_TEXT = "sk-PAF8gzAL93s9xKlaybzSQw"

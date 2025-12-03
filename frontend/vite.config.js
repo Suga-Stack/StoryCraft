@@ -26,7 +26,7 @@ export default defineConfig(({ mode }) => {
       // 开发模式下代理 /api 到后端 Django runserver (8000),避免浏览器 CORS 问题
       proxy: {
         '/api': {
-          target: env.VITE_API_BASE_URL || 'http://82.157.231.8:8000',
+          target: env.VITE_API_BASE_URL || 'https://storycraft.work.gd',
           changeOrigin: true,
           secure: false,
           // 不需要 rewrite,因为 Django 的 URL 已经包含 /api 前缀

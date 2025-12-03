@@ -1,6 +1,6 @@
-import { ref, computed } from 'vue'
+﻿import { ref, computed } from 'vue'
 import { ScreenOrientation } from '@capacitor/screen-orientation'
-import { http } from '../service/http.js'
+import http from '../utils/http.js'
 export function useGameState(dependencies = {}) {
   const {
     router,
@@ -179,7 +179,8 @@ export function useGameState(dependencies = {}) {
       pollTimer = setInterval(async () => {
         try {
           const resp = await http.get(`/api/game/storyending/${workId}/${endingIndex}/`)
-          let payload = resp && resp.data ? resp.data : resp
+          // 🔑 关键修复：utils/http.js 返回的是完整的 response 对象，需要访问 resp.data
+          let payload = resp.data || resp
           // 如果本地缓存中存在 endings 列表，使用该列表中相应 endingIndex 的 status 覆盖单条返回的 status（保证列表与单条状态一致）
           try {
             const cached = sessionStorage.getItem(`endingsList_${workId}`)
@@ -398,7 +399,8 @@ export function useGameState(dependencies = {}) {
     isRequestingNext = true
     try {
       const resp = await http.get(`/api/game/storyending/${workId}`)
-      const payload = resp && resp.data ? resp.data : resp
+      // 🔑 关键修复：utils/http.js 返回的是完整的 response 对象，需要访问 resp.data
+      const payload = resp.data || resp
       // 记录结局状态（兼容多种后端字段）
       try {
         // 优先使用 payload.ending.status（若后端在 ending 对象内返回真实状态），再回退到顶层 status
@@ -444,25 +446,25 @@ export function useGameState(dependencies = {}) {
         return true
       }
 
-      // 如果返回的是 endings 列表（每项包含 scenes 或 title），则创建一个总结性场景
-      if (Array.isArray(payload?.endings) && payload.endings.length > 0) {
-        const summaries = payload.endings.map((ed, i) => `结局 ${i + 1}: ${ed.title || ed.name || ''}`).join('\n')
-        const summaryScene = {
-          sceneId: `endings-summary-${Date.now()}`,
-          backgroundImage: work.value.coverUrl || '',
-          dialogues: [payload.prompt || '以下为可能的结局：', summaries],
-          choices: [],
-          isChapterEnding: false
-        }
-        try {
-          pushSceneFromServer(summaryScene)
-          const pushed = storyScenes.value[storyScenes.value.length - 1]
-          if (pushed) pushed._isBackendEnding = true
-          endingsAppended.value = true
-          console.log('fetchAndAppendEndings: appended endings summary scene')
-          return true
-        } catch (e) { console.warn('fetchAndAppendEndings: push summary failed', e) }
-      }
+      // // 如果返回的是 endings 列表（每项包含 scenes 或 title），则创建一个总结性场景
+      // if (Array.isArray(payload?.endings) && payload.endings.length > 0) {
+      //   const summaries = payload.endings.map((ed, i) => `结局 ${i + 1}: ${ed.title || ed.name || ''}`).join('\n')
+      //   const summaryScene = {
+      //     sceneId: `endings-summary-${Date.now()}`,
+      //     backgroundImage: work.value.coverUrl || '',
+      //     dialogues: [payload.prompt || '以下为可能的结局：', summaries],
+      //     choices: [],
+      //     isChapterEnding: false
+      //   }
+      //   try {
+      //     pushSceneFromServer(summaryScene)
+      //     const pushed = storyScenes.value[storyScenes.value.length - 1]
+      //     if (pushed) pushed._isBackendEnding = true
+      //     endingsAppended.value = true
+      //     console.log('fetchAndAppendEndings: appended endings summary scene')
+      //     return true
+      //   } catch (e) { console.warn('fetchAndAppendEndings: push summary failed', e) }
+      // }
 
       return false
     } catch (e) {
@@ -611,7 +613,8 @@ export function useGameState(dependencies = {}) {
           if (!justFinishedPlayingEnding.value && !playingEndingScenes.value && !eventSource) {
             try {
               const resp = await http.get(`/api/game/storyending/${work.value.id}`)
-              const payload = resp && resp.data ? resp.data : resp
+              // 🔑 关键修复：utils/http.js 返回的是完整的 response 对象，需要访问 resp.data
+              const payload = resp.data || resp
               // 缓存结局列表到 sessionStorage，供单个结局查询/轮询时参考其 status
               try {
                 if (payload && Array.isArray(payload.endings) && payload.endings.length > 0) {
@@ -623,7 +626,7 @@ export function useGameState(dependencies = {}) {
               // 我们需要先将这些结局作为“可选择的结局选项”呈现给用户，用户点击后会触发对应结局场景的播放。
               if (Array.isArray(payload?.endings) && payload.endings.length > 0) {
                 const endings = payload.endings
-                const startIdx = storyScenes.value.length
+                let startIdx = storyScenes.value.length
                 // 构造一个临时场景，用于展示结局选项（场景级别 choices）
                 const formatConditionText = (cond) => {
                   try {
@@ -715,13 +718,21 @@ export function useGameState(dependencies = {}) {
                 // 跳转到选项场景并显示文本，等待用户选择
                 choicesVisible.value = false
                 showText.value = false
+                console.log('[handleGameEnd] ✅ 结局选项场景已构造完成，准备跳转到索引', startIdx)
+                console.log('[handleGameEnd] ✅ 结局选项数量:', choiceScene.choices.length)
+                console.log('[handleGameEnd] ✅ 当前 storyScenes 长度:', storyScenes.value.length)
                 setTimeout(() => {
                   currentSceneIndex.value = startIdx
                   currentDialogueIndex.value = 0
                   showText.value = true
-                  console.log('[handleGameEnd] 展示结局选项场景 at index', startIdx)
+                  console.log('[handleGameEnd] ✅ 已跳转到结局选项场景，索引:', startIdx, '对话索引:', 0)
+                  console.log('[handleGameEnd] ✅ showText:', showText.value, 'choicesVisible:', choicesVisible.value)
                 }, 300)
+                console.log('[handleGameEnd] ✅ 返回，不执行后续结算流程')
                 return
+              } else {
+                console.log('[handleGameEnd] ❌ 后端没有返回有效的 endings 数组')
+                console.log('[handleGameEnd] ❌ payload 结构:', Object.keys(payload || {}))
               }
 
               const scenes = extractScenesFromPayload(payload, attributes)
@@ -1013,7 +1024,8 @@ export function useGameState(dependencies = {}) {
                         try { if (typeof startLoading === 'function') startLoading() } catch (e) {}
                         try {
                           const resp = await http.get(`/api/game/storyending/${work.value.id}/${endingIdx}/`)
-                          const payload = resp && resp.data ? resp.data : resp
+                          // 🔑 关键修复：utils/http.js 返回的是完整的 response 对象，需要访问 resp.data
+                          const payload = resp.data || resp
                           const endingStatus = payload && payload.ending && payload.ending.status
                           try { appendedEndingSaved.value = (endingStatus === 'saved') || appendedEndingSaved.value } catch (e) {}
                           const fetchedScenes = extractScenesFromPayload(payload, attributes)
@@ -1084,7 +1096,8 @@ export function useGameState(dependencies = {}) {
                       const endingIndex = Number(choice._endingIndex)
                       console.log('[chooseOption] Reader: 将通过 endingIndex 向后端请求结局场景, endingIndex=', endingIndex)
                       const resp = await http.get(`/api/game/storyending/${work.value.id}/${endingIndex}`)
-                      const payload = resp && resp.data ? resp.data : resp
+                      // 🔑 关键修复：utils/http.js 返回的是完整的 response 对象，需要访问 resp.data
+                      const payload = resp.data || resp
                       // 记录该结局是否已保存
                       try { appendedEndingSaved.value = (payload?.status === 'saved') || (payload?.ending?.status === 'saved') || appendedEndingSaved.value } catch (e) {}
                       const fetchedScenes = extractScenesFromPayload(payload, attributes)
@@ -1545,11 +1558,12 @@ export function useGameState(dependencies = {}) {
         try {
           console.log('[requestNextIfNeeded] Reader last chapter reached — attempting to fetch story ending from backend')
           const resp = await http.get(`/api/game/storyending/${work.value.id}`)
-          const payload = resp && resp.data ? resp.data : resp
+          // 🔑 关键修复：utils/http.js 返回的是完整的 response 对象，需要访问 resp.data
+          const payload = resp.data || resp
           // 仅当后端明确返回 `endings` 列表时，才把结局作为剧情追加并播放；否则视为无结局（不追加）
           if (Array.isArray(payload?.endings) && payload.endings.length > 0) {
             const endings = payload.endings
-            const startIdx = storyScenes.value.length
+            let startIdx = storyScenes.value.length
             // 构造一个临时场景用于展示结局选项，保持与 handleGameEnd 中的行为一致
             const formatConditionText = (cond) => {
               try {
@@ -2168,7 +2182,8 @@ export function useGameState(dependencies = {}) {
                 if (endingIdx != null) {
                   try {
                     const resp = await http.get(`/api/game/storyending/${work.value.id}/${endingIdx}/`)
-                    const payload = resp && resp.data ? resp.data : resp
+                    // 🔑 关键修复：utils/http.js 返回的是完整的 response 对象，需要访问 resp.data
+                    const payload = resp.data || resp
                     const endingStatus = payload && (payload.ending?.status || payload.status || payload.state)
                     if (endingStatus === 'saved') {
                       // 标记为已保存并直接进入结算（与阅读者一致的流）

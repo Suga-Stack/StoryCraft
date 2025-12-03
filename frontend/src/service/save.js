@@ -3,7 +3,8 @@
  * 处理游戏存档的保存、读取、列表等操作
  */
 
-import { http, getUserId } from './http.js'
+import { http } from './http.js'
+import { getUserId } from '../utils/auth.js'
 
 /**
  * 保存存档
@@ -38,6 +39,7 @@ export async function saveGame(workId, slot, saveData) {
   
   try {
     const result = await http.put(`/api/game/saves/${Number(workId)}/${slotNum}`, requestBody)
+    // axios 响应拦截器已经返回 response.data
     return result || { ok: true }
   } catch (error) {
     console.error('Save game failed:', error)
@@ -57,6 +59,7 @@ export async function loadGame(workId, slot) {
   
   try {
     const result = await http.get(`/api/game/saves/${Number(workId)}/${slotNum}`)
+    // axios 响应拦截器已经返回 response.data
     return result
   } catch (error) {
     // 404 表示该槽位无存档
@@ -76,6 +79,7 @@ export async function loadGame(workId, slot) {
 export async function getSavesList(workId) {
   try {
     const result = await http.get(`/api/game/saves/${Number(workId)}`)
+    // axios 响应拦截器已经返回 response.data
     return result.saves || []
   } catch (error) {
     // 如果后端不支持批量获取,则返回空数组
@@ -100,6 +104,7 @@ export async function deleteSave(workId, slot) {
   
   try {
     const result = await http.delete(`/api/game/saves/${Number(workId)}/${slotNum}`)
+    // axios 响应拦截器已经返回 response.data
     return result || { ok: true }
   } catch (error) {
     console.error('Delete save failed:', error)

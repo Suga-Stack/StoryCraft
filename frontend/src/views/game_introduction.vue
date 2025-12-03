@@ -27,7 +27,7 @@ const normalizeBackendWork = (raw) => {
   if (!raw) return null
   const coverCandidate = raw.coverUrl || raw.cover_url || raw.image_url || raw.imageUrl || raw.cover || (raw.image && raw.image.url) || ''
   let cover = coverCandidate || ''
-  if (cover && /^\//.test(cover)) cover = 'http://82.157.231.8:8000' + cover
+  if (cover && /^\//.test(cover)) cover = 'https://storycraft.work.gd' + cover
   // 如果已经是完整 URL，保留原样
   return {
     id: raw.id,

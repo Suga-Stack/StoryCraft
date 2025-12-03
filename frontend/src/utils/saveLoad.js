@@ -1,6 +1,7 @@
 // GamePage 存档/读档相关逻辑的复用工具
 
 import { getCurrentUserId, deepClone } from './auth.js'
+import { http } from '../service/http.js'
 
 // ---- 配置项 ----
 const USE_BACKEND_SAVE = true
@@ -35,11 +36,7 @@ const backendSave = async (userId, workId, slot, data) => {
   const numWorkId = Number(workId)
   // 将 slot1-slot6 转换为 1-6
   const slotNum = slot.replace('slot', '')
-  const url = `/api/game/saves/${encodeURIComponent(numWorkId)}/${encodeURIComponent(slotNum)}/`  // ← 添加尾部斜杠
-  const headers = { 'Content-Type': 'application/json' }
-  // 优先使用 window 注入的 token，其次从 localStorage 获取
-  const token = localStorage.getItem('token')
-  if (token) headers['Authorization'] = `Bearer ${token}`
+  const url = `/api/game/saves/${encodeURIComponent(numWorkId)}/${encodeURIComponent(slotNum)}/`
   
   // 按照API文档格式化数据
   const body = {
@@ -48,12 +45,11 @@ const backendSave = async (userId, workId, slot, data) => {
     state: data.state || data
   }
   
-  const res = await fetch(url, { method: 'PUT', headers, body: JSON.stringify(body) })
-  if (!res.ok) {
-    const txt = await res.text()
-    throw new Error(txt || res.statusText)
-  }
-  return res.json().catch(() => ({ ok: true }))
+  // 使用 axios http 客户端,它会自动添加 token 和处理响应
+  console.log(`💾 后端存档请求 - URL: ${url}`, body)
+  const result = await http.put(url, body)
+  console.log(`✅ 后端存档成功:`, result)
+  return result || { ok: true }
 }
 
 const backendLoad = async (userId, workId, slot) => {
@@ -61,28 +57,24 @@ const backendLoad = async (userId, workId, slot) => {
   const numWorkId = Number(workId)
   // 将 slot1-slot6 转换为 1-6
   const slotNum = slot.replace('slot', '')
-  const url = `/api/game/saves/${encodeURIComponent(numWorkId)}/${encodeURIComponent(slotNum)}/`  // ← 添加尾部斜杠
-  const headers = {}
-  // 优先使用 window 注入的 token，其次从 localStorage 获取
-  const token = localStorage.getItem('token')
-  if (token) headers['Authorization'] = `Bearer ${token}`
+  const url = `/api/game/saves/${encodeURIComponent(numWorkId)}/${encodeURIComponent(slotNum)}/`
   
   console.log(`🌐 后端读档请求 - URL: ${url}`)
-  const res = await fetch(url, { method: 'GET', headers })
-  console.log(`📡 后端响应状态: ${res.status}`)
   
-  if (res.status === 404) {
-    console.log(`⚠️ ${slot} 不存在 (404)`)
-    return null
+  try {
+    // 使用 axios http 客户端,它会自动添加 token 和处理响应
+    const result = await http.get(url)
+    console.log(`✅ 后端返回数据:`, result)
+    return result
+  } catch (error) {
+    // axios 在 404 时会抛出错误,需要捕获
+    if (error.status === 404) {
+      console.log(`⚠️ ${slot} 不存在 (404)`)
+      return null
+    }
+    console.error(`❌ 后端读档失败:`, error)
+    throw error
   }
-  if (!res.ok) {
-    const txt = await res.text()
-    console.error(`❌ 后端读档失败:`, txt)
-    throw new Error(txt || res.statusText)
-  }
-  const obj = await res.json()
-  console.log(`✅ 后端返回数据:`, obj)
-  return obj
 }
 
 // 存档API
@@ -271,27 +263,11 @@ export const deleteGameData = async (workId, slot = 'default') => {
       const slotNum = slot.replace('slot', '')
       const url = `/api/game/saves/${encodeURIComponent(numWorkId)}/${encodeURIComponent(slotNum)}/`
       
-      const headers = {}
-      // 使用 Bearer token 认证，与读档/存档保持一致
-      const token = localStorage.getItem('token')
-      if (token) headers['Authorization'] = `Bearer ${token}`
-      
       console.log(`🗑️ 后端删档请求 - URL: ${url}`)
-      const response = await fetch(url, {
-        method: 'DELETE',
-        headers
-      })
-      console.log(`📡 后端删档响应状态: ${response.status}`)
-      
-      if (response.ok) {
-        const result = await response.json().catch(() => ({ ok: true }))
-        console.log(`✅ 后端删档成功:`, result)
-        return { success: true, message: '存档已删除' }
-      } else {
-        const txt = await response.text()
-        console.error(`❌ 后端删档失败:`, txt)
-        throw new Error(`删除失败: ${response.status} - ${txt}`)
-      }
+      // 使用 axios http 客户端,它会自动添加 token 和处理响应
+      const result = await http.delete(url)
+      console.log(`✅ 后端删档成功:`, result)
+      return { success: true, message: '存档已删除' }
     } catch (err) {
       console.error('❌ 后端删除失败，回退到本地删除:', err)
       // 回退到本地删除

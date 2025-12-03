@@ -23,12 +23,12 @@ const getBaseURL = () => {
   // (因为 10.0.2.2 只能在模拟器中访问宿主机,真机需要实际 IP)
   if (isCapacitor()) {
     console.log('[getBaseURL] Capacitor 环境,使用远程服务器')
-    return 'http://82.157.231.8:8000'
+    return 'https://storycraft.work.gd'
   }
   
   // 浏览器环境:默认使用远程服务器地址
   console.log('[getBaseURL] 浏览器环境,使用远程服务器')
-  return 'http://82.157.231.8:8000'
+  return 'https://storycraft.work.gd'
 }
 
 const BASE_URL = getBaseURL()
@@ -91,7 +91,7 @@ class HttpClient {
     this.axiosInstance = axios.create({
       baseURL: baseURL,
       timeout: 30000,
-      withCredentials: false, // 暂时关闭跨域凭证（CORS 配置问题）
+      withCredentials: false, // 允许跨域携带凭证
       headers: {
         'Content-Type': 'application/json'
       }

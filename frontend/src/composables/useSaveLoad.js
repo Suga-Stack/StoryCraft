@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import { saveGameData, loadGameData, deleteGameData, refreshSlotInfosUtil } from '../utils/saveLoad.js'
 import { work } from './useStoryAPI.js'
 
-import http from '../utils/http.js'
+import { http } from '../service/http.js'
 
 export function useSaveLoad() {
   const showSaveModal = ref(false)
@@ -471,7 +471,8 @@ export function useSaveLoad() {
           console.log(`📖 读档为结局 (endingindex=${savedEndingIndex})，请求单个结局详情...`)
           try {
             const resp = await http.get(`/api/game/storyending/${workId}/${savedEndingIndex}/`)
-            const payload = resp && resp.data ? resp.data : resp
+            // axios 响应拦截器已经返回 response.data,不需要再访问 .data
+            const payload = resp
             // 处理可能的生成中状态
             if (payload && (payload.status === 'generating' || payload.status === 'not_generated')) {
               console.warn(`⚠️ 结局 ${savedEndingIndex} 尚未生成 (status=${payload.status})`)
@@ -494,7 +495,8 @@ export function useSaveLoad() {
               console.warn('⚠️ 未能从结局详情中提取 scenes，尝试回退到结局列表请求')
               // 退回到原先的列表请求逻辑以提高兼容性
               const listResp = await http.get(`/api/game/storyending/${workId}/`)
-              const listPayload = listResp && listResp.data ? listResp.data : listResp
+              // axios 响应拦截器已经返回 response.data,不需要再访问 .data
+              const listPayload = listResp
               const list = Array.isArray(listPayload) ? listPayload : (Array.isArray(listPayload?.endings) ? listPayload.endings : [])
               const idx = Math.max(0, Math.min(list.length - 1, Number(savedEndingIndex) - 1))
               const chosen = list[idx]
