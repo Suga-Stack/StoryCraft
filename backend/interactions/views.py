@@ -308,6 +308,58 @@ class CommentViewSet(viewsets.ModelViewSet):
             "message": "评论发布成功",
             "data": serializer.data
         }, status=status.HTTP_201_CREATED)
+    
+    @swagger_auto_schema(
+        operation_summary="删除评论（用户只能删除自己的评论，管理员可删除所有评论）",
+        manual_parameters=[
+            openapi.Parameter(
+                'id', openapi.IN_QUERY,
+                description="要删除的评论ID",
+                type=openapi.TYPE_INTEGER,
+                required=True
+            )
+        ],
+        responses={
+            200: "删除成功",
+            400: "参数错误",
+            403: "无权限删除该评论",
+            404: "评论不存在"
+        }
+    )
+    def destroy(self, request, *args, **kwargs):
+        comment_id = request.query_params.get('id')
+
+        if not comment_id:
+            return Response({
+                "code": 400,
+                "message": "缺少参数 id"
+            }, status=400)
+
+        try:
+            comment = Comment.objects.get(id=comment_id)
+        except Comment.DoesNotExist:
+            return Response({
+                "code": 404,
+                "message": "评论不存在"
+            }, status=404)
+
+        user = request.user
+
+        # 普通用户只能删除自己的评论
+        if not user.is_staff and comment.user != user:
+            return Response({
+                "code": 403,
+                "message": "您没有权限删除该评论"
+            }, status=403)
+
+        # 删除评论（包含子评论）
+        comment.delete()
+
+        return Response({
+            "code": 200,
+            "message": "评论删除成功"
+        })
+
 
     @swagger_auto_schema(
         operation_summary="点赞评论",
