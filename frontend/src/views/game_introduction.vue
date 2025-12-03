@@ -17,6 +17,20 @@ const goBack = () => {
 // 允许向父组件或上层逻辑发出删除/举报事件
 const emit = defineEmits(['delete-comment', 'report-comment'])
 
+// 简单 Toast 系统（替代 alert）
+const toasts = ref([])
+const toastIdSeq = { v: 0 }
+const showToast = (message, type = 'info', duration = 3000) => {
+  const id = ++toastIdSeq.v
+  toasts.value.push({ id, message, type })
+  if (duration > 0) {
+    setTimeout(() => {
+      toasts.value = toasts.value.filter(t => t.id !== id)
+    }, duration)
+  }
+}
+const removeToast = (id) => { toasts.value = toasts.value.filter(t => t.id !== id) }
+
 // 单个作品数据（从后端获取）
 const route = useRoute()
 const state = history.state || {}
@@ -228,7 +242,7 @@ onMounted(async () => {
     })
     // 在开发环境显示错误提示（帮助调试真机问题）
     if (import.meta.env.DEV) {
-      alert(`[调试信息] 获取作品详情失败\nID: ${candidateId}\n错误: ${e.message}\n请检查网络连接和后端服务器`)
+      showToast(`[调试信息] 获取作品详情失败\nID: ${candidateId}\n错误: ${e.message}\n请检查网络连接和后端服务器`, 'error', 7000)
     }
   }
 })
@@ -310,7 +324,7 @@ const selectPreset = (p) => {
 const confirmSendPoints = async () => {
   const amount = parseInt(pointsAmount.value)
   if (isNaN(amount) || amount <= 0) {
-    alert('请输入大于 0 的整数')
+    showToast('请输入大于 0 的整数', 'warning')
     return
   }
   try {
@@ -325,10 +339,10 @@ const confirmSendPoints = async () => {
       userGivenPoints.value += amount
     }
     showPointsModal.value = false
-    alert('送积分成功，谢谢支持！')
+    showToast('送积分成功，谢谢支持！', 'success')
   } catch (e) {
     console.error('sendPoints error', e)
-    alert('送积分失败，请稍后重试')
+    showToast('送积分失败，请稍后重试', 'error')
   } finally {
     sendingPoints.value = false
   }
@@ -408,7 +422,7 @@ const submitComment = async () => {
     replyingTo.value = null
   } catch (e) {
     console.error('post comment failed', e)
-    alert('发表评论失败，请稍后重试')
+    showToast('发表评论失败，请稍后重试', 'error')
   }
 }
 
@@ -573,7 +587,7 @@ const handleStarClick = (n) => {
 const submitRating = async () => {
   if (selectedStars.value <= 0) return
   if (userHasRated.value) {
-    alert('您已评分，无法重复提交')
+    showToast('您已评分，无法重复提交', 'warning')
     return
   }
   const score10 = selectedStars.value * 2
@@ -616,7 +630,7 @@ const submitRating = async () => {
     ratingPage.value = 1
   } catch (e) {
     console.error('提交评分失败', e)
-    alert('提交评分失败，请稍后重试')
+    showToast('提交评分失败，请稍后重试', 'error')
   }
 }
 
@@ -758,7 +772,7 @@ const onDeleteComment = async (comment) => {
     try { emit('delete-comment', comment.id) } catch (e) {}
   } catch (e) {
     console.error('删除评论失败', e)
-    alert('删除失败，请稍后重试')
+    showToast('删除失败，请稍后重试', 'error')
   } finally {
     comment._deleting = false
   }
@@ -770,6 +784,7 @@ const onReportComment = async (comment) => {
   if (!comment || !comment.id) return
   reportTargetComment.value = comment
   reportReason.value = ''
+  reportType.value = ''
   reportModalVisible.value = true
 }
 
@@ -795,10 +810,104 @@ const reportModalVisible = ref(false)
 const reportReason = ref('')
 const reportTargetComment = ref(null)
 
+// 评论举报必选类型（分组单选）
+const reportType = ref('')
+const reportTypeGroups = [
+  {
+    title: '违法违规',
+    items: [
+      { value: 'porn', label: '色情低俗' },
+      { value: 'violence', label: '暴力恐怖' },
+      { value: 'gamble', label: '赌博诈骗' },
+      { value: 'sensitive', label: '敏感信息或危害国家安全' }
+    ]
+  },
+  {
+    title: '侵犯个人',
+    items: [
+      { value: 'attack', label: '人身攻击' },
+      { value: 'privacy', label: '泄露隐私' },
+      { value: 'rumor', label: '造谣传谣' }
+    ]
+  },
+  {
+    title: '有害社区环境',
+    items: [
+      { value: 'ad', label: '垃圾广告' },
+      { value: 'spam', label: '恶意刷屏' },
+      { value: 'flame', label: '引战' },
+      { value: 'other', label: '其他' }
+    ]
+  }
+]
+
 const cancelReport = () => {
   reportModalVisible.value = false
   reportTargetComment.value = null
   reportReason.value = ''
+  reportType.value = ''
+}
+
+// 作品举报（与评论举报流程一致）
+const workReportModalVisible = ref(false)
+const workReportReason = ref('')
+const workReportSubmitting = ref(false)
+// 必选的违规类型（作品举报）
+const workReportType = ref('')
+const workReportTypes = [
+  { value: 'copyright', label: '侵犯版权和肖像权' },
+  { value: 'violence_sex', label: '暴力、色情、恐怖内容' },
+  { value: 'sensitive', label: '敏感信息或危害国家安全的内容' },
+  { value: 'privacy', label: '泄露他人身份信息' },
+  { value: 'ad', label: '恶意插入广告' },
+  { value: 'paid', label: '作品恶意收费' }
+]
+
+const openWorkReportModal = () => {
+  workReportReason.value = ''
+  workReportType.value = ''
+  workReportModalVisible.value = true
+}
+
+const cancelWorkReport = () => {
+  workReportModalVisible.value = false
+  workReportReason.value = ''
+  workReportType.value = ''
+}
+
+const confirmWorkReport = async () => {
+  if (!work.value || !work.value.id) {
+    cancelWorkReport()
+    return
+  }
+  try {
+    workReportSubmitting.value = true
+    const payload = { work_id: work.value.id }
+    // 验证必须选择违规类型
+    if (!workReportType.value) {
+      showToast('请先选择违规类型', 'warning')
+      workReportSubmitting.value = false
+      return
+    }
+    payload.type = workReportType.value
+    if (workReportReason.value && workReportReason.value.trim()) payload.reason = workReportReason.value.trim()
+    // 常见后端端点尝试
+    try {
+      await http.post(`/api/gameworks/gameworks/${work.value.id}/report/`, payload)
+    } catch (e) {
+      try { await http.post('/api/gameworks/reports/', payload) } catch (e2) {
+        try { await http.post('/api/interactions/reports/', payload) } catch (e3) { /* ignore */ }
+      }
+    }
+    alert('举报已提交，我们会尽快处理')
+    try { emit('report-work', work.value.id) } catch (e) {}
+  } catch (e) {
+    console.error('作品举报失败', e)
+    showToast('举报失败，请稍后重试', 'error')
+  } finally {
+    workReportSubmitting.value = false
+    cancelWorkReport()
+  }
 }
 
 const confirmReport = async () => {
@@ -808,20 +917,25 @@ const confirmReport = async () => {
     return
   }
   try {
+    // 必须选择举报类型
+    if (!reportType.value) {
+      showToast('请先选择举报类型', 'warning')
+      return
+    }
     comment._reporting = true
-    // 发送举报到后端，包含可选理由
-    const payload = { comment_id: comment.id }
+    // 发送举报到后端，包含类型和可选理由
+    const payload = { comment_id: comment.id, type: reportType.value }
     if (reportReason.value && reportReason.value.trim()) payload.reason = reportReason.value.trim()
     try {
       await http.post('/api/interactions/comments/report/', payload)
     } catch (e) {
       try { await http.post('/api/interactions/reports/', payload) } catch (e2) { /* ignore */ }
     }
-    alert('举报已提交，我们会尽快处理')
+    showToast('举报已提交，我们会尽快处理', 'success')
     try { emit('report-comment', comment.id) } catch (e) {}
   } catch (e) {
     console.error('举报失败', e)
-    alert('举报失败，请稍后重试')
+    showToast('举报失败，请稍后重试', 'error')
   } finally {
     comment._reporting = false
     cancelReport()
@@ -891,15 +1005,28 @@ const startReading = async () => {
       <!-- 作品名和收藏按钮 -->
       <div class="title-row">
         <h1 class="work-title">{{ work.title }}</h1>
+        <div class="title-actions">
           <button 
             class="favorite-btn" 
             :class="{ active: work.isFavorite }"
             @click="toggleFavoriteWithCount"
+            title="收藏"
           >
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-          </svg>
-        </button>
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+            </svg>
+          </button>
+          <button
+            class="report-work-btn"
+            :disabled="workReportSubmitting"
+            @click="openWorkReportModal"
+            title="举报作品"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M12 9v2m0 4h.01M21 12A9 9 0 1 1 3 12a9 9 0 0 1 18 0z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
       </div>
       
       <!-- 作者ID -->
@@ -1302,15 +1429,45 @@ const startReading = async () => {
       </div>
     </div>
     
-    <!-- 举报理由弹窗（可填写或跳过） -->
+    <!-- 作品举报弹窗（可填写或跳过） -->
+    <div v-if="workReportModalVisible" class="modal-overlay" @click="cancelWorkReport">
+      <div class="modal-content" @click.stop>
+        <button class="close-btn" @click="cancelWorkReport">×</button>
+        <h2 class="modal-title">举报作品</h2>
+        <p style="color:#555;margin-top:0.25rem;">请选择违规类型（必选），下面的补充备注为可选项。</p>
+        <div class="report-type-list" style="margin-top:0.6rem;">
+          <label v-for="opt in workReportTypes" :key="opt.value" class="report-type-item">
+            <input type="radio" name="workReportType" :value="opt.value" v-model="workReportType" />
+            <span class="report-type-label">{{ opt.label }}</span>
+          </label>
+        </div>
+        <textarea v-model="workReportReason" placeholder="补充备注（可选）" rows="4" style="width:100%;margin-top:0.8rem;padding:0.8rem;border-radius:8px;border:1px solid #eee;resize:vertical;font-size:1rem;"></textarea>
+        <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-top:1rem;">
+          <button class="close-btn" @click="cancelWorkReport" style="background:#f0f0f0;color:#333;padding:0.5rem 0.9rem;border-radius:8px;border:none">取消</button>
+          <button class="submit-comment-btn" :disabled="workReportSubmitting" @click="confirmWorkReport">提交举报</button>
+        </div>
+      </div>
+    </div>
+    <!-- 举报评论弹窗（需选择违规类型，单选） -->
     <div v-if="reportModalVisible" class="modal-overlay" @click="cancelReport">
       <div class="modal-content" @click.stop>
         <button class="close-btn" @click="cancelReport">×</button>
         <h2 class="modal-title">举报评论</h2>
-        <p style="color:#555;margin-top:0.25rem;">您可以填写举报理由以帮助我们更快判断（可留空跳过）。</p>
-        <textarea v-model="reportReason" placeholder="请输入举报理由（可选）" rows="5" style="width:100%;margin-top:0.8rem;padding:0.8rem;border-radius:8px;border:1px solid #eee;resize:vertical;font-size:1rem;"></textarea>
+        <p style="color:#555;margin-top:0.25rem;">请选择举报类型（必选），下面为补充备注（可选）。</p>
+        <div class="report-group-list" style="margin-top:0.6rem;">
+          <div v-for="group in reportTypeGroups" :key="group.title" style="margin-bottom:0.6rem;">
+            <div style="font-weight:700;color:#444;margin-bottom:0.35rem;">{{ group.title }}</div>
+            <div class="report-type-list">
+              <label v-for="opt in group.items" :key="opt.value" class="report-type-item">
+                <input type="radio" name="reportType" :value="opt.value" v-model="reportType" />
+                <span class="report-type-label">{{ opt.label }}</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <textarea v-model="reportReason" placeholder="补充备注（可选）" rows="4" style="width:100%;margin-top:0.6rem;padding:0.8rem;border-radius:8px;border:1px solid #eee;resize:vertical;font-size:1rem;"></textarea>
         <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-top:1rem;">
-          <button class="close-btn" @click="cancelReport" style="background:#f0f0f0;color:#333;padding:0.5rem 0.9rem;border-radius:8px;border:none">跳过</button>
+          <button class="close-btn" @click="cancelReport" style="background:#f0f0f0;color:#333;padding:0.5rem 0.9rem;border-radius:8px;border:none">取消</button>
           <button class="submit-comment-btn" @click="confirmReport">提交举报</button>
         </div>
       </div>
@@ -1330,6 +1487,13 @@ const startReading = async () => {
         </svg>
         <span class="read-text">开始阅读</span>
       </button>
+    </div>
+    <!-- Toast 容器 -->
+    <div class="toast-container">
+      <div v-for="t in toasts" :key="t.id" :class="['toast', t.type]">
+        <div class="toast-message">{{ t.message }}</div>
+        <button class="toast-close" @click="removeToast(t.id)">×</button>
+      </div>
     </div>
   </div>
 </template>
@@ -1437,6 +1601,11 @@ const startReading = async () => {
 .favorite-btn.active svg {
   color: #ffd900e7;
 }
+
+.title-actions { display:flex; align-items:center; gap:0.6rem }
+.report-work-btn { width:48px; height:48px; border:none; background: rgba(128,128,128,0.08); border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer }
+.report-work-btn svg { width:20px; height:20px; color:#666 }
+.report-work-btn:disabled { opacity:0.5; cursor:not-allowed }
 
 /* 标签容器 */
 .tags-container {
@@ -2147,6 +2316,42 @@ const startReading = async () => {
 .top-right-actions .delete-btn { padding:0; }
 .top-right-actions .report-btn svg { width:16px; height:16px; }
 .modal-content textarea { min-height: 100px; border-radius: 8px; border: 1px solid #eee; padding: 0.7rem; font-size:1rem }
+.report-type-list { display:flex; flex-direction:column; gap:0.5rem }
+.report-type-item { display:flex; align-items:center; gap:0.6rem; padding:0.5rem 0.6rem; border-radius:8px; cursor:pointer; background:#fff; border:1px solid #f3f3f3 }
+.report-type-item input { appearance:auto; width:16px; height:16px }
+.report-type-item .report-type-label { color:#333 }
+.report-type-item:hover { background:#fbfbfb }
+.report-group-list { margin-bottom: 0.6rem }
+.report-type-item input[type="radio"] { accent-color: #c89090 }
+
+/* Toast 样式 */
+.toast-container {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  z-index: 1200;
+}
+.toast {
+  min-width: 200px;
+  max-width: 360px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+  padding: 0.6rem 0.8rem;
+  display:flex;
+  align-items:center;
+  gap:0.6rem;
+  border-left: 4px solid transparent;
+}
+.toast .toast-message { flex:1; color:#222; font-size:0.95rem; }
+.toast .toast-close { background:transparent;border:none;cursor:pointer;color:#666;font-size:16px }
+.toast.success { border-left-color: #2ecc71 }
+.toast.error { border-left-color: #e74c3c }
+.toast.warning { border-left-color: #f1c40f }
+.toast.info { border-left-color: #3498db }
 /* 评论操作按钮统一样式 */
 .action-btn {
   background: transparent;
