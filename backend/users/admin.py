@@ -4,7 +4,7 @@ from .models import User, CreditLog, SignInLog
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
     """用户模型后台管理"""
-    list_display = ('username', 'email', 'gender', 'user_credits', 'created_at', 'updated_at') # 'user_id'
+    list_display = ('id', 'username', 'email', 'gender', 'user_credits', 'created_at', 'updated_at') # 'user_id'
     search_fields = ('username', 'email')
     list_filter = ('gender', 'created_at')
     ordering = ('-created_at',)
