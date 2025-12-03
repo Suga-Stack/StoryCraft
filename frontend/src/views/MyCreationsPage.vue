@@ -206,37 +206,35 @@ const handleDelete = async (book) => {
   if (!book || !book.id) return
   if (!confirm('确认要删除此作品吗？此操作不可恢复。')) return
   try {
-    let res = null
-    // 优先尝试后端规定的 DELETE（带 /api 且带尾斜杠）
+    // 仅尝试带尾斜杠的规范 endpoint（Django APPEND_SLASH 默认为 True）
     const endpoints = [
       `/api/gameworks/gameworks/${book.id}/`,
-      `/api/gameworks/gameworks/${book.id}`,
       `/gameworks/gameworks/${book.id}/`,
-      `/gameworks/gameworks/${book.id}`,
-      `/api/interactions/gameworks/${book.id}/`,
-      `/api/interactions/gameworks/${book.id}`
+      `/api/interactions/gameworks/${book.id}/`
     ]
 
+    let deleted = false
     for (const ep of endpoints) {
       try {
-        res = await http.delete(ep)
-        if (res) break
+        // 只要请求未抛出异常就视为成功（不同的 axios 封装对 204 可能返回空 body）
+        await http.delete(ep)
+        deleted = true
+        break
       } catch (err) {
         // 如果是 405，记录并继续尝试其他变体，同时将 Allow 头打印出来帮助定位
-        if (err && err.response && err.response.status === 405) {
-          console.warn(`DELETE ${ep} returned 405 Method Not Allowed. Allow:`, err.response.headers && err.response.headers.allow)
-          // 显示友好提示，告知后端可能未开放 DELETE
+        const status = err?.status || err?.response?.status
+        if (status === 405) {
+          console.warn(`DELETE ${ep} returned 405 Method Not Allowed. Allow:`, err?.response?.headers && err.response.headers.allow)
           showToast('删除操作被服务器拒绝（405）。请检查后端是否允许 DELETE 或需要额外权限。', 'warning')
-          // 继续尝试下一个 endpoint
           continue
         }
-        // 其它错误继续尝试下一个 endpoint
+        // 记录其它错误并继续尝试下一个 endpoint
+        console.warn(`DELETE ${ep} failed`, err)
         continue
       }
     }
 
-    const ok = res && (res.status === 200 || res.status === 204 || (res.data && (res.data.code === 200 || res.data.success)))
-    if (ok) {
+    if (deleted) {
       myCreations.value = myCreations.value.filter(b => b.id !== book.id)
       showToast('作品已删除', 'success')
     } else {
@@ -244,7 +242,7 @@ const handleDelete = async (book) => {
     }
   } catch (e) {
     console.error('删除作品失败', e)
-    showToast((e?.response?.data?.message) || '删除失败，请稍后重试', 'error')
+    showToast((e?.response?.data?.message) || e?.message || '删除失败，请稍后重试', 'error')
   }
 }
 

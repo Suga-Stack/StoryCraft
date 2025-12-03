@@ -4,6 +4,7 @@
  */
 
 import { http, getUserId } from './http.js'
+import { sanitize } from '../utils/sensitiveFilter.js'
 import { STORY_MAX_RETRIES, STORY_RETRY_INTERVAL_MS } from '../config/polling.js'
 
 /**
@@ -154,7 +155,12 @@ export async function getWorkList(params = {}) {
 export async function createGame(gameData) {
   try {
     // 注意：Django 需要 URL 以斜杠结尾
-    const result = await http.post('/api/game/create/', gameData)
+    // 在发送前对用户输入的文本字段做前端敏感词替换
+    const safeData = Object.assign({}, gameData)
+    if (safeData.idea) safeData.idea = sanitize(safeData.idea)
+    if (safeData.title) safeData.title = sanitize(safeData.title)
+    if (safeData.description) safeData.description = sanitize(safeData.description)
+    const result = await http.post('/api/game/create/', safeData)
     return result
   } catch (error) {
     console.error('Create game failed:', error)
@@ -170,7 +176,20 @@ export async function createGame(gameData) {
  */
 export async function generateChapter(gameworkId, chapterIndex, body = {}) {
   try {
-    return await http.post(`/api/game/chapter/generate/${gameworkId}/${chapterIndex}/`, body)
+    // sanitize userPrompt and chapterOutlines before sending
+    const safeBody = JSON.parse(JSON.stringify(body || {}))
+    if (safeBody.userPrompt) safeBody.userPrompt = sanitize(safeBody.userPrompt)
+    if (Array.isArray(safeBody.chapterOutlines)) {
+      safeBody.chapterOutlines = safeBody.chapterOutlines.map(o => {
+        try {
+          if (o && typeof o === 'object') {
+            return Object.assign({}, o, { outline: sanitize(o.outline || '') })
+          }
+          return o
+        } catch (e) { return o }
+      })
+    }
+    return await http.post(`/api/game/chapter/generate/${gameworkId}/${chapterIndex}/`, safeBody)
   } catch (e) {
     console.error('generateChapter failed', e)
     throw e
@@ -182,7 +201,27 @@ export async function generateChapter(gameworkId, chapterIndex, body = {}) {
  */
 export async function saveChapter(gameworkId, chapterIndex, chapterData = {}) {
   try {
-    return await http.put(`/api/game/chapter/${gameworkId}/${chapterIndex}/`, chapterData)
+    // 深度清理 chapterData 内的文本字段（场景对话、标题等）
+    const safeData = (function deepSanitize(obj) {
+      if (obj == null) return obj
+      if (typeof obj === 'string') return sanitize(obj)
+      if (Array.isArray(obj)) return obj.map(item => deepSanitize(item))
+      if (typeof obj === 'object') {
+        const out = {}
+        for (const k of Object.keys(obj)) {
+          // 优先对常见文本字段做 sanitize
+          if (k === 'text' || k === 'narration' || k === 'content' || k === 'outline' || k === 'title' || k === 'description') {
+            out[k] = deepSanitize(obj[k])
+          } else {
+            out[k] = deepSanitize(obj[k])
+          }
+        }
+        return out
+      }
+      return obj
+    })(chapterData)
+
+    return await http.put(`/api/game/chapter/${gameworkId}/${chapterIndex}/`, safeData)
   } catch (e) {
     console.error('saveChapter failed', e)
     throw e
@@ -200,12 +239,25 @@ export async function saveEnding(gameworkId, body = {}) {
   try {
     // 如果提供了逻辑上的 endingIndex，则把请求发送到带索引的接口
     const idx = (body && (body.endingIndex != null)) ? Number(body.endingIndex) : null
+    // 在发送前 sanitize body 中的文本字段
+    const safeBody = (function deepSanitize(obj) {
+      if (obj == null) return obj
+      if (typeof obj === 'string') return sanitize(obj)
+      if (Array.isArray(obj)) return obj.map(item => deepSanitize(item))
+      if (typeof obj === 'object') {
+        const out = {}
+        for (const k of Object.keys(obj)) out[k] = deepSanitize(obj[k])
+        return out
+      }
+      return obj
+    })(body)
+
     if (idx != null && !isNaN(idx)) {
-      return await http.put(`/api/game/storyending/${gameworkId}/${idx}/`, body)
+      return await http.put(`/api/game/storyending/${gameworkId}/${idx}/`, safeBody)
     }
 
     // 否则保持向后兼容：调用旧的端点
-    return await http.put(`/api/game/storyending/${gameworkId}/`, body)
+    return await http.put(`/api/game/storyending/${gameworkId}/`, safeBody)
   } catch (e) {
     console.error('saveEnding failed', e)
     throw e
@@ -219,7 +271,12 @@ export async function saveEnding(gameworkId, body = {}) {
  * @returns {Promise<Object>}
  */
 export async function updateWork(workId, updates) {
-  return await http.patch(`/api/works/${workId}`, updates)
+  // sanitize common text fields before updating
+  const safeUpdates = Object.assign({}, updates)
+  if (safeUpdates.title) safeUpdates.title = sanitize(safeUpdates.title)
+  if (safeUpdates.description) safeUpdates.description = sanitize(safeUpdates.description)
+  if (safeUpdates.content) safeUpdates.content = sanitize(safeUpdates.content)
+  return await http.patch(`/api/works/${workId}`, safeUpdates)
 }
 
 /**

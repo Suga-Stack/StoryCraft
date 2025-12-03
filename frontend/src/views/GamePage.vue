@@ -8,6 +8,7 @@ import { useUserStore } from '../store/index.js'
 import http from '../service/http.js'
 import * as storyService from '../service/story.js'
 import { getCurrentUserId, deepClone } from '../utils/auth.js'
+import { sanitize } from '../utils/sensitiveFilter.js'
 import { USE_MOCK_STORY, USE_MOCK_SAVE, FORCE_CREATOR_FOR_TEST, isCreatorIdentity, editorInvocation, creatorFeatureEnabled, modifiableFromCreate } from '../config/gamepage.js'
 import { useSaveLoad } from '../composables/useSaveLoad.js'
 import { useAutoPlay } from '../composables/useAutoPlay.js'
@@ -1151,6 +1152,8 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           if (!isNaN(idx) && idx < clonedScene.dialogues.length) {
             const orig = clonedScene.dialogues[idx]
             const overrideText = ov.dialogues[k]
+            // 立即对覆盖文本进行 sanitize，保证保存后前端立刻显示替换后的内容
+            const overrideTextSan = (typeof overrideText === 'string') ? sanitize(overrideText) : overrideText
             
             // 🔑 关键修复：检查这个对话是否来自 subsequentDialogues
             if (typeof orig === 'object' && orig._fromChoiceId != null && orig._fromChoiceIndex != null) {
@@ -1161,27 +1164,27 @@ const persistCurrentChapterEdits = async (opts = {}) => {
               if (Array.isArray(clonedScene.choices)) {
                 const choice = clonedScene.choices.find(c => String(c.id) === String(choiceId))
                 if (choice && Array.isArray(choice.subsequentDialogues)) {
-                  // 直接更新 subsequentDialogues 中的对应项
-                  choice.subsequentDialogues[choiceIdx] = overrideText
+                  // 直接更新 subsequentDialogues 中的对应项，并 sanitize
+                  choice.subsequentDialogues[choiceIdx] = (typeof overrideText === 'string') ? sanitize(overrideText) : overrideText
                   console.log(`[persistCurrentChapterEdits] 更新选项 ${choiceId} 的 subsequentDialogues[${choiceIdx}]`)
                 }
               }
               // 更新对话本身的显示文本
               if (typeof orig === 'string') {
-                clonedScene.dialogues[idx] = overrideText
+                clonedScene.dialogues[idx] = overrideTextSan
               } else {
                 clonedScene.dialogues[idx] = {
                   ...orig,
-                  text: overrideText
+                  text: overrideTextSan
                 }
               }
             } else {
               // 普通对话，直接替换
               if (typeof orig === 'string') {
-                clonedScene.dialogues[idx] = overrideText
+                clonedScene.dialogues[idx] = overrideTextSan
               } else if (typeof orig === 'object') {
                 clonedScene.dialogues[idx] = {
-                  text: overrideText,
+                  text: overrideTextSan,
                   backgroundImage: orig.backgroundImage,
                   speaker: orig.speaker
                 }
@@ -1207,12 +1210,12 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         // 如果是字符串，包装为 narration
         if (typeof d === 'string') {
           const playerChoicesFromScene = (scene && Array.isArray(scene.choices) && Number(scene.choiceTriggerIndex) === Number(dIdx)) ? scene.choices.map((c, idx) => {
-            const pc = { text: c.text ?? c.label ?? '', attributesDelta: c.attributesDelta || c.delta || {}, statusesDelta: c.statusesDelta || c.statuses || {}, subsequentDialogues: c.subsequentDialogues || c.nextLines || [] }
+            const pc = { text: sanitize(c.text ?? c.label ?? ''), attributesDelta: c.attributesDelta || c.delta || {}, statusesDelta: c.statusesDelta || c.statuses || {}, subsequentDialogues: Array.isArray(c.subsequentDialogues || c.nextLines) ? (c.subsequentDialogues || c.nextLines).map(sd => (typeof sd === 'string' ? sanitize(sd) : sd)) : [] }
             const maybeId = Number(c.choiceId ?? c.id)
             pc.choiceId = Number.isInteger(maybeId) ? maybeId : (idx + 1)
             return pc
           }) : []
-          return { narration: d, playerChoices: playerChoicesFromScene }
+          return { narration: sanitize(d), playerChoices: playerChoicesFromScene }
         }
         // 如果是对象，规范化 playerChoices
         if (d && typeof d === 'object') {
@@ -1220,27 +1223,27 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           let playerChoices = []
           if (Array.isArray(d.playerChoices) && d.playerChoices.length > 0) {
             playerChoices = d.playerChoices.map((c, idx) => {
-              const pc = { text: c.text ?? c.label ?? '', attributesDelta: c.attributesDelta || c.delta || {}, statusesDelta: c.statusesDelta || c.statuses || {}, subsequentDialogues: c.subsequentDialogues || c.nextLines || [] }
+              const pc = { text: sanitize(c.text ?? c.label ?? ''), attributesDelta: c.attributesDelta || c.delta || {}, statusesDelta: c.statusesDelta || c.statuses || {}, subsequentDialogues: Array.isArray(c.subsequentDialogues || c.nextLines) ? (c.subsequentDialogues || c.nextLines).map(sd => (typeof sd === 'string' ? sanitize(sd) : sd)) : [] }
               const maybeId = Number(c.choiceId ?? c.id)
               pc.choiceId = Number.isInteger(maybeId) ? maybeId : (idx + 1)
               return pc
             })
           } else if (Array.isArray(d.choices) && d.choices.length > 0) {
             playerChoices = d.choices.map((c, idx) => {
-              const pc = { text: c.text ?? c.label ?? '', attributesDelta: c.attributesDelta || c.delta || {}, statusesDelta: c.statusesDelta || c.statuses || {}, subsequentDialogues: c.subsequentDialogues || c.nextLines || [] }
+              const pc = { text: sanitize(c.text ?? c.label ?? ''), attributesDelta: c.attributesDelta || c.delta || {}, statusesDelta: c.statusesDelta || c.statuses || {}, subsequentDialogues: Array.isArray(c.subsequentDialogues || c.nextLines) ? (c.subsequentDialogues || c.nextLines).map(sd => (typeof sd === 'string' ? sanitize(sd) : sd)) : [] }
               const maybeId = Number(c.choiceId ?? c.id)
               pc.choiceId = Number.isInteger(maybeId) ? maybeId : (idx + 1)
               return pc
             })
           } else if (scene && Array.isArray(scene.choices) && Number(scene.choiceTriggerIndex) === Number(dIdx)) {
             playerChoices = scene.choices.map((c, idx) => {
-              const pc = { text: c.text ?? c.label ?? '', attributesDelta: c.attributesDelta || c.delta || {}, statusesDelta: c.statusesDelta || c.statuses || {}, subsequentDialogues: c.subsequentDialogues || c.nextLines || [] }
+              const pc = { text: sanitize(c.text ?? c.label ?? ''), attributesDelta: c.attributesDelta || c.delta || {}, statusesDelta: c.statusesDelta || c.statuses || {}, subsequentDialogues: Array.isArray(c.subsequentDialogues || c.nextLines) ? (c.subsequentDialogues || c.nextLines).map(sd => (typeof sd === 'string' ? sanitize(sd) : sd)) : [] }
               const maybeId = Number(c.choiceId ?? c.id)
               pc.choiceId = Number.isInteger(maybeId) ? maybeId : (idx + 1)
               return pc
             })
           }
-          return { narration: narration || '', playerChoices }
+          return { narration: sanitize(narration || ''), playerChoices }
         }
       } catch (e) { console.warn('normalizeDialogue failed', e) }
       return { narration: '', playerChoices: [] }
