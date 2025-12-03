@@ -310,15 +310,7 @@ class CommentViewSet(viewsets.ModelViewSet):
         }, status=status.HTTP_201_CREATED)
     
     @swagger_auto_schema(
-        operation_summary="删除评论（用户只能删除自己的评论，管理员可删除所有评论）",
-        manual_parameters=[
-            openapi.Parameter(
-                'id', openapi.IN_QUERY,
-                description="要删除的评论ID",
-                type=openapi.TYPE_INTEGER,
-                required=True
-            )
-        ],
+        operation_summary="删除评论（用户只能删除自己的评论，作者可删除本书评论。管理员可删除所有评论）",
         responses={
             200: "删除成功",
             400: "参数错误",
@@ -327,7 +319,7 @@ class CommentViewSet(viewsets.ModelViewSet):
         }
     )
     def destroy(self, request, *args, **kwargs):
-        comment_id = request.query_params.get('id')
+        comment_id = kwargs.get("pk")
 
         if not comment_id:
             return Response({
@@ -345,8 +337,8 @@ class CommentViewSet(viewsets.ModelViewSet):
 
         user = request.user
 
-        # 普通用户只能删除自己的评论
-        if not user.is_staff and comment.user != user:
+        # 普通读者只能删除自己的评论
+        if not user.is_staff and comment.user != user and comment.gamework.author != user:
             return Response({
                 "code": 403,
                 "message": "您没有权限删除该评论"

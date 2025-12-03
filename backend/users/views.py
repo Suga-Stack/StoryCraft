@@ -3,21 +3,22 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from django.contrib.auth import get_user_model
-from drf_yasg.utils import swagger_auto_schema
+from drf_yasg.utils import swagger_auto_schema, no_body
 from drf_yasg import openapi
+from rest_framework.decorators import action
 from django.core.mail import send_mail
 from django.core.cache import cache
 from django.utils.crypto import get_random_string
 from django.shortcuts import get_object_or_404
 from game.models import GameSave
 from gameworks.models import Gamework
-from .serializers import UserSerializer, RegisterSerializer, LoginSerializer, LogoutSerializer, UserPreferenceSerializer, CreditLogSerializer
+from .serializers import UserSerializer, RegisterSerializer, LoginSerializer, LogoutSerializer, UserPreferenceSerializer, CreditLogSerializer, GameworkReportSerializer, CommentReportSerializer
 from gameworks.serializers import GameworkSimpleSerializer
 from interactions.models import ReadRecord
 from django.utils import timezone
 from datetime import date, timedelta
 from .utils import get_signin_reward, change_user_credits
-from .models import UserSignIn, CreditLog, SignInLog
+from .models import UserSignIn, CreditLog, SignInLog, GameworkReport, CommentReport
 
 User = get_user_model()
 
@@ -774,6 +775,152 @@ class CreditLogViewSet(viewsets.ReadOnlyModelViewSet):
         queryset = CreditLog.objects.filter(user=request.user).order_by('-created_at')
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+
+class GameworkReportViewSet(viewsets.ModelViewSet):
+    queryset = GameworkReport.objects.all()
+    serializer_class = GameworkReportSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+
+        # 普通用户：只能看到自己提交的举报
+        user = self.request.user
+        if not user.is_staff:
+            queryset = queryset.filter(reporter=user)
+
+        # 可选过滤：?gamework_id=xxx
+        gamework_id = self.request.query_params.get("gamework_id")
+        if gamework_id:
+            queryset = queryset.filter(gamework_id=gamework_id)
+
+        return queryset
+
+    @swagger_auto_schema(
+        operation_summary="举报作品",
+        request_body=GameworkReportSerializer,
+        responses={201: "举报成功"}
+    )
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(reporter=request.user)
+
+        return Response({
+            "code": 201,
+            "message": "作品举报成功",
+            "data": serializer.data
+        }, status=201)
+
+    @swagger_auto_schema(operation_summary="获取作品举报详情")
+    def retrieve(self, request, *args, **kwargs):
+        # retrieve 默认会调用 get_queryset 自动限制可见性，所以不需要额外处理
+        return super().retrieve(request, *args, **kwargs)
+
+    @swagger_auto_schema(operation_summary="删除举报记录（仅管理员）")
+    def destroy(self, request, *args, **kwargs):
+        if not request.user.is_staff:
+            return Response({
+                "code": 403,
+                "message": "只有管理员可以删除举报记录"
+            }, status=403)
+
+        return super().destroy(request, *args, **kwargs)
+    
+    @swagger_auto_schema(
+        operation_summary="处理作品举报（仅管理员）",
+        request_body=no_body,
+        responses={200: "处理完成", 403: "无权限"}
+    )
+    @action(detail=True, methods=['patch'], url_path='resolve')
+    def resolve(self, request, *args, **kwargs):
+        if not request.user.is_staff:
+            return Response({
+                "code": 403,
+                "message": "只有管理员可以处理举报"
+            }, status=403)
+
+        report = self.get_object()
+        report.is_resolved = True
+        report.save()
+
+        return Response({
+            "code": 200,
+            "message": "作品举报已标记为已处理"
+        })
+
+class CommentReportViewSet(viewsets.ModelViewSet):
+    queryset = CommentReport.objects.all()
+    serializer_class = CommentReportSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+
+        # 普通用户：只能查看自己提交的举报
+        user = self.request.user
+        if not user.is_staff:
+            queryset = queryset.filter(reporter=user)
+
+        # 可选过滤：?comment_id=xxx
+        comment_id = self.request.query_params.get("comment_id")
+        if comment_id:
+            queryset = queryset.filter(comment_id=comment_id)
+
+        return queryset
+
+    @swagger_auto_schema(
+        operation_summary="举报评论",
+        request_body=CommentReportSerializer,
+        responses={201: "举报成功"}
+    )
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(reporter=request.user)
+
+        return Response({
+            "code": 201,
+            "message": "评论举报成功",
+            "data": serializer.data
+        }, status=201)
+
+    @swagger_auto_schema(operation_summary="获取评论举报详情")
+    def retrieve(self, request, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
+
+    @swagger_auto_schema(operation_summary="删除举报记录（仅管理员）")
+    def destroy(self, request, *args, **kwargs):
+        if not request.user.is_staff:
+            return Response({
+                "code": 403,
+                "message": "只有管理员可以删除举报记录"
+            }, status=403)
+
+        return super().destroy(request, *args, **kwargs)
+    
+    @swagger_auto_schema(
+        operation_summary="处理评论举报（仅管理员）",
+        request_body=no_body,
+        responses={200: "处理完成", 403: "无权限"}
+    )
+    @action(detail=True, methods=['patch'], url_path='resolve')
+    def resolve(self, request, *args, **kwargs):
+        if not request.user.is_staff:
+            return Response({
+                "code": 403,
+                "message": "只有管理员可以处理举报"
+            }, status=403)
+
+        report = self.get_object()
+        report.is_resolved = True
+        report.save()
+
+        return Response({
+            "code": 200,
+            "message": "评论举报已标记为已处理"
+        })
 
 
 class SaveDetailView(APIView):

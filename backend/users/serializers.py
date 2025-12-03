@@ -6,14 +6,14 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from tags.models import Tag
-from .models import CreditLog
+from .models import CreditLog, GameworkReport, CommentReport
 
 User = get_user_model()
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ('id', 'username', 'profile_picture', 'user_credits', 'gender', 'liked_tags')
+        fields = ('id', 'username', 'profile_picture', 'user_credits', 'gender', 'liked_tags', 'is_staff')
         read_only_fields = ('user_credits', 'is_staff')
 
 
@@ -146,3 +146,19 @@ class CreditLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = CreditLog
         fields = ['change_amount', 'before_balance', 'after_balance', 'type', 'remark', 'created_at']
+
+class GameworkReportSerializer(serializers.ModelSerializer):
+    reporter = serializers.ReadOnlyField(source='reporter.username')
+
+    class Meta:
+        model = GameworkReport
+        fields = ['id', 'reporter', 'gamework', 'tag', 'remark', 'created_at', 'is_resolved']
+        read_only_fields = ['reporter', 'created_at', 'is_resolved']
+
+class CommentReportSerializer(serializers.ModelSerializer):
+    reporter = serializers.ReadOnlyField(source='reporter.username')
+
+    class Meta:
+        model = CommentReport
+        fields = ['id', 'reporter', 'comment', 'tag', 'remark', 'created_at', 'is_resolved']
+        read_only_fields = ['reporter', 'created_at', 'is_resolved']
