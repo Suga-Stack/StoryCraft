@@ -159,8 +159,9 @@ class GameworkReportSerializer(serializers.ModelSerializer):
 class CommentReportSerializer(serializers.ModelSerializer):
     reporter = serializers.ReadOnlyField(source='reporter.username')
     comment_content = serializers.ReadOnlyField(source='comment.content')
+    gamework = serializers.ReadOnlyField(source='comment.gamework.id')
 
     class Meta:
         model = CommentReport
-        fields = ['id', 'reporter', 'comment', 'comment_content', 'tag', 'remark', 'created_at', 'is_resolved']
-        read_only_fields = ['reporter', 'created_at', 'is_resolved', 'comment_content']
+        fields = ['id', 'reporter', 'comment', 'comment_content', 'tag', 'remark', 'created_at', 'is_resolved', 'gamework']
+        read_only_fields = ['reporter', 'created_at', 'is_resolved', 'comment_content', 'gamework']
