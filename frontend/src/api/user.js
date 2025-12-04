@@ -177,3 +177,9 @@ export const rechargeCredits = (credits) => {
 export const getCreditsLog = (page) => {
   return http.get('/api/users/creditlog/', {page})
 }
+
+// 举报评论：向后端提交 CommentReport 对象
+// body: { comment: integer (被举报的评论主键 ID), tag: string (1-100), remark?: string }
+export const reportComment = (comment, tag, remark = '') => {
+  return http.post('/api/users/reports/comments/', { comment, tag, remark })
+}

@@ -114,7 +114,7 @@
       </div>
     </div>
 
-    <!-- 举报列表区域 -->
+    <!-- 举报列表区域（所有用户均可见） -->
     <div class="section-container">
       <van-cell 
         title="举报列表" 
@@ -124,7 +124,7 @@
         @click="navigateToStaff"
         class="section-title-cell"
       />
-      <div class="books-grid">
+        <div class="books-grid">
         <div 
           class="book-item" 
           v-for="(r, idx) in myReports" 
@@ -133,8 +133,12 @@
         >
           <div style="padding:8px;display:flex;flex-direction:column;justify-content:center;height:100%;">
             <div class="book-title" style="font-size:13px;font-weight:600;">{{ r.title }}</div>
-            <div style="font-size:12px;color:#666;margin-top:6px;">原因：{{ r.reason }}</div>
+            <div style="font-size:12px;color:#666;margin-top:6px;display:flex;align-items:center;gap:8px;">
+              <span style="color:#666">原因：</span>
+              <span class="report-tag-small">{{ r.reason }}</span>
+            </div>
             <div style="font-size:12px;color:#999;margin-top:6px;">状态：{{ r.status }}</div>
+            <div v-if="r.remark" style="font-size:12px;color:#444;margin-top:6px;">备注：{{ r.remark }}</div>
           </div>
         </div>
         <div v-if="myReports.length === 0" style="padding:16px;color:#999">暂无举报记录</div>
@@ -275,24 +279,65 @@ const fetchMyCreations = async () => {
   }
 }
 
-// 获取当前用户的举报列表
+// 获取当前用户的举报列表（合并评论/作品举报），在 Profile 页面只显示最新两条
 const fetchMyReports = async () => {
   try {
-    const response = await getMyReports();
-    // 兼容不同后端返回格式
-    const data = response?.data || response
-    let list = []
-    if (Array.isArray(data.results)) list = data.results
-    else if (Array.isArray(data)) list = data
-    else if (data && Array.isArray(data.data)) list = data.data
+    const storedUser = JSON.parse(localStorage.getItem('userInfo') || '{}')
+    const userId = storedUser.id
+    if (!userId) {
+      myReports.value = []
+      return
+    }
 
-    myReports.value = list.map(item => ({
-      id: item.id,
-      title: item.target_title || item.work_title || item.title || (item.gamework && item.gamework.title) || '未知',
-      reason: item.reason || item.type || item.detail || '—',
-      status: item.status || item.state || item.result || '未知',
-      created_at: item.created_at || item.created || item.timestamp || null
-    }))
+    // 使用列表端点：评论列表使用通用端点，
+    // 作品举报列表改为使用新的端点：GET /api/users/report/gamework/
+    const urls = [
+      `/api/users/reports/comments/`,
+      `/api/users/report/gamework/`
+    ]
+
+    const results = []
+    for (const u of urls) {
+      try {
+        const res = await http.get(u)
+        const data = res?.data || res
+        console.debug('fetchMyReports response for', u, data)
+        let list = []
+        if (Array.isArray(data.results)) list = data.results
+        else if (Array.isArray(data)) list = data
+        else if (data && Array.isArray(data.data)) list = data.data
+        // 支持后端返回单个对象但其中包含 reports 数组的情况
+        else if (data && Array.isArray(data.reports)) list = data.reports
+        else if (data && typeof data === 'object' && data.id) list = [data]
+
+        for (const item of list) {
+          // 规范化字段到前端显示结构
+          const fallbackTitle = item.target_title || item.work_title || item.title || (item.gamework && item.gamework.title)
+          const resolvedTitle = fallbackTitle || (item.gamework ? '作品' : (item.comment ? `评论#${item.comment}` : '未知'))
+          results.push({
+            id: item.id,
+            title: resolvedTitle,
+            reason: item.tag || item.reason || item.type || item.detail || '—',
+            remark: item.remark || '',
+            status: item.is_resolved ? '已处理' : '待处理',
+            created_at: item.created_at || item.created || item.timestamp || null,
+            reporter: item.reporter || null
+          })
+        }
+      } catch (e) {
+        // 单个接口失败不应影响另一个
+        console.warn('fetch reports failed', u, e)
+      }
+    }
+
+    // 按时间降序排序并取前两条
+    results.sort((a, b) => {
+      const ta = a.created_at ? new Date(a.created_at).getTime() : 0
+      const tb = b.created_at ? new Date(b.created_at).getTime() : 0
+      return tb - ta
+    })
+
+    myReports.value = results.slice(0, 2)
   } catch (error) {
     console.error('获取举报列表失败', error)
     showToast(error.message || '加载举报列表出错')
@@ -316,6 +361,7 @@ onMounted(async () => {
 
     await fetchReadingHistory()
     await fetchMyCreations()
+    // 请求并显示举报列表（即使非 staff，也尝试拉取个人相关的举报记录）
     await fetchMyReports()
   } catch (error) {
     console.error('获取用户信息失败', error)
@@ -609,6 +655,8 @@ const handleTabChange = (tabName) => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.report-tag-small { background:#fff4e6; color:#b33; padding:2px 6px; border-radius:10px; font-weight:700 }
 
 /* 退出登录按钮 */
 .logout-btn {
