@@ -10,6 +10,7 @@ class GameworkDetailSerializer(serializers.ModelSerializer):
     author = serializers.StringRelatedField(read_only=True)
     tags = serializers.PrimaryKeyRelatedField(many=True, read_only=False, queryset=Tag.objects.all())
     image_url = serializers.SerializerMethodField()
+    background_music_urls = serializers.SerializerMethodField()
 
     # 统计字段
     favorite_count = serializers.SerializerMethodField()
@@ -38,7 +39,7 @@ class GameworkDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Gamework
         fields = (
-            'id', 'author', 'title', 'description', 'tags', 'image_url',
+            'id', 'author', 'title', 'description', 'tags', 'image_url', 'background_music_urls',
             'is_published', 'created_at', 'updated_at', 'published_at',
             'favorite_count', 'average_score', 'rating_count', 'read_count', 'is_favorited', 'price',
             'user_reward_amount', 'is_complete', 'generated_chapters', 'total_chapters', 'modifiable', 'ai_callable',
@@ -56,6 +57,10 @@ class GameworkDetailSerializer(serializers.ModelSerializer):
                 from django.conf import settings
                 return f"{settings.SITE_DOMAIN}{obj.image_url}"
         return obj.image_url
+
+    def get_background_music_urls(self, obj):
+        """返回关联的所有背景音乐的绝对URL列表"""
+        return [music.url for music in obj.background_musics.all()]
 
     def get_favorite_count(self, obj):
         if hasattr(obj, "favorite_count"):

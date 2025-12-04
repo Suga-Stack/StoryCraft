@@ -6,8 +6,9 @@ from django.db import transaction
 from typing import List, Dict, Any, Optional
 from django.db import close_old_connections
 from django.conf import settings
+from django.db.models import Count, Q
 from stories.models import Story, StoryChapter, StoryScene, StoryEnding
-from gameworks.models import Gamework
+from gameworks.models import Gamework, Music
 from .utils import parse_raw_chapter, update_story_directory
 from .game_generator.architecture import generate_core_seed, generate_architecture
 from .game_generator.chapter import generate_chapter_content, generate_ending_content, calculate_attributes, parse_ending_condition
@@ -15,6 +16,25 @@ from .game_generator.images import generate_cover_image, generate_scene_images
 from .game_generator.report import generate_report_content
 from .models import GameReport
 logger = logging.getLogger('django')
+
+def _select_background_music(tags: List[str]) -> List[Music]:
+    """根据标签匹配最合适的背景音乐列表（例如取前3首）"""
+    # 查找有重叠标签的音乐，按重叠数量降序
+    matches = Music.objects.filter(tags__name__in=tags).annotate(
+        match_count=Count('tags', filter=Q(tags__name__in=tags))
+    ).order_by('-match_count')
+    
+    # 取前4首
+    selected_music = list(matches[:4])
+    
+    # 如果不足3首，随机补充
+    if len(selected_music) < 3:
+        needed = 3 - len(selected_music)
+        existing_ids = [m.id for m in selected_music]
+        random_music = list(Music.objects.exclude(id__in=existing_ids).order_by('?')[:needed])
+        selected_music.extend(random_music)
+        
+    return selected_music
 
 def _build_chapter_response(chapter: StoryChapter) -> Dict[str, Any]:
     payload = {
@@ -522,10 +542,15 @@ def create_gamework(user, tags: List[str], idea: str, length: str, modifiable: b
     tag_objects = [Tag.objects.get_or_create(name=tag_name)[0] for tag_name in tags]
     gamework.tags.set(tag_objects)
 
-    # 3. 启动后台生成任务
+    # 3. 匹配并设置背景音乐
+    music_list = _select_background_music(tags)
+    if music_list:
+        gamework.background_musics.set(music_list)
+
+    # 4. 启动后台生成任务
     _start_gamework_details_generation(gamework.id, tags, idea, total_chapters)
 
-    # 4. 立即返回
+    # 5. 立即返回
     return {"gameworkId": gamework.id}
 
 def start_single_chapter_generation(gamework: Gamework, chapter_index: int, outlines: List[Dict], user_prompt: str):
