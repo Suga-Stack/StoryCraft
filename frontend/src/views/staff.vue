@@ -108,7 +108,30 @@ const markHandled = async (r) => {
 }
 
 const viewDetail = (r) => {
-  showToast(`查看举报 ${r.id}`)
+  if (!r) return
+  const raw = r.raw || {}
+  let gwId = null
+  // 后端可能返回 gamework 为数字 id，或为对象
+  if (raw.gamework && (typeof raw.gamework === 'number' || typeof raw.gamework === 'string')) {
+    gwId = raw.gamework
+  } else if (raw.gamework && typeof raw.gamework === 'object') {
+    gwId = raw.gamework.id || raw.gamework.gameworkId || raw.gamework.workId || null
+  } else if (r.gamework && (typeof r.gamework === 'number' || typeof r.gamework === 'string')) {
+    gwId = r.gamework
+  }
+
+  if (gwId) {
+    // 尝试从 raw 中解析评论 id（后端会返回 comment: <id>）
+    const rawCommentId = (raw.comment || raw.comment_id || raw.commentId || (r.comment || null))
+    if (rawCommentId) {
+      // 带上查询参数，作品页面可根据 query.comment 定位并高亮该评论
+      router.push({ path: `/works/${gwId}`, query: { comment: String(rawCommentId) } })
+    } else {
+      router.push({ path: `/works/${gwId}` })
+    }
+  } else {
+    showToast(`查看举报 ${r.id}`)
+  }
 }
 
 const deleteReport = async (r) => {
@@ -189,8 +212,20 @@ const fetchAllReports = async () => {
           const fallbackTitle = item.target_title || item.work_title || item.title || (item.gamework && item.gamework.title)
           const gwTitleField = item.gamework_title || item.game_title || (item.gamework && (item.gamework.title || item.gamework.work_title))
           const commentContent = item.comment_content || item.comment_text || item.content || (item.raw && (item.raw.comment_content || item.raw.content))
-          const commentSuffix = commentContent ? ` ${commentContent}` : (item.comment ? `#${item.comment}` : '')
-          const resolvedTitle = fallbackTitle || (item.gamework ? `作品${gwTitleField ? ' ' + gwTitleField : ''}` : ((item.comment || commentContent) ? `评论${commentSuffix}` : '未知'))
+          const isComment = !!(item.comment || commentContent || (item.raw && (item.raw.comment || item.raw.comment_id || item.raw.comment_content)))
+
+          let resolvedTitle = fallbackTitle || null
+          if (!resolvedTitle) {
+            if (isComment) {
+              const content = commentContent ? `${commentContent}` : (item.comment ? `#${item.comment}` : '')
+              resolvedTitle = `评论：${content}`
+            } else if (item.gamework) {
+              resolvedTitle = `作品${gwTitleField ? ' ' + gwTitleField : ''}`
+            } else {
+              resolvedTitle = '未知'
+            }
+          }
+
           all.push({
             id: item.id,
             title: resolvedTitle,
