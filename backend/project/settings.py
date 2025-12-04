@@ -152,7 +152,7 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 # 用于拼接绝对 URL
-SITE_DOMAIN = os.getenv('SITE_DOMAIN', 'http://localhost:8000')
+SITE_DOMAIN = os.getenv('SITE_DOMAIN', 'https://storycraft.work.gd')
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
@@ -162,6 +162,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # 指定用户模型
 AUTH_USER_MODEL = 'users.User'
 
+# 新增：信任 Nginx 转发的 HTTPS 协议头，确保 request.is_secure() 返回 True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # 完全关闭权限验证
 REST_FRAMEWORK = {
@@ -286,15 +288,11 @@ LOGGING = {
 # ============================================
 
 # 生产环境通常设为 False，通过 CORS_ALLOWED_ORIGINS 控制
-CORS_ALLOW_ALL_ORIGINS = os.getenv('CORS_ALLOW_ALL_ORIGINS', 'False') == 'True'
+CORS_ALLOW_ALL_ORIGINS = True
 
-# 从环境变量读取允许的源，逗号分隔
-CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:5173,http://127.0.0.1:5173').split(',')
+# 读取 CSRF_TRUSTED_ORIGINS，解决 Django Admin 登录时的 Origin checking failed 错误
+CSRF_TRUSTED_ORIGINS = os.getenv('CSRF_TRUSTED_ORIGINS', 'http://localhost').split(',')
 
-# 允许携带凭证
-CORS_ALLOW_CREDENTIALS = True
-
-# 允许的 HTTP 方法
 CORS_ALLOW_METHODS = [
     'DELETE',
     'GET',
@@ -304,25 +302,7 @@ CORS_ALLOW_METHODS = [
     'PUT',
 ]
 
-# 允许的 headers
-CORS_ALLOW_HEADERS = [
-    'accept',
-    'accept-encoding',
-    'authorization',
-    'content-type',
-    'dnt',
-    'origin',
-    'user-agent',
-    'x-csrftoken',
-    'x-requested-with',
-    'Authorization',
-    'Content-Type',
-    'Referrer',
-    'User-Agent',
-]
-
-# CSRF 信任源
-CSRF_TRUSTED_ORIGINS = os.getenv('CSRF_TRUSTED_ORIGINS', 'http://localhost:5173,http://127.0.0.1:5173').split(',')
+CORS_ALLOW_HEADERS = ["*"]
 
 AI_MODEL_FOR_TEXT = os.getenv("AI_MODEL_FOR_TEXT", "DeepSeek-V3.2-Exp")
 AI_API_KEY_FOR_TEXT = os.getenv("AI_API_KEY_FOR_TEXT", "")
