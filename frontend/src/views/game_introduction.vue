@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { http } from '../service/http.js'
-import { addFavorite, deleteFavorite, getComments, postComments, likeComment, unlikeComment } from '../api/user.js'
+import { addFavorite, deleteFavorite, getComments, postComments, likeComment, unlikeComment, reportComment } from '../api/user.js'
 import { sanitize } from '../utils/sensitiveFilter'
 import { useTags } from '../composables/useTags'; // 导入标签工具函数
 
@@ -858,6 +858,18 @@ const reportTypeGroups = [
   }
 ]
 
+// 根据选中的 value 查找对应的中文 label（优先从 groups 中查找）
+const findLabelByValue = (value, groups) => {
+  if (!value) return ''
+  for (const g of groups) {
+    if (!g.items) continue
+    for (const it of g.items) {
+      if (it.value === value) return it.label || value
+    }
+  }
+  return value
+}
+
 const cancelReport = () => {
   reportModalVisible.value = false
   reportTargetComment.value = null
@@ -899,23 +911,26 @@ const confirmWorkReport = async () => {
   }
   try {
     workReportSubmitting.value = true
-    const payload = { work_id: work.value.id }
     // 验证必须选择违规类型
     if (!workReportType.value) {
       showToast('请先选择违规类型', 'warning')
       workReportSubmitting.value = false
       return
     }
-    payload.type = workReportType.value
-    if (workReportReason.value && workReportReason.value.trim()) payload.reason = workReportReason.value.trim()
-    // 常见后端端点尝试
-    try {
-      await http.post(`/api/gameworks/gameworks/${work.value.id}/report/`, payload)
-    } catch (e) {
-      try { await http.post('/api/gameworks/reports/', payload) } catch (e2) {
-        try { await http.post('/api/interactions/reports/', payload) } catch (e3) { /* ignore */ }
-      }
+
+    // 将要发送的标签使用前端显示的中文 label
+    const workTagLabel = findLabelByValue(workReportType.value, workReportTypes.map(t => ({ items: [t] })))
+
+    // 新接口要求的字段名：gamework (id), tag (string), remark (string)
+    const payload = {
+      gamework: work.value.id,
+      tag: workTagLabel,
+      remark: workReportReason.value && workReportReason.value.trim() ? workReportReason.value.trim() : ''
     }
+
+    // 直接调用新的固定接口（不再兼容旧接口）
+    await http.post('/api/users/report/gamework/', payload)
+
     alert('举报已提交，我们会尽快处理')
     try { emit('report-work', work.value.id) } catch (e) {}
   } catch (e) {
@@ -933,23 +948,26 @@ const confirmReport = async () => {
     cancelReport()
     return
   }
-  try {
-    // 必须选择举报类型
-    if (!reportType.value) {
-      showToast('请先选择举报类型', 'warning')
-      return
-    }
-    comment._reporting = true
-    // 发送举报到后端，包含类型和可选理由
-    const payload = { comment_id: comment.id, type: reportType.value }
-    if (reportReason.value && reportReason.value.trim()) payload.reason = reportReason.value.trim()
     try {
-      await http.post('/api/interactions/comments/report/', payload)
-    } catch (e) {
-      try { await http.post('/api/interactions/reports/', payload) } catch (e2) { /* ignore */ }
-    }
-    showToast('举报已提交，我们会尽快处理', 'success')
-    try { emit('report-comment', comment.id) } catch (e) {}
+      // 必须选择举报类型
+      if (!reportType.value) {
+        showToast('请先选择举报类型', 'warning')
+        return
+      }
+      comment._reporting = true
+      // 后端期望 body 中 comment 为被举报评论的主键（integer）
+      const commentId = comment.id
+      // 将要发送的标签使用前端显示的中文 label
+      const tag = findLabelByValue(reportType.value, reportTypeGroups)
+      const remark = (reportReason.value && reportReason.value.trim()) ? reportReason.value.trim() : ''
+      try {
+        await reportComment(commentId, tag, remark)
+      } catch (e) {
+        // fallback to common endpoints if the dedicated one fails
+        try { await http.post('/api/interactions/reports/', { comment: commentId, tag, remark }) } catch (e2) { /* ignore */ }
+      }
+      showToast('举报已提交，我们会尽快处理', 'success')
+      try { emit('report-comment', comment.id) } catch (e) {}
   } catch (e) {
     console.error('举报失败', e)
     showToast('举报失败，请稍后重试', 'error')
