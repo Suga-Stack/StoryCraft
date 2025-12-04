@@ -313,7 +313,10 @@ const fetchMyReports = async () => {
         for (const item of list) {
           // 规范化字段到前端显示结构
           const fallbackTitle = item.target_title || item.work_title || item.title || (item.gamework && item.gamework.title)
-          const resolvedTitle = fallbackTitle || (item.gamework ? '作品' : (item.comment ? `评论#${item.comment}` : '未知'))
+          const gwTitleField = item.gamework_title || item.game_title || (item.gamework && (item.gamework.title || item.gamework.work_title))
+          const commentContent = item.comment_content || item.comment_text || item.content || (item.raw && (item.raw.comment_content || item.raw.content))
+          const commentSuffix = commentContent ? ` ${commentContent}` : (item.comment ? `#${item.comment}` : '')
+          const resolvedTitle = fallbackTitle || (item.gamework ? `作品${gwTitleField ? ' ' + gwTitleField : ''}` : ((item.comment || commentContent) ? `评论${commentSuffix}` : '未知'))
           results.push({
             id: item.id,
             title: resolvedTitle,

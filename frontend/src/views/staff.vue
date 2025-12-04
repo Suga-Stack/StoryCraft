@@ -8,9 +8,9 @@
         v-for="r in reports"
         :key="r.id"
       >
+        <button class="delete-x" :disabled="r._deleting || r.status !== '已处理'" @click.stop="deleteReport(r)">×</button>
         <div class="report-main">
           <div class="report-title">{{ r.title }}</div>
-          <div class="report-meta">ID: {{ r.id }} · {{ formatDate(r.created_at) }}</div>
         </div>
         <div class="report-body">
           <div class="report-reason">
@@ -21,14 +21,17 @@
         </div>
         <div v-if="r.remark" class="report-remark">备注：{{ r.remark }}</div>
         <div class="report-actions">
-          <button
-            class="btn btn-handle"
-            :disabled="r._handling || r.status === '已处理'"
-            :aria-disabled="r._handling || r.status === '已处理'"
-            @click="markHandled(r)">
-            {{ r.status === '已处理' ? '已处理' : (r._handling ? '处理中...' : '标为已处理') }}
-          </button>
-          <button class="btn btn-view" @click="viewDetail(r)">查看详情</button>
+          <div class="actions-left">
+            <button
+              class="btn btn-handle"
+              :disabled="r._handling || r.status === '已处理'"
+              :aria-disabled="r._handling || r.status === '已处理'"
+              @click="markHandled(r)">
+              {{ r.status === '已处理' ? '已处理' : (r._handling ? '处理中...' : '标为已处理') }}
+            </button>
+            <button class="btn btn-view" @click="viewDetail(r)">查看详情</button>
+          </div>
+          <div class="report-meta-inline">ID: {{ r.id }} · {{ formatDate(r.created_at) }}</div>
         </div>
       </div>
 
@@ -108,6 +111,50 @@ const viewDetail = (r) => {
   showToast(`查看举报 ${r.id}`)
 }
 
+const deleteReport = async (r) => {
+  if (!r) return
+  // 前端校验：未处理的举报不允许删除
+  if (r.status !== '已处理') {
+    showToast('未处理的举报不可删除，请先标为已处理')
+    return
+  }
+  if (!confirm('确认删除该举报记录？此操作不可恢复。')) return
+  // avoid double delete
+  if (r._deleting) return
+  r._deleting = true
+  try {
+    let res = null
+    // 判断是否为评论举报
+    if (r.raw && (r.raw.comment || typeof r.raw.comment !== 'undefined')) {
+      res = await http.delete(`/api/users/reports/comments/${r.id}/`)
+    } else {
+      // 作品举报删除
+      try {
+        res = await http.delete(`/api/users/reports/gameworks/${r.id}/`)
+      } catch (e) {
+        // fallback to generic reports delete
+        try { res = await http.delete(`/api/users/reports/${r.id}/`) } catch (e2) { res = null }
+      }
+    }
+
+    const ok = res && (res.status === 204 || res.status === 200 || (res.data && (res.data.code === 200 || res.data.success === true)))
+    if (ok) {
+      // 从列表中移除
+      const idx = reports.value.findIndex(x => x.id === r.id)
+      if (idx !== -1) reports.value.splice(idx, 1)
+      showToast('删除成功')
+    } else {
+      console.warn('deleteReport unexpected response', res)
+      showToast('删除失败，请稍后重试')
+    }
+  } catch (e) {
+    console.error('deleteReport failed', e)
+    showToast('删除失败，请稍后重试')
+  } finally {
+    r._deleting = false
+  }
+}
+
 // 拉取全部举报（评论与作品）
 const fetchAllReports = async () => {
   try {
@@ -140,7 +187,10 @@ const fetchAllReports = async () => {
 
         for (const item of list) {
           const fallbackTitle = item.target_title || item.work_title || item.title || (item.gamework && item.gamework.title)
-          const resolvedTitle = fallbackTitle || (item.gamework ? '作品' : (item.comment ? `评论#${item.comment}` : '未知'))
+          const gwTitleField = item.gamework_title || item.game_title || (item.gamework && (item.gamework.title || item.gamework.work_title))
+          const commentContent = item.comment_content || item.comment_text || item.content || (item.raw && (item.raw.comment_content || item.raw.content))
+          const commentSuffix = commentContent ? ` ${commentContent}` : (item.comment ? `#${item.comment}` : '')
+          const resolvedTitle = fallbackTitle || (item.gamework ? `作品${gwTitleField ? ' ' + gwTitleField : ''}` : ((item.comment || commentContent) ? `评论${commentSuffix}` : '未知'))
           all.push({
             id: item.id,
             title: resolvedTitle,
@@ -178,10 +228,13 @@ onMounted(() => {
 <style scoped>
 .staff-page { min-height:100vh; background:#f5f5f5; }
 .report-list { padding:16px }
-.report-item { background:#fff; border-radius:12px; padding:12px; margin-bottom:12px; box-shadow:0 2px 8px rgba(0,0,0,0.04); }
+.report-item { background:#fff; border-radius:12px; padding:16px; margin-bottom:14px; box-shadow:0 6px 20px rgba(0,0,0,0.06); position:relative; }
 .report-main { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px }
 .report-title { font-weight:600; font-size:16px; color:#333 }
 .report-meta { font-size:12px; color:#999 }
+.report-meta-inline { font-size:12px; color:#666 }
+.report-actions { margin-top:10px; margin-bottom:14px; display:flex; gap:8px; justify-content:space-between; align-items:center }
+.actions-left { display:flex; gap:8px; align-items:center }
 .report-body { display:flex; gap:12px; align-items:center; flex-wrap:wrap }
 .report-reason { color:#666; font-size:13px; display:flex; align-items:center; gap:8px }
 .report-tag { background: linear-gradient(90deg,#ffe9e9,#fff4e6); color:#b33; padding:4px 8px; border-radius:12px; font-weight:700; font-size:13px }
@@ -190,9 +243,31 @@ onMounted(() => {
 .status { padding:2px 8px; border-radius:12px; font-size:12px }
 .status.pending { background:#fff3cd; color:#856404 }
 .status.done { background:#d4edda; color:#155724 }
-.report-actions { margin-top:10px; display:flex; gap:8px }
+.report-actions { margin-top:10px; margin-bottom:34px; display:flex; gap:8px }
 .btn { padding:6px 10px; border-radius:8px; border:none; cursor:pointer }
 .btn-handle { background:linear-gradient(135deg,#d4a5a5 0%,#b88484 100%); color:#fff }
 .btn-view { background:#fff; border:1px solid #e6e6e6; color:#333 }
+.delete-x {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(180deg,#ff6b6b,#e63946);
+  color: #fff;
+  font-size: 18px;
+  line-height: 36px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  box-shadow: 0 6px 18px rgba(230,50,70,0.18);
+  cursor: pointer;
+  transition: transform .12s ease, box-shadow .12s ease, opacity .12s ease;
+}
+.delete-x:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(230,50,70,0.22); }
+.delete-x:active { transform: translateY(0); }
+.delete-x:disabled { opacity: 0.5; cursor: not-allowed }
 .empty { padding:20px; color:#999; text-align:center }
 </style>
