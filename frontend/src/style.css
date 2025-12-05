@@ -38,3 +38,48 @@ a {
 a:hover {
   text-decoration: underline;
 }
+
+/* 全局按钮与触摸反馈优化 */
+button,
+.van-button,
+.primary-btn,
+.custom-search-btn {
+  -webkit-tap-highlight-color: transparent; /* 移除 iOS 高亮 */
+  touch-action: manipulation; /* 提升触摸响应 */
+  cursor: pointer;
+  transition: transform .08s ease, box-shadow .12s ease, opacity .08s ease;
+}
+
+/* 鼠标悬停反馈（桌面） */
+button:hover,
+.van-button:hover,
+.primary-btn:hover,
+.custom-search-btn:hover {
+  transform: translateY(-2px);
+}
+
+/* 按下/触摸反馈（移动与桌面按下） */
+button:active,
+.van-button:active,
+.primary-btn:active,
+.custom-search-btn:active {
+  transform: translateY(0);
+  opacity: 0.95;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+
+/* 指定 van-tag 的交互样式 */
+.van-tag:hover {
+  filter: brightness(0.95);
+}
+.van-tag:active {
+  transform: translateY(0);
+  opacity: 0.95;
+}
+
+/* 列表项点击反馈（搜索结果 / 排行榜） */
+.ranking-item:active,
+.result-item:active {
+  background-color: rgba(0,0,0,0.02);
+}
+

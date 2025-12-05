@@ -892,13 +892,36 @@ const handleTagListScroll = (e) => {
   box-shadow: 0 6px 20px rgba(212, 165, 165, 0.4);
 }
 
+/* 移动端/按下 反馈 */
 .primary-btn:active {
   transform: translateY(0);
+  opacity: 0.95;
+  box-shadow: 0 2px 8px rgba(212,165,165,0.25);
 }
 
 .primary-btn.active {
   opacity: 0.9;
   box-shadow: 0 2px 8px rgba(212, 165, 165, 0.5);
+}
+
+/* 自定义搜索按钮的 hover/active */
+.custom-search-btn:hover {
+  filter: brightness(0.98);
+}
+.custom-search-btn:active {
+  transform: scale(0.995);
+}
+
+/* 标签点击反馈（在弹窗中生效） */
+::v-deep .tag-list .van-tag:active {
+  transform: translateY(0);
+  opacity: 0.92;
+}
+
+/* 列表项点击反馈（搜索结果 / 排行榜） */
+.ranking-item:active,
+.result-item:active {
+  background-color: rgba(0,0,0,0.02);
 }
 
 /* 搜索历史样式 */
