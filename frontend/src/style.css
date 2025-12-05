@@ -5,6 +5,36 @@
   box-sizing: border-box;
 }
 
+/* Display font: 导入用于标题的装饰性字体  */
+
+@font-face {
+  font-family: 'Great Vibes Local';
+  /* 使用相对路径（带 ./），并提供多种格式以兼容不同 WebView 版本 */
+    /* 兜底多个可能的路径：
+      - /assets/... 在某些构建输出中字体被放到 assets 下
+      - /fonts/... 在 dev server 或 public 根下可直接访问
+      - ./fonts/... 在 file:// 打包后相对路径下可访问
+    */
+        /* 优先尝试 dev server/public 根（/fonts），其次 /assets（生产构建），最后相对路径（file://） */
+        src: url('/fonts/GreatVibes-Regular.woff2') format('woff2'),
+          url('/fonts/GreatVibes-Regular.woff') format('woff'),
+          url('/fonts/GreatVibes-Regular.ttf') format('truetype'),
+          url('/assets/fonts/GreatVibes-Regular.woff2') format('woff2'),
+          url('/assets/fonts/GreatVibes-Regular.woff') format('woff'),
+          url('/assets/fonts/GreatVibes-Regular.ttf') format('truetype'),
+          url('./fonts/GreatVibes-Regular.woff2') format('woff2'),
+          url('./fonts/GreatVibes-Regular.woff') format('woff'),
+          url('./fonts/GreatVibes-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* 设计令牌：主题变量（包含 display 字体变量） */
+:root {
+  --font-display: 'Great Vibes Local';
+}
+
 :root {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   line-height: 1.5;
