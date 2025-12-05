@@ -3,32 +3,34 @@ from django.db import models
 from tags.models import Tag
 from gameworks.models import Gamework
 from django.conf import settings
+from django.utils import timezone
 
 # 用户模型
 class User(AbstractUser):
-      # user_id = models.AutoField(primary_key=True)  # 用户id，自动递增的主键
-      username = models.CharField(max_length=255, unique=True)  # 用户名，唯一
-      email = models.EmailField(unique=True)  # 邮箱唯一
-      password = models.CharField(max_length=255)  # 密码哈希值
-      profile_picture = models.URLField(max_length=255, blank=True, null=True)  # 头像URL
-      user_credits = models.IntegerField(blank=True, null=True)  # 用户积分
-      created_at = models.DateTimeField(auto_now_add=True)  # 创建时间，自动设置
-      updated_at = models.DateTimeField(auto_now=True)  # 更新时间，自动更新
-      gender = models.CharField(
-            max_length=10,
-            choices=[('Male', 'Male'), ('Female', 'Female'), ('Other', 'Other')],
-            blank=True,
-            null=True
-      )  # 性别字段，选择 Male、Female 或 Other
-      liked_tags = models.ManyToManyField(Tag, blank=True)  # 用户喜欢的标签，可以为空
-      is_staff = models.BooleanField(default=False)  # 默认用户为非管理员
+    # user_id = models.AutoField(primary_key=True)  # 用户id，自动递增的主键
+    username = models.CharField(max_length=255, unique=True)  # 用户名，唯一
+    email = models.EmailField(unique=True)  # 邮箱唯一
+    password = models.CharField(max_length=255)  # 密码哈希值
+    profile_picture = models.URLField(max_length=255, blank=True, null=True)  # 头像URL
+    user_credits = models.IntegerField(blank=True, null=True)  # 用户积分
+    created_at = models.DateTimeField(auto_now_add=True)  # 创建时间，自动设置
+    updated_at = models.DateTimeField(auto_now=True)  # 更新时间，自动更新
+    gender = models.CharField(
+        max_length=10,
+        choices=[('Male', 'Male'), ('Female', 'Female'), ('Other', 'Other')],
+        blank=True,
+        null=True
+    )  # 性别字段，选择 Male、Female 或 Other
+    liked_tags = models.ManyToManyField(Tag, blank=True)  # 用户喜欢的标签，可以为空
+    is_staff = models.BooleanField(default=False)  # 默认用户为非管理员
 
-      def get_read_gameworks(self):
-            """返回该用户读过的所有作品"""
-            return Gamework.objects.filter(read_records__user=self).distinct()
+    def get_read_gameworks(self):
+        """返回该用户读过的所有作品"""
+        return Gamework.objects.filter(read_records__user=self).distinct()
 
-      def __str__(self):
-            return self.username
+    def __str__(self):
+        return self.username
+
 
 class UserSignIn(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='signin_info')
@@ -37,7 +39,8 @@ class UserSignIn(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - 连续 {self.continuous_days} 天"
-    
+
+
 class SignInLog(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="signin_logs")
     date = models.DateField()
@@ -45,7 +48,8 @@ class SignInLog(models.Model):
     class Meta:
         unique_together = ('user', 'date')
         ordering = ['-date']
-    
+
+ 
 class CreditLog(models.Model):
     """用户积分流水记录"""
 
@@ -85,3 +89,59 @@ class CreditLog(models.Model):
 
     def __str__(self):
         return f"[{self.get_type_display()}] {self.user.username}: {self.change_amount}"
+
+
+class GameworkReport(models.Model):
+    """作品举报记录"""
+    reporter = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="gamework_reports",
+        verbose_name="举报人"
+    )
+    gamework = models.ForeignKey(
+        "gameworks.Gamework",
+        on_delete=models.CASCADE,
+        related_name="reports",
+        verbose_name="被举报作品"
+    )
+    is_resolved = models.BooleanField(default=False)
+    tag = models.CharField(max_length=100, verbose_name="违规标签")
+    remark = models.TextField(blank=True, verbose_name="备注")
+    created_at = models.DateTimeField(default=timezone.now, verbose_name="举报时间")
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "作品举报记录"
+        verbose_name_plural = "作品举报记录"
+
+    def __str__(self):
+        return f"作品 {self.gamework.id} 举报 by {self.reporter.username}"
+
+
+class CommentReport(models.Model):
+    """评论举报记录"""
+    reporter = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="comment_reports",
+        verbose_name="举报人"
+    )
+    comment = models.ForeignKey(
+        "interactions.Comment",
+        on_delete=models.CASCADE,
+        related_name="reports",
+        verbose_name="被举报评论"
+    )
+    is_resolved = models.BooleanField(default=False)
+    tag = models.CharField(max_length=100, verbose_name="违规标签")
+    remark = models.TextField(blank=True, verbose_name="备注")
+    created_at = models.DateTimeField(default=timezone.now, verbose_name="举报时间")
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "评论举报记录"
+        verbose_name_plural = "评论举报记录"
+
+    def __str__(self):
+        return f"评论 {self.comment.id} 举报 by {self.reporter.username}"

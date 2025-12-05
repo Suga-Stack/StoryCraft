@@ -14,7 +14,7 @@ class IsOwnerOrReadOnly(permissions.BasePermission):
             return True
 
         # 检查属性
-        owner = getattr(obj, 'user', None)
+        owner = getattr(obj, 'author', None)
         if owner is None:
             # 若对象没有 user，拒绝写权限
             return False
