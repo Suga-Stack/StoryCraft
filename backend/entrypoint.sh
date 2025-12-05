@@ -12,8 +12,10 @@ then
 fi
 
 # 执行数据库迁移
+python manage.py makemigrations
 python manage.py migrate
 python manage.py loaddata tags/fixtures/initial_tags.json
+python manage.py init_music
 # 收集静态文件
 python manage.py collectstatic --no-input
 
