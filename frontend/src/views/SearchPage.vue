@@ -6,7 +6,7 @@
         v-model="searchValue"
         placeholder="搜索作品..."
         shape="round"
-        background="#f5f5f5"
+        background=transparent
         :right-icon="showAdvancedFilter ? 'arrow-up' : 'arrow-down'"
         @click-right-icon="toggleAdvancedFilter"
         :show-action="true" 
@@ -19,7 +19,7 @@
 
         <!-- 添加搜索按钮 -->
         <template #action>
-          <van-button type="text" @click="handleSearch(searchValue)" class="custom-search-btn">搜索</van-button>
+          <span  @click="handleSearch(searchValue)" class="custom-search-span">搜索</span>
         </template>
       </van-search>
     </div>
@@ -37,7 +37,7 @@
         <van-col span="12">
           <van-field
             v-model=tagDisplayText
-            placeholder="选择标签（可多选）"
+            placeholder="选择标签"
             readonly
             :clickable="true"
             @click="toggleTagPopup"
@@ -65,16 +65,30 @@
             <span>选择标签</span>
             <span class="close-btn" @click="showTagPopup = false">x</span>
           </div>
-          <div class="tag-list" @scroll="handleTagListScroll">
+
+          <div class="category-buttons">
+            <van-button 
+              v-for="(category, index) in categories" 
+              :key="index"
+              :type="currentCategory === index ? 'primary' : 'default'"
+              @click="switchCategory(index)"
+              round
+              size="small"
+            >
+              {{ category.name }}
+            </van-button>
+          </div>
+
+          <div class="tag-list">
             <!-- 加载状态 -->
             <van-loading v-if="isLoadingTags && allTags.length === 0" color="#c78c8c" size="24" class="loading-indicator" />
             
             <!-- 错误提示 -->
             <p class="error-text" v-if="tagsError && allTags.length === 0">{{ tagsError }}</p>
             
-            <!-- 标签列表 -->
+            <!-- 标签列表（只显示当前分类的标签） -->
             <van-tag
-              v-for="tag in allTags"
+              v-for="tag in filteredTags"
               :key="tag.id"
               :color="getTagColorById(tag.id).backgroundColor"
               :text-color="getTagColorById(tag.id).color"
@@ -84,6 +98,7 @@
             >
               {{ tag.name }}
             </van-tag>
+            
             <!-- 加载更多提示 -->
             <div v-if="isLoadingTags && allTags.length > 0" class="loading-more">
               <van-loading size="16" />
@@ -94,6 +109,7 @@
               没有更多标签了
             </div>
           </div>
+
           <div class="tag-popup-footer">
             <van-button 
               type="primary" 
@@ -236,8 +252,9 @@
     <!-- 搜索结果区域 -->
     <div class="search-result" v-if="isSearchCompleted">
       <div class="result-header">
-        <span>搜索结果: "{{ searchValue }}"</span>
+        <span>搜索结果:</span>
       </div>
+
       <div class="result-list" v-if="searchResults.length">
         <div 
           class="result-item" 
@@ -309,6 +326,17 @@ const selectedTagIds = ref([])  // 新增这一行
 const selectedTagNames = ref([])  // 已存在的行
 const isLoadingTags = ref(false); // 加载状态
 const tagsError = ref(''); // 错误信息
+
+// 标签分类数据（和偏好页保持一致）
+const categories = ref([
+  { name: '类型', range: [0, 15] },    // 类型标签：0-15
+  { name: '风格', range: [16, 48] },   // 风格标签：16-48
+  { name: '世界观', range: [49, 63] }, // 世界观标签：49-63
+  { name: '题材', range: [64, 88] }    // 题材标签：64-88
+]);
+
+// 当前选中的分类索引
+const currentCategory = ref(0);
 
 const authorFilter = ref('')
 
@@ -508,16 +536,15 @@ onMounted(() => {
 
 // 选择标签（切换选中状态）
 const selectTag = (tag) => {
-  const index = selectedTagIds.value.indexOf(tag.id)
-  if (index > -1) {
-    // 已选中则移除
-    selectedTagIds.value.splice(index, 1)
-    selectedTagNames.value.splice(index, 1)
-  } else {
-    // 未选中则添加
-    selectedTagIds.value.push(tag.id)
-    selectedTagNames.value.push(tag.name)
-  }
+    // 清除已有选择，只保留当前选中项
+   if (selectedTagIds.value[0] !== tag.id) {
+     selectedTagIds.value = [tag.id]
+     selectedTagNames.value = [tag.name]
+   } else {
+     // 再次点击已选中项则取消选择
+     selectedTagIds.value = []
+     selectedTagNames.value = []
+   }
 
   // 实时更新显示文本
   tagDisplayText.value = selectedTagNames.value.join(',')
@@ -606,36 +633,6 @@ const handleSearch = async (value = searchValue.value) => {
   }
 }
 
-// 加载更多搜索结果
-const loadMoreSearchResults = async () => {
-  if (!hasMoreSearchResults.value || !isSearchCompleted.value) return
-  
-  searchCurrentPage.value += 1
-  isSearchCompleted.value = false
-  
-  try {
-    // 使用新的search接口函数
-    const response = await search(
-      searchCurrentPage.value,
-      searchValue.value,
-      authorFilter.value,
-      tagFilter.value
-    )
-    
-    // 将新结果添加到现有结果中
-    searchResults.value = [...searchResults.value, ...response.data.results]
-    searchTotalItems.value = response.data.count
-    isSearchCompleted.value = true
-    
-    // 判断是否还有更多数据
-    hasMoreSearchResults.value = !!response.data.next
-  } catch (error) {
-    console.error('加载更多失败', error)
-    searchCurrentPage.value -= 1 // 恢复页码
-    isSearchCompleted.value = true
-  }
-}
-
 // 点击历史记录
 const handleHistoryClick = (value) => {
   searchValue.value = value
@@ -682,36 +679,74 @@ const formatNumber = (num) => {
 }
 
 // 在标签相关变量区域添加
-const tagCurrentPage = ref(1)
 const hasMoreTags = ref(true)
+
+// 筛选当前分类的标签
+const filteredTags = computed(() => {
+  const { range } = categories.value[currentCategory.value];
+  const [min, max] = range;
+  return allTags.value.filter(tag => tag.id >= min && tag.id <= max);
+});
+
+// 切换分类
+const switchCategory = (index) => {
+  currentCategory.value = index;
+  // 滚动到标签列表顶部
+  const tagList = document.querySelector('.tag-list');
+  if (tagList) {
+    tagList.scrollTop = 0;
+  }
+};
 
 // fetchTags函数
 const fetchTags = async (page = 1) => {
   try {
-    // 显示加载状态（需要在模板中添加加载指示器）
-    isLoadingTags.value = true;
-    tagsError.value = '';
-
-    const newTagsRes = await http.get('/api/tags/', {
-      params: { page }
+    const response = await http.get('/api/tags/', {
+      params: { page } 
     });
-    
-    if (page === 1) {
-      allTags.value = newTagsRes.data?.results || [];
-    } else {
-      allTags.value = [...allTags.value, ...(newTagsRes.data?.results || [])];
-    }
-    
-    hasMoreTags.value = !!newTagsRes.data?.next;
-    tagCurrentPage.value = page;
+    return {
+      results: response.data?.results || [], // 当前页标签
+      totalPages: Math.ceil((response.data?.count || 0) / 10) 
+    };
   } catch (error) {
-    console.error('获取标签失败', error);
-    tagsError.value = error.response?.data?.message || '获取标签失败，请稍后重试';
+//  console.error(`获取第${page}页标签失败:`, error);
+    throw error; // 抛出错误让外层处理
+  }
+};
+
+// 获取所有标签
+const fetchAllTags = async () => {
+  isLoadingTags.value = true;
+  tagsError.value = '';
+  allTags.value = []; // 清空现有数据
+
+  try {
+    // 先请求第1页，获取总页数
+    const firstPage = await fetchTags(1);
+    allTags.value.push(...firstPage.results); // 合并第1页数据
+
+    // 如果总页数大于1，循环请求剩余页数
+    if (firstPage.totalPages > 1) {
+      // 从第2页循环到最后一页
+      for (let page = 2; page <= firstPage.totalPages; page++) {
+        const currentPage = await fetchTags(page);
+        allTags.value.push(...currentPage.results); // 合并当前页数据
+      }
+    }
+
+     // 检查是否获取到数据
+    if (allTags.value.length === 0) {
+      console.warn('后端返回空标签列表，使用默认标签');
+      allTags.value = [...defaultTags];
+    }
+  //console.log('全部标签加载完成，共', allTags.value.length, '条');
+  } catch (error) {
+    tagsError.value = '加载标签失败，请重试';
     showToast(tagsError.value);
   } finally {
     isLoadingTags.value = false;
   }
-}
+};
 
 // 在打开标签弹窗时加载标签
 const toggleTagPopup = () => {
@@ -719,43 +754,38 @@ const toggleTagPopup = () => {
   showTagPopup.value = !showTagPopup.value;
   // 只有当弹窗被打开，且标签数据为空、没有正在加载时，才加载第一页标签
   if (showTagPopup.value && allTags.value.length === 0 && !isLoadingTags.value) {
-    fetchTags(1);
+    fetchAllTags();
   }
 }
 
-// 处理标签列表滚动加载
-const handleTagListScroll = (e) => {
-  const { scrollTop, scrollHeight, clientHeight } = e.target;
-  // 当滚动到距离底部20px时加载更多
-  if (scrollHeight - scrollTop - clientHeight < 20 && hasMoreTags.value) {
-    fetchTags(tagCurrentPage.value + 1);
-  }
-}
 </script>
 
 <style scoped>
 .search-page {
-  background-color: #f5f5f5;
+  background-color: #faf8f3;
   min-height: 100vh;
+  position: relative;
 }
 
-.custom-search-btn {
-  border: 2px solid #d4a5a5;
-  background-color: #fff;
-  color: #d4a5a5 !important;
-  border-radius: 8px;
-  padding: 3px 6px;
-}
+.custom-search-span {
+  color: #c78c8c !important;
+  font-size: 16px;
+  padding: 8px 6px;
+  height: auto;
 
-.custom-search-btn:active {
-  background-color: #fff !important;
-  opacity: 0.9;
 }
 
 .advanced-filter {
-  padding: 10px 16px;
+  position: absolute;
+  border-radius: 10px;
+  padding: 5px 0 5px 0;
+  overflow: hidden;
+  width: 90%;
+  margin: 0 5%;
+  z-index: 100;
   background-color: #fff;
-  border-bottom: 1px solid #f5f5f5;
+  border: 1px solid rgba(212,165,165,0.35) !important;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.05);
 }
 
 .filter-row {
@@ -855,15 +885,28 @@ const handleTagListScroll = (e) => {
 
 /* 搜索栏样式 */
 .search-bar {
-  padding: 10px 16px;
-  background-color: #fff;
+  padding: 10px 0 0 0;
+  background-color: #faf8f3;
+}
+
+::v-deep .van-search{ 
+  padding: 0 0 0 10px;
+  height: 70px;
+  .van-search__content {
+    margin-left: 10px;
+    padding: 5px 0 8px 5px;
+    border-radius: 20px !important;
+    overflow: hidden;
+    background-color: #ffffff !important;
+    border: 1px solid rgba(212,165,165,0.35) !important;
+  }
 }
 
 /* 导航按钮样式 */
 .nav-buttons {
   display: flex;
   padding: 10px 16px;
-  background-color: #fff;
+  background-color: #faf8f3;
   gap: 8px;
   overflow-x: auto;
   scrollbar-width: none;
@@ -912,6 +955,26 @@ const handleTagListScroll = (e) => {
   transform: scale(0.995);
 }
 
+.category-buttons {
+  display: flex;
+  gap: 8px;
+  margin: 10px 16px 0 16px;
+  overflow-x: auto; 
+}
+
+/* 自定义按钮样式 */
+::v-deep .van-button--primary {
+  background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
+  border: none;
+}
+
+::v-deep .van-button--default {
+  background-color: #fff;
+  color: #c78c8c;
+  border: 1px solid #c78c8c;
+}
+
+
 /* 标签点击反馈（在弹窗中生效） */
 ::v-deep .tag-list .van-tag:active {
   transform: translateY(0);
@@ -927,7 +990,7 @@ const handleTagListScroll = (e) => {
 /* 搜索历史样式 */
 .search-history {
   padding: 16px;
-  background-color: #fff;
+  background-color: #faf8f3;
   margin-bottom: 10px;
 }
 
@@ -947,11 +1010,15 @@ const handleTagListScroll = (e) => {
 }
 
 /* 排行榜通用样式 */
-
 .ranking-section {
   background-color: #fff;
   margin-bottom: 10px;
   padding: 16px;
+  width:88%;
+  margin-left: auto;
+  margin-right: auto;
+  border-radius: 10px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.05);
 }
 
 .ranking-header {
@@ -1029,6 +1096,7 @@ const handleTagListScroll = (e) => {
   height: 80px;
   border-radius: 4px;
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 .item-info {
@@ -1043,6 +1111,7 @@ const handleTagListScroll = (e) => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 135px;
 }
 
 .item-author {
@@ -1119,6 +1188,7 @@ const handleTagListScroll = (e) => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 230px;
 }
 
 .result-author {
@@ -1138,6 +1208,7 @@ const handleTagListScroll = (e) => {
   color: #444444;
   height: 60px;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .empty-result {
