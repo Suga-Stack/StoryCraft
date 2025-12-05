@@ -465,7 +465,8 @@ const fetchHotLeaderboard = async () => {
           tags: item.tags, // 保留原始标签ID
           tagNames: tagNames, // 存储转换后的标签名称
           rating: item.average_score,
-          collectionCount: item.favorite_count
+          collectionCount: item.favorite_count,
+          hotScore: item.hot_score
         }
       })
     )
@@ -485,7 +486,8 @@ const fetchHotLeaderboard = async () => {
           tags: item.tags, // 保留原始标签ID
           tagNames: tagNames, // 存储转换后的标签名称
           rating: item.average_score,
-          collectionCount: item.favorite_count
+          collectionCount: item.favorite_count,
+          hotScore: item.hot_score
         }
       })
     )
@@ -505,7 +507,8 @@ const fetchHotLeaderboard = async () => {
           tags: item.tags, // 保留原始标签ID
           tagNames: tagNames, // 存储转换后的标签名称
           rating: item.average_score,
-          collectionCount: item.favorite_count
+          collectionCount: item.favorite_count,
+          hotScore: item.hot_score
         }
       })
     )
