@@ -1,6 +1,14 @@
 from django.db import models
 from django.conf import settings
-from tags.models import Tag  # 导入 Tag 模型
+from tags.models import Tag  
+
+class Music(models.Model):
+    """背景音乐模型"""
+    url = models.CharField(max_length=500, verbose_name="Music URL")
+    tags = models.ManyToManyField(Tag, blank=True, related_name='musics', verbose_name="Tags")
+
+    def __str__(self):
+        return self.url
 
 class Gamework(models.Model):
     """游戏作品模型"""
@@ -17,6 +25,8 @@ class Gamework(models.Model):
 
     favorites = models.ManyToManyField(settings.AUTH_USER_MODEL, through='interactions.Favorite', related_name='favorite_games')
     price = models.IntegerField(default=0, verbose_name="Price")  # 价格，默认免费
+    
+    background_musics = models.ManyToManyField(Music, blank=True, verbose_name="Background Musics")
 
     class Meta:
         verbose_name = "Gamework"
