@@ -12,6 +12,11 @@ const { getTagsByIds } = useTags();
 
 const router = useRouter()
 
+// 当前用户信息（用于权限判断）
+const userInfo = ref({})
+try { userInfo.value = JSON.parse(localStorage.getItem('userInfo') || '{}') } catch (e) { userInfo.value = {} }
+const isStaff = computed(() => !!(userInfo.value.is_staff || userInfo.value.isStaff || userInfo.value.staff))
+
 const goBack = () => {
   router.push('/')
 }
@@ -942,6 +947,51 @@ const confirmWorkReport = async () => {
   }
 }
 
+// 删除作品（与 MyCreationsPage.vue 使用相同的删除端点尝试逻辑）
+const deletingWork = ref(false)
+const deleteWork = async () => {
+  if (!work.value || !work.value.id) return
+  if (!confirm('确认要删除此作品吗？此操作不可恢复。')) return
+  if (deletingWork.value) return
+  deletingWork.value = true
+  try {
+    const endpoints = [
+      `/api/gameworks/gameworks/${work.value.id}/`,
+      `/gameworks/gameworks/${work.value.id}/`,
+      `/api/interactions/gameworks/${work.value.id}/`
+    ]
+    let deleted = false
+    for (const ep of endpoints) {
+      try {
+        await http.delete(ep)
+        deleted = true
+        break
+      } catch (err) {
+        const status = err?.status || err?.response?.status
+        if (status === 405) {
+          console.warn(`DELETE ${ep} returned 405 Method Not Allowed.`, err?.response?.headers)
+          showToast('删除操作被服务器拒绝（405）。请检查权限或联系后端。', 'warning')
+          continue
+        }
+        console.warn(`DELETE ${ep} failed`, err)
+        continue
+      }
+    }
+
+    if (deleted) {
+      showToast('作品已删除', 'success')
+      try { router.back() } catch (e) { router.push('/') }
+    } else {
+      showToast('删除失败，请稍后重试', 'error')
+    }
+  } catch (e) {
+    console.error('deleteWork failed', e)
+    showToast('删除失败，请稍后重试', 'error')
+  } finally {
+    deletingWork.value = false
+  }
+}
+
 const confirmReport = async () => {
   const comment = reportTargetComment.value
   if (!comment || !comment.id) {
@@ -1059,6 +1109,17 @@ const startReading = async () => {
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
               <path d="M12 9v2m0 4h.01M21 12A9 9 0 1 1 3 12a9 9 0 0 1 18 0z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <button
+            v-if="isStaff"
+            class="delete-work-btn"
+            :disabled="deletingWork"
+            @click="deleteWork"
+            title="删除作品"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M3 6h18M8 6v12a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V6M10 11v6M14 11v6M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </button>
         </div>
@@ -1641,6 +1702,10 @@ const startReading = async () => {
 .report-work-btn { width:48px; height:48px; border:none; background: rgba(128,128,128,0.08); border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer }
 .report-work-btn svg { width:20px; height:20px; color:#666 }
 .report-work-btn:disabled { opacity:0.5; cursor:not-allowed }
+
+.delete-work-btn { width:48px; height:48px; border:none; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; background: linear-gradient(180deg,#ff6b6b,#e63946); color:#fff }
+.delete-work-btn svg { width:20px; height:20px; color:#fff }
+.delete-work-btn:disabled { opacity:0.5; cursor:not-allowed }
 
 /* 标签容器 */
 .tags-container {
