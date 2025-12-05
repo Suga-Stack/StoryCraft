@@ -92,6 +92,42 @@ class Command(BaseCommand):
             {
                 "filename": "summer-walk-152722.mp3",
                 "tags": ["种田","轻松","治愈","群像","日常","生活流","青春","校园"]
+            },
+            {
+                "filename": "meditation-relaxing-music-293922.mp3",
+                "tags": ["玄幻","奇幻","历史","末世","废土","星际","洪荒","克鲁苏"]
+            },
+            {
+                "filename": "inspiration-piano-calm-background-music-for-videos-7186.mp3",
+                "tags": ["都市","言情","轻松","青春"]
+            },
+            {
+                "filename": "ancient-wind-112528.mp3",
+                "tags": ["仙侠","武侠","虐心","权谋","古代","原始社会","宫斗","宅斗"]
+            },
+            {
+                "filename": "pixie-makeover-125559.mp3",
+                "tags": ["奇幻","都市","言情","种田","轻松","治愈","日常","生活流"]
+            },
+            {
+                "filename": "ambiant-cinematic-drone-main-10526.mp3",
+                "tags": ["历史","悬疑","灵异","废土","烧脑","克鲁苏"]
+            },
+            {
+                "filename": "sweet-life-luxury-chill-438146.mp3",
+                "tags": ["都市","赛博朋克","蒸汽朋克"]
+            },
+            {
+                "filename": "please-calm-my-mind-125566.mp3",
+                "tags": ["奇幻","暗黑","虐心","烧脑","智斗","热血"]
+            },
+            {
+                "filename": "inspiring-cinematic-ambient-116199.mp3",
+                "tags": ["悬疑","惊悚","灵异","烧脑"]
+            },
+            {
+                "filename": "soft-piano-inspiration-399920.mp3",
+                "tags": ["悬疑","种田","末世","废土","虐心","星际","原始部落","暗黑"]
             }
         ]
 
