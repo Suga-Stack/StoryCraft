@@ -1,4 +1,5 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
+import { isLogin, handleNotLogin } from '../utils/auth';
 import HomePage from '../views/HomePage.vue'
 import GameIntroduction from '../views/game_introduction.vue'
 import GamePage from '../views/GamePage.vue'
@@ -103,6 +104,19 @@ const router = createRouter({
   history: createWebHashHistory(), // 使用 Hash 模式（Capacitor 必需）
   routes
 })
+
+// 全局前置守卫
+router.beforeEach((to, from, next) => {
+  // 需要登录的页面白名单（书城页可视需求决定是否加入）
+  const needLoginPages = ['/bookshelf', '/create', '/profile', '/mycreations', '/readinghistory', '/charge', '/preferences', '/settlement', '/game/:id?', '/works/:id', '/search', '/home', '/', '/staff'];
+  
+  if (needLoginPages.includes(to.path) && !isLogin()) {
+    // 未登录且访问需要登录的页面，拦截并跳转登录页
+    handleNotLogin(router, to);
+  } else {
+    next(); // 已登录或访问无需登录的页面，正常跳转
+  }
+});
 
 
 export default router

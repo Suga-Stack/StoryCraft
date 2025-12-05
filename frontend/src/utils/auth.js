@@ -1,3 +1,20 @@
+// 检查用户是否已登录
+export const isLogin = () => {
+  const token = localStorage.getItem('token');
+  const userInfo = localStorage.getItem('userInfo');
+  return !!token && !!userInfo;
+}
+
+// 未登录时的处理（跳转登录页，并记录当前页面路径用于登录后返回）
+export const handleNotLogin = (router, to) => {
+  // 记录当前访问路径，登录后可跳转回来
+  if (to.path !== '/login') {
+    router.replace({
+      path: '/login',
+      query: { redirect: to.fullPath }
+    });
+  }
+}
 
 // 获取当前用户 ID
 const getCurrentUserId = () => {
