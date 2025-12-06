@@ -620,9 +620,10 @@ const handleTabChange = (tabName) => {
 .section-container {
   background-color: #fff;
   border-radius: 12px;
-  margin-bottom: 16px;
+  margin: 0 10px 16px 10px;
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(212,165,165,0.35)
 }
 
 .section-title-cell {
@@ -646,14 +647,16 @@ const handleTabChange = (tabName) => {
 .book-cover {
   width: 100%;
   height: 80px;
-  border-radius: 8px;
   background-size: contain; /* 改为contain，确保图片完整显示 */
   background-repeat: no-repeat; /* 防止图片重复平铺 */
   background-position: center; /* 图片在容器中居中 */
+  margin-bottom: -3px;
 }
 
 .book-title {
   font-size: 12px;
+  display: inline-block;
+  width: 135px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -683,7 +686,9 @@ const handleTabChange = (tabName) => {
 
 /* 单元格样式调整 */
 ::v-deep .van-cell-group {
-  margin-bottom: 16px;
+  margin: 0 10px 16px 10px;
+  border: 1px solid rgba(212,165,165,0.35);
+  border-radius: 12px
 }
 
 ::v-deep .van-cell {

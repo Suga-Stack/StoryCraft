@@ -615,7 +615,7 @@ const handleTabChange = (name) => {
 </template>
 
 <style scoped>
-.create-page { min-height: 100vh; background: #faf8f3; padding: 2rem 1rem 80px; }
+.create-page { min-height: 100vh; background: #faf8f3; padding: 2rem 1.4rem 80px; }
 .header { max-width: 960px; margin: -36px auto 1rem; }
 .header { max-width: 960px; margin: 0 auto 1rem; }
 .header h1 { color:#2c1810; margin:0 0 0.25rem; }
