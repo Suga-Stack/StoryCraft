@@ -2,7 +2,7 @@
     <div class="login-container">
         <div class="login-card">
             <div class="login-header">
-                <h1>StoreCraft</h1>
+                <h1>StoryCraft</h1>
                 <p>请登录您的账号继续使用</p>
             </div>
             
@@ -155,7 +155,8 @@ const goToRegister = () => {
 }
 
 .login-header h1 {
-  font-family: 'Comic Neue', 'Brush Script MT', cursive;
+    /* 使用全局 display 字体变量，后备到系统字体以提高兼容性 */
+  font-family: var(--font-display);
   
   font-size: 3rem;
   line-height: 1.0;
@@ -164,13 +165,14 @@ const goToRegister = () => {
   font-style: italic; 
   
   color: #3d3d3d;
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.08);
   
   letter-spacing: 0.03em;
   word-spacing: 0.05em;
   
   transform: rotate(-1deg);
   transition: transform 0.3s ease;
+
+  text-shadow: 0.5px 0 0 currentColor, -0.5px 0 0 currentColor;
 }
 
 .login-header p {

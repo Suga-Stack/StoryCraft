@@ -38,7 +38,7 @@ class GameworkViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        base_filter = Q(is_published=True)
+        base_filter = Q()
 
         if user.is_authenticated and not user.is_staff:
             base_filter |= Q(author=user)
@@ -68,6 +68,21 @@ class GameworkViewSet(viewsets.ModelViewSet):
             )
 
         return queryset
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        user = request.user
+        
+        # 权限检查
+        if not user.is_staff and instance.author != user:
+            return Response(
+                {"detail": "只有管理员或作者可以删除作品"},
+                status=403
+            )
+        
+        # 调用默认删除逻辑
+        return super().destroy(request, *args, **kwargs)
+
 
 class PublishGameworkViewSet(viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
