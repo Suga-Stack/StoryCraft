@@ -545,13 +545,13 @@ export function useStoryAPI() {
     } catch (e) {
       console.warn('[fetchNextChapter] 在清理本地场景时发生错误', e)
     }
-    if (opts && opts.singleRequest) {
+      if (opts && opts.singleRequest) {
         // 只进行一次 GET 请求，避免 getScenes 的重试逻辑在已经由 generate POST 发起生成后再次触发不必要的行为
         try {
-  // 注意：utils/http.js 已经配置了 baseURL='/api'，此处不要再加 '/api' 前缀，避免出现 '/api/api/...'
-  const resp = await http.get(`/api/game/chapter/${workId}/${idx}/`)
-        // axios 响应拦截器已经返回 response.data
-        data = resp
+      // 注意：utils/http.js 已经配置了 baseURL='/api'，此处不要再加 '/api' 前缀，避免出现 '/api/api/...'
+      const resp = await http.get(`/api/game/chapter/${workId}/${idx}/`)
+        // 规范化响应：优先使用 resp.data（Axios 返回的实际 payload），否则使用 resp
+        data = (resp && typeof resp === 'object' && 'data' in resp) ? resp.data : resp
         console.log('[fetchNextChapter] singleRequest response:', data)
         
         // 验证返回的数据格式
@@ -607,9 +607,9 @@ export function useStoryAPI() {
           await pollWorkStatus(workId, idx, { interval: 1500, timeout: 0 })
           console.log(`[fetchNextChapter] 章节 ${idx} 已标记为 generated/saved，重新请求 scenes`)
           // 重新请求章节内容（单次请求以避开 getScenes 的内部重试行为）
-          try {
+            try {
             const resp = await http.get(`/api/game/chapter/${workId}/${idx}/`)
-            data = resp
+            data = (resp && typeof resp === 'object' && 'data' in resp) ? resp.data : resp
             console.log('[fetchNextChapter] poll后 singleRequest response:', data)
           } catch (e) {
             console.warn('[fetchNextChapter] poll后请求章节失败，回退使用 getScenes()', e)

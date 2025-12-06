@@ -2922,59 +2922,67 @@ onUnmounted(async () => {
   <!-- 创作者大纲编辑器模态（当 createResult.modifiable 且有 chapterOutlines 时显示） -->
   <div v-if="showOutlineEditor" class="modal-backdrop">
       <div class="modal-panel outline-editor-panel">
-        <h3 class="outline-editor-title">✨ 编辑章节大纲</h3>
-        <p class="outline-editor-desc">编辑完成后点击"确认"可以基于此大纲生成章节内容哦~</p>
-        
-        <!-- 分页章节显示 -->
-        <div class="outline-chapters-container">
-          <div v-if="outlineEdits[outlineCurrentPage]" class="outline-chapter-item">
-            <div class="chapter-label">📖 第 {{ outlineEdits[outlineCurrentPage].chapterIndex }} 章 大纲</div>
-            <textarea 
-              v-model="outlineEdits[outlineCurrentPage].outline" 
-              rows="3" 
-              class="outline-textarea" 
-              placeholder="请输入该章节的大纲内容...">
-            </textarea>
+        <div class="outline-editor-header">
+          <h3 class="outline-editor-title">✨ 编辑章节大纲</h3>
+          <p class="outline-editor-desc">编辑完成后点击"确认"可以基于此大纲生成章节内容哦~</p>
+        </div>
+
+        <div class="outline-editor-body">
+          <!-- 左侧：章节大纲（更大文本区） -->
+          <div class="outline-left">
+            <div class="outline-chapters-container">
+              <div v-if="outlineEdits[outlineCurrentPage]" class="outline-chapter-item">
+                <div class="chapter-label">📖 第 {{ outlineEdits[outlineCurrentPage].chapterIndex }} 章 大纲</div>
+                <textarea 
+                  v-model="outlineEdits[outlineCurrentPage].outline" 
+                  rows="10" 
+                  class="outline-textarea outline-textarea-large" 
+                  placeholder="请输入该章节的大纲内容...">
+                </textarea>
+              </div>
+            </div>
+
+            <!-- 分页控制：已移至右侧指令区下方 -->
           </div>
-        </div>
 
-        <!-- 分页控制 -->
-        <div class="outline-pagination">
-          <button 
-            class="pagination-btn" 
-            @click="outlineCurrentPage = Math.max(0, outlineCurrentPage - 1)"
-            :disabled="outlineCurrentPage === 0">
-            ← 上一章
-          </button>
-          <span class="pagination-info">{{ outlineCurrentPage + 1 }} / {{ outlineEdits.length }}</span>
-          <button 
-            class="pagination-btn" 
-            @click="outlineCurrentPage = Math.min(outlineEdits.length - 1, outlineCurrentPage + 1)"
-            :disabled="outlineCurrentPage === outlineEdits.length - 1">
-            下一章 →
-          </button>
-        </div>
+          <!-- 右侧：额外指令 + 操作按钮（紧凑） -->
+          <div class="outline-right">
+            <div class="outline-prompt-section">
+              <div class="chapter-label">💡 指令 (可选)</div>
+              <textarea 
+                v-model="outlineUserPrompt" 
+                rows="8" 
+                class="outline-textarea outline-textarea-prompt" 
+                placeholder="为本章生成提出您的指令吧...">
+              </textarea>
+            </div>
+            <!-- 分页控制（位于指令输入框下方，取消/确认按钮上方） -->
+            <div class="right-pagination">
+              <button 
+                class="pagination-btn" 
+                @click="outlineCurrentPage = Math.max(0, outlineCurrentPage - 1)"
+                :disabled="outlineCurrentPage === 0">
+                ← 上一章
+              </button>
+              <span class="pagination-info">{{ outlineCurrentPage + 1 }} / {{ outlineEdits.length }}</span>
+              <button 
+                class="pagination-btn" 
+                @click="outlineCurrentPage = Math.min(outlineEdits.length - 1, outlineCurrentPage + 1)"
+                :disabled="outlineCurrentPage === outlineEdits.length - 1">
+                下一章 →
+              </button>
+            </div>
 
-        <!-- 额外指令 -->
-        <div class="outline-prompt-section">
-          <div class="chapter-label">💡 指令 (可选)</div>
-          <textarea 
-            v-model="outlineUserPrompt" 
-            rows="2" 
-            class="outline-textarea outline-textarea-small" 
-            placeholder="为本章生成提出您的指令吧...">
-          </textarea>
-        </div>
-
-        <!-- 操作按钮 -->
-        <div class="outline-editor-actions">
-          <button v-if="editorInvocation !== 'auto'" class="edit-btn btn-cancel" @click="cancelOutlineEdits">取消</button>
-          <button 
-            class="edit-btn btn-confirm" 
-            :disabled="!(editorInvocation === 'auto' || editorInvocation === 'manual' || creatorMode)" 
-            @click="confirmOutlineEdits({ startLoading, stopLoading })">
-            确认生成
-          </button>
+            <div class="outline-editor-actions right-actions">
+              <button v-if="editorInvocation !== 'auto'" class="edit-btn btn-cancel" @click="cancelOutlineEdits">取消</button>
+              <button 
+                class="edit-btn btn-confirm" 
+                :disabled="!(editorInvocation === 'auto' || editorInvocation === 'manual' || creatorMode)" 
+                @click="confirmOutlineEdits({ startLoading, stopLoading })">
+                确认生成
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
