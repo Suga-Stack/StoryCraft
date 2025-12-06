@@ -548,6 +548,16 @@ export function useGameState(dependencies = {}) {
     // 处理游戏结束，生成结算页面
     const handleGameEnd = async () => {
         console.log('handleGameEnd 被调用 - creatorFeatureEnabled:', creatorFeatureEnabled.value, 'currentChapter:', currentChapterIndex.value)
+        // 如果有任意覆盖层打开（例如大纲编辑器），则不要进入结算流程
+        try {
+          if (anyOverlayOpen && anyOverlayOpen.value) {
+            console.log('handleGameEnd: 检测到有覆盖层打开，延迟结算（避免在编辑大纲时跳转）')
+            showNotice && showNotice('请先关闭大纲编辑器或其它弹窗，再进入结算。', 3000)
+            isGeneratingSettlement.value = false
+            isLoading.value = false
+            return
+          }
+        } catch (e) { console.warn('handleGameEnd overlay check failed', e) }
         
         // 🔑 关键修复：对于创作者身份，在任何操作之前先进行章节保存状态检查
         // 这样可以避免在未保存状态下生成结局选项场景
@@ -812,76 +822,73 @@ export function useGameState(dependencies = {}) {
           console.log('handleGameEnd: 结局已追加，进入结算生成')
         }
         
-        // 模拟结算页面生成过程
+        // 结算生成流程：使用统一的加载计时器（5分钟匀速），如果后端提前返回则直接完成
         const generateSettlement = async () => {
-            for (let i = 0; i <= 100; i += 5) {
-            loadingProgress.value = i
-            await new Promise(resolve => setTimeout(resolve, 50))
-            }
-            
-            // 生成完成后跳转到结算页面
-            // 优先尝试从后端获取个性化结算报告（若后端返回则使用），否则回退到本地快照
-            let settlementData = null
+          let settlementData = null
+          try {
+            // 启动统一加载进度（5分钟匀速到 99%）
+            try { if (typeof startLoading === 'function') startLoading() } catch (e) {}
+
+            // 优先尝试从后端获取个性化结算报告
             try {
-            const remote = await fetchReport(work.value.id)
-            if (remote) {
-                // 保留后端返回的结算数据，但确保包含本地的 choiceHistory / storyScenes / attributes/statuses
-                settlementData = Object.assign({}, remote)
-                
-                // 🔑 关键修复：确保 work 信息始终存在
-                if (!settlementData.work) {
-                    try { settlementData.work = deepClone(work.value) } catch (e) { settlementData.work = work.value }
-                }
-                
-                if (!Array.isArray(settlementData.choiceHistory) || settlementData.choiceHistory.length === 0) {
-                try { settlementData.choiceHistory = Array.isArray(choiceHistory.value) ? deepClone(choiceHistory.value) : [] } catch (e) { settlementData.choiceHistory = [] }
-                }
-                if (!settlementData.storyScenes || !Array.isArray(settlementData.storyScenes) || settlementData.storyScenes.length === 0) {
-                try { settlementData.storyScenes = deepClone(storyScenes.value) } catch (e) { settlementData.storyScenes = [] }
-                }
-                if (!settlementData.finalAttributes) {
-                try { settlementData.finalAttributes = deepClone(attributes.value) } catch (e) { settlementData.finalAttributes = {} }
-                }
-                if (!settlementData.finalStatuses) {
-                try { settlementData.finalStatuses = deepClone(statuses.value) } catch (e) { settlementData.finalStatuses = {} }
-                }
+              const remote = await fetchReport(work.value.id)
+              if (remote) settlementData = Object.assign({}, remote)
+            } catch (e) {
+              console.warn('fetchReport failed in handleGameEnd:', e)
             }
-            } catch (e) { console.warn('fetchReport failed in handleGameEnd:', e) }
+
+            // 若从后端获取到了 settlementData，但后端可能未包含某些本地需要的字段（如 choiceHistory、finalAttributes 等），
+            // 我们在此做一次合并回退，优先使用后端数据，其次使用本地数据，确保结算页能正确显示选择次数与其它信息。
+            const localFallback = {
+              work: work.value,
+              choiceHistory: Array.isArray(choiceHistory.value) ? choiceHistory.value : [],
+              finalAttributes: attributes && attributes.value ? attributes.value : {},
+              finalStatuses: statuses && statuses.value ? statuses.value : {},
+              storyScenes: Array.isArray(storyScenes.value) ? storyScenes.value : [],
+              currentSceneIndex: typeof currentSceneIndex?.value === 'number' ? currentSceneIndex.value : 0,
+              currentDialogueIndex: typeof currentDialogueIndex?.value === 'number' ? currentDialogueIndex.value : 0
+            }
 
             if (!settlementData) {
-                settlementData = {
-                    work: work.value,
-                    choiceHistory: choiceHistory.value,
-                    finalAttributes: attributes.value,
-                    finalStatuses: statuses.value,
-                    storyScenes: storyScenes.value,
-                    currentSceneIndex: currentSceneIndex.value,
-                    currentDialogueIndex: currentDialogueIndex.value
-                }
+              // 完全没有后端返回，直接使用本地数据
+              settlementData = Object.assign({}, localFallback)
+            } else {
+              // 对后端返回的对象做 merge 回退，保留后端已有字段
+              settlementData = Object.assign({}, localFallback, settlementData)
+              // 上面的顺序会让后端字段覆盖 localFallback；但我们还要确保后端未提供 choiceHistory 时使用本地
+              if (!Array.isArray(settlementData.choiceHistory) || settlementData.choiceHistory.length === 0) {
+                settlementData.choiceHistory = Array.isArray(choiceHistory.value) ? choiceHistory.value : []
+              }
+              if (!settlementData.finalAttributes || Object.keys(settlementData.finalAttributes || {}).length === 0) {
+                settlementData.finalAttributes = attributes && attributes.value ? attributes.value : {}
+              }
+              if (!settlementData.finalStatuses || Object.keys(settlementData.finalStatuses || {}).length === 0) {
+                settlementData.finalStatuses = statuses && statuses.value ? statuses.value : {}
+              }
+              if (!Array.isArray(settlementData.storyScenes) || settlementData.storyScenes.length === 0) {
+                settlementData.storyScenes = Array.isArray(storyScenes.value) ? storyScenes.value : []
+              }
+              if (typeof settlementData.currentSceneIndex !== 'number') settlementData.currentSceneIndex = typeof currentSceneIndex?.value === 'number' ? currentSceneIndex.value : 0
+              if (typeof settlementData.currentDialogueIndex !== 'number') settlementData.currentDialogueIndex = typeof currentDialogueIndex?.value === 'number' ? currentDialogueIndex.value : 0
             }
-            
-            // 最后再次检查确保 work 信息存在（双重保险）
-            if (!settlementData.work) {
-                console.warn('handleGameEnd: settlementData 缺少 work，使用当前 work')
-                settlementData.work = work.value
-            }
-            
-            // 详细调试日志
-            console.log('[handleGameEnd] 当前 work 对象:', work.value)
-            console.log('[handleGameEnd] settlementData.work:', settlementData.work)
-            console.log('[handleGameEnd] 完整的 settlementData:', settlementData)
-            
-            try { 
-                sessionStorage.setItem('settlementData', JSON.stringify(settlementData))
-                console.log('[handleGameEnd] settlementData 已保存到 sessionStorage')
-            } catch (e) { 
-                console.error('[handleGameEnd] 保存 settlementData 到 sessionStorage 失败:', e) 
-            }
-            
-            console.log('跳转到结算页面，结算数据:', settlementData)
+
+            // 保证 work 字段存在
+            if (!settlementData.work) settlementData.work = work.value
+
+            // 保存到 sessionStorage
+            try { sessionStorage.setItem('settlementData', JSON.stringify(settlementData)) } catch (e) { console.error('[handleGameEnd] 保存 settlementData 到 sessionStorage 失败:', e) }
+
+            // 提前完成加载并跳转
+            try { if (typeof stopLoading === 'function') await stopLoading() } catch (e) { console.warn('stopLoading failed in generateSettlement', e) }
+
             router.push('/settlement')
+          } catch (e) {
+            console.error('generateSettlement failed', e)
+            // 确保清理加载状态
+            try { if (typeof stopLoading === 'function') await stopLoading() } catch (err) {}
+          }
         }
-        
+
         generateSettlement()
     }
 
@@ -1411,53 +1418,108 @@ export function useGameState(dependencies = {}) {
         }
     }
 
-    // 进度条定时器引用
+    // 进度条计时器引用与配置
     let progressTimer = null
+    let progressStartTime = null
+    const LOAD_DURATION_MS = 5 * 60 * 1000 // 5 分钟
+    const PROGRESS_MAX_BEFORE_COMPLETE = 99 // 在未完成时的最大百分比
+    // 到达 100% 后至少保持的最短可见时长（毫秒）
+    const MIN_VISIBLE_AFTER_100_MS = 1000 // 1 秒
 
-    // 模拟加载到100%
-    const simulateLoadTo100 = async () => {
-        for (let i = loadingProgress.value; i <= 100; i += 5) {
-            loadingProgress.value = i
-            await new Promise(resolve => setTimeout(resolve, 50))
-        }
-    }
-
-    // 开始加载 - 匀速前进到90%
-    const startLoading = () => {
-        isLoading.value = true
-        loadingProgress.value = 0
-        
-        // 清除之前的定时器
+    // 模拟匀速完成到100%（用于当后端已就绪但仍希望展示加载动画时）
+    // durationMs: 动画时长（毫秒），默认 800ms
+    const simulateLoadTo100 = async (durationMs = 800) => {
+      try {
+        // 清除长期进度计时器（5 分钟计时器）以便我们接管动画
         if (progressTimer) {
-            clearInterval(progressTimer)
-            progressTimer = null
+          clearInterval(progressTimer)
+          progressTimer = null
         }
-        
-        // 匀速增加进度到90%，假设30秒内完成
-        // 每100ms增加0.3%，大约30秒到达90%
-        progressTimer = setInterval(() => {
-            if (loadingProgress.value < 90) {
-                loadingProgress.value = Math.min(90, loadingProgress.value + 0.3)
+
+        const start = Date.now()
+        const from = Number(loadingProgress.value) || 0
+        const dur = Math.max(0, Number(durationMs) || 0)
+
+        return await new Promise((resolve) => {
+          // 使用 requestAnimationFrame 进行平滑动画
+          const step = () => {
+            const elapsed = Date.now() - start
+            const t = dur > 0 ? Math.min(1, elapsed / dur) : 1
+            try {
+              loadingProgress.value = Math.min(100, from + (100 - from) * t)
+            } catch (e) { /* ignore */ }
+            if (t < 1) {
+              try { requestAnimationFrame(step) } catch (e) { setTimeout(step, 16) }
+            } else {
+              try { loadingProgress.value = 100 } catch (e) {}
+              // 到达 100%：至少保持 MIN_VISIBLE_AFTER_100_MS 再关闭 loading
+              const reachedAt = Date.now()
+              const waitMs = Math.max(0, MIN_VISIBLE_AFTER_100_MS)
+              progressStartTime = null
+              setTimeout(() => {
+                try { isLoading.value = false } catch (e) {}
+                resolve()
+              }, waitMs)
             }
-        }, 100)
+          }
+          try { requestAnimationFrame(step) } catch (e) { setTimeout(step, 0) }
+        })
+      } catch (e) {
+        try { loadingProgress.value = 100 } catch (err) {}
+      }
     }
 
-    // 停止加载
-    const stopLoading = async () => {
-        // 清除进度定时器
-        if (progressTimer) {
+    // 开始加载 - 在 LOAD_DURATION_MS 内匀速线性前进到 PROGRESS_MAX_BEFORE_COMPLETE
+    const startLoading = () => {
+      isLoading.value = true
+      loadingProgress.value = 0
+      progressStartTime = Date.now()
+
+      // 清除之前的定时器
+      if (progressTimer) {
+        clearInterval(progressTimer)
+        progressTimer = null
+      }
+
+      // 每 500ms 更新一次进度（匀速）
+      progressTimer = setInterval(() => {
+        try {
+          if (!progressStartTime) return
+          const elapsed = Date.now() - progressStartTime
+          if (elapsed >= LOAD_DURATION_MS) {
+            loadingProgress.value = PROGRESS_MAX_BEFORE_COMPLETE
+            // 达到最大值后不再继续增长，保持在 99%
             clearInterval(progressTimer)
             progressTimer = null
-        }
-        
-        // 如果还没到90%，直接跳到90%
-        if (loadingProgress.value < 90) {
-            loadingProgress.value = 90
-        }
-        
-        // 然后快速完成到100%
-        await simulateLoadTo100()
-        isLoading.value = false
+            return
+          }
+          const percent = (elapsed / LOAD_DURATION_MS) * PROGRESS_MAX_BEFORE_COMPLETE
+          loadingProgress.value = Math.min(PROGRESS_MAX_BEFORE_COMPLETE, Number(percent.toFixed(2)))
+        } catch (e) { console.warn('progressTimer tick failed', e) }
+      }, 500)
+    }
+
+    // 停止加载：如果提前完成，直接跳到 100% 并结束加载；否则（如果仍在等待后端），由外部继续等待（保持在 99%）
+    const stopLoading = async () => {
+      // 清除进度定时器
+      if (progressTimer) {
+        clearInterval(progressTimer)
+        progressTimer = null
+      }
+
+      // 直接完成到 100%
+      try {
+        loadingProgress.value = 100
+      } catch (e) {}
+
+      // 到达 100%：至少保持 MIN_VISIBLE_AFTER_100_MS 再关闭 loading
+      try {
+        const waitMs = Math.max(0, MIN_VISIBLE_AFTER_100_MS)
+        progressStartTime = null
+        await new Promise(r => setTimeout(r, waitMs))
+      } catch (e) { /* ignore */ }
+      // 结束 loading 状态
+      try { isLoading.value = false } catch (e) {}
     }
 
     // 应用属性变化
@@ -1548,7 +1610,26 @@ export function useGameState(dependencies = {}) {
         const isLastChapter = totalChapters.value && Number(currentChapterIndex.value) === Number(totalChapters.value)
         
         console.log('[requestNextIfNeeded] 下一章:', nextChapter, '是否最后一章:', isLastChapter)
-        
+        // 优先处理因保存操作设置的 pendingNextChapter（创作者模式用）
+        try {
+          if (pendingNextChapter && pendingNextChapter.value != null) {
+            const chapToLoad = pendingNextChapter.value
+            pendingNextChapter.value = null
+            console.log('[requestNextIfNeeded] 发现 pendingNextChapter，优先加载章:', chapToLoad)
+            try {
+              // 对于创作者模式，我们希望 fetchNextChapter 能触发编辑器（不抑制自动编辑器）
+              startLoading()
+              await fetchNextChapter(work.value.id, chapToLoad, { replace: true, suppressAutoEditor: false })
+            } catch (e) {
+              console.warn('[requestNextIfNeeded] 加载 pendingNextChapter 失败:', e)
+            } finally {
+              try { await stopLoading() } catch (e) {}
+            }
+            isRequestingNext = false
+            return
+          }
+        } catch (e) { console.warn('pendingNextChapter handling failed', e) }
+
         if (isLastChapter) {
         // 已读完最后一章
         console.log('[requestNextIfNeeded] 已读完最后一章，准备跳转到结算界面')
@@ -1785,7 +1866,8 @@ export function useGameState(dependencies = {}) {
         } catch (e) {
         console.error('[requestNextIfNeeded] 加载下一章失败:', e)
         } finally {
-        try { await stopLoading() } catch (e) {}
+        try { await simulateLoadTo100(800) } catch (e) { /* ignore */ }
+        try { await stopLoading() } catch (e) { /* ignore */ }
         // 重置标志
         isRequestingNext = false
         }
@@ -1925,13 +2007,20 @@ export function useGameState(dependencies = {}) {
   console.log('[nextDialogue] Current scene:', scene, 'dialogue index:', currentDialogueIndex.value)
 
   // Guard against missing/undefined current scene
-  if (!scene) {
+    if (!scene) {
     console.warn('[nextDialogue] currentScene is null or undefined — attempting recovery')
     try {
-      if (Array.isArray(storyScenes.value) && storyScenes.value.length === 0 && !isFetchingNext.value) {
+      // 如果当前没有场景数据且没有其他加载/请求进行，尝试恢复
+      if (Array.isArray(storyScenes.value) && storyScenes.value.length === 0 && !isFetchingNext.value && !isRequestingNext && !isLoading.value) {
         startLoading()
         try {
-          await fetchNextChapter(work.value.id, 1)
+          // 使用当前章节索引作为恢复目标（而不是硬编码为第 1 章），
+          // 避免在加载后误触发点击而再次拉取首章的问题。
+          const chapToLoad = (currentChapterIndex && typeof currentChapterIndex.value !== 'undefined' && Number(currentChapterIndex.value) > 0)
+            ? Number(currentChapterIndex.value)
+            : 1
+          console.log('[nextDialogue] recovery: fetching chapter', chapToLoad)
+          await fetchNextChapter(work.value.id, chapToLoad)
         } catch (e) {
           console.warn('fetchNextChapter recovery attempt failed', e)
         }
