@@ -71,7 +71,7 @@
     "tags": [
       1
     ],
-    "image_url": "http://127.0.0.1:8000/media/gamework_covers/86955b32f4784273833cfbd2dcacc78b.jpg",
+    "image_url": "https://storycraft.work.gdmedia/gamework_covers/86955b32f4784273833cfbd2dcacc78b.jpg",
     "is_published": false,
     "created_at": "2025-11-10T14:22:08.104237Z",
     "updated_at": "2025-11-10T14:22:18.948827Z",

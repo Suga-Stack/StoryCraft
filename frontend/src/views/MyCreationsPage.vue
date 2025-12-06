@@ -337,9 +337,17 @@ const handlePublish = async (book) => {
 </script>
 
 <style scoped>
+::v-deep .van-nav-bar {
+  background: #faf8f3;
+  box-shadow: none;
+}
+::v-deep .van-nav-bar__title,
+::v-deep .van-nav-bar__left .van-icon {
+  color: #444444 ; 
+}
 /* 与阅读历史页面样式相同 */
 .creations-page {
-  background-color: #f5f5f5;
+  background-color: #faf8f3;
   min-height: 100vh;
   padding-bottom: 20px;
 }

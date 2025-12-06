@@ -261,7 +261,15 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.staff-page { min-height:100vh; background:#f5f5f5; }
+::v-deep .van-nav-bar {
+  background: #faf8f3;
+  box-shadow: none;
+}
+::v-deep .van-nav-bar__title,
+::v-deep .van-nav-bar__left .van-icon {
+  color: #444444 ; 
+}
+.staff-page { min-height:100vh; background:#faf8f3; }
 .report-list { padding:16px }
 .report-item { background:#fff; border-radius:12px; padding:16px; margin-bottom:14px; box-shadow:0 6px 20px rgba(0,0,0,0.06); position:relative; }
 .report-main { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px }

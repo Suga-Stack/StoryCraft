@@ -443,9 +443,8 @@ onMounted(async () => {
 
 /* 顶部导航 */
 .top-nav {
-  background-color: #d4a5a5;
+  background-color: #faf8f3;
   padding: 8px 10px;
-  box-shadow: 0 2px 8px #d4a5a5;
 }
 
 .nav-container {
@@ -482,6 +481,7 @@ onMounted(async () => {
   font-size: 14px;
   display: flex;
   align-items: center;
+  box-shadow: 0 1px 4px #d4a5a5;
 }
 
 .points-label {

@@ -68,7 +68,9 @@
               :style="{
                 backgroundColor: selectedTags.includes(tag.id) ? '#D4A5A5' : '#fff',
                 color: selectedTags.includes(tag.id) ? '#ffffff' : '#444444',
-                borderColor: selectedTags.includes(tag.id) ? '#e5b7b7' : '#b88484'
+                borderColor: selectedTags.includes(tag.id) ? '#e5b7b7' : '#b88484',
+                borderWidth: '1px',  // 边框宽度
+                borderStyle: 'solid' // 边框样式（solid/dashed/dotted等）
               }"
             >
               {{ tag.name }}
@@ -407,6 +409,15 @@ const handleSubmit = async () => {
 </script>
 
 <style scoped>
+::v-deep .van-nav-bar {
+  background: #faf8f3;
+  box-shadow: none;
+}
+::v-deep .van-nav-bar__title,
+::v-deep .van-nav-bar__left .van-icon {
+  color: #444444 ; 
+}
+
 .loading-indicator {
   text-align: center;
   padding: 20px 0;
@@ -414,7 +425,7 @@ const handleSubmit = async () => {
 
 
 .preferences-container {
-  background-color: #f5f5f5;
+  background-color: #faf8f3;
   min-height: 100vh;
   overflow: hidden; /* 隐藏超出容器的内容 */
   position: relative;
@@ -431,7 +442,7 @@ const handleSubmit = async () => {
   width: 100%;
   flex-shrink: 0; /* 禁止收缩 */
   padding: 16px;
-  background-color: #fff;
+  background-color: #faf8f3;
   box-sizing: border-box;
   overflow-y: auto; /* 允许页面内滚动 */
 }
@@ -443,6 +454,7 @@ const handleSubmit = async () => {
   font-weight: 500;
   text-align: center;
   padding-top: 20px;
+  background-color: #faf8f3;
 }
 
 /* 性别选择样式 */
@@ -480,7 +492,7 @@ const handleSubmit = async () => {
   gap: 8px;
   padding: 0 8px;
   border-radius: 15px;
-  background-color: #ffffff;
+  background-color: #faf8f3;
   padding: 15px 20px;
 }
 

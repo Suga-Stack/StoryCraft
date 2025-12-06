@@ -15,6 +15,8 @@ export function useStoryAPI() {
   
   // 故事场景数据
   const storyScenes = ref([])
+  // 音乐播放列表（由后端作品详情返回）
+  const musicPlaylist = ref([])
   const currentSceneIndex = ref(0)
   const currentDialogueIndex = ref(0)
   const currentChapterIndex = ref(1)
@@ -134,12 +136,96 @@ export function useStoryAPI() {
 
       if (body && body.data && Array.isArray(body.data.chapters_status)) {
         mergeServerStatuses(body.data.chapters_status)
+        // 如果后端在作品详情中返回了音乐列表，尝试提取
+        try {
+          const musicCandidates = body.data.music || body.data.music_playlist || body.data.musicUrls || body.data.music_urls || body.data.musicList || body.data.music_list || body.data.background_music_urls || body.data.backgroundMusicUrls || body.data.backgroundMusic || body.data.background_music
+          if (Array.isArray(musicCandidates) && musicCandidates.length > 0) {
+            const normalizeMusicUrl = (u) => {
+              try {
+                if (!u || typeof u !== 'string') return null
+                const base = (import.meta && import.meta.env && import.meta.env.VITE_API_BASE_URL) ? String(import.meta.env.VITE_API_BASE_URL).replace(/\/$/, '') : ''
+                // 如果后端返回的是以后端基址开头的绝对 URL，则改为相对路径，便于本地 dev proxy 转发
+                if (base && u.startsWith(base)) {
+                  try {
+                    const urlObj = new URL(u)
+                    return urlObj.pathname + (urlObj.search || '')
+                  } catch (e) {
+                    // 回退：移除 base 前缀
+                    return u.slice(base.length) || u
+                  }
+                }
+                return u
+              } catch (e) { return u }
+            }
+            musicPlaylist.value = musicCandidates.map(m => {
+              const raw = (m && typeof m === 'string') ? m : (m && m.url ? m.url : null)
+              return normalizeMusicUrl(raw)
+            }).filter(Boolean)
+          }
+        } catch (e) { /* ignore */ }
+        // 将后端可能返回的可编辑与 AI 可调用标志写入共享 work
+        try {
+          if (typeof body.data.modifiable !== 'undefined') work.value.modifiable = !!body.data.modifiable
+          if (typeof body.data.ai_callable !== 'undefined') work.value.ai_callable = !!body.data.ai_callable
+        } catch (e) {}
         return body.data
       }
       if (body && Array.isArray(body.chapters_status)) {
         mergeServerStatuses(body.chapters_status)
+        try {
+          const musicCandidates = body.music || body.music_playlist || body.musicUrls || body.music_urls || body.musicList || body.music_list || body.background_music_urls || body.backgroundMusicUrls || body.backgroundMusic || body.background_music
+          if (Array.isArray(musicCandidates) && musicCandidates.length > 0) {
+            const normalizeMusicUrl = (u) => {
+              try {
+                if (!u || typeof u !== 'string') return null
+                const base = (import.meta && import.meta.env && import.meta.env.VITE_API_BASE_URL) ? String(import.meta.env.VITE_API_BASE_URL).replace(/\/$/, '') : ''
+                if (base && u.startsWith(base)) {
+                  try { const urlObj = new URL(u); return urlObj.pathname + (urlObj.search || '') } catch (e) { return u.slice(base.length) || u }
+                }
+                return u
+              } catch (e) { return u }
+            }
+            musicPlaylist.value = musicCandidates.map(m => {
+              const raw = (m && typeof m === 'string') ? m : (m && m.url ? m.url : null)
+              return normalizeMusicUrl(raw)
+            }).filter(Boolean)
+          }
+        } catch (e) { /* ignore */ }
+        // 将后端可能返回的可编辑与 AI 可调用标志写入共享 work
+        try {
+          if (typeof body.modifiable !== 'undefined') work.value.modifiable = !!body.modifiable
+          if (typeof body.ai_callable !== 'undefined') work.value.ai_callable = !!body.ai_callable
+        } catch (e) {}
         return body
       }
+      // 兜底：从 body 顶层或 body.data 中尝试提取音乐列表
+      try {
+        const musicCandidates = (body && (body.music || body.music_playlist || body.musicUrls || body.music_urls || body.musicList || body.music_list || body.background_music_urls || body.backgroundMusicUrls || body.backgroundMusic || body.background_music)) || (body && body.data && (body.data.music || body.data.music_playlist || body.data.musicUrls || body.data.music_urls || body.data.musicList || body.data.music_list || body.data.background_music_urls || body.data.backgroundMusicUrls || body.data.backgroundMusic || body.data.background_music))
+        if (Array.isArray(musicCandidates) && musicCandidates.length > 0) {
+          const normalizeMusicUrl = (u) => {
+            try {
+              if (!u || typeof u !== 'string') return null
+              const base = (import.meta && import.meta.env && import.meta.env.VITE_API_BASE_URL) ? String(import.meta.env.VITE_API_BASE_URL).replace(/\/$/, '') : ''
+              if (base && u.startsWith(base)) {
+                try { const urlObj = new URL(u); return urlObj.pathname + (urlObj.search || '') } catch (e) { return u.slice(base.length) || u }
+              }
+              return u
+            } catch (e) { return u }
+          }
+          musicPlaylist.value = musicCandidates.map(m => {
+            const raw = (m && typeof m === 'string') ? m : (m && m.url ? m.url : null)
+            return normalizeMusicUrl(raw)
+          }).filter(Boolean)
+        }
+      } catch (e) {}
+      // 兜底：将可能存在的 modifiable/ai_callable 写入 shared work
+      try {
+        const src = (body && body.data) ? body.data : body
+        if (src) {
+          if (typeof src.modifiable !== 'undefined') work.value.modifiable = !!src.modifiable
+          if (typeof src.ai_callable !== 'undefined') work.value.ai_callable = !!src.ai_callable
+        }
+      } catch (e) {}
       return body && body.data ? body.data : body
     } catch (e) {
       console.warn('getWorkDetails failed', e)
@@ -149,6 +235,9 @@ export function useStoryAPI() {
   
   const pollWorkStatus = async (workId, targetChapter, opts = { interval: 1500, timeout: 120000 }) => {
     const start = Date.now()
+    const interval = (opts && opts.interval) ? opts.interval : 1500
+    // If timeout is provided and > 0 use it; if timeout === 0 or < 0 treat as infinite (no timeout)
+    const timeout = (opts && typeof opts.timeout === 'number') ? opts.timeout : 120000
     while (true) {
       try {
         const data = await getWorkDetails(workId)
@@ -157,8 +246,9 @@ export function useStoryAPI() {
         if (Array.isArray(data?.chapters_status)) chaptersStatus.value = data.chapters_status
         if (status === 'generated' || status === 'saved') return status
       } catch (e) {}
-      if (Date.now() - start > (opts && opts.timeout ? opts.timeout : 120000)) throw new Error('pollWorkStatus timeout')
-      await new Promise(r => setTimeout(r, opts && opts.interval ? opts.interval : 1500))
+      // Only enforce timeout if timeout > 0
+      if (timeout > 0 && (Date.now() - start > timeout)) throw new Error('pollWorkStatus timeout')
+      await new Promise(r => setTimeout(r, interval))
     }
   }
   
@@ -302,6 +392,15 @@ export function useStoryAPI() {
 
         console.log(`[fetchNextChapter] 开始获取第 ${idx} 章内容...`)
 
+        // 如果当前已有其他章节的获取正在进行，忽略对不同章节的并发请求，避免覆盖/回退场景数据
+        if (currentFetchingChapter !== null && Number(currentFetchingChapter) !== Number(idx)) {
+          console.warn(`[fetchNextChapter] 已在获取第 ${currentFetchingChapter} 章，忽略对第 ${idx} 章的请求以避免冲突`)
+          return null
+        }
+        // 标记当前正在获取的章节，和全局 isFetchingNext
+        currentFetchingChapter = Number(idx)
+        try { isFetchingNext.value = true } catch (e) {}
+
         // 对于创作者身份，在加载新章节前检查上一章是否已保存
         if (_creatorFeatureEnabled?.value && idx > 1) {
         try {
@@ -430,13 +529,29 @@ export function useStoryAPI() {
     }
 
     let data = null
-    if (opts && opts.singleRequest) {
+
+    // 在真正发起请求前：清空本地缓存的场景，保留选择历史。
+    // 这样在加载新章节过程中不会跳回旧章节内容（例如 websocket 推送或旧场景残留）。
+    try {
+      if (Array.isArray(storyScenes.value) && storyScenes.value.length > 0) {
+        console.log(`[fetchNextChapter] 清空本地缓存场景以等待第 ${idx} 章加载 (保留选择历史)`)
+        storyScenes.value = []
+      }
+      // 重置播放位置到等待新章节的起点
+      currentSceneIndex.value = 0
+      currentDialogueIndex.value = 0
+      // 标记正在获取下一章，外部 UI/逻辑可以用此标记阻止跳转
+      isFetchingNext.value = true
+    } catch (e) {
+      console.warn('[fetchNextChapter] 在清理本地场景时发生错误', e)
+    }
+      if (opts && opts.singleRequest) {
         // 只进行一次 GET 请求，避免 getScenes 的重试逻辑在已经由 generate POST 发起生成后再次触发不必要的行为
         try {
-  // 注意：utils/http.js 已经配置了 baseURL='/api'，此处不要再加 '/api' 前缀，避免出现 '/api/api/...'
-  const resp = await http.get(`/api/game/chapter/${workId}/${idx}/`)
-        // axios 响应拦截器已经返回 response.data
-        data = resp
+      // 注意：utils/http.js 已经配置了 baseURL='/api'，此处不要再加 '/api' 前缀，避免出现 '/api/api/...'
+      const resp = await http.get(`/api/game/chapter/${workId}/${idx}/`)
+        // 规范化响应：优先使用 resp.data（Axios 返回的实际 payload），否则使用 resp
+        data = (resp && typeof resp === 'object' && 'data' in resp) ? resp.data : resp
         console.log('[fetchNextChapter] singleRequest response:', data)
         
         // 验证返回的数据格式
@@ -460,11 +575,12 @@ export function useStoryAPI() {
     } else {
         data = await getScenes(workId, idx, {
         onProgress: (progress) => {
+          // 进度回调：仅用于记录或触发完成事件，不直接修改全局 loadingProgress（由 useGameState 的计时器统一控制）
+          try {
             console.log(`[Story] 章节 ${idx} 生成进度:`, progress)
-            // 可以在这里更新UI显示进度
-            if (progress.status === 'generating' && progress.progress && _loadingProgress) {
-            _loadingProgress.value = Math.min(90, (progress.progress.currentChapter / progress.progress.totalChapters) * 100)
-            }
+            // 如果后端明确返回完成状态，可以在这里做记录或触发事件
+            // 但不要直接修改 _loadingProgress（以确保所有进度条遵循统一的 5 分钟匀速策略）
+          } catch (e) { console.warn('onProgress handler error', e) }
         }
         })
     }
@@ -484,7 +600,29 @@ export function useStoryAPI() {
         // - 旧版或兼容格式可能直接返回 { scenes: [...] } 或 { generating: true }
         if (data && (data.generating === true || data.status === 'generating' || data.status === 'pending')) {
         console.log(`[fetchNextChapter] 后端返回生成中状态`, data)
-        return data
+        // 后端正在生成：改为轮询作品章节状态直到目标章节为 'generated' 或 'saved'，然后再真正去拉取章节内容。
+        try {
+          console.log(`[fetchNextChapter] 开始轮询章节 ${idx} 状态，直到 generated...`)
+          // 使用无限超时（timeout=0）以一直等待，除非调用方传入特定 timeout
+          await pollWorkStatus(workId, idx, { interval: 1500, timeout: 0 })
+          console.log(`[fetchNextChapter] 章节 ${idx} 已标记为 generated/saved，重新请求 scenes`)
+          // 重新请求章节内容（单次请求以避开 getScenes 的内部重试行为）
+            try {
+            const resp = await http.get(`/api/game/chapter/${workId}/${idx}/`)
+            data = (resp && typeof resp === 'object' && 'data' in resp) ? resp.data : resp
+            console.log('[fetchNextChapter] poll后 singleRequest response:', data)
+          } catch (e) {
+            console.warn('[fetchNextChapter] poll后请求章节失败，回退使用 getScenes()', e)
+            data = await getScenes(workId, idx, {
+              onProgress: (progress) => {
+                try { console.log(`[Story] 章节 ${idx} 生成进度 (post-poll):`, progress) } catch (e) {}
+              }
+            })
+          }
+        } catch (pollErr) {
+          console.warn('[fetchNextChapter] pollWorkStatus 出错或超时，返回当前数据以便调用方处理', pollErr)
+          return data
+        }
         }
 
         // 规范化 scenes 来源：
@@ -650,14 +788,21 @@ export function useStoryAPI() {
           storyEndSignaled.value = true
         }
 
+        // 新章节已完成加载，清除加载标记
+        try { isFetchingNext.value = false } catch (e) {}
+
         return data
         } else {
             console.error(`[Story] 第 ${idx} 章返回空场景数据`, data)
             throw new Error(`第 ${idx} 章没有可用的场景数据`)
             }
         } catch (e) {
-            console.error('fetchNextChapter error', e)
-            throw e // 重新抛出错误以便调用方处理
+          console.error('fetchNextChapter error', e)
+          throw e // 重新抛出错误以便调用方处理
+        } finally {
+          // 确保无论成功或失败都会清理状态
+          try { isFetchingNext.value = false } catch (err) {}
+          currentFetchingChapter = null
         }
     }
   const fetchNextContent = async (workId, chapterIndex) => {
@@ -833,6 +978,8 @@ export function useStoryAPI() {
   let _editorInvocation = null
   let _pendingOutlineTargetChapter = null
   let _outlineEditorResolver = null
+  // 当前正在获取的章节索引（用于防止并发请求导致回退/覆盖）
+  let currentFetchingChapter = null
   let _loadingProgress = null
   // attributes / statuses refs（由 useGameState 或页面传入）
   let _attributes = null
@@ -906,5 +1053,8 @@ export function useStoryAPI() {
     
     // 添加设置依赖的方法
     setDependencies
+    ,
+    // 音乐播放列表（由后端作品详情填充）
+    musicPlaylist
   }
 }

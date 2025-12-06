@@ -18,7 +18,7 @@ try { userInfo.value = JSON.parse(localStorage.getItem('userInfo') || '{}') } ca
 const isStaff = computed(() => !!(userInfo.value.is_staff || userInfo.value.isStaff || userInfo.value.staff))
 
 const goBack = () => {
-  router.push('/')
+  router.back()
 }
 // 允许向父组件或上层逻辑发出删除/举报事件
 const emit = defineEmits(['delete-comment', 'report-comment'])
@@ -49,7 +49,7 @@ const normalizeBackendWork = (raw) => {
   if (!raw) return null
   const coverCandidate = raw.coverUrl || raw.cover_url || raw.image_url || raw.imageUrl || raw.cover || (raw.image && raw.image.url) || ''
   let cover = coverCandidate || ''
-  if (cover && /^\//.test(cover)) cover = 'http://127.0.0.1:8000/' + cover
+  if (cover && /^\//.test(cover)) cover = 'https://storycraft.work.gd' + cover
   // 如果已经是完整 URL，保留原样
   return {
     id: raw.id,
@@ -72,6 +72,8 @@ const normalizeBackendWork = (raw) => {
 }
 
 let backendWorkRaw = normalizeBackendWork(state.backendWork || sessionCreate?.backendWork || null)
+// 如果后端返回 404（作品下架/不存在），显示覆盖层阻止阅读
+const isRemoved = ref(false)
 
 const work = ref({
   id: backendWorkRaw?.id || null,
@@ -239,6 +241,13 @@ onMounted(async () => {
 
   } catch (e) {
     console.error('[game_introduction] fetch work details failed:', e)
+    // 若后端返回 404，则认为该作品已下架，显示全屏遮罩阻止阅读
+    const status = e?.response?.status || e?.status || null
+    if (status === 404) {
+      isRemoved.value = true
+      // 不再继续后续错误提示，直接返回（遮罩会阻止用户交互）
+      return
+    }
     console.error('[game_introduction] Error details:', {
       message: e.message,
       status: e.status,
@@ -947,46 +956,42 @@ const confirmWorkReport = async () => {
   }
 }
 
-// 删除作品（与 MyCreationsPage.vue 使用相同的删除端点尝试逻辑）
+// 取消发布作品（仅管理员可见）
+// 使用 POST /api/gameworks/unpublish/{id}/ （兼容若干可能的变体）
 const deletingWork = ref(false)
-const deleteWork = async () => {
+const unpublishWork = async () => {
   if (!work.value || !work.value.id) return
-  if (!confirm('确认要删除此作品吗？此操作不可恢复。')) return
+  if (!confirm('确认要取消发布此作品吗？此操作会将作品下线，但不会删除作品数据。')) return
   if (deletingWork.value) return
   deletingWork.value = true
   try {
     const endpoints = [
-      `/api/gameworks/gameworks/${work.value.id}/`,
-      `/gameworks/gameworks/${work.value.id}/`,
-      `/api/interactions/gameworks/${work.value.id}/`
+      `/api/gameworks/unpublish/${work.value.id}/`,
+      `/gameworks/unpublish/${work.value.id}/`,
+      `/api/gameworks/gameworks/${work.value.id}/unpublish/`,
+      `/api/gameworks/gameworks/${work.value.id}/unpublish`
     ]
-    let deleted = false
+    let succeeded = false
     for (const ep of endpoints) {
       try {
-        await http.delete(ep)
-        deleted = true
+        await http.post(ep)
+        succeeded = true
         break
       } catch (err) {
-        const status = err?.status || err?.response?.status
-        if (status === 405) {
-          console.warn(`DELETE ${ep} returned 405 Method Not Allowed.`, err?.response?.headers)
-          showToast('删除操作被服务器拒绝（405）。请检查权限或联系后端。', 'warning')
-          continue
-        }
-        console.warn(`DELETE ${ep} failed`, err)
+        console.warn(`unpublish POST ${ep} failed`, err)
         continue
       }
     }
 
-    if (deleted) {
-      showToast('作品已删除', 'success')
+    if (succeeded) {
+      showToast('作品已取消发布', 'success')
       try { router.back() } catch (e) { router.push('/') }
     } else {
-      showToast('删除失败，请稍后重试', 'error')
+      showToast('取消发布失败，请稍后重试', 'error')
     }
   } catch (e) {
-    console.error('deleteWork failed', e)
-    showToast('删除失败，请稍后重试', 'error')
+    console.error('unpublishWork failed', e)
+    showToast('取消发布失败，请稍后重试', 'error')
   } finally {
     deletingWork.value = false
   }
@@ -1029,6 +1034,10 @@ const confirmReport = async () => {
 
 // 开始阅读：记录阅读行为后再跳转到阅读页
 const startReading = async () => {
+  if (isRemoved.value) {
+    showToast('作品已下架，无法阅读', 'warning')
+    return
+  }
   try {
     // 首先尝试向后端记录阅读（若用户已记录则会更新 read_at）
     try {
@@ -1073,13 +1082,24 @@ const startReading = async () => {
   } catch (e) {
     console.error('startReading 跳转失败:', e)
     // 最后兜底跳转
-    router.push({ path: `/game/${work.value.id}` })
+    if (!isRemoved.value) router.push({ path: `/game/${work.value.id}` })
   }
 }
 </script>
 
 <template>
   <div class="works-page">
+    <!-- 作品下架覆盖层 -->
+    <div v-if="isRemoved" class="removed-overlay">
+      <div class="removed-card">
+        <svg class="lock-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path d="M17 8V7a5 5 0 0 0-10 0v1" stroke="#d4a5a5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+          <rect x="4" y="8" width="16" height="12" rx="2" stroke="#d4a5a5" stroke-width="1.6" />
+          <circle cx="12" cy="14" r="1.6" fill="#d4a5a5" />
+        </svg>
+        <div class="removed-message">作品已下架</div>
+      </div>
+    </div>
     <!-- AI生成的封面（顶部全宽） -->
     <div class="cover-container">
       <img :src="work.coverUrl" :alt="work.title" class="cover-image" />
@@ -1115,12 +1135,10 @@ const startReading = async () => {
             v-if="isStaff"
             class="delete-work-btn"
             :disabled="deletingWork"
-            @click="deleteWork"
-            title="删除作品"
+            @click="unpublishWork"
+            title="取消发布"
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path d="M3 6h18M8 6v12a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V6M10 11v6M14 11v6M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
+            <van-icon :name="publishedAt ? 'eye' : 'eye-o'" size="20" />
           </button>
         </div>
       </div>
@@ -1577,7 +1595,7 @@ const startReading = async () => {
         </svg>
       </button>
       
-      <button class="read-button" @click="startReading">
+      <button class="read-button" @click="startReading" :disabled="isRemoved">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
           <path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
@@ -2452,6 +2470,37 @@ const startReading = async () => {
 .toast.error { border-left-color: #e74c3c }
 .toast.warning { border-left-color: #f1c40f }
 .toast.info { border-left-color: #3498db }
+/* 覆盖层：当后端返回 404（作品下架）时，遮罩整个界面并显示提示 */
+.removed-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(255,255,255,0.95);
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: all;
+}
+
+/* 居中的消息卡片，带粉色锁头装饰 */
+.removed-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 24px;
+  background: rgba(255,255,255,0.85);
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+  border: 1px solid rgba(212,165,165,0.12);
+}
+.removed-card .lock-icon { width: 40px; height: 40px; flex-shrink: 0; }
+.removed-card .lock-icon path, .removed-card .lock-icon rect, .removed-card .lock-icon circle { stroke: #d4a5a5; fill: #d4a5a5; }
+.removed-card .removed-message {
+  color: #333;
+  font-size: 18px;
+  font-weight: 800;
+  background: transparent;
+}
 /* 评论操作按钮统一样式 */
 .action-btn {
   background: transparent;

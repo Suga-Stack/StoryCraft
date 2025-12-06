@@ -1120,6 +1120,140 @@
   }
 }
 
+/* 改为左右布局：左侧为大纲、右侧为指令与操作（增大文本占比，压缩空白和按钮） */
+.outline-editor-panel {
+  max-width: min(1100px, 96vw) !important;
+  width: 96vw;
+  max-height: 86vh;
+  padding: 1rem !important;
+  display: flex;
+  flex-direction: column;
+}
+
+.outline-editor-header {
+  text-align: left;
+  margin-bottom: 0.5rem;
+}
+
+.outline-editor-body {
+  display: flex;
+  gap: 1rem;
+  flex: 1 1 auto;
+  min-height: 50vh;
+  overflow: hidden;
+}
+
+.outline-left {
+  flex: 1 1 68%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow: hidden;
+}
+
+.outline-right {
+  flex: 0 0 32%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: stretch;
+  justify-content: flex-start;
+  min-width: 240px;
+}
+
+.outline-textarea-large {
+  width: 100%;
+  min-height: calc(100% - 3.5rem);
+  max-height: 100%;
+  padding: 0.8rem;
+  resize: vertical;
+  font-size: 1rem;
+}
+
+.outline-textarea-prompt {
+  width: 100%;
+  /* 减小高度以腾出更多空间给按钮 */
+  min-height: 140px;
+  max-height: calc(100% - 5.5rem);
+  padding: 0.6rem;
+  font-size: 0.95rem;
+}
+
+.left-pagination { margin-top: auto; display: flex; gap: 0.6rem; align-items: center; }
+
+/* 右侧分页样式：位于指令区域下方，按钮在取消/确认上方 */
+.right-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  /* 减少上边距，让分页和按钮整体上移 */
+  margin: 0.2rem 0 0.2rem 0;
+  padding: 0.2rem 0;
+}
+
+.right-pagination .pagination-btn { padding: 0.38rem 0.8rem; font-size: 0.88rem; }
+
+.outline-editor-actions.right-actions {
+  /* 将按钮从底部对齐改为靠上位置，以整体上移 */
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: row; /* 强制水平排列 */
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  padding-top: 0.25rem;
+  border-top: none;
+  white-space: nowrap; /* 防止换行堆叠 */
+}
+
+.outline-editor-actions .edit-btn { padding: 0.48rem 0.9rem; font-size: 0.95rem; border-radius: 6px; }
+.outline-editor-actions.right-actions .edit-btn { width: auto; display: inline-flex; align-items: center; justify-content: center; }
+
+/* 在窄屏下回退为垂直布局，但仍优先扩大文本框 */
+@media (max-width: 720px) {
+  .outline-editor-body { flex-direction: column; min-height: auto; }
+  .outline-left, .outline-right { flex: none; width: 100%; }
+  .outline-textarea-large { min-height: 140px; }
+  .outline-textarea-prompt { min-height: 90px; }
+}
+
+/* 横屏设备专用：确保右侧操作按钮在视口可见 */
+@media screen and (orientation: landscape) {
+  .outline-editor-body { overflow: auto; }
+  /* 将右侧按钮设为粘性，固定在右侧面板顶部，保证在较短高度下仍可见 */
+  .outline-editor-actions.right-actions {
+    position: sticky;
+    top: 0.8rem;
+    z-index: 30;
+    margin-top: 0.6rem;
+    background: transparent;
+  }
+  /* 进一步减小输入框高度以腾出空间 */
+  .outline-textarea-large { min-height: 100px; }
+  .outline-textarea-prompt { min-height: 80px; }
+}
+
+/* 横屏改进：确保确认按钮始终可见（绝对定位在面板右上） */
+@media screen and (orientation: landscape) and (max-width: 1024px) {
+  .outline-editor-panel { position: relative; }
+  .outline-editor-body { overflow: visible; }
+  /* 将按钮绝对定位在面板右上，保证在短高度设备可见 */
+  .outline-editor-actions.right-actions {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    z-index: 60;
+    margin-top: 0;
+    background: rgba(255,255,255,0.01);
+  }
+  /* 将分页上移，靠近指令输入框顶部 */
+  .right-pagination { margin: 0.1rem 0 0.2rem 0; }
+  /* 进一步减小指令框高度以避免推开按钮 */
+  .outline-textarea-prompt { min-height: 64px; max-height: calc(100% - 4.5rem); }
+  .outline-textarea-large { min-height: 80px; }
+}
+
 .text-fade-enter-from, .text-fade-leave-to {
   opacity: 0;
 }
@@ -1251,4 +1385,19 @@
     font-size: 13px;
   }
 }
+
+/* 音乐控制按钮（设置弹窗） */
+.music-controls .music-btn {
+  background: linear-gradient(135deg, #d4a574 0%, #f5e6d3 100%);
+  color: #2c1810;
+  border: none;
+  padding: 0.45rem 0.9rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+}
+.music-controls .music-btn:hover { transform: translateY(-2px); }
+.music-controls .music-btn:active { transform: translateY(0); }
+.music-controls .section-title { margin-top: 0; }
 

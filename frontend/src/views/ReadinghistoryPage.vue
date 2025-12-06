@@ -39,7 +39,6 @@ import { ref, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { showToast } from 'vant'
 import { getReadingHistory } from '../api/user'
-import { addFavorite, deleteFavorite } from '../api/user'
 import { useTags } from '../composables/useTags'
 
 // 初始化标签工具
@@ -76,7 +75,6 @@ const fetchReadingHistory = async () => {
   }
 }
 
-
 // 返回上一页
 const handleBack = () => {
   router.back()
@@ -92,8 +90,17 @@ const navigateToBookDetail = (bookId) => {
 </script>
 
 <style scoped>
+::v-deep .van-nav-bar {
+  background: #faf8f3;
+  box-shadow: none;
+}
+::v-deep .van-nav-bar__title,
+::v-deep .van-nav-bar__left .van-icon {
+  color: #444444 ; 
+}
+
 .history-page {
-  background-color: #f5f5f5;
+  background-color: #faf8f3;
   min-height: 100vh;
   padding-bottom: 20px;
 }
@@ -116,6 +123,7 @@ const navigateToBookDetail = (bookId) => {
   height: 100px;
   border-radius: 4px;
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 .book-info {

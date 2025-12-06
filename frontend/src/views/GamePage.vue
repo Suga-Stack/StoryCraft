@@ -216,6 +216,185 @@ const attemptDeleteNarration = () => {
 // 先定义 showSettingsModal，因为它被 anyOverlayOpen 使用
 const showSettingsModal = ref(false)
 
+// 音乐播放支持（用于菜单设置中的上一首/下一首/暂停按钮）
+const playlist = ref([]) // 将来可由外部注入 URL 列表
+const currentTrackIndex = ref(0)
+const audioEl = ref(null)
+const isMusicPlaying = ref(false)
+// DEV-only flag
+const isDev = !!(import.meta && import.meta.env && import.meta.env.DEV)
+
+const loadTrack = (idx) => {
+  try {
+    if (!Array.isArray(playlist.value) || playlist.value.length === 0) return
+    const limited = Math.max(0, Math.min(idx || 0, playlist.value.length - 1))
+    currentTrackIndex.value = limited
+    if (!audioEl.value) audioEl.value = new Audio()
+    // 配置 audio 元素以增加自动播放兼容性
+    try { audioEl.value.crossOrigin = 'anonymous' } catch (e) {}
+    try { audioEl.value.preload = 'auto' } catch (e) {}
+    try { audioEl.value.setAttribute && audioEl.value.setAttribute('playsinline', '') } catch (e) {}
+    audioEl.value.src = playlist.value[limited]
+    audioEl.value.loop = false
+    // 设置默认音量，避免静音场景
+    try { audioEl.value.volume = 0.8 } catch (e) {}
+    audioEl.value.load()
+    audioEl.value.onended = () => { playNextTrack() }
+    // 更详细的事件监听，便于调试
+    audioEl.value.onplay = () => { console.log('[GamePage][audio] onplay, src=', audioEl.value.src); isMusicPlaying.value = true }
+    audioEl.value.onpause = () => { console.log('[GamePage][audio] onpause'); isMusicPlaying.value = false }
+    audioEl.value.onerror = (ev) => { console.error('[GamePage][audio] error event:', ev, 'audioEl:', audioEl.value) }
+  } catch (e) { console.warn('loadTrack failed', e) }
+}
+
+const playTrack = async (idx) => {
+  try {
+    if (idx != null) loadTrack(idx)
+    if (!audioEl.value) audioEl.value = new Audio()
+    try {
+      await audioEl.value.play()
+      isMusicPlaying.value = true
+      console.log('[GamePage][audio] playTrack succeeded, src=', audioEl.value.src)
+    } catch (playErr) {
+      // 更明确地记录播放失败的信息，方便调试 autoplay 限制或 CORS
+      console.error('[GamePage][audio] playTrack failed:', playErr)
+      // 尝试静音回退：某些浏览器允许静音自动播放
+      try {
+        audioEl.value.muted = true
+        await audioEl.value.play()
+        isMusicPlaying.value = true
+        console.log('[GamePage][audio] playTrack succeeded with muted fallback, src=', audioEl.value.src)
+        // 尝试在短暂延迟后取消静音并继续播放（若浏览器策略允许）
+        setTimeout(async () => {
+          try {
+            audioEl.value.muted = false
+            await audioEl.value.play()
+            console.log('[GamePage][audio] unmuted and resumed playback')
+          } catch (unmuteErr) {
+            console.warn('[GamePage][audio] unmute/resume failed (likely blocked by autoplay policy):', unmuteErr)
+          }
+        }, 600)
+      } catch (mutedErr) {
+        console.warn('[GamePage][audio] muted fallback also failed:', mutedErr)
+        throw playErr
+      }
+    }
+  } catch (e) { console.warn('playTrack failed', e) }
+}
+
+const playNextTrack = () => {
+  try {
+    if (!Array.isArray(playlist.value) || playlist.value.length === 0) return
+    const next = (currentTrackIndex.value + 1) % playlist.value.length
+    loadTrack(next)
+    playTrack()
+  } catch (e) { console.warn('playNextTrack failed', e) }
+}
+
+const playPrevTrack = () => {
+  try {
+    if (!Array.isArray(playlist.value) || playlist.value.length === 0) return
+    const prev = (currentTrackIndex.value - 1 + playlist.value.length) % playlist.value.length
+    loadTrack(prev)
+    playTrack()
+  } catch (e) { console.warn('playPrevTrack failed', e) }
+}
+
+const pauseMusic = () => {
+  try {
+    if (audioEl.value) {
+      audioEl.value.pause()
+      isMusicPlaying.value = false
+      console.log('[GamePage][audio] paused')
+    }
+  } catch (e) { console.warn('pauseMusic failed', e) }
+}
+
+const toggleMusic = async () => {
+  try {
+    if (isMusicPlaying.value) {
+      pauseMusic()
+    } else {
+      // 尝试继续播放当前曲目
+      await playTrack()
+    }
+  } catch (e) {
+    console.warn('toggleMusic failed', e)
+  }
+}
+
+// 如果外部（例如页面其他脚本）注入了全局播放列表，则自动使用它
+onMounted(() => {
+  try {
+    if (window.__musicPlaylist && Array.isArray(window.__musicPlaylist) && window.__musicPlaylist.length > 0) {
+      playlist.value = window.__musicPlaylist
+      loadTrack(0)
+    }
+  } catch (e) {}
+})
+
+// DEV: 临时注入测试音频并预加载（不强制自动播放，以避免被浏览器阻止）
+onMounted(() => {
+  try {
+    if (isDev) {
+      const devUrl = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3'
+      try { window.__musicPlaylist = [devUrl] } catch (e) {}
+      playlist.value = [devUrl]
+      loadTrack(0)
+      console.log('[GamePage] DEV audio playlist injected:', devUrl)
+    }
+  } catch (e) { console.warn('DEV audio injection failed', e) }
+})
+
+// 如果后端通过作品详情提供了播放列表（通过 useStoryAPI.musicPlaylist），同步到本地 playlist
+try {
+    if (typeof storyAPI !== 'undefined' && storyAPI.musicPlaylist) {
+    watch(() => storyAPI.musicPlaylist.value, (val) => {
+      try {
+        if (Array.isArray(val) && val.length > 0) {
+          playlist.value = val
+          // 根据当前章节播放对应曲目（currentChapterIndex 为 1-based）
+          const chap = Number(currentChapterIndex?.value || 1)
+          const idx = ((chap - 1) % playlist.value.length + playlist.value.length) % playlist.value.length
+          loadTrack(idx)
+          // 仅在正在“阅读”且不在加载中时自动播放
+          try {
+            if (showText && showText.value && !isLoading.value) {
+              playTrack()
+            } else {
+              console.log('[GamePage][audio] skip autoplay: not in reading state or still loading')
+            }
+          } catch (e) {
+            console.warn('[GamePage][audio] check reading/loading state failed', e)
+          }
+        }
+      } catch (e) { console.warn('sync musicPlaylist watch handler failed', e) }
+    }, { immediate: true })
+  }
+} catch (e) {}
+
+// 每当章节变化时，切换到该章对应的音乐（每章一首，循环）
+  try {
+    watch(currentChapterIndex, (val) => {
+      try {
+        if (!Array.isArray(playlist.value) || playlist.value.length === 0) return
+        const chap = Number(val || 1)
+        const idx = ((chap - 1) % playlist.value.length + playlist.value.length) % playlist.value.length
+        loadTrack(idx)
+        // 仅在正在“阅读”且不在加载中时自动播放
+        try {
+          if (showText && showText.value && !isLoading.value) {
+            playTrack()
+          } else {
+            console.log('[GamePage][audio] chapter changed but skip autoplay: not in reading state or still loading')
+          }
+        } catch (e) {
+          console.warn('[GamePage][audio] check reading/loading state failed on chapter change', e)
+        }
+      } catch (e) { console.warn('chapter change music switch failed', e) }
+    }, { immediate: false })
+  } catch (e) {}
+
 // 是否正在进入结局判定的特殊加载（在跳转到结算/结局前显示）
 const isEndingLoading = ref(false)
 
@@ -501,6 +680,22 @@ const {
   loadAutoPlayPrefs
 } = autoPlayAPI
 
+// 自动播放：当进入阅读界面（横屏就绪、非加载且文本显示）时尝试播放音乐
+watch([isLandscapeReady, isLoading, showText], async ([land, loading, show]) => {
+  try {
+    if (land && !loading && show && Array.isArray(playlist.value) && playlist.value.length > 0 && !isMusicPlaying.value) {
+      console.log('[GamePage] 尝试自动播放音乐')
+      try {
+        await playTrack(currentTrackIndex.value || 0)
+        console.log('[GamePage] 自动播放已触发')
+      } catch (err) {
+        console.warn('[GamePage] 自动播放尝试失败', err)
+        try { showNotice('自动播放被阻止或失败，请在菜单中手动播放') } catch (e) {}
+      }
+    }
+  } catch (e) { console.warn('[GamePage] auto-play watch failed', e) }
+}, { immediate: false })
+
 // 本地引用，允许在运行时替换为 mock 实现
 let didLoadInitialMock = false
 let creatorEditorHandled = false
@@ -518,7 +713,7 @@ const initializeGame = async () => {
   }
   
   isLoading.value = true
-  loadingProgress.value = 0
+  try { if (typeof startLoading === 'function') startLoading() } catch (e) {}
   
   try {
     // 若启用本地 mock，则在组件挂载时异步加载 mock 实现
@@ -565,9 +760,9 @@ const initializeGame = async () => {
             const resp = await getScenes(work.value.id, 1, {
               onProgress: (progress) => {
                 console.log(`[Story] 首章生成进度:`, progress)
-                // 更新加载进度
-                if (progress.status === 'generating' && progress.progress) {
-                  loadingProgress.value = Math.min(90, (progress.progress.currentChapter / progress.progress.totalChapters) * 100)
+                // 进度由全局计时器控制；当后端不再处于生成状态时结束加载
+                if (progress && progress.status && progress.status !== 'generating') {
+                  try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}
                 }
               }
             })
@@ -596,8 +791,8 @@ const initializeGame = async () => {
               const result = await fetchNextChapter(work.value.id, 1, {
                 onProgress: (progress) => {
                   console.log(`[Story] 首章生成进度:`, progress)
-                  if (progress.status === 'generating' && progress.progress) {
-                    loadingProgress.value = Math.min(90, (progress.progress.currentChapter / progress.progress.totalChapters) * 100)
+                  if (progress && progress.status && progress.status !== 'generating') {
+                    try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}
                   }
                 }
               })
@@ -606,14 +801,16 @@ const initializeGame = async () => {
           } catch (e) {
             console.warn('getInitialScenes failed, fallback to fetchNextChapter', e)
             console.log('[GamePage] getInitialScenes失败，尝试fetchNextChapter...')
-            const result = await fetchNextChapter(work.value.id, 1, {
-              onProgress: (progress) => {
-                console.log(`[Story] 首章生成进度:`, progress)
-                if (progress.status === 'generating' && progress.progress) {
-                  loadingProgress.value = Math.min(90, (progress.progress.currentChapter / progress.progress.totalChapters) * 100)
+              const result = await fetchNextChapter(work.value.id, 1, {
+                onProgress: (progress) => {
+                  console.log(`[Story] 首章生成进度:`, progress)
+                  if (progress && progress.status === 'generating') {
+                    try { if (typeof startLoading === 'function') startLoading() } catch (e) {}
+                  } else if (progress && progress.status && progress.status !== 'generating') {
+                    try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}
+                  }
                 }
-              }
-            })
+              })
             console.log('[GamePage] fetchNextChapter返回结果:', result)
           }
         } else {
@@ -621,8 +818,8 @@ const initializeGame = async () => {
           const result = await fetchNextChapter(work.value.id, 1, {
             onProgress: (progress) => {
               console.log(`[Story] 首章生成进度:`, progress)
-              if (progress.status === 'generating' && progress.progress) {
-                loadingProgress.value = Math.min(90, (progress.progress.currentChapter / progress.progress.totalChapters) * 100)
+              if (progress && progress.status && progress.status !== 'generating') {
+                try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}
               }
             }
           })
@@ -636,12 +833,12 @@ const initializeGame = async () => {
       try {
         console.log('[GamePage] initFromCreateResult失败，尝试fetchNextChapter...')
         const result = await fetchNextChapter(work.value.id, 1, {
-          onProgress: (progress) => {
-            console.log(`[Story] 首章生成进度:`, progress)
-            if (progress.status === 'generating' && progress.progress) {
-              loadingProgress.value = Math.min(90, (progress.progress.currentChapter / progress.progress.totalChapters) * 100)
-            }
-          }
+              onProgress: (progress) => {
+                console.log(`[Story] 首章生成进度:`, progress)
+                if (progress && progress.status && progress.status !== 'generating') {
+                  try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}
+                }
+              }
         })
         console.log('[GamePage] fetchNextChapter返回结果:', result)
       } catch (err) {
@@ -737,7 +934,7 @@ const effectiveCoverUrl = computed(() => {
     if (!raw) return defaultImg
     if (/^https?:\/\//i.test(raw)) return raw
     // 如果是相对路径（例如 /media/xxx），为开发环境补齐后端地址
-    return 'http://127.0.0.1:8000/' + (raw.startsWith('/') ? raw : ('/' + raw))
+    return 'https://storycraft.work.gd' + (raw.startsWith('/') ? raw : ('/' + raw))
   } catch (e) {
     return 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=1600&h=900&fit=crop'
   }
@@ -899,12 +1096,14 @@ const initFromCreateResult = async (opts = {}) => {
           console.log(`[initFromCreateResult] 第一章状态为 ${firstChapterStatus}，跳过编辑器直接加载`)
         }
       }
-  const result = await getScenes(workId, 1, {
+      const result = await getScenes(workId, 1, {
         onProgress: (progress) => {
           console.log(`[Story] 首章生成进度:`, progress)
-          // 更新加载进度
-          if (progress.status === 'generating' && progress.progress) {
-            loadingProgress.value = Math.min(90, (progress.progress.currentChapter / progress.progress.totalChapters) * 100)
+          // 使用集中式加载控制：生成中启动集中进度，非生成中停止并完成进度
+          if (progress && progress.status === 'generating') {
+            try { if (typeof startLoading === 'function') startLoading() } catch (e) {}
+          } else if (progress && progress.status && progress.status !== 'generating') {
+            try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}
           }
         }
       })
@@ -1360,10 +1559,28 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       return `第${Number(chapterIndex)}章`
     }
 
+    // 在将章节数据发送到后端之前，移除用于展示“请选择一个结局”选择的场景。
+    // 这些场景只是 UI 用于让玩家选择结局，不应作为章节内容保存到后端。
+    const isEndingChoicePrompt = (scene) => {
+      try {
+        if (!scene || !Array.isArray(scene.dialogues)) return false
+        for (const d of scene.dialogues) {
+          const text = (typeof d === 'string') ? d : (d.narration || d.text || '')
+          if (!text) continue
+          const t = String(text).trim()
+          // 精确或开始匹配“请选择一个结局”以及包含“请选择”和“结局”的组合
+          if (t === '请选择一个结局：' || t === '请选择一个结局' || t.startsWith('请选择一个结局') || (t.includes('请选择') && t.includes('结局'))) return true
+        }
+      } catch (e) { /* ignore */ }
+      return false
+    }
+
+    const postedScenes = (finalScenesPayload || []).filter(s => !isEndingChoicePrompt(s))
+
     const chapterData = {
       chapterIndex: Number(chapterIndex),
       title: getFallbackTitle(),
-      scenes: finalScenesPayload  // 🔑 使用去重后的场景列表
+      scenes: postedScenes  // 🔑 使用过滤掉结局选择场景后的列表
     }
 
     // 检测是否为结局场景：只有当场景数据本身被标记为结局时才认为是结局，
@@ -2554,6 +2771,17 @@ onUnmounted(async () => {
             <input type="number" min="2000" max="10000" step="500" v-model.number="autoPlayIntervalMs" style="width:140px" />
           </label>
           <p class="hint">范围 2000ms–10000ms（即 2–10 秒）；开启后系统将按间隔自动播放，遇到选项暂停，选择后继续。</p>
+          <div class="music-controls" style="margin-top:0.75rem">
+            <div class="section-title">音乐控制</div>
+            <div class="row" style="gap:0.5rem; margin-top:0.5rem">
+              <button class="music-btn" @click="playPrevTrack">上一首</button>
+              <button class="music-btn" @click="toggleMusic">{{ isMusicPlaying ? '暂停' : '播放' }}</button>
+              <button class="music-btn" @click="playNextTrack">下一首</button>
+            </div>
+            <div class="modal-row meta-small" style="margin-top:0.5rem">
+              当前：{{ playlist.length ? (currentTrackIndex + 1) : 0 }} / {{ playlist.length }}
+            </div>
+          </div>
         </div>
         <div class="modal-actions">
           <button @click="showSettingsModal = false">关闭</button>
@@ -2658,7 +2886,7 @@ onUnmounted(async () => {
   -->
 
   <button 
-    v-if="(creatorFeatureEnabled || creatorMode) && getChapterStatus(currentChapterIndex) !== 'saved'"
+    v-if="work.modifiable && work.ai_callable && getChapterStatus(currentChapterIndex) !== 'saved'"
     @click="openOutlineEditorManual()"
     class="creator-outline-btn" 
     title="编辑/生成章节大纲">
@@ -2667,7 +2895,7 @@ onUnmounted(async () => {
   
   <!-- 创作者在播放后端已生成结局时显示的编辑按钮 -->
   <button
-    v-if="(creatorFeatureEnabled || creatorMode) && isPlayingBackendGeneratedEnding"
+    v-if="work.modifiable && work.ai_callable && isPlayingBackendGeneratedEnding"
     @click="() => openEndingEditor({ _endingIndex: (currentScene && typeof currentScene._endingIndex !== 'undefined' && currentScene._endingIndex !== null) ? Number(currentScene._endingIndex) : ((lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? Number(lastSelectedEndingIndex.value) : null), _endingTitle: (currentScene && currentScene._endingTitle) || (work && work.title) })"
     class="creator-outline-btn"
     title="编辑当前结局的大纲">
@@ -2675,7 +2903,7 @@ onUnmounted(async () => {
   </button>
   <!-- 创作者专用：当当前章节已由 AI 生成（generated）时，可确认并保存本章，标记为 saved -->
   <button 
-    v-if="(creatorFeatureEnabled || creatorMode) && getChapterStatus(currentChapterIndex) !== 'saved' && !isPlayingBackendGeneratedEnding" 
+    v-if="work.modifiable && work.ai_callable && getChapterStatus(currentChapterIndex) !== 'saved' && !isPlayingBackendGeneratedEnding" 
     @click="persistCurrentChapterEdits({ auto: false, allowSaveGenerated: true })" 
     class="creator-confirm-btn" 
     title="确认并保存本章">
@@ -2684,7 +2912,7 @@ onUnmounted(async () => {
 
   <!-- 创作者在播放后端已生成结局时显示的保存按钮 -->
   <button
-    v-if="(creatorFeatureEnabled || creatorMode) && isPlayingBackendGeneratedEnding"
+    v-if="work.modifiable && work.ai_callable && isPlayingBackendGeneratedEnding"
     @click="saveCurrentEnding"
     class="creator-confirm-btn"
     title="保存当前结局">
@@ -2694,59 +2922,67 @@ onUnmounted(async () => {
   <!-- 创作者大纲编辑器模态（当 createResult.modifiable 且有 chapterOutlines 时显示） -->
   <div v-if="showOutlineEditor" class="modal-backdrop">
       <div class="modal-panel outline-editor-panel">
-        <h3 class="outline-editor-title">✨ 编辑章节大纲</h3>
-        <p class="outline-editor-desc">编辑完成后点击"确认"可以基于此大纲生成章节内容哦~</p>
-        
-        <!-- 分页章节显示 -->
-        <div class="outline-chapters-container">
-          <div v-if="outlineEdits[outlineCurrentPage]" class="outline-chapter-item">
-            <div class="chapter-label">📖 第 {{ outlineEdits[outlineCurrentPage].chapterIndex }} 章 大纲</div>
-            <textarea 
-              v-model="outlineEdits[outlineCurrentPage].outline" 
-              rows="3" 
-              class="outline-textarea" 
-              placeholder="请输入该章节的大纲内容...">
-            </textarea>
+        <div class="outline-editor-header">
+          <h3 class="outline-editor-title">✨ 编辑章节大纲</h3>
+          <p class="outline-editor-desc">编辑完成后点击"确认"可以基于此大纲生成章节内容哦~</p>
+        </div>
+
+        <div class="outline-editor-body">
+          <!-- 左侧：章节大纲（更大文本区） -->
+          <div class="outline-left">
+            <div class="outline-chapters-container">
+              <div v-if="outlineEdits[outlineCurrentPage]" class="outline-chapter-item">
+                <div class="chapter-label">📖 第 {{ outlineEdits[outlineCurrentPage].chapterIndex }} 章 大纲</div>
+                <textarea 
+                  v-model="outlineEdits[outlineCurrentPage].outline" 
+                  rows="10" 
+                  class="outline-textarea outline-textarea-large" 
+                  placeholder="请输入该章节的大纲内容...">
+                </textarea>
+              </div>
+            </div>
+
+            <!-- 分页控制：已移至右侧指令区下方 -->
           </div>
-        </div>
 
-        <!-- 分页控制 -->
-        <div class="outline-pagination">
-          <button 
-            class="pagination-btn" 
-            @click="outlineCurrentPage = Math.max(0, outlineCurrentPage - 1)"
-            :disabled="outlineCurrentPage === 0">
-            ← 上一章
-          </button>
-          <span class="pagination-info">{{ outlineCurrentPage + 1 }} / {{ outlineEdits.length }}</span>
-          <button 
-            class="pagination-btn" 
-            @click="outlineCurrentPage = Math.min(outlineEdits.length - 1, outlineCurrentPage + 1)"
-            :disabled="outlineCurrentPage === outlineEdits.length - 1">
-            下一章 →
-          </button>
-        </div>
+          <!-- 右侧：额外指令 + 操作按钮（紧凑） -->
+          <div class="outline-right">
+            <div class="outline-prompt-section">
+              <div class="chapter-label">💡 指令 (可选)</div>
+              <textarea 
+                v-model="outlineUserPrompt" 
+                rows="8" 
+                class="outline-textarea outline-textarea-prompt" 
+                placeholder="为本章生成提出您的指令吧...">
+              </textarea>
+            </div>
+            <!-- 分页控制（位于指令输入框下方，取消/确认按钮上方） -->
+            <div class="right-pagination">
+              <button 
+                class="pagination-btn" 
+                @click="outlineCurrentPage = Math.max(0, outlineCurrentPage - 1)"
+                :disabled="outlineCurrentPage === 0">
+                ← 上一章
+              </button>
+              <span class="pagination-info">{{ outlineCurrentPage + 1 }} / {{ outlineEdits.length }}</span>
+              <button 
+                class="pagination-btn" 
+                @click="outlineCurrentPage = Math.min(outlineEdits.length - 1, outlineCurrentPage + 1)"
+                :disabled="outlineCurrentPage === outlineEdits.length - 1">
+                下一章 →
+              </button>
+            </div>
 
-        <!-- 额外指令 -->
-        <div class="outline-prompt-section">
-          <div class="chapter-label">💡 指令 (可选)</div>
-          <textarea 
-            v-model="outlineUserPrompt" 
-            rows="2" 
-            class="outline-textarea outline-textarea-small" 
-            placeholder="为本章生成提出您的指令吧...">
-          </textarea>
-        </div>
-
-        <!-- 操作按钮 -->
-        <div class="outline-editor-actions">
-          <button v-if="editorInvocation !== 'auto'" class="edit-btn btn-cancel" @click="cancelOutlineEdits">取消</button>
-          <button 
-            class="edit-btn btn-confirm" 
-            :disabled="!(editorInvocation === 'auto' || editorInvocation === 'manual' || creatorMode)" 
-            @click="confirmOutlineEdits({ startLoading, stopLoading })">
-            确认生成
-          </button>
+            <div class="outline-editor-actions right-actions">
+              <button v-if="editorInvocation !== 'auto'" class="edit-btn btn-cancel" @click="cancelOutlineEdits">取消</button>
+              <button 
+                class="edit-btn btn-confirm" 
+                :disabled="!(editorInvocation === 'auto' || editorInvocation === 'manual' || creatorMode)" 
+                @click="confirmOutlineEdits({ startLoading, stopLoading })">
+                确认生成
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

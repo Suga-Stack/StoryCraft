@@ -469,9 +469,9 @@ const handleClose = () => {
   width: 100%;
   height: 100px;
   border-radius: 8px;
-  background-size: contain; /* 改为contain，确保图片完整显示 */
-  background-repeat: no-repeat; /* 防止图片重复平铺 */
-  background-position: center; /* 图片在容器中居中 */
+  background-size: contain; 
+  background-repeat: no-repeat; 
+  background-position: center; 
 }
 
 .book-card:active {
@@ -481,6 +481,8 @@ const handleClose = () => {
 
 .book-title {
   font-size: 14px;
+  width: 160px;
+  display: inline-block;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
