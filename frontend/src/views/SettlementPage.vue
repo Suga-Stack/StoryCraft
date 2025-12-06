@@ -517,10 +517,11 @@ const generateBranchingGraph = async () => {
       } else if (userChoice.choiceId) {
         // 至少构造用户选择的那个选项
         choicesForThisChapter = [{ 
-          id: userChoice.choiceId, 
-          text: userChoice.choiceText || '已选择',
-          choiceId: userChoice.choiceId
-        }]
+            id: userChoice.choiceId, 
+            // 优先使用存档中保存的 choice_content，再回退到旧字段 choiceText
+            text: (userChoice.choice_content ?? userChoice.choiceText ?? '已选择'),
+            choiceId: userChoice.choiceId
+          }]
         console.log(`[Settlement] 从 userChoice 构造了单个选项`)
       }
     }
@@ -594,16 +595,26 @@ const generateBranchingGraph = async () => {
       const choiceY = currentY + 120
 
       // 兼容选项的 id 或 choiceId 字段
-      const currentChoiceId = choice.id || choice.choiceId
-      
-      // 判断是否是用户实际选择的选项
-      const selectedChoiceId = userChoice && userChoice.choiceId ? userChoice.choiceId : null
-      const isUserChoice = selectedChoiceId != null && currentChoiceId === selectedChoiceId
+      const currentChoiceId = (choice.id != null) ? choice.id : choice.choiceId
 
-      const optLetter = String.fromCharCode(65 + choiceIndex) // A, B, C...
+      // 判断是否是用户实际选择的选项（使用字符串比较以兼容数字/字符串格式）
+      const selectedChoiceId = (userChoice && (userChoice.choiceId != null)) ? userChoice.choiceId : null
+      const isUserChoice = selectedChoiceId != null && String(currentChoiceId) === String(selectedChoiceId)
+
+      // 计算选项字母：优先使用显式的 numeric choiceId（1 => A, 2 => B），
+      // 回退到 choice.id 若它是数字，否则使用当前的序号 choiceIndex
+      let optLetter
+      const numericForLetter = (choice.choiceId != null && !isNaN(Number(choice.choiceId)))
+        ? Number(choice.choiceId)
+        : ((choice.id != null && !isNaN(Number(choice.id))) ? Number(choice.id) : (choiceIndex + 1))
+      if (Number.isFinite(numericForLetter) && numericForLetter >= 1) {
+        optLetter = String.fromCharCode(64 + Number(numericForLetter))
+      } else {
+        optLetter = String.fromCharCode(65 + choiceIndex)
+      }
       const choiceShortTitle = `选项${optLetter}`
 
-      console.log(`[Settlement] 章节 ${displayIdx} 选项 ${choiceIndex}: choiceId=${currentChoiceId}, isUserChoice=${isUserChoice}, text="${choice.text}"`)
+      console.log(`[Settlement] 章节 ${displayIdx} 选项 ${choiceIndex}: choiceId=${currentChoiceId}, optLetter=${optLetter}, isUserChoice=${isUserChoice}, text="${choice.text}"`)
 
       if (isUserChoice) {
         // 显示带缩略图的用户选择节点

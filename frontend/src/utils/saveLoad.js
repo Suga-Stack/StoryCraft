@@ -108,7 +108,9 @@ export const saveGameData = async (gameData, slot = 'default') => {
       chapterIndex: choice.chapterIndex || deriveChapterIndex(),
       sceneId: choice.sceneId,
       choiceTriggerIndex: choice.choiceTriggerIndex || 0,
-      choiceId: choiceId
+      choiceId: choiceId,
+      // 包含用户选择时的文本，兼容来自不同位置的命名
+      choice_content: (choice.choice_content ?? choice.choiceText ?? choice.choice_text ?? choice.text ?? '')
     }
   })
 

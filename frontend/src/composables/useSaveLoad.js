@@ -265,7 +265,9 @@ export function useSaveLoad() {
         chapterIndex: choice.chapterIndex || (_currentChapterIndex ? _currentChapterIndex.value : 1),
         sceneId: choice.sceneId,
         choiceTriggerIndex: choice.choiceTriggerIndex || 0,
-        choiceId: choiceId
+        choiceId: choiceId,
+        // 保存用户实际选择时显示的选项文本，字段名为 choice_content，兼容多种可能的来源
+        choice_content: (choice.choice_content ?? choice.choiceText ?? choice.choice_text ?? choice.text ?? '')
       }
     })
 
