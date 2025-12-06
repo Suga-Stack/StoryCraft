@@ -43,6 +43,7 @@ dependencies {
     implementation project(':capacitor-cordova-android-plugins')
     implementation 'com.facebook.stetho:stetho:1.6.0'
     implementation 'com.facebook.stetho:stetho-okhttp3:1.6.0' // 支持 OkHttp 网络抓包
+    implementation 'androidx.core:core:1.12.0'
 }
 
 apply from: 'capacitor.build.gradle'
