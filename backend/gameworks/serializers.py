@@ -227,13 +227,14 @@ class GameworkSimpleSerializer(serializers.ModelSerializer):
     average_score = serializers.SerializerMethodField()
     read_count = serializers.SerializerMethodField()
     is_favorited = serializers.SerializerMethodField()
+    hot_score = serializers.SerializerMethodField()
 
     class Meta:
         model = Gamework
         fields = [
             'id', 'author', 'title', 'description', 'tags', 'image_url',
             'is_published', 'published_at',
-            'favorite_count', 'average_score', 'read_count', 'is_favorited', 'price'
+            'favorite_count', 'average_score', 'read_count', 'is_favorited', 'price', 'hot_score'
         ]
     def get_image_url(self, obj):
         request = self.context.get('request')
@@ -271,3 +272,15 @@ class GameworkSimpleSerializer(serializers.ModelSerializer):
             return len(obj.user_favorites) > 0
 
         return obj.favorited_by.filter(user=user).exists()
+
+    def get_hot_score(self, obj):
+        """
+        计算热度分数：回复数 × 2 + 收藏数 × 1
+        """
+        if hasattr(obj, "hot_score"):
+            return obj.hot_score
+        
+        # 动态计算
+        reply_count = getattr(obj, 'reply_count', obj.comments.count())
+        favorite_count = self.get_favorite_count(obj)
+        return reply_count * 2 + favorite_count
