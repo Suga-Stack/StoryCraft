@@ -221,6 +221,102 @@ const playlist = ref([]) // 将来可由外部注入 URL 列表
 const currentTrackIndex = ref(0)
 const audioEl = ref(null)
 const isMusicPlaying = ref(false)
+// 用于前后台恢复播放的临时状态
+let wasPlayingBeforeHidden = false
+let resumePending = false
+// 本地音乐（用户选择的文件，保存到 localStorage）
+const localTracks = ref([]) // { name, dataUrl }
+const musicInput = ref(null)
+
+const LOCAL_MUSIC_KEY = `local_music_${work.value && work.value.id ? work.value.id : 'global'}`
+
+const saveLocalTracksToStorage = () => {
+  try {
+    localStorage.setItem(LOCAL_MUSIC_KEY, JSON.stringify(localTracks.value || []))
+  } catch (e) { console.warn('保存本地音乐到 localStorage 失败', e) }
+}
+
+const loadLocalTracksFromStorage = () => {
+  try {
+    const raw = localStorage.getItem(LOCAL_MUSIC_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      localTracks.value = parsed
+    }
+  } catch (e) { console.warn('加载本地音乐失败', e) }
+}
+
+const onMusicFileSelected = (e) => {
+  try {
+    const f = (e && e.target && e.target.files && e.target.files[0]) || null
+    if (!f) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const dataUrl = ev.target.result
+        const item = { name: f.name || 'local-audio', dataUrl }
+        // 将新加入的本地曲目放到本地列表最前（与 playlist 前部保持同序）
+        localTracks.value.unshift(item)
+        // 将本地曲目放到播放列表前面，优先播放
+        playlist.value = [item.dataUrl].concat(playlist.value || [])
+        saveLocalTracksToStorage()
+      } catch (err) { console.warn('处理本地音乐文件失败', err) }
+    }
+    reader.onerror = (err) => { console.warn('读取文件失败', err) }
+    reader.readAsDataURL(f)
+    // 清空 input 值，允许重复添加同一文件
+    if (e && e.target) e.target.value = null
+  } catch (e) { console.warn('onMusicFileSelected 失败', e) }
+}
+
+const removeLocalTrack = (idx) => {
+  try {
+    if (idx < 0 || idx >= localTracks.value.length) return
+    const removed = localTracks.value[idx]
+    const removedUrl = removed && removed.dataUrl
+    // 从本地列表中移除
+    localTracks.value.splice(idx, 1)
+    // 从 playlist 中移除对应的 dataUrl，并确保本地条目仍排在前面
+    const remainingLocalUrls = localTracks.value.map(t => t.dataUrl)
+    // 先移除被删除的 url
+    let newPlaylist = (playlist.value || []).filter(u => u !== removedUrl)
+    // 将本地 urls 放到前面，避免重复
+    newPlaylist = remainingLocalUrls.concat(newPlaylist.filter(u => !remainingLocalUrls.includes(u)))
+    playlist.value = newPlaylist
+    saveLocalTracksToStorage()
+    // 如果当前播放的就是被删除的曲目，停止播放并尝试切换到下一首
+    try {
+      if (audioEl.value && removedUrl && audioEl.value.src === removedUrl) {
+        try { pauseMusic() } catch (e) {}
+        // 如果仍有曲目，播放当前索引（或 0）
+        if (playlist.value.length > 0) {
+          const nextIdx = Math.max(0, Math.min(currentTrackIndex.value, playlist.value.length - 1))
+          loadTrack(nextIdx)
+        } else {
+          // 清理 audio 元素
+          try { audioEl.value.src = '' } catch (e) {}
+        }
+      }
+    } catch (e) { console.warn('处理被删除曲目正在播放的情况失败', e) }
+    // 如果当前索引超出范围，重置为 0
+    if (currentTrackIndex.value >= playlist.value.length) currentTrackIndex.value = 0
+  } catch (e) { console.warn('removeLocalTrack 失败', e) }
+}
+
+const triggerMusicFilePicker = () => {
+  try {
+    if (musicInput && musicInput.value) musicInput.value.click()
+  } catch (e) { console.warn('triggerMusicFilePicker 失败', e) }
+}
+
+const playLocal = async (i) => {
+  try {
+    // 本地曲目按序放在 playlist 前部，直接使用索引
+    loadTrack(i)
+    await playTrack()
+  } catch (e) { console.warn('playLocal 失败', e) }
+}
 // DEV-only flag
 const isDev = !!(import.meta && import.meta.env && import.meta.env.DEV)
 
@@ -310,6 +406,18 @@ const pauseMusic = () => {
   } catch (e) { console.warn('pauseMusic failed', e) }
 }
 
+// 停止并清理音频（用于切换章节/加载时）
+const stopMusic = () => {
+  try {
+    if (audioEl.value) {
+      audioEl.value.pause()
+      audioEl.value.currentTime = 0
+      isMusicPlaying.value = false
+      console.log('[GamePage][audio] stopped and reset')
+    }
+  } catch (e) { console.warn('stopMusic failed', e) }
+}
+
 const toggleMusic = async () => {
   try {
     if (isMusicPlaying.value) {
@@ -346,6 +454,19 @@ onMounted(() => {
   } catch (e) { console.warn('DEV audio injection failed', e) }
 })
 
+// 加载并应用本地保存的音乐（如果有）
+onMounted(() => {
+  try {
+    loadLocalTracksFromStorage()
+    if (localTracks.value && localTracks.value.length > 0) {
+      // 将本地曲目放到播放列表前面
+      const localUrls = localTracks.value.map(t => t.dataUrl)
+      playlist.value = localUrls.concat(playlist.value || [])
+      loadTrack(0)
+    }
+  } catch (e) { console.warn('初始化本地音乐失败', e) }
+})
+
 // 如果后端通过作品详情提供了播放列表（通过 useStoryAPI.musicPlaylist），同步到本地 playlist
 try {
     if (typeof storyAPI !== 'undefined' && storyAPI.musicPlaylist) {
@@ -353,47 +474,153 @@ try {
       try {
         if (Array.isArray(val) && val.length > 0) {
           playlist.value = val
-          // 根据当前章节播放对应曲目（currentChapterIndex 为 1-based）
-          const chap = Number(currentChapterIndex?.value || 1)
-          const idx = ((chap - 1) % playlist.value.length + playlist.value.length) % playlist.value.length
-          loadTrack(idx)
-          // 仅在正在“阅读”且不在加载中时自动播放
-          try {
-            if (showText && showText.value && !isLoading.value) {
-              playTrack()
-            } else {
-              console.log('[GamePage][audio] skip autoplay: not in reading state or still loading')
-            }
-          } catch (e) {
-            console.warn('[GamePage][audio] check reading/loading state failed', e)
-          }
+          console.log('[GamePage][audio] musicPlaylist loaded:', playlist.value.length, 'tracks')
         }
       } catch (e) { console.warn('sync musicPlaylist watch handler failed', e) }
     }, { immediate: true })
   }
 } catch (e) {}
-
-// 每当章节变化时，切换到该章对应的音乐（每章一首，循环）
+// 每当章节变化时，停止当前音乐并切换到该章对应的音乐
   try {
-    watch(currentChapterIndex, (val) => {
+    watch(currentChapterIndex, (val, oldVal) => {
       try {
         if (!Array.isArray(playlist.value) || playlist.value.length === 0) return
+        
+        // 🔑 关键：章节变化时停止当前音乐
+        if (val !== oldVal) {
+          console.log('[GamePage][audio] chapter changed from', oldVal, 'to', val, '- stopping current music')
+          stopMusic()
+        }
+        
         const chap = Number(val || 1)
         const idx = ((chap - 1) % playlist.value.length + playlist.value.length) % playlist.value.length
         loadTrack(idx)
-        // 仅在正在“阅读”且不在加载中时自动播放
-        try {
-          if (showText && showText.value && !isLoading.value) {
-            playTrack()
-          } else {
-            console.log('[GamePage][audio] chapter changed but skip autoplay: not in reading state or still loading')
-          }
-        } catch (e) {
-          console.warn('[GamePage][audio] check reading/loading state failed on chapter change', e)
-        }
+        console.log('[GamePage][audio] loaded track for chapter', chap, '- track index:', idx)
+        
+        // 章节切换时不立即播放，等待进入阅读状态后统一触发
       } catch (e) { console.warn('chapter change music switch failed', e) }
     }, { immediate: false })
   } catch (e) {}
+
+    // 当应用切到后台或页面不可见时，自动暂停音乐
+    onMounted(() => {
+      try {
+        const handleVisibilityChange = async () => {
+          try {
+            if (document.hidden) {
+              try {
+                wasPlayingBeforeHidden = !!isMusicPlaying.value
+              } catch (e) { wasPlayingBeforeHidden = false }
+              console.log('[GamePage][audio] document hidden -> pause music, wasPlayingBeforeHidden=', wasPlayingBeforeHidden)
+              pauseMusic()
+            } else {
+              console.log('[GamePage][audio] document visible -> try resume if needed, wasPlayingBeforeHidden=', wasPlayingBeforeHidden)
+              if (wasPlayingBeforeHidden) {
+                try {
+                  await playTrack()
+                  wasPlayingBeforeHidden = false
+                  resumePending = false
+                  console.log('[GamePage][audio] resumed playback on visibilitychange')
+                } catch (e) {
+                  console.warn('[GamePage][audio] resume on visibilitychange blocked, will resume on user interaction', e)
+                  resumePending = true
+                }
+              }
+            }
+          } catch (e) { console.warn('handleVisibilityChange failed', e) }
+        }
+
+        const handleBlur = () => {
+          try {
+            wasPlayingBeforeHidden = !!isMusicPlaying.value
+            console.log('[GamePage][audio] window blur -> pause music, wasPlayingBeforeHidden=', wasPlayingBeforeHidden)
+            pauseMusic()
+          } catch (e) { console.warn('handleBlur failed', e) }
+        }
+
+        const handleFocus = async () => {
+          try {
+            console.log('[GamePage][audio] window focus -> try resume if needed, wasPlayingBeforeHidden=', wasPlayingBeforeHidden)
+            if (wasPlayingBeforeHidden) {
+              try {
+                await playTrack()
+                wasPlayingBeforeHidden = false
+                resumePending = false
+                console.log('[GamePage][audio] resumed playback on focus')
+              } catch (e) {
+                console.warn('[GamePage][audio] resume on focus blocked, will resume on user interaction', e)
+                resumePending = true
+              }
+            }
+          } catch (e) { console.warn('handleFocus failed', e) }
+        }
+
+        const tryResumeOnUserInteraction = async () => {
+          try {
+            if (!resumePending) return
+            console.log('[GamePage][audio] user interaction -> attempting resume')
+            try {
+              await playTrack()
+              resumePending = false
+              wasPlayingBeforeHidden = false
+              document.removeEventListener('click', tryResumeOnUserInteraction)
+              console.log('[GamePage][audio] resumed playback after user interaction')
+            } catch (e) {
+              console.warn('[GamePage][audio] resume after user interaction failed', e)
+            }
+          } catch (e) { console.warn('tryResumeOnUserInteraction failed', e) }
+        }
+
+        document.addEventListener('visibilitychange', handleVisibilityChange)
+        window.addEventListener('blur', handleBlur)
+        window.addEventListener('focus', handleFocus)
+        document.addEventListener('click', tryResumeOnUserInteraction)
+
+        // 尝试使用 Capacitor App 插件（若存在）来监听原生前后台切换
+        let capacitorAppListener = null
+        try {
+          if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+            import('@capacitor/app').then(({ App }) => {
+              try {
+                capacitorAppListener = App.addListener('appStateChange', async (state) => {
+                  try {
+                    if (!state.isActive) {
+                      try { wasPlayingBeforeHidden = !!isMusicPlaying.value } catch (e) { wasPlayingBeforeHidden = false }
+                      console.log('[GamePage][audio] Capacitor appStateChange inactive -> pause music, wasPlayingBeforeHidden=', wasPlayingBeforeHidden)
+                      pauseMusic()
+                    } else {
+                      console.log('[GamePage][audio] Capacitor appStateChange active -> try resume if needed, wasPlayingBeforeHidden=', wasPlayingBeforeHidden)
+                      if (wasPlayingBeforeHidden) {
+                        try {
+                          await playTrack()
+                          wasPlayingBeforeHidden = false
+                          resumePending = false
+                          console.log('[GamePage][audio] resumed playback on appStateChange active')
+                        } catch (e) {
+                          console.warn('[GamePage][audio] resume on appStateChange blocked, will resume on user interaction', e)
+                          resumePending = true
+                        }
+                      }
+                    }
+                  } catch (e) { console.warn('App.appStateChange handler failed', e) }
+                })
+              } catch (e) { console.warn('register App.addListener failed', e) }
+            }).catch((e) => { console.warn('optional @capacitor/app import failed', e) })
+          }
+        } catch (e) { console.warn('Capacitor app listener setup failed', e) }
+
+        onUnmounted(() => {
+          try {
+            document.removeEventListener('visibilitychange', handleVisibilityChange)
+            window.removeEventListener('blur', handleBlur)
+            window.removeEventListener('focus', handleFocus)
+            try {
+              if (capacitorAppListener && typeof capacitorAppListener.remove === 'function') capacitorAppListener.remove()
+            } catch (e) { /* ignore */ }
+          } catch (e) { console.warn('remove visibility/app listeners failed', e) }
+        })
+      } catch (e) { console.warn('audio background handling onMounted failed', e) }
+    })
 
 // 是否正在进入结局判定的特殊加载（在跳转到结算/结局前显示）
 const isEndingLoading = ref(false)
@@ -680,20 +907,38 @@ const {
   loadAutoPlayPrefs
 } = autoPlayAPI
 
-// 自动播放：当进入阅读界面（横屏就绪、非加载且文本显示）时尝试播放音乐
-watch([isLandscapeReady, isLoading, showText], async ([land, loading, show]) => {
+// 🔑 关键修复：统一的音乐播放控制
+// - 加载状态停止音乐
+// - 离开加载状态自动播放当前章节对应音乐（含读档进入的章节）
+watch([isLandscapeReady, isLoading, currentChapterIndex, () => playlist.value.length], async ([land, loading, chapIdx, playlistLen]) => {
   try {
-    if (land && !loading && show && Array.isArray(playlist.value) && playlist.value.length > 0 && !isMusicPlaying.value) {
-      console.log('[GamePage] 尝试自动播放音乐')
-      try {
-        await playTrack(currentTrackIndex.value || 0)
-        console.log('[GamePage] 自动播放已触发')
-      } catch (err) {
-        console.warn('[GamePage] 自动播放尝试失败', err)
-        try { showNotice('自动播放被阻止或失败，请在菜单中手动播放') } catch (e) {}
+    // 进入加载状态时立即停止音乐
+    if (loading) {
+      if (isMusicPlaying.value) {
+        console.log('[GamePage][audio] entering loading state - stopping music')
+        stopMusic()
+      }
+      return
+    }
+    
+    // 离开加载状态，进入游戏或读档后的章节时自动播放音乐（只在横屏就绪且有播放列表时）
+    if (land && !loading && playlistLen > 0) {
+      if (!isMusicPlaying.value) {
+        console.log('[GamePage][audio] entering game - auto-playing music, chapter:', chapIdx, 'track:', currentTrackIndex.value)
+        try {
+          await playTrack(currentTrackIndex.value || 0)
+          console.log('[GamePage][audio] auto-play succeeded')
+        } catch (err) {
+          console.warn('[GamePage][audio] auto-play failed:', err)
+          // 只在第一次失败时提示，避免频繁通知
+          if (!window.__musicAutoPlayFailedNotified) {
+            window.__musicAutoPlayFailedNotified = true
+            try { showNotice('自动播放被阻止，请在菜单中手动播放', 3000) } catch (e) {}
+          }
+        }
       }
     }
-  } catch (e) { console.warn('[GamePage] auto-play watch failed', e) }
+  } catch (e) { console.warn('[GamePage][audio] unified music control failed', e) }
 }, { immediate: false })
 
 // 本地引用，允许在运行时替换为 mock 实现
@@ -1278,6 +1523,9 @@ onUnmounted(() => {
   // 关闭 SSE
   try { if (eventSource) eventSource.close() } catch (e) {}
   stopAutoPlayTimer()
+  // 🔑 关键修复：卸载时停止并清理音乐
+  try { stopMusic() } catch (e) {}
+  try { if (audioEl.value) audioEl.value.src = '' } catch (e) {}
 })
 
 // 打开菜单时会自动暂停,关闭菜单后会自动恢复(由 useAutoPlay 内部的 watch 处理)
@@ -2766,21 +3014,44 @@ onUnmounted(async () => {
             <input type="checkbox" v-model="autoPlayEnabled" />
             <span>自动播放（遇到选项自动暂停）</span>
           </label>
-          <label class="row">
-            <span>每段间隔（毫秒）：</span>
-            <input type="number" min="2000" max="10000" step="500" v-model.number="autoPlayIntervalMs" style="width:140px" />
-          </label>
-          <p class="hint">范围 2000ms–10000ms（即 2–10 秒）；开启后系统将按间隔自动播放，遇到选项暂停，选择后继续。</p>
+          <div class="row interval-selector-row" style="align-items:center">
+            <span>自动播放间隔：</span>
+            <div class="interval-dots" style="margin-left:0.5rem">
+              <button
+                v-for="i in 10"
+                :key="i"
+                :class="['interval-dot', { selected: i <= (autoPlayIntervalMs / 1000) } ]"
+                @click="autoPlayIntervalMs = 1000 + (i-1)*1000"
+                :title="(1000 + (i-1)*1000) / 1000 + ' s'"
+                :aria-label="'设置自动播放间隔 ' + ((1000 + (i-1)*1000) / 1000) + ' 秒'">
+              </button>
+            </div>
+            <div class="interval-label meta-small" style="margin-left:0.6rem">{{ (autoPlayIntervalMs / 1000) }} s</div>
+          </div>
+          <p class="hint">点击任意点选择自动播放间隔（1s — 10s）；开启后系统将按间隔自动播放，遇到选项暂停，选择后继续。</p>
           <div class="music-controls" style="margin-top:0.75rem">
             <div class="section-title">音乐控制</div>
             <div class="row" style="gap:0.5rem; margin-top:0.5rem">
               <button class="music-btn" @click="playPrevTrack">上一首</button>
               <button class="music-btn" @click="toggleMusic">{{ isMusicPlaying ? '暂停' : '播放' }}</button>
               <button class="music-btn" @click="playNextTrack">下一首</button>
+              <button class="music-btn" @click="triggerMusicFilePicker">添加本地音乐</button>
             </div>
             <div class="modal-row meta-small" style="margin-top:0.5rem">
               当前：{{ playlist.length ? (currentTrackIndex + 1) : 0 }} / {{ playlist.length }}
             </div>
+            <div v-if="localTracks.length" class="local-music-list" style="margin-top:0.5rem">
+              <div class="section-subtitle">已添加的本地音乐</div>
+              <ul>
+                <li v-for="(t, i) in localTracks" :key="i" style="display:flex;align-items:center;gap:0.5rem;margin-top:0.25rem">
+                  <button class="music-btn" @click="playLocal(i)" title="播放">▶</button>
+                  <button class="music-btn" @click="removeLocalTrack(i)" title="删除">✕</button>
+                  <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.name }}</span>
+                </li>
+              </ul>
+            </div>
+            <!-- 隐藏的文件输入（用于选择本地音频） -->
+            <input ref="musicInput" type="file" accept="audio/*" style="display:none" @change="onMusicFileSelected" />
           </div>
         </div>
         <div class="modal-actions">
@@ -2823,17 +3094,16 @@ onUnmounted(async () => {
       </div>
     </div>
 
-    <!-- 属性模态：左（属性）右（特殊状态） -->
+    <!-- 属性模态：两栏属性，无状态栏 -->
     <div v-if="showAttributesModal" class="modal-backdrop" @click.self="closeAttributes">
       <div class="modal-panel attributes-panel">
   <h3>角色信息</h3>
 
         <div class="attr-status-grid">
-          <!-- 左：属性 -->
           <div class="attr-col">
             <div class="section-title">属性</div>
             <div v-if="Object.keys(attributes).length === 0" class="empty-text">暂无属性</div>
-            <ul v-else class="kv-list">
+            <ul v-else class="kv-list attr-two-col">
               <li v-for="(val, key) in attributes" :key="key">
                 <span class="kv-key">{{ key }}</span>
                 <span class="kv-sep">：</span>
@@ -2841,22 +3111,7 @@ onUnmounted(async () => {
               </li>
             </ul>
           </div>
-          <!-- 右：特殊状态 -->
-          <div class="status-col">
-            <div class="section-title">特殊状态</div>
-            <div v-if="Object.keys(statuses).length === 0" class="empty-text">暂无特殊状态</div>
-            <ul v-else class="kv-list">
-              <li v-for="(val, key) in statuses" :key="key">
-                <span class="kv-key">{{ key }}</span>
-                <span class="kv-sep">：</span>
-                <span class="kv-val">{{ typeof val === 'object' ? (val.value ?? val.level ?? val.state ?? JSON.stringify(val)) : val }}</span>
-              </li>
-            </ul>
-          </div>
         </div>
-
-        <!-- 预留空白区（用于后续“角色信息变更为：...”等动态指令显示/扩展），按设计需要可调高 -->
-        <div class="attr-blank-space"></div>
 
         <!-- 底部区：将按钮与元信息一起固定在面板底部，元信息保持为最后一行 -->
         <div class="attributes-bottom">
@@ -2868,7 +3123,6 @@ onUnmounted(async () => {
           </div>
           <div class="attributes-meta">
             <div class="modal-row meta-small"><strong>作品：</strong> {{ work.title }}</div>
-            <div class="modal-row meta-small"><strong>作者ID：</strong> {{ work.authorId }}</div>
             <div class="modal-row meta-small" v-if="lastSaveInfo"><strong>最后存档：</strong> {{ new Date(lastSaveInfo.timestamp).toLocaleString() }}</div>
           </div>
         </div>
@@ -2993,20 +3247,48 @@ onUnmounted(async () => {
   <!-- 创作者：结局编辑器模态 -->
   <div v-if="endingEditorVisible" class="modal-backdrop">
     <div class="modal-panel outline-editor-panel">
-      <h3 class="outline-editor-title">✍️ 编辑结局大纲</h3>
-      <p class="outline-editor-desc">修改结局标题与大纲，或提供生成指令。提交后会触发结局生成并轮询直到完成。</p>
-
-      <div class="outline-chapter-item">
-        <div class="chapter-label">结局索引: {{ endingEditorForm.endingIndex || '-' }}</div>
-        <input v-model="endingEditorForm.title" class="outline-textarea" placeholder="结局标题" />
-        <textarea v-model="endingEditorForm.outline" rows="4" class="outline-textarea" placeholder="结局大纲，例如：你战胜了魔王，成为了王国的英雄..."></textarea>
-        <div class="chapter-label">生成指令 (可选)</div>
-        <textarea v-model="endingEditorForm.userPrompt" rows="2" class="outline-textarea outline-textarea-small" placeholder="例如：请让结局更悲壮一些"></textarea>
+      <div class="outline-editor-header">
+        <h3 class="outline-editor-title">✨ 编辑结局大纲</h3>
+        <p class="outline-editor-desc">修改结局标题与大纲，提交后会触发结局生成并轮询直到完成哦~</p>
       </div>
 
-      <div class="outline-editor-actions">
-        <button class="edit-btn btn-cancel" @click="cancelEndingEditor">取消</button>
-        <button class="edit-btn btn-confirm" :disabled="endingEditorBusy" @click="submitEndingEditor">提交并生成</button>
+      <div class="outline-editor-body">
+        <!-- 左侧：结局大纲（更大文本区） -->
+        <div class="outline-left">
+          <div class="outline-chapters-container">
+            <div class="outline-chapter-item">
+              <div class="chapter-label">🎬 结局 {{ endingEditorForm.endingIndex || '-' }} 大纲</div>
+              <input 
+                v-model="endingEditorForm.title" 
+                class="outline-textarea outline-title-input" 
+                placeholder="结局标题" />
+              <textarea 
+                v-model="endingEditorForm.outline" 
+                rows="10" 
+                class="outline-textarea outline-textarea-large" 
+                placeholder="结局大纲，例如：你战胜了魔王，成为了王国的英雄...">
+              </textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- 右侧：额外指令 + 操作按钮（紧凑） -->
+        <div class="outline-right">
+          <div class="outline-prompt-section">
+            <div class="chapter-label">💡 指令 (可选)</div>
+            <textarea 
+              v-model="endingEditorForm.userPrompt" 
+              rows="8" 
+              class="outline-textarea outline-textarea-prompt" 
+              placeholder="例如：请让结局更悲壮一些">
+            </textarea>
+          </div>
+
+          <div class="outline-editor-actions right-actions">
+            <button class="edit-btn btn-cancel" @click="cancelEndingEditor">取消</button>
+            <button class="edit-btn btn-confirm" :disabled="endingEditorBusy" @click="submitEndingEditor">提交并生成</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

@@ -46,8 +46,8 @@ export function useAutoPlay(dependencies = {}) {
 
   // 限制间隔时间在 2000-10000ms 之间
   const clampInterval = (ms) => {
-    const val = Number(ms) || 2000
-    return Math.min(10000, Math.max(2000, val))
+    const val = Number(ms) || 1000
+    return Math.min(10000, Math.max(1000, val))
   }
 
   // 自动播放的执行函数

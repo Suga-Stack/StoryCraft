@@ -562,9 +562,10 @@
   background: #ffffff; /* 菜单面板不透明 */
   border: 1px solid rgba(212, 165, 165, 0.35);
   border-radius: 12px;
-  padding: 0.75rem 1rem;
+  padding: 0.5rem 0.75rem;
   z-index: 7;
-  width: min(92vw, 560px);
+  /* 略微加宽以提高可读性和交互区域 */
+  width: min(90vw, 520px);
   box-shadow: 0 6px 20px rgba(0,0,0,0.15);
   backdrop-filter: none; /* 不需要模糊 */
   max-height: 90vh;
@@ -575,8 +576,9 @@
 .menu-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.5rem 0.75rem; /* 压缩行距略增列距 */
-  margin-top: 0.5rem;
+  /* 收紧行/列间距以节省空间 */
+  gap: 0.4rem 0.6rem;
+  margin-top: 0.25rem;
 }
 
 /* 网格内的菜单项稍微紧凑一点 */
@@ -615,8 +617,9 @@
   color: #2c1810;
   padding: 1.5rem;
   border-radius: 16px;
-  min-width: 300px;
-  max-width: 85vw;
+  /* 增大最小/最大宽度，使对话框更宽 */
+  min-width: 360px;
+  max-width: 94vw;
   border: 2px solid rgba(212,165,165,0.3);
   box-shadow: 0 12px 40px rgba(212, 165, 165, 0.35), 0 4px 12px rgba(0,0,0,0.1);
   animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
@@ -640,8 +643,32 @@
 }
 
 /* 设置弹窗 */
-.settings-modal { width: min(90vw, 520px); }
-.settings-modal .settings-body { display: grid; gap: 0.75rem; margin: 0.5rem 0 0.5rem; }
+.settings-modal { 
+  /* 增大横向最大宽度，限制纵向高度并启用滚动，减少上下占比 */
+  width: min(94vw, 820px);
+  max-height: 72vh;
+  padding: 1rem;
+  overflow: hidden;
+}
+.settings-modal .settings-body { 
+  display: grid; 
+  gap: 0.75rem; 
+  margin: 0.5rem 0 0.5rem; 
+  /* 限制内容高度，超出时内部滚动，避免占满上下 */
+  max-height: calc(72vh - 120px);
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+/* 自动播放间隔点选择器 */
+.interval-dots { display:flex; gap:0.5rem; align-items:center }
+.interval-dot {
+  width:14px; height:14px; border-radius:50%; border:1px solid rgba(140,110,110,0.25);
+  background: rgba(255,255,255,0.9); cursor:pointer; padding:0; box-shadow: none;
+}
+.interval-dot.selected { background: linear-gradient(180deg,#d4a5a5,#d4a5a5); border-color: rgba(212,165,165,0.9) }
+.interval-dot:focus { outline: 2px solid rgba(212,165,165,0.35) }
+.interval-label { color:#8B7355; font-weight:600 }
 .settings-modal .row { display: flex; align-items: center; gap: 0.5rem; }
 .settings-modal .hint { color: #8B7355; font-size: 0.9rem; margin-top: 0.25rem; }
 
@@ -654,7 +681,7 @@
 /* 顶部信息区尽量精简，减少占比 */
 .attributes-panel > h3 { margin: 0.25rem 0 0.5rem; }
 /* 主要内容区：至少占据面板高度的 60% */
-.attr-status-grid { display:grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 0.25rem; flex: 1 1 auto; min-height: 78%; overflow: auto; }
+.attr-status-grid { display:grid; grid-template-columns: 1fr; gap: 1rem; margin-top: 0.25rem; flex: 1 1 auto; min-height: 60%; overflow: auto; }
 .attributes-meta { margin-top: 0.5rem; }
 .meta-small { font-size: 0.85rem; color:#aaa; }
 /* 预留空白占位：用于后续角色信息变更推送等显示或留白 */
@@ -668,14 +695,18 @@
 .kv-sep { color:#8B7355; }
 .kv-val { color:#2c1810; }
 .empty-text { color:#888; font-style: italic; }
+.attr-two-col { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); column-gap: 1.25rem; row-gap: 0.35rem; }
+.attr-two-col li { border-bottom: none; padding: 0.15rem 0; }
+.attr-two-col .kv-key { font-weight: 600; }
 
 @media (max-width: 720px) {
   .attr-status-grid { grid-template-columns: 1fr; }
+  .attr-two-col { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
 }
 
 /* 新增：存/读档弹窗，尺寸比手机界面小一圈 */
 .save-load-modal {
-  width: min(88vw, 720px);
+  width: min(94vw, 900px);
   max-height: 80vh;
   display: flex;
   flex-direction: column;
@@ -813,17 +844,18 @@
 .menu-item {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   width: 100%;
-  padding: 0.6rem 0.8rem; /* 压缩内边距以减少总高度 */
+  /* 适度放大字体和内边距，改善可读性 */
+  padding: 0.55rem 0.75rem;
   background: transparent;
   border: none;
   color: #2c1810;
-  font-size: 1rem;
+  font-size: 1.05rem;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.18s ease;
   border-radius: 5px;
-  margin-bottom: 0.25rem; /* 减少垂直间距 */
+  margin-bottom: 0.18rem; /* 减少垂直间距 */
 }
 
 .menu-item:hover { background: rgba(212, 165, 165, 0.15); }
@@ -844,6 +876,36 @@
   width: 20px;
   height: 20px;
   color: #8B7355;
+}
+
+/* 横屏手机或窄高屏幕下进一步压缩菜单 */
+@media (orientation: landscape) and (max-width: 900px), (max-height: 480px) {
+  .menu-panel {
+    /* 横屏时稍微加宽以利用横向空间，提升字体显示 */
+    width: min(78vw, 480px);
+    padding: 0.45rem 0.65rem;
+    right: 0.6rem;
+    top: 3.2rem;
+  }
+  .menu-grid {
+    gap: 0.28rem 0.45rem;
+  }
+  .menu-item {
+    padding: 0.42rem 0.56rem;
+    font-size: 1.02rem;
+    gap: 0.36rem;
+    margin-bottom: 0.12rem;
+  }
+  .menu-item svg { width: 18px; height: 18px }
+  /* 使选择按钮/选项在横屏时也保持可读 */
+  .choice-btn { padding: 0.7rem 1.2rem; min-width: 260px }
+}
+
+/* 全局小屏适配：当视口较窄时进一步压缩菜单宽度 */
+@media (max-width: 420px) {
+  .menu-panel { width: calc(94vw - 12px); right: 6px; left: auto }
+  .menu-grid { grid-template-columns: 1fr; gap: 0.25rem }
+  .menu-item { padding: 0.44rem 0.56rem; font-size: 1.0rem }
 }
 
 .menu-progress {
@@ -1159,6 +1221,22 @@
   align-items: stretch;
   justify-content: flex-start;
   min-width: 240px;
+}
+
+.outline-title-input {
+  width: 100%;
+  padding: 0.8rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  color: white;
+  margin-bottom: 1rem;
+}
+
+.outline-title-input::placeholder {
+  color: rgba(255, 255, 255, 0.5);
 }
 
 .outline-textarea-large {

@@ -611,6 +611,19 @@ export function useStoryAPI() {
             const resp = await http.get(`/api/game/chapter/${workId}/${idx}/`)
             data = (resp && typeof resp === 'object' && 'data' in resp) ? resp.data : resp
             console.log('[fetchNextChapter] poll后 singleRequest response:', data)
+            
+            // 🔑 关键修复：验证轮询后获取的数据是否有效，避免获取到空数据或仍在生成的数据
+            const hasValidScenes = (data.chapter && Array.isArray(data.chapter.scenes) && data.chapter.scenes.length > 0) ||
+                                   (Array.isArray(data.scenes) && data.scenes.length > 0)
+            
+            if (!hasValidScenes) {
+              console.warn('[fetchNextChapter] 轮询完成但获取的数据仍无场景，等待额外时间后重试')
+              // 额外等待2秒让后端完成写入
+              await new Promise(r => setTimeout(r, 2000))
+              const retryResp = await http.get(`/api/game/chapter/${workId}/${idx}/`)
+              data = (retryResp && typeof retryResp === 'object' && 'data' in retryResp) ? retryResp.data : retryResp
+              console.log('[fetchNextChapter] 延迟重试后的 response:', data)
+            }
           } catch (e) {
             console.warn('[fetchNextChapter] poll后请求章节失败，回退使用 getScenes()', e)
             data = await getScenes(workId, idx, {
