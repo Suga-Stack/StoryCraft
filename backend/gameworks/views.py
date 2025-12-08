@@ -38,7 +38,7 @@ class GameworkViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        base_filter = Q()
+        base_filter = Q(is_published=True)
 
         if user.is_authenticated and not user.is_staff:
             base_filter |= Q(author=user)
