@@ -18,7 +18,7 @@ try { userInfo.value = JSON.parse(localStorage.getItem('userInfo') || '{}') } ca
 const isStaff = computed(() => !!(userInfo.value.is_staff || userInfo.value.isStaff || userInfo.value.staff))
 
 const goBack = () => {
-  router.back()
+  router.push('/')
 }
 // 允许向父组件或上层逻辑发出删除/举报事件
 const emit = defineEmits(['delete-comment', 'report-comment'])

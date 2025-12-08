@@ -120,7 +120,10 @@ export const deleteFavorite = (id) => {
 
 //移动到其他收藏夹
 export const moveFavorite = (id, folderId) => {
-  return http.post(`/api/interactions/favorites/move_to_folder/`,{id, folderId} )
+  return http.post(`/api/interactions/favorites/move_to_folder/`,{
+    favorite_ids: [id], 
+    folder: folderId} 
+  )
 }
 
 //获取评论
