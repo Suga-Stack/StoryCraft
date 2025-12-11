@@ -103,7 +103,7 @@
           >
             上一页
           </button>
-          <span class="page-info">第 {{ currentPage }} 页</span>
+          <span class="page-info">第 {{ currentPage }}/{{ totalPages }} 页</span>
           <button 
             class="page-btn" 
             :disabled="!hasMore" 
@@ -279,19 +279,23 @@ const userInfo = ref({})
 const showChargeLog = ref(false);
 const creditsLog = ref([]);
 const currentPage = ref(1);
+const totalPages = ref();
 const loading = ref(false);
 const hasMore = ref(true);
+const allCreditsLog = ref([]); 
+const pageSize = ref(10); 
 
 // 格式化日志类型
 const formatLogType = (type) => {
   // 根据实际枚举值映射
   const typeMap = {
     'recharge': '积分充值',
-    'consume': '积分消费',
-    'reward': '任务奖励',
-    'expire': '积分过期',
+    'reward': '签到奖励',
+    'read_pay': '阅读付费',
+    'reward_out': '打赏支出',
+    'reward_in': '打赏收入',
     'system': '系统调整',
-    'other': '其他变动'
+    'other': '其他变动',
   };
   return typeMap[type] || type;
 };
@@ -400,7 +404,7 @@ const fetchUserPoints = async () => {
 const toggleChargeLog = () => {
   showChargeLog.value = !showChargeLog.value;
   // 如果是显示状态且还没有加载数据，就加载第一页
-  if (showChargeLog.value && creditsLog.value.length === 0) {
+  if (showChargeLog.value && allCreditsLog.value.length === 0) {
     fetchCreditsLog(1);
   }
 };
@@ -414,13 +418,20 @@ const fetchCreditsLog = async (page) => {
     loading.value = true;
     currentPage.value = page;
     
-    const response = await getCreditsLog(page);
+    const response = await getCreditsLog(1);
     if (response.status === 200) {
-      creditsLog.value = response.data || [];
-      hasMore.value = response.data.has_more || false;
+      allCreditsLog.value = response.data;
+
+      // 计算总页数
+      totalPages.value = Math.ceil(allCreditsLog.value.length / pageSize.value);
+      
+      const startIndex = (page-1) * pageSize.value;
+      const endIndex = startIndex + pageSize.value;
+      creditsLog.value = allCreditsLog.value.slice(startIndex, endIndex);
+      hasMore.value = endIndex < allCreditsLog.value.length;
     } else {
       showToast(response.data.message || '获取积分流水失败');
-    }
+    }    
   } catch (error) {
     console.error('获取积分流水失败:', error);
     showToast('加载积分记录失败');
@@ -432,7 +443,9 @@ const fetchCreditsLog = async (page) => {
 // 页面挂载时获取积分
 onMounted(async () => {
   await fetchUserPoints();
-  await fetchCreditsLog(1);
+  if(showChargeLog.value){
+    await fetchCreditsLog(1);
+  }
 });
 </script>
 
