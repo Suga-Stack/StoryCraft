@@ -264,12 +264,17 @@ onMounted(() => {
 ::v-deep .van-nav-bar {
   background: #faf8f3;
   box-shadow: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
 }
 ::v-deep .van-nav-bar__title,
 ::v-deep .van-nav-bar__left .van-icon {
-  color: #444444 ; 
+  color: #54494B; 
 }
-.staff-page { min-height:100vh; background:#faf8f3; }
+.staff-page { min-height:100vh; background:#faf8f3; margin-top: 46px; }
 .report-list { padding:16px }
 .report-item { background:#fff; border-radius:12px; padding:16px; margin-bottom:14px; box-shadow:0 6px 20px rgba(0,0,0,0.06); position:relative; }
 .report-main { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px }

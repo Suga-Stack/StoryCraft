@@ -60,7 +60,7 @@
       <!-- 积分流水标题 -->
       <div class="log-section-header" @click="toggleChargeLog">
         <span class="log-section-title">积分流水</span>
-        <svg class="toggle-arrow" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :class="{ 'rotate': showChargeLog }">
+        <svg class="toggle-arrow" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" :class="{ 'rotate': !showChargeLog }">
           <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
         </svg>
       </div>
@@ -460,6 +460,11 @@ onMounted(async () => {
 .top-nav {
   background-color: #faf8f3;
   padding: 8px 10px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
 }
 
 .nav-container {
@@ -514,6 +519,7 @@ onMounted(async () => {
   max-width: 600px;
   margin: 0 auto;
   padding: 24px 20px 40px;
+  margin-top: 60px;
 }
 
 /* 充值选项网格 */
