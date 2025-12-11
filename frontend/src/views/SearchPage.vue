@@ -305,7 +305,7 @@ import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
 import { getFavoriteLeaderboard, search, getRatingLeaderboard, getHotLeaderboard } from '../api/user' 
 import { useTags } from '../composables/useTags';
-import http from '../utils/http'
+import { defaultTags } from '../config/tags';
 import { get } from 'vant/lib/utils';
 // 路由实例
 const router = useRouter()
@@ -318,21 +318,21 @@ const searchHistory = ref([])
 const searchResults = ref([])
 const showTagPopup = ref(false)
 
-// 标签相关变量
-const allTags = ref([]) 
+// 标签相关变量（仅使用本地默认标签，避免后端请求）
+const allTags = ref([...defaultTags]) 
 const tagDisplayText = ref('') 
 const tagFilter = ref('')
 const selectedTagIds = ref([])  // 新增这一行
 const selectedTagNames = ref([])  // 已存在的行
-const isLoadingTags = ref(false); // 加载状态
-const tagsError = ref(''); // 错误信息
+// 已移除后端加载逻辑，不再维护加载/错误状态
 
-// 标签分类数据（和偏好页保持一致）
+
+// 标签分类相关状态
 const categories = ref([
-  { name: '类型', range: [0, 15] },    // 类型标签：0-15
-  { name: '风格', range: [16, 48] },   // 风格标签：16-48
-  { name: '世界观', range: [49, 63] }, // 世界观标签：49-63
-  { name: '题材', range: [64, 88] }    // 题材标签：64-88
+  { name: '类型', range: [1, 16] },    // 类型标签：1-16
+  { name: '风格', range: [17, 49] },   // 风格标签：17-49
+  { name: '世界观', range: [50, 64] }, // 世界观标签：50-64
+  { name: '题材', range: [65, 89] }    // 题材标签：65-89
 ]);
 
 // 当前选中的分类索引
@@ -701,64 +701,10 @@ const switchCategory = (index) => {
   }
 };
 
-// fetchTags函数
-const fetchTags = async (page = 1) => {
-  try {
-    const response = await http.get('/api/tags/', {
-      params: { page } 
-    });
-    return {
-      results: response.data?.results || [], // 当前页标签
-      totalPages: Math.ceil((response.data?.count || 0) / 10) 
-    };
-  } catch (error) {
-//  console.error(`获取第${page}页标签失败:`, error);
-    throw error; // 抛出错误让外层处理
-  }
-};
-
-// 获取所有标签
-const fetchAllTags = async () => {
-  isLoadingTags.value = true;
-  tagsError.value = '';
-  allTags.value = []; // 清空现有数据
-
-  try {
-    // 先请求第1页，获取总页数
-    const firstPage = await fetchTags(1);
-    allTags.value.push(...firstPage.results); // 合并第1页数据
-
-    // 如果总页数大于1，循环请求剩余页数
-    if (firstPage.totalPages > 1) {
-      // 从第2页循环到最后一页
-      for (let page = 2; page <= firstPage.totalPages; page++) {
-        const currentPage = await fetchTags(page);
-        allTags.value.push(...currentPage.results); // 合并当前页数据
-      }
-    }
-
-     // 检查是否获取到数据
-    if (allTags.value.length === 0) {
-      console.warn('后端返回空标签列表，使用默认标签');
-      allTags.value = [...defaultTags];
-    }
-  //console.log('全部标签加载完成，共', allTags.value.length, '条');
-  } catch (error) {
-    tagsError.value = '加载标签失败，请重试';
-    showToast(tagsError.value);
-  } finally {
-    isLoadingTags.value = false;
-  }
-};
-
 // 在打开标签弹窗时加载标签
 const toggleTagPopup = () => {
   // 切换弹窗显示状态（true→false 或 false→true）
   showTagPopup.value = !showTagPopup.value;
-  // 只有当弹窗被打开，且标签数据为空、没有正在加载时，才加载第一页标签
-  if (showTagPopup.value && allTags.value.length === 0 && !isLoadingTags.value) {
-    fetchAllTags();
-  }
 }
 
 </script>

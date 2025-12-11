@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '../store'
 import { showToast } from 'vant'
 import * as createWorkService from '../service/createWork.js'
-import http from '../utils/http.js'
+import { defaultTags } from '../config/tags';
 
 // 在本地测试时可开启 create mock（当后端不可用时）
 // 关闭 mock 以便直接调用后端进行集成测试
@@ -19,16 +19,15 @@ const router = useRouter()
 const userStore = useUserStore()
 
 // 分组的标签候选（支持折叠显示）
-const tagGroups = ref([])
-const isLoadingTags = ref(false);
-const tagsError = ref('');
+const tagGroups = ref([...defaultTags])
+// 不再从后端拉取标签，取消加载/错误状态
 
 // 标签分类相关状态
 const categories = ref([
-  { name: '类型', range: [0, 15] },    // 类型标签：0-15
-  { name: '风格', range: [16, 48] },   // 风格标签：16-48
-  { name: '世界观', range: [49, 63] }, // 世界观标签：49-63
-  { name: '题材', range: [64, 88] }    // 题材标签：64-88
+  { name: '类型', range: [1, 16] },    // 类型标签：1-16
+  { name: '风格', range: [17, 49] },   // 风格标签：17-49
+  { name: '世界观', range: [50, 64] }, // 世界观标签：50-64
+  { name: '题材', range: [65, 89] }    // 题材标签：65-89
 ]);
 const currentCategory = ref(0); // 当前选中的分类索引，默认选中"类型"
 
@@ -57,7 +56,6 @@ const identity = ref('reader') // 'reader' | 'creator'
 // 折叠状态：默认折叠以节省空间（用户可展开）
 const collapsed = ref([])
 onMounted( async () => {
-  await fetchAllTags();
   // 尝试锁定竖屏（Capacitor plugin / 浏览器 API）
   try {
     // Capacitor 插件优先
@@ -68,51 +66,6 @@ onMounted( async () => {
     } catch (e) {}
   }
 })
-
-// 按页数获取标签
-const fetchTagsPage = async (page = 1) => {
-  try {
-    const response = await http.get('/api/tags/', {
-      params: { page } 
-    });
-    return {
-      results: response.data?.results || [], // 当前页标签
-      totalPages: Math.ceil((response.data?.count || 0) / 10) 
-    };
-  } catch (error) {
-  //console.error(`获取第${page}页标签失败:`, error);
-    throw error; // 抛出错误让外层处理
-  }
-};
-
-// 获取所有标签
-const fetchAllTags = async () => {
-  isLoadingTags.value = true;
-  tagsError.value = '';
-  tagGroups.value = []; // 清空现有数据
-
-  try {
-    // 先请求第1页，获取总页数
-    const firstPage = await fetchTagsPage(1);
-    tagGroups.value.push(...firstPage.results); // 合并第1页数据
-
-    // 如果总页数大于1，循环请求剩余页数
-    if (firstPage.totalPages > 1) {
-      // 从第2页循环到最后一页
-      for (let page = 2; page <= firstPage.totalPages; page++) {
-        const currentPage = await fetchTagsPage(page);
-        tagGroups.value.push(...currentPage.results); // 合并当前页数据
-      }
-    }
-
-  //console.log('全部标签加载完成，共', tagGroups.value.length, '条');
-  } catch (error) {
-    tagsError.value = '加载标签失败，请重试';
-    showToast(tagsError.value);
-  } finally {
-    isLoadingTags.value = false;
-  }
-};
 
 // 筛选当前分类的标签
 const filteredTags = computed(() => {
