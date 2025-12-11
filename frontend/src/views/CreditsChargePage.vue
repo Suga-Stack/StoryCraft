@@ -367,6 +367,8 @@ const handlePaymentSuccess = async () => {
       // 更新用户积分
       userPoints.value = response.data.new_credits;
       showToast(response.data.message || '充值成功');
+      currentPage.value = 1;
+      fetchCreditsLog(1); // 充值后刷新积分流水
     } else {
       showToast(response.data.message || '充值失败，请重试');
     }
@@ -414,7 +416,7 @@ const fetchCreditsLog = async (page) => {
     
     const response = await getCreditsLog(page);
     if (response.status === 200) {
-      creditsLog.value = page === 1 ? response.data : [...creditsLog.value, ...response.data.data];
+      creditsLog.value = response.data || [];
       hasMore.value = response.data.has_more || false;
     } else {
       showToast(response.data.message || '获取积分流水失败');

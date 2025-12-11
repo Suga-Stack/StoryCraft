@@ -176,9 +176,9 @@ export const rechargeCredits = (credits) => {
   return http.post('/api/users/recharge/', {credits})
 }
 
-// 获取积分流水
+// 获取积分流水，支持自定义每页条数
 export const getCreditsLog = (page) => {
-  return http.get('/api/users/creditlog/', {page})
+  return http.get('/api/users/creditlog/', { params: {page} })
 }
 
 // 举报评论：向后端提交 CommentReport 对象
