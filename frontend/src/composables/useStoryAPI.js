@@ -410,7 +410,7 @@ export function useStoryAPI() {
             
             if (prevChapterStatus !== 'saved') {
             console.warn(`[fetchNextChapter] 上一章 ${idx - 1} 状态为 ${prevChapterStatus}，阻止加载第 ${idx} 章`)
-            if (_showNotice) _showNotice(`第 ${idx - 1} 章尚未保存，请先确认并保存该章内容后再继续。`, 8000)
+            if (_showNotice) _showNotice(`第 ${idx - 1} 章尚未保存`, 8000)
             // 不抛出异常，只是返回 null，让调用方知道加载被阻止
             return null
             }

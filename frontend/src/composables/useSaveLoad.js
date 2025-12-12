@@ -145,7 +145,7 @@ export function useSaveLoad() {
       if (_checkCurrentChapterSaved) {
         const isSaved = await _checkCurrentChapterSaved()
         if (!isSaved) {
-          if (_showNotice) _showNotice('当前章节未保存(saved)状态，无法进行存档操作')
+          if (_showNotice) _showNotice('未保存，无法存档')
           return
         }
       }
@@ -156,7 +156,7 @@ export function useSaveLoad() {
     if (_creatorFeatureEnabled && _creatorFeatureEnabled.value) {
       const endingSaved = isCurrentBackendEndingSaved()
       if (!endingSaved) {
-        if (_showNotice) _showNotice('当前结局尚未保存，无法进行存档操作')
+        if (_showNotice) _showNotice('未保存，无法存档')
         return
       }
     }
@@ -213,7 +213,7 @@ export function useSaveLoad() {
           if (_getChapterStatus && _currentChapterIndex) {
             const st = _getChapterStatus(_currentChapterIndex.value)
             if (st !== 'saved') {
-              if (_showNotice) _showNotice('创作者身份下，仅在章节状态为 saved 时允许存档')
+              if (_showNotice) _showNotice('未保存，无法存档')
               console.log('saveGame blocked for creator: chapter status is', st)
               return
             }
