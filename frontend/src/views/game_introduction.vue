@@ -497,6 +497,78 @@ const toggleDescription = () => {
   isDescriptionExpanded.value = !isDescriptionExpanded.value
 }
 
+// 递归回复组件：展示任意层级的回复，样式与交互与第二层一致
+const ReplyItem = {
+  name: 'ReplyItem',
+  props: {
+    reply: { type: Object, required: true },
+    startReply: { type: Function, required: true },
+    toggleLike: { type: Function, required: true },
+    onDeleteComment: { type: Function, required: true },
+    onReportComment: { type: Function, required: true }
+  },
+
+  template: `
+    <div class="reply-item">
+      <div class="top-right-actions reply-top-actions">
+        <button
+          class="action-btn delete-btn"
+          :disabled="reply._deleting"
+          @click="onDeleteComment(reply)"
+          title="删除回复">
+          <span class="delete-x">×</span>
+        </button>
+        <button
+          class="action-btn report-btn"
+          :disabled="reply._reporting"
+          @click="onReportComment(reply)"
+          title="举报回复">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M12 9v2m0 4h.01M21 12A9 9 0 1 1 3 12a9 9 0 0 1 18 0z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+      <div class="comment-avatar reply-avatar">{{ reply.author.charAt(0) }}</div>
+      <div class="comment-content">
+        <div class="comment-header">
+          <span class="comment-author">{{ reply.author }}</span>
+          <span class="comment-time">{{ reply.time }}</span>
+        </div>
+        <p class="comment-text">{{ reply.text }}</p>
+        <div class="comment-actions">
+          <button 
+            class="action-btn like-btn" 
+            :class="{ active: reply.isLiked }"
+            @click="toggleLike(reply)"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>{{ reply.likes }}</span>
+          </button>
+          <button class="action-btn reply-btn" @click="startReply(reply.id, reply.author)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>回复</span>
+          </button>
+        </div>
+      </div>
+    </div>
+    <div v-if="reply.replies && reply.replies.length" class="replies-list">
+      <ReplyItem 
+        v-for="child in reply.replies" 
+        :key="child.id"
+        :reply="child"
+        :start-reply="startReply"
+        :toggle-like="toggleLike"
+        :on-delete-comment="onDeleteComment"
+        :on-report-comment="onReportComment"
+      />
+    </div>
+  `
+}
+
 // 计算属性：排序后的评论
 const sortedComments = computed(() => {
   const commentsCopy = [...comments.value]
@@ -1432,62 +1504,17 @@ const startReading = async () => {
                 </button>
               </div>
               
-              <!-- 回复列表（仅显示点赞最多的若干条，默认两条，点击展开每次 +5） -->
+              <!-- 回复列表（第二层受展开控制，更深层级递归全部展示） -->
               <div v-if="comment.replies.length > 0" class="replies-list">
-                <div 
-                  v-for="reply in topReplies(comment).slice(0, getVisibleCount(comment.id))" 
-                  :key="reply.id" 
-                  class="reply-item"
-                >
-                  <div class="top-right-actions reply-top-actions">
-                    <button
-                      class="action-btn delete-btn"
-                      :disabled="reply._deleting"
-                      @click="onDeleteComment(reply)"
-                      title="删除回复">
-                      <span class="delete-x">×</span>
-                    </button>
-                    <button
-                      class="action-btn report-btn"
-                      :disabled="reply._reporting"
-                      @click="onReportComment(reply)"
-                      title="举报回复">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path d="M12 9v2m0 4h.01M21 12A9 9 0 1 1 3 12a9 9 0 0 1 18 0z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                      </svg>
-                    </button>
-                  </div>
-                  <div class="comment-avatar reply-avatar">
-                    {{ reply.author.charAt(0) }}
-                  </div>
-                  <div class="comment-content">
-                    <div class="comment-header">
-                      <span class="comment-author">{{ reply.author }}</span>
-                      <span class="comment-time">{{ reply.time }}</span>
-                    </div>
-                    <p class="comment-text">{{ reply.text }}</p>
-                    
-                    <!-- 回复操作按钮 -->
-                    <div class="comment-actions">
-                      <button 
-                        class="action-btn like-btn" 
-                        :class="{ active: reply.isLiked }"
-                        @click="toggleLike(reply)"
-                      >
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                          <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                        <span>{{ reply.likes }}</span>
-                      </button>
-                      <button class="action-btn reply-btn" @click="startReply(reply.id, reply.author)">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                          <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                        <span>回复</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                <ReplyItem
+                  v-for="reply in topReplies(comment).slice(0,getVisibleCount(comment.id))"
+                  :key="reply.id"
+                  :reply="reply"
+                  :start-reply="startReply"
+                  :toggle-like="toggleLike"
+                  :on-delete-comment="onDeleteComment"
+                  :on-report-comment="onReportComment"
+                />
 
                 <!-- 展开 / 收起 控制 -->
                 <div class="replies-controls" style="padding:0.5rem 0 0 0;">
@@ -1612,7 +1639,7 @@ const startReading = async () => {
   </div>
 </template>
 
-<style scoped>
+<style>
 .works-page {
   min-height: 100vh;
   background-color: #faf8f3; /* 米白色背景 */
@@ -2632,6 +2659,12 @@ const startReading = async () => {
   padding-left: 1rem;
   border-left: 2px solid #f0f0f0;
 }
+/* 深层级回复不再继续缩进：与第二层保持同一缩进 */
+.replies-list .replies-list {
+  border-left: none;
+  padding-left: 0; /* 不再额外缩进 */
+  margin-left: 0; /* 去除额外左边距 */
+}
 
 .reply-item {
   display: flex;
@@ -2641,6 +2674,10 @@ const startReading = async () => {
   background: #fafafa;
   border-radius: 8px;
 }
+
+/* 更深层级的回复保持同样的布局，不额外改变颜色 */
+.reply-item .comment-actions { flex-wrap: nowrap; }
+.reply-item .action-btn { min-height: 28px; }
 
 .reply-avatar {
   width: 32px;
