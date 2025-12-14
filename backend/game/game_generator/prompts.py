@@ -1,121 +1,441 @@
 import re
 
-def build_core_seed_prompt(
+def extract_tag_categories(tags: list[str]) -> dict:
+    """提取和分类标签的辅助函数"""
+    tag_categories = {
+        "世界观": ["玄幻", "奇幻", "仙侠", "武侠", "科幻", "都市", "历史", "军事", 
+                  "灵异", "末世", "废土", "西幻", "克鲁苏", "赛博朋克", "蒸汽朋克",
+                  "异界", "异世界", "星际", "未来", "民国", "原始社会", "洪荒",
+                  "古代", "现代", "高武"],
+        "故事类型": ["悬疑", "惊悚", "言情", "现实", "轻松", "搞笑", "治愈", "暗黑",
+                   "虐心", "烧脑", "智斗", "群像", "日常", "生活流", "热血", "争霸",
+                   "权谋", "宫斗", "宅斗", "职场", "校园", "青春", "甜宠", "女强", "女尊"],
+        "主角设定": ["升级流", "无敌流", "重生", "穿越", "系统", "无限流", "种田", 
+                   "基建", "爽文", "扮猪吃虎", "腹黑", "忠犬", "傲娇", "病娇",
+                   "萌宝", "马甲", "神豪", "赘婿"],
+        "受众风格": ["男频", "女频", "二次元", "耽美", "百合", "明星同人"]
+    }
+    
+    categorized = {category: [] for category in tag_categories}
+    
+    for tag in tags:
+        for category, category_tags in tag_categories.items():
+            if tag in category_tags:
+                categorized[category].append(tag)
+                break
+        else:
+            # 如果标签不在任何分类中，放入"世界观"作为默认
+            categorized["世界观"].append(tag)
+    
+    return categorized
+
+
+def analyze_tag_compatibility(tags: list[str]) -> tuple[list, list]:
+    """分析标签兼容性，返回潜在冲突和协同标签组合"""
+    
+    # 常见的冲突标签组合
+    common_conflicts = [
+        ("轻松", "暗黑"),
+        ("治愈", "虐心"), 
+        ("甜宠", "权谋"),
+        ("日常", "末世"),
+        ("种田", "争霸"),
+        ("搞笑", "惊悚"),
+        ("温馨", "克鲁苏")
+    ]
+    
+    # 良好的协同组合
+    synergies = [
+        ("重生", "权谋"),
+        ("系统", "爽文"),
+        ("穿越", "基建"),
+        ("仙侠", "升级流"),
+        ("科幻", "悬疑"),
+        ("都市", "日常"),
+        ("奇幻", "冒险"),
+        ("玄幻", "热血")
+    ]
+    
+    found_conflicts = []
+    found_synergies = []
+    
+    # 检查冲突
+    for tag1 in tags:
+        for tag2 in tags:
+            if tag1 != tag2:
+                # 检查是否是已知冲突对（顺序无关）
+                if (tag1, tag2) in common_conflicts or (tag2, tag1) in common_conflicts:
+                    conflict_pair = tuple(sorted([tag1, tag2]))
+                    if conflict_pair not in found_conflicts:
+                        found_conflicts.append(conflict_pair)
+                
+                # 检查是否是已知协同对
+                if (tag1, tag2) in synergies or (tag2, tag1) in synergies:
+                    synergy_pair = tuple(sorted([tag1, tag2]))
+                    if synergy_pair not in found_synergies:
+                        found_synergies.append(synergy_pair)
+    
+    return found_conflicts, found_synergies
+
+def determine_attribute_approach(tags: list[str]) -> str:
+    """根据标签决定属性系统设计方向"""
+    
+    # 传统属性系统适合的类型
+    traditional_tags = {"玄幻", "奇幻", "仙侠", "武侠", "科幻", "悬疑", "惊悚", 
+                       "热血", "争霸", "权谋", "升级流", "无敌流", "系统"}
+    
+    # 关系/好感度系统适合的类型
+    relationship_tags = {"言情", "甜宠", "耽美", "百合", "忠犬", "傲娇", "病娇",
+                        "女频", "霸总", "宫斗", "宅斗", "校园", "青春"}
+    
+    # 混合系统适合的类型
+    hybrid_tags = {"都市", "现实", "日常", "生活流", "群像", "穿越", "重生", "无限流"}
+    
+    # 特殊机制类型
+    special_tags = {"种田", "基建", "末世", "废土", "星际", "未来", "克鲁苏"}
+    
+    # 统计各种类型的标签数量
+    traditional_count = sum(1 for tag in tags if tag in traditional_tags)
+    relationship_count = sum(1 for tag in tags if tag in relationship_tags)
+    hybrid_count = sum(1 for tag in tags if tag in hybrid_tags)
+    special_count = sum(1 for tag in tags if tag in special_tags)
+    
+    # 决定属性系统设计方向
+    if relationship_count >= traditional_count and relationship_count >= hybrid_count:
+        return "relationship"  # 以关系/好感度为核心
+    elif traditional_count >= relationship_count and traditional_count >= hybrid_count:
+        return "traditional"   # 传统能力属性
+    elif special_count > max(traditional_count, relationship_count, hybrid_count):
+        return "special"       # 特殊机制
+    else:
+        return "hybrid"        # 混合系统
+
+def calculate_structure(total_chapters: int, tags: list[str] = None):
+    """计算故事结构，考虑章节数和故事类型"""
+    
+    # 分析故事类型倾向
+    has_conflict = any(tag in ["悬疑", "惊悚", "权谋", "争霸", "热血", "灵异", "军事"] for tag in (tags or []))
+    is_relationship = any(tag in ["言情", "甜宠", "耽美", "百合", "校园", "青春", "日常"] for tag in (tags or []))
+    is_adventure = any(tag in ["玄幻", "奇幻", "仙侠", "武侠", "科幻", "冒险", "无限流"] for tag in (tags or []))
+    
+    # 根据章节数量决定阶段数量
+    if total_chapters <= 3:
+        # 超短篇
+        return {
+            "stage1": (1, 1, "快速引入", "极速建立世界观和核心吸引力", "紧急"),
+            "stage2": (2, total_chapters-1, "核心发展", "快速推进剧情和情感建立", "紧张"),
+            "stage3": (total_chapters, total_chapters, "高潮结局", "情感爆发和多结局展开", "爆发")
+        }
+    
+    elif total_chapters <= 6:
+        # 短篇：需要紧凑但完整
+        if has_conflict:
+            # 冲突型故事：引入-冲突-解决
+            conflict_point = max(2, total_chapters // 2)
+            return {
+                "stage1": (1, 2, "引入与建立", "建立世界观、主角和核心冲突", "建立"),
+                "stage2": (3, conflict_point, "冲突升级", "矛盾激化，角色面临挑战", "紧张"),
+                "stage3": (conflict_point+1, total_chapters-1, "解决之路", "寻找解决方案，角色成长", "发展"),
+                "stage4": (total_chapters, total_chapters, "最终结局", "解决冲突，多结局展开", "爆发")
+            }
+        elif is_relationship:
+            # 关系型故事：相遇-发展-危机-结局
+            mid = total_chapters // 2
+            return {
+                "stage1": (1, 2, "相遇与初识", "角色相遇，建立初步关系", "轻松"),
+                "stage2": (3, mid, "关系发展", "关系深入，情感加深", "温馨"),
+                "stage3": (mid+1, total_chapters-1, "关系危机", "面临挑战，考验关系", "紧张"),
+                "stage4": (total_chapters, total_chapters, "关系结局", "关系走向确定，多结局", "情感")
+            }
+        else:
+            # 通用短篇结构
+            return {
+                "stage1": (1, 2, "引入阶段", "建立世界观和主角处境", "建立"),
+                "stage2": (3, total_chapters-2, "探索发展", "推进剧情，角色成长", "发展"),
+                "stage3": (total_chapters-1, total_chapters, "高潮结局", "情感高潮和多结局", "爆发")
+            }
+    
+    elif total_chapters <= 10:
+        # 中篇：有空间发展多层次
+        quarter = total_chapters // 4
+        half = total_chapters // 2
+        three_quarters = quarter * 3
+        
+        if is_relationship:
+            # 关系型中篇：完整的情感弧线
+            return {
+                "stage1": (1, 2, "相遇建立", "角色相遇，建立初步关系", "轻松期待"),
+                "stage2": (3, half, "关系发展", "关系深入，共同经历成长", "温馨成长"),
+                "stage3": (half+1, three_quarters, "关系挑战", "面临内外挑战，关系波动", "紧张矛盾"),
+                "stage4": (three_quarters+1, total_chapters-2, "关系抉择", "面对关键抉择，情感深化", "深刻反思"),
+                "stage5": (total_chapters-1, total_chapters, "关系结局", "关系最终走向，多结局", "情感升华")
+            }
+        elif is_adventure:
+            # 冒险型中篇：完整的冒险旅程
+            return {
+                "stage1": (1, 2, "启程准备", "接受使命，准备冒险", "期待冒险"),
+                "stage2": (3, half, "冒险探索", "面对挑战，探索世界", "紧张探索"),
+                "stage3": (half+1, three_quarters, "危机转折", "遭遇重大危机或转折", "紧张危机"),
+                "stage4": (three_quarters+1, total_chapters-2, "决战准备", "为最终决战做准备", "紧张准备"),
+                "stage5": (total_chapters-1, total_chapters, "最终决战", "最终对决和多结局", "激烈爆发")
+            }
+        else:
+            # 通用中篇结构
+            return {
+                "stage1": (1, 2, "建立阶段", "建立世界观、角色和核心驱动力", "建立期待"),
+                "stage2": (3, half, "发展阶段", "推进主要情节，角色成长", "发展探索"),
+                "stage3": (half+1, three_quarters, "深化阶段", "深化矛盾，提升情感强度", "紧张深化"),
+                "stage4": (three_quarters+1, total_chapters-2, "高潮准备", "为高潮结局做铺垫", "紧张准备"),
+                "stage5": (total_chapters-1, total_chapters, "高潮结局", "情感高潮和多结局展开", "爆发释放")
+            }
+    
+    else:
+        # 长篇（11-15章）：有更丰富的层次
+        intro_len = max(2, total_chapters // 6)  # 引入部分
+        build_len = total_chapters // 4          # 建设部分
+        develop_len = total_chapters // 3        # 发展部分
+        crisis_len = total_chapters // 4         # 危机部分
+        climax_len = total_chapters - (intro_len + build_len + develop_len + crisis_len)
+        
+        # 计算各阶段范围
+        s1_end = intro_len
+        s2_end = s1_end + build_len
+        s3_end = s2_end + develop_len
+        s4_end = s3_end + crisis_len
+        
+        if has_conflict and is_relationship:
+            # 混合型长篇：既有冲突又有关系发展
+            return {
+                "stage1": (1, s1_end, "世界与关系建立", "建立世界观和基础人物关系", "探索建立"),
+                "stage2": (s1_end+1, s2_end, "冲突与关系发展", "矛盾初现，关系深入发展", "发展交织"),
+                "stage3": (s2_end+1, s3_end, "危机深化", "多重危机出现，关系面临考验", "紧张复杂"),
+                "stage4": (s3_end+1, s4_end, "抉择时刻", "重大抉择，决定各方命运", "深刻抉择"),
+                "stage5": (s4_end+1, total_chapters-2, "最终准备", "为最终对决做准备", "紧张期待"),
+                "stage6": (total_chapters-1, total_chapters, "最终结局", "解决所有矛盾，多结局展开", "爆发释放")
+            }
+        elif is_relationship:
+            # 纯关系型长篇：细腻的情感发展
+            return {
+                "stage1": (1, s1_end, "初识建立", "角色相遇，建立初步情感连接", "轻松好奇"),
+                "stage2": (s1_end+1, s2_end, "关系深化", "共同经历，情感逐渐加深", "温馨成长"),
+                "stage3": (s2_end+1, s3_end, "关系挑战", "面临内外挑战，关系波动", "紧张矛盾"),
+                "stage4": (s3_end+1, s4_end, "关系危机", "重大危机，考验关系本质", "深刻危机"),
+                "stage5": (s4_end+1, total_chapters-2, "关系抉择", "面对关键抉择，决定关系走向", "深刻反思"),
+                "stage6": (total_chapters-1, total_chapters, "关系结局", "情感最终走向，多结局", "情感升华")
+            }
+        else:
+            # 通用长篇结构
+            return {
+                "stage1": (1, s1_end, "世界引入", "深度建立世界观和基础设定", "探索建立"),
+                "stage2": (s1_end+1, s2_end, "挑战成长", "面对系列挑战，角色成长", "发展成长"),
+                "stage3": (s2_end+1, s3_end, "关系深化", "深化角色关系，增加复杂性", "复杂深化"),
+                "stage4": (s3_end+1, s4_end, "危机累积", "多重危机出现，紧张感累积", "紧张危机"),
+                "stage5": (s4_end+1, total_chapters-2, "高潮准备", "为最终高潮做好全面准备", "紧张期待"),
+                "stage6": (total_chapters-1, total_chapters, "最终结局", "情感高潮和多结局展开", "爆发释放")
+            }
+
+def build_smart_core_seed_prompt(
     tags: list[str],
     idea: str,
     total_chapters: int
 ) -> str:
-    return f"""
-# 任务总览
-你是一位资深文字冒险游戏编剧。请根据提供的核心信息，为一款新的基于对话选择的文字冒险游戏生成基础设定。
-
-# 核心信息
-- 核心标签: {', '.join(tags)}
-- 核心构思: {idea if idea else '无特定构思，请根据标签自由发挥'}
-- 总章节数: {total_chapters}
-- 游戏风格：第二人称沉浸式
-
-# 生成内容
-1. 一个吸引人的游戏标题，简洁，概括力强。
-2. 一段引人入胜的游戏剧情简介，大约100-150字。
-3. 核心冲突：用单句公式概括游戏剧情本质，例如："作为一名[玩家身份]，你突然遭遇[核心事件]，必须[关键行动]，在这个过程中你将面临[主要挑战类型]的考验。"
-4. 体验重点：包括：
-  - 主要情感体验：[如：悬疑紧张、温馨治愈、热血冒险]
-  - 自我发现旅程：通过选择了解自己的决策风格，同时获得游戏趣味
-  - 核心互动形式：[如：对话选择、情境反应、道德抉择等]
-5. 叙事特色：包括：
-  - 沉浸感设计：[如何增强玩家代入感的具体方法]
-  - 节奏控制：[如何合理控制章节间的节奏，保持玩家紧张感或期待感等]
-  - 情感锚点：[让玩家产生情感共鸣的关键场景]
-6. 玩家定位：明确玩家在游戏中的角色身份、初始处境、以及与其他角色的基本关系。
-
-# 特别注意
-- 生成的标题和简介旨在吸引读者注意，因此仅需简要概括，点到为止。
-- 剧情核心冲突（故事本质）是全部章节剧情的核心"种子”，需具有高度概括性和冲突性，旨在为创作者提供一个清晰的故事主线和冲突基础。
-
-# 格式要求
-请严格按照以下格式返回结果，用中文输出，输出纯文本，不要输出任何解释：
-[标题]：xxxx
-[简介]：xxxx
-[核心冲突]：xxxx
-[体验重点]：xxxx
-[叙事特色]：xxxx
-[玩家定位]：xxxx
+    """核心种子生成（包含角色、属性、完整章节蓝图）"""
+    
+    # 分析标签
+    categorized_tags = extract_tag_categories(tags)
+    conflicts, synergies = analyze_tag_compatibility(tags)
+    attribute_approach = determine_attribute_approach(tags)
+    
+    # 构建标签分析文本
+    category_text = ""
+    for category, tag_list in categorized_tags.items():
+        if tag_list:
+            category_text += f"- **{category}标签**: {', '.join(tag_list)}\n"
+    
+    conflict_text = ""
+    if conflicts:
+        conflict_text = "**检测到潜在标签冲突**:\n"
+        for tag1, tag2 in conflicts:
+            conflict_text += f"- `{tag1}` + `{tag2}` 可能产生风格矛盾\n"
+    else:
+        conflict_text = "**标签兼容性良好**，无明显风格冲突\n"
+    
+    synergy_text = ""
+    if synergies:
+        synergy_text = "**发现良好标签协同**:\n"
+        for tag1, tag2 in synergies:
+            synergy_text += f"- `{tag1}` + `{tag2}` 能产生有趣的化学反应\n"
+    
+    structure = calculate_structure(total_chapters, tags)
+    print(structure)
+    # 构建阶段描述文本
+    stage_text = "## 章节蓝图（叙事框架）\n"
+    stage_text += f"总章数：{total_chapters}章\n\n"
+    
+    for key, (start, end, name, desc, mood) in structure.items():
+        stage_text += f"**{name}阶段**（第{start}-{end}章，共{end-start+1}章）\n"
+        stage_text += f"- **核心目标**：{desc}\n"
+        stage_text += f"- **情感基调**：{mood}\n"
+        stage_text += f"- **关键事件**：\n"
+        stage_text += f"- **属性聚焦**：\n"
+        stage_text += f"- **角色发展**：\n\n"
+    
+    # 属性系统设计指导
+    attribute_guidance = {
+        "traditional": """
+**属性系统设计建议**：采用传统能力属性系统
+- 设计3-5个核心能力属性（如智力、力量、魅力、感知等）
+- 属性值范围：0-100，初始值建议在20-50之间
+- 属性影响剧情选择、挑战结果、谜题解决等
+- 属性间可以有协同效应，但要避免重复功能
+""",
+        "relationship": """
+**属性系统设计建议**：以关系/好感度为核心的系统
+- 设计2-4个核心角色的好感度属性（如"林晓好感度"、"陈学长好感度"等）
+- 可搭配1-2个个人特质属性（如魅力、情商、判断力等）
+- 好感度值范围：-50到100，初始值建议在0-30之间
+- 好感度影响剧情走向、角色互动选项和结局
+""",
+        "hybrid": """
+**属性系统设计建议**：混合系统（能力+关系）
+- 设计2-3个能力属性（如智力、体力、专业能力等）
+- 设计2-3个关系属性（如特定角色好感度、团队信任度等）
+- 总值平衡，避免单一属性过于强势
+- 确保不同属性在不同阶段都有应用场景
+""",
+        "special": """
+**属性系统设计建议**：特殊机制属性
+- 设计3-5个与世界观紧密相关的独特属性（如生存值、理智值、建设度、科技点等）
+- 属性之间功能不重叠，每个都有独特作用
+- 考虑属性的相互影响（如某些属性降低会导致其他属性变化）
+- 属性值与游戏机制深度绑定
 """
+    }
+    
+    # 判断是否需要强烈冲突
+    conflict_needed = any(tag in ["悬疑", "惊悚", "权谋", "争霸", "热血", "灵异"] for tag in tags)
 
-def build_attribute_prompt(
-    core_seed: str
-) -> str:
     return f"""
-# 任务总览
-你是一位资深文字冒险游戏数值策划。请根据提供的游戏核心，设定玩家属性系统。
+# 故事基因工程：核心种子生成
 
-# 游戏核心
-{core_seed}
+你是一位资深的故事架构师，擅长将看似矛盾的标签融合成独特的故事DNA。
 
-# 属性维度设计
-请设计4-6个核心属性，每个属性包含：
-- 属性名称：[如"洞察力"]
-- 定义说明：影响玩家什么方面的能力
-- 初始值建议：15-25之间的具体数值
-- 成长意义：该属性提升对游戏体验的影响
-- 关键场景：在游戏中哪些情境下会用到此属性
+## 输入参数
+- **标签组合**: {', '.join(tags)}（共{len(tags)}个标签）
+- **创意方向**: {idea if idea else "无特定构思，请根据标签自由发挥"}
+- **章节规划**: {total_chapters}章
+- **人称**: 第二人称沉浸式
 
-# 数值平衡规则
-- 初始总值限制：100点（4属性各25点，或5属性各20点等）
-- 软性限制：避免某个属性过于强势
+## 标签分析
 
-# 属性互动设计
-为每个属性设计：
-- 2个正向应用场景（属性高时的优势）
+### 1. 标签分类
+{category_text}
 
-# 输出格式
-请严格按以下表格形式输出（实际属性可与以下表格中属性不同），用中文输出，输出纯文本，不要输出任何解释：
-| 属性 | 初始值 | 定义 | 关键应用 | 成长影响 |
-|------|--------|------|----------|----------|
-| 智力 | 20 | 逻辑分析和问题解决能力 | 解谜、推理、学习 | 解锁复杂对话选项 |
-| 魅力 | 25 | 社交影响和说服力 | 谈判、建立关系 | 获得NPC更多帮助 |
-| 勇气 | 18 | 面对危险时的决断力 | 冒险决策、对抗 | 解锁高风险高回报选项 |
-| 洞察 | 22 | 观察细节和直觉判断 | 发现线索、识破谎言 | 提前获得关键信息 |
-| 同理心 | 15 | 理解他人情感的能力 | 安慰、调解冲突 | 深化角色关系发展 |
-"""
+### 2. 兼容性分析
+{conflict_text}
+{synergy_text}
 
-def build_character_dynamics_prompt(
-    core_seed: str,
-    attribute_system: str
-) -> str:
-    return f"""
-# 任务总览
-你是一位资深的文字冒险游戏编剧，请根据提供的游戏核心设定和属性系统，设计3-4个与玩家深度互动的核心角色。
+### 3. 冲突转化策略（如存在冲突）
+如果标签间存在风格冲突，请选择以下策略之一进行创造性融合：
+- **反差魅力法**: 用轻松笔调写黑暗内核，或用严肃氛围写轻松故事
+- **双线并行法**: 不同章节侧重不同标签风格
+- **渐进转变法**: 故事基调逐渐从A转向B
+- **多重视角法**: 不同角色体现不同标签特质
 
-# 游戏核心设定
-{core_seed}
+### 4. 创意催化剂
+可从以下角度中选择一个作为故事的核心创意点（仅供参考，也可自行创新）：
+1. **非典型英雄**: 主角拥有不典型的"英雄"特质
+2. **规则漏洞**: 世界规则存在可利用的漏洞
+3. **错误认知**: 主角对世界的认知从开始就是错的
+4. **双重困境**: 面临两个同等重要但冲突的目标
+5. **传承诅咒**: 继承的东西既是祝福也是诅咒
+6. **身份错配**: 主角身处完全不适合的身份中
+7. **迟来的觉醒**: 在关键事件后才意识到自己的特殊
+8. **有限的选择**: 所有选项都有明显的代价
+9. **隐藏的连接**: 看似无关的事件存在深层联系
+10. **反向成长**: 力量增长伴随着某种失去
 
-# 游戏属性系统
-{attribute_system}
+## 核心种子生成
 
-# 角色设计框架
+### 【世界观设定】（150字内）
+包括：时代背景、基本规则、独特设定、社会结构等
+
+### 【故事核心】
+- **核心驱动力**: {f'用一句话概括故事的核心冲突（对抗性）' if conflict_needed else '用一句话概括故事的核心吸引力（体验性）'}
+- **中心问题**: 整个故事围绕的核心疑问（用问句）
+- **情感基调**: 主要的情感体验方向
+
+### 【主角设定】
+- **初始身份**: 
+- **基本处境**: 
+- **核心特质/限制**: 
+- **初始目标**: 
+
+### 【角色关系草图】（设计3-4个核心角色）
 每个角色包含：
-- 角色姓名：[姓名]
-- 身份标签：[简洁的身份描述，如"神秘导师"、"竞争对手"、"可靠盟友"]
-- 与玩家关系：[初始关系+发展可能性]
-- 核心互动模式：[如何与玩家互动，如"提供线索"、"制造冲突"、"情感支持"]
-- 属性关联：[与哪些玩家属性产生互动]
-- 关键选择点：[在哪些时刻会影响玩家的重要选择]
+- **角色名称/代号**: 
+- **角色类型**: 如导师、盟友、对手、恋人、亲人等
+- **与主角关系**: 初始关系+发展可能性
+- **情感重要性**: 在故事中的情感权重（高/中/低）
+- **独特之处**: 角色的一个显著特点
 
-# 角色网络设计
-- 角色间关系：简单的冲突或合作网络
-- 与主线的关联：每个角色如何推动主线发展
-- 情感权重：哪个角色承载最重要的情感体验
+### 【属性系统框架】
+{attribute_guidance[attribute_approach]}
 
-# 对话风格指引
-为每个角色定义独特的对话风格，确保在第二人称叙事中保持一致性。
+请根据建议设计3-5个属性维度，维度之间功能不重叠，每个维度包含：
+- **属性名称**: 
+- **属性类型**: [能力/关系/特殊] 
+- **核心作用**: 在故事中影响什么方面的决策或结果
+- **成长意义**: 提升后对剧情和体验的影响
+- **初始值**: 建议范围20-50（关系类可为0-30，特殊类根据设定调整）
+- **关键应用场景**: 在哪些典型情境下会用到此属性
 
-# 注意
-避免复杂的角色背景故事，重点设计他们如何与"你"(玩家)互动。
+{stage_text}
 
-# 格式要求
-仅给出最终文本，用中文输出，不要输出任何解释。
+### 【标题】
+为剧情想一个好的标题（10字以内，有吸引力）
+
+### 【简介】（150字内）
+一段简短、引人入胜的简介，制造悬念但不剧透关键转折
+
+## 输出格式（请严格按照以下格式输出，不要任何解释）：
+[世界观设定]: 
+[核心驱动力]: 
+[中心问题]: 
+[情感基调]: 
+[主角设定]:
+- 初始身份:
+- 基本处境: 
+- 核心特质/限制:
+- 初始目标:
+[角色关系草图]:
+1. [角色名称/代号] - [角色类型]: [与主角关系] | 情感重要性:[高/中/低] | [独特之处]
+2. [角色名称/代号] - [角色类型]: [与主角关系] | 情感重要性:[高/中/低] | [独特之处]
+3. [角色名称/代号] - [角色类型]: [与主角关系] | 情感重要性:[高/中/低] | [独特之处]
+4. 如果有更多请继续...
+[属性系统框架]:
+1. [属性名称] ([属性类型]): [核心作用] | [成长意义] | 初始值:[数值] | 关键应用场景:[场景]
+2. [属性名称] ([属性类型]): [核心作用] | [成长意义] | 初始值:[数值] | 关键应用场景:[场景]
+3. [属性名称] ([属性类型]): [核心作用] | [成长意义] | 初始值:[数值] | 关键应用场景:[场景]
+4. 如果有更多请继续...
+[章节蓝图]:
+{''.join([f'''
+**{name}阶段**（第{start}-{end}章）:
+- 核心目标: 
+- 情感基调: 
+- 关键事件: 
+- 属性聚焦: 
+- 角色发展: 
+''' for key, (start, end, name, desc, mood) in structure.items()])}
+[标题]:
+[简介]:
+
+# 创作原则
+1. **标签尊重**: 每个标签都要有体现，即使冲突也要找到创意解决方案
+2. **独特性**: 相同的标签组合必须产生与前次不同的故事
+3. **一致性**: 确保世界观、角色、属性、章节蓝图相互协调
+4. **实用性**: 生成的框架要能够直接用于下一步的章节目录生成
+5. **平衡性**: 属性系统要平衡，章节蓝图要合理分配情感节奏
 """
 
 def _calculate_narrative_structure(total_chapters: int):
@@ -853,3 +1173,28 @@ def build_report_prompt(
 [特质]：xxxx, xxxx, xxxx
 """
 
+import openai
+text_client = openai.OpenAI(
+    api_key="sk-PAF8gzAL93s9xKlaybzSQw", 
+    base_url="https://llmapi.paratera.com/v1/"
+)
+
+def invoke(prompt: str) -> str:
+    """调用文字API
+    """
+    response = text_client.chat.completions.create(
+    model="DeepSeek-V3.2-Exp",  
+    messages=[
+        {
+            "role": "user",
+            "content": prompt        
+        }
+    ]
+    )
+    print(f"Invoke Result:\n{response.choices[0].message.content}")
+
+if __name__ == "__main__":
+    prompt = build_smart_core_seed_prompt(["末世", "种田", "系统", "轻松"],"在末世里种田",12)
+    print(prompt)
+    print("\n")
+    invoke(prompt)
