@@ -2629,19 +2629,30 @@ export function useGameState(dependencies = {}) {
       if (editingDialogue?.value) return
       // 当快进开始时，停止自动播放以避免冲突
       safeStopAutoPlay()
+      // 如果当前已有选项等待点击或选项已显示，则不要开启快进
+      if ((waitingForClickToShowChoices && waitingForClickToShowChoices.value) || choicesVisible.value) return
+      if (isLoading.value) return
       fastForwarding.value = true
-      // 立刻触发一次以避免等待第一个间隔
-      try { nextDialogue() } catch (e) { console.warn('fastForward initial nextDialogue failed', e) }
+      // 立刻触发一次以避免等待第一个间隔（但要避免在过渡中重复触发）
+      try {
+        if (showText.value) {
+          nextDialogue()
+        }
+      } catch (e) { console.warn('fastForward initial nextDialogue failed', e) }
       _ffTimer = setInterval(() => {
         try {
-          // 如果有弹窗/选项/编辑中，停止快进
-          if (showMenu.value || choicesVisible.value || editingDialogue?.value || anyOverlayOpen?.value) {
+          // 如果有弹窗/选项/编辑中或已到达需要用户交互的点，停止快进
+          if (showMenu.value || choicesVisible.value || editingDialogue?.value || anyOverlayOpen?.value || (waitingForClickToShowChoices && waitingForClickToShowChoices.value)) {
             stopFastForward()
             return
           }
           // 如果已经到达结尾或正在拉取下一章，停止快进
-          if (isFetchingNext && isFetchingNext.value) {
+          if ((isFetchingNext && isFetchingNext.value) || isLoading.value) {
             stopFastForward()
+            return
+          }
+          // 如果当前文本正在过渡/隐藏（上一次点击尚未完成），跳过本次快进调用，等待下一个间隔
+          if (!showText.value) {
             return
           }
           try { nextDialogue() } catch (e) { console.warn('fastForward tick nextDialogue failed', e) }
