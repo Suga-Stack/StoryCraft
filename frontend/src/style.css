@@ -113,3 +113,16 @@ button:active,
   background-color: rgba(0,0,0,0.02);
 }
 
+/* 顶部灰色提示（用于 showNotice 回退） */
+.sc-toast-gray .van-toast__content {
+  background: rgba(60,60,60,0.96) !important;
+  color: #fff !important;
+  border-radius: 10px !important;
+  padding: 10px 14px !important;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.18) !important;
+}
+
+.sc-toast-gray .van-toast__text {
+  color: #fff !important;
+}
+

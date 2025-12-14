@@ -835,7 +835,7 @@ const saveCurrentEnding = async () => {
       try { await getWorkDetails(workId) } catch (e) {}
     } catch (e) {
       console.error('saveCurrentEnding failed', e)
-      showNotice('保存结局失败，请检查网络或控制台', 8000)
+      showNotice('保存结局失败', 8000)
       throw e
     }
   } catch (e) {
@@ -1464,15 +1464,12 @@ onMounted(async () => {
   choiceHistory.value = loadedData.choiceHistory || []
   try { restoreChoiceFlagsFromHistory() } catch (e) { console.warn('restoreChoiceFlagsFromHistory error (loadedData):', e) }
     
-    // 直接进入游戏
+    // 直接进入游戏：数据已恢复时无需再展示一次完整的加载动画，
+    // 直接进入横屏并显示剧情，避免出现先到 100% 再回退的闪烁加载界面。
     isLandscapeReady.value = true
-    // 即便数据已恢复，为了视觉一致性仍然执行一次平滑加载到 100% 的动画
-    try {
-      const dur = USE_MOCK_STORY ? 10000 : 900
-      await simulateLoadTo100(dur)
-    } catch (e) {
-      isLoading.value = false
-    }
+    try { if (typeof stopLoading === 'function') await stopLoading() } catch (e) {}
+    isLoading.value = false
+    try { loadingProgress.value = 0 } catch (e) {}
     showText.value = true
     return
   }
@@ -1839,7 +1836,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       if (!performNetworkSave) {
         console.log('persistCurrentChapterEdits: performNetworkSave=false — skip network save for ending')
         try { await stopLoading() } catch (e) {}
-        try { showNotice && showNotice('结局已在本地生效（未发送到后端）') } catch (e) {}
+        try { showNotice && showNotice('结局已在本地生效') } catch (e) {}
         return
       }
       try {
@@ -1940,10 +1937,10 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           }
           try {
             await storyService.saveEnding(workId, single)
-            showNotice('已保存结局内容')
+            showNotice('已保存')
           } catch (saveErr) {
             console.error('persistCurrentChapterEdits: saveEnding API failed', saveErr, saveErr?.data || (saveErr?.response && saveErr.response.data))
-            showNotice('保存结局失败: ' + (saveErr?.data || saveErr?.message || '未知错误'), 8000)
+            showNotice('保存失败: ' + (saveErr?.data || saveErr?.message || '未知错误'), 8000)
             throw saveErr
           }
         } else {
@@ -2040,9 +2037,9 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           }
 
           if (errors.length === 0) {
-            showNotice('已保存全部结局内容')
+            showNotice('已保存')
           } else {
-            showNotice('部分结局保存失败，请检查控制台错误', 8000)
+            showNotice('部分结局保存失败', 8000)
             throw errors[0].error
           }
         }
@@ -2068,12 +2065,12 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         try {
           if (!performNetworkSave) {
             console.log('persistCurrentChapterEdits: performNetworkSave=false — skip saveChapter network call')
-            showNotice('已在本地应用修改（未发送到后端）')
+            showNotice('已在本地修改')
           } else {
             console.log('persistCurrentChapterEdits: calling saveChapter API to mark as saved', { workId, chapterIndex })
             await saveChapter(workId, chapterIndex, chapterData)
             console.log('persistCurrentChapterEdits: saveChapter API succeeded')
-            showNotice('已将本章保存并标记为 saved')
+            showNotice('已保存')
           }
           } catch (saveErr) {
           console.error('persistCurrentChapterEdits: saveChapter API failed', saveErr, saveErr?.data || (saveErr?.response && saveErr.response.data))
@@ -2218,7 +2215,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         originalOutlineSnapshot.value = JSON.parse(JSON.stringify(outlineEdits.value || []))
         pendingOutlineTargetChapter.value = nextChap
         editorInvocation.value = 'auto'
-        showNotice('即将进入下一章的大纲编辑', 2000)
+        // showNotice('即将进入下一章的大纲编辑', 2000)
         
         // 延迟弹出编辑器，给用户一个视觉反馈
         setTimeout(() => {
@@ -2236,7 +2233,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       await saveChapter(workId, chapterIndex, chapterData)
       console.log('persistCurrentChapterEdits: saveChapter succeeded')
       
-      showNotice('已将本章修改保存到后端')
+      showNotice('已保存')
       
       // 🔑 关键修复：保存成功后立即获取作品详情以获取最新章节状态
       try {
@@ -2265,7 +2262,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       
     } catch (e) {
       console.error('persistCurrentChapterEdits: saveChapter failed', e?.response?.data || e)
-      showNotice('保存失败，请检查网络或稍后重试')
+      showNotice('保存失败')
       throw e
     }
   } catch (e) {

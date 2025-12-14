@@ -134,7 +134,7 @@ export function useCreatorMode(dependencies = {}) {
 
       const allowed = (isCreatorIdentity?.value || modifiableFromCreate?.value)
       if (!allowed) {
-        if (showNotice) showNotice('创作者功能不可用：当前身份不是作者或作品未开启编辑权限。')
+        if (showNotice) showNotice('无编辑权限。')
         return
       }
 
@@ -151,7 +151,7 @@ export function useCreatorMode(dependencies = {}) {
             if (_checkCurrentChapterSaved) {
               const isSaved = await _checkCurrentChapterSaved()
               if (!isSaved) {
-                if (showNotice) showNotice('当前章节未保存(saved)状态，无法进入创作者模式')
+                if (showNotice) showNotice('未保存')
                 return
               }
             }
@@ -165,7 +165,7 @@ export function useCreatorMode(dependencies = {}) {
             const cs = (dependencies && dependencies.currentScene) || params.currentScene
             const cur = cs && cs.value ? cs.value : (cs || null)
             if (cur && (cur._isBackendEnding || cur.isGameEnding || cur.isEnding) && cur._endingSaved !== true) {
-              if (showNotice) showNotice('当前结局未保存(saved)状态，无法进入手动编辑模式，请先保存结局或使用"编辑结局大纲"')
+              if (showNotice) showNotice('未保存')
               return
             }
           }
@@ -208,11 +208,11 @@ export function useCreatorMode(dependencies = {}) {
                 if (cur && (cur._isBackendEnding || cur.isGameEnding || cur.isEnding) && cur._endingSaved === true) {
                   // 允许进入创作者手动编辑（编辑结局与阅读者模式一致）
                 } else {
-                  showNotice?.('当前章节已保存，无法编辑大纲')
+                  showNotice?.('已保存')
                   return
                 }
               } catch (e) {
-                showNotice?.('当前章节已保存，无法编辑大纲')
+                showNotice?.('已保存')
                 return
               }
             }
@@ -308,7 +308,7 @@ export function useCreatorMode(dependencies = {}) {
         if (typeof checkCurrentChapterSaved === 'function') {
           const isSaved = await checkCurrentChapterSaved()
           if (isSaved) {
-            showNotice?.('当前章节已保存，无法确认大纲')
+            showNotice?.('已保存')
             if (stopLoading) stopLoading()
             return
           }
@@ -320,18 +320,13 @@ export function useCreatorMode(dependencies = {}) {
       // 关闭编辑器界面
       showOutlineEditor.value = false
       
-      // 立即显示加载界面
-      if (startLoading) {
-        try {
-          startLoading()
-        } catch (e) {
-          console.warn('startLoading failed', e)
-        }
-      }
+      // 关闭编辑器后不在此处启动短时加载
+      // 统一使用 fetchNextChapter / 外部的长加载逻辑来展示加载界面，
+      // 避免与后续的 fetchNextChapter 重复触发两次加载动画。
 
       const workId = work?.value?.id
       if (!workId) {
-        showNotice?.('无法确定作品 ID，生成失败')
+        showNotice?.('生成失败')
         if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(false); outlineEditorResolver = null }
         if (stopLoading) {
           try {
@@ -384,7 +379,7 @@ export function useCreatorMode(dependencies = {}) {
         if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(true); outlineEditorResolver = null }
       } catch (genErr) {
         console.warn('confirmOutlineEdits generateChapter failed', genErr)
-        showNotice?.('提交生成失败，请稍后重试')
+        showNotice?.('生成失败，请稍后重试')
         if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(false); outlineEditorResolver = null }
       } finally {
         try { delete generationLocks.value[lockKey] } catch (e) {}
@@ -398,7 +393,7 @@ export function useCreatorMode(dependencies = {}) {
       pendingOutlineTargetChapter.value = null
     } catch (e) {
       console.warn('confirmOutlineEdits failed', e)
-      showNotice?.('确认大纲时发生错误')
+      showNotice?.('确认大纲错误')
       if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(false); outlineEditorResolver = null }
       pendingOutlineTargetChapter.value = null
       if (stopLoading) {
@@ -425,7 +420,7 @@ export function useCreatorMode(dependencies = {}) {
       if (_checkCurrentChapterSaved) {
         const isSaved = await _checkCurrentChapterSaved()
         if (!isSaved) {
-          if (showNotice) showNotice('当前章节未保存(saved)状态，无法进行手动编辑')
+          if (showNotice) showNotice('未保存')
           return
         }
       }
@@ -580,7 +575,7 @@ export function useCreatorMode(dependencies = {}) {
         if (_checkCurrentChapterSaved) {
           const isSaved = await _checkCurrentChapterSaved()
           if (!isSaved) {
-            showNotice?.('当前章节未保存，不能新增旁白')
+            showNotice?.('未保存')
             return
           }
         }

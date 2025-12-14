@@ -1225,40 +1225,32 @@ onMounted(async () => {
       </button>
     </div>
 
-    <!-- 属性弹窗（复用GamePage的样式） -->
+    <!-- 属性弹窗（与游戏内属性面板一致） -->
     <div v-if="showAttributesModal" class="modal-backdrop" @click="showAttributesModal = false">
       <div class="modal-panel attributes-panel" @click.stop>
-        <div class="modal-header">
-          <h3>角色属性与状态</h3>
-          <button class="modal-close" @click="showAttributesModal = false">×</button>
-        </div>
-        
+        <h3>角色信息</h3>
+
         <div class="attr-status-grid">
-          <div class="attributes-section">
-            <div class="section-title">属性数值</div>
-            <ul class="kv-list">
-              <li v-for="(value, key) in gameData.finalAttributes" :key="key">
+          <div class="attr-col">
+            <div class="section-title">属性</div>
+            <div v-if="Object.keys(gameData.finalAttributes).length === 0" class="empty-text">暂无属性</div>
+            <ul v-else class="kv-list attr-two-col">
+              <li v-for="(val, key) in gameData.finalAttributes" :key="key">
                 <span class="kv-key">{{ key }}</span>
-                <span class="kv-sep">:</span>
-                <span class="kv-val">{{ value }}</span>
-              </li>
-            </ul>
-          </div>
-          
-          <div class="statuses-section">
-            <div class="section-title">状态档案</div>
-            <ul class="kv-list">
-              <li v-for="(value, key) in gameData.finalStatuses" :key="key">
-                <span class="kv-key">{{ key }}</span>
-                <span class="kv-sep">:</span>
-                <span class="kv-val">{{ value }}</span>
+                <span class="kv-sep">：</span>
+                <span class="kv-val">{{ val }}</span>
               </li>
             </ul>
           </div>
         </div>
-        
-        <div class="modal-actions">
-          <button @click="showAttributesModal = false">关闭</button>
+
+        <div class="attributes-bottom">
+          <div class="modal-actions">
+            <button @click="showAttributesModal = false">关闭</button>
+          </div>
+          <div class="attributes-meta">
+            <div class="modal-row meta-small"><strong>作品：</strong> {{ gameData.work.title }}</div>
+          </div>
         </div>
       </div>
     </div>
@@ -1817,7 +1809,7 @@ onMounted(async () => {
 
 .attr-status-grid { 
   display:grid; 
-  grid-template-columns: 1fr 1fr; 
+  grid-template-columns: 1fr; 
   gap: 1rem; 
   margin-top: 0.25rem; 
   flex: 1 1 auto; 
