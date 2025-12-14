@@ -738,6 +738,11 @@ const {
   stopLoading,
   handleGameEnd,
   cleanup: cleanupGameState
+  ,
+  // 快进控制
+  startFastForward,
+  stopFastForward,
+  fastForwarding
 } = gameStateResult
 const {
   endingEditorVisible,
@@ -873,6 +878,46 @@ const onGlobalClick = (e) => {
   }
 }
 
+// 长按快进手势处理
+let _longPressTimer = null
+const LONG_PRESS_MS = 250
+const clearLongPressTimer = () => {
+  try { if (_longPressTimer) { clearTimeout(_longPressTimer); _longPressTimer = null } } catch (e) {}
+}
+
+const onPointerDown = (e) => {
+  try {
+    if (editingDialogue?.value) return
+    if (e && e.preventDefault) e.preventDefault()
+    clearLongPressTimer()
+    _longPressTimer = setTimeout(() => {
+      _longPressTimer = null
+      try { if (typeof startFastForward === 'function') startFastForward() } catch (err) { console.warn('startFastForward failed', err) }
+    }, LONG_PRESS_MS)
+  } catch (err) { console.warn('onPointerDown failed', err) }
+}
+
+const onPointerUp = (e) => {
+  try {
+    if (editingDialogue?.value) return
+    // 若计时器仍存在，视为短按 -> 触发 nextDialogue
+    if (_longPressTimer) {
+      clearLongPressTimer()
+      try { nextDialogue() } catch (err) { console.warn('nextDialogue failed on short press', err) }
+      return
+    }
+    // 否则为长按结束，停止快进
+    try { if (typeof stopFastForward === 'function') stopFastForward() } catch (err) { console.warn('stopFastForward failed', err) }
+  } catch (err) { console.warn('onPointerUp failed', err) }
+}
+
+const onPointerCancel = (e) => {
+  try {
+    clearLongPressTimer()
+    try { if (typeof stopFastForward === 'function') stopFastForward() } catch (err) {}
+  } catch (err) { console.warn('onPointerCancel failed', err) }
+}
+
 // 计算任意弹窗是否打开 - 在 showMenu 解构之后定义
 const anyOverlayOpen = computed(() =>
   showMenu.value ||
@@ -1005,8 +1050,8 @@ const initializeGame = async () => {
             const resp = await getScenes(work.value.id, 1, {
               onProgress: (progress) => {
                 console.log(`[Story] 首章生成进度:`, progress)
-                // 进度由全局计时器控制；当后端不再处于生成状态时结束加载
-                if (progress && progress.status && progress.status !== 'generating') {
+                // 进度由全局计时器控制；当后端不再处于生成或待生成(pending)状态时结束加载
+                if (progress && progress.status && progress.status !== 'generating' && progress.status !== 'pending') {
                   try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}
                 }
               }
@@ -1036,7 +1081,7 @@ const initializeGame = async () => {
               const result = await fetchNextChapter(work.value.id, 1, {
                 onProgress: (progress) => {
                   console.log(`[Story] 首章生成进度:`, progress)
-                  if (progress && progress.status && progress.status !== 'generating') {
+                  if (progress && progress.status && progress.status !== 'generating' && progress.status !== 'pending') {
                     try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}
                   }
                 }
@@ -1049,9 +1094,10 @@ const initializeGame = async () => {
               const result = await fetchNextChapter(work.value.id, 1, {
                 onProgress: (progress) => {
                   console.log(`[Story] 首章生成进度:`, progress)
-                  if (progress && progress.status === 'generating') {
+                  // 将 'pending' 视为仍在生成中，避免过早结束 loading
+                  if (progress && (progress.status === 'generating' || progress.status === 'pending')) {
                     try { if (typeof startLoading === 'function') startLoading() } catch (e) {}
-                  } else if (progress && progress.status && progress.status !== 'generating') {
+                  } else if (progress && progress.status && progress.status !== 'generating' && progress.status !== 'pending') {
                     try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}
                   }
                 }
@@ -1063,7 +1109,7 @@ const initializeGame = async () => {
           const result = await fetchNextChapter(work.value.id, 1, {
             onProgress: (progress) => {
               console.log(`[Story] 首章生成进度:`, progress)
-              if (progress && progress.status && progress.status !== 'generating') {
+              if (progress && progress.status && progress.status !== 'generating' && progress.status !== 'pending') {
                 try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}
               }
             }
@@ -1080,7 +1126,7 @@ const initializeGame = async () => {
         const result = await fetchNextChapter(work.value.id, 1, {
               onProgress: (progress) => {
                 console.log(`[Story] 首章生成进度:`, progress)
-                if (progress && progress.status && progress.status !== 'generating') {
+                if (progress && progress.status && progress.status !== 'generating' && progress.status !== 'pending') {
                   try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}
                 }
               }
@@ -1323,6 +1369,7 @@ const initFromCreateResult = async (opts = {}) => {
           try { originalOutlineSnapshot.value = JSON.parse(JSON.stringify(outlineEdits.value || [])) } catch(e) { originalOutlineSnapshot.value = (outlineEdits.value || []).slice() }
           // 标记 pending target 为首章（createResult 路径用于首章生成，target = 1）
           pendingOutlineTargetChapter.value = 1
+          console.log('[GamePage] 打开大纲编辑器: reason=first-chapter-not-generated (auto), targetChapter=', pendingOutlineTargetChapter.value)
           showOutlineEditor.value = true
           
           // 🔑 修复：不直接赋值 outlineEditorResolver，而是通过 watch 等待编辑器关闭
@@ -1344,10 +1391,10 @@ const initFromCreateResult = async (opts = {}) => {
       const result = await getScenes(workId, 1, {
         onProgress: (progress) => {
           console.log(`[Story] 首章生成进度:`, progress)
-          // 使用集中式加载控制：生成中启动集中进度，非生成中停止并完成进度
-          if (progress && progress.status === 'generating') {
+          // 使用集中式加载控制：生成中或 pending 启动集中进度，非生成中/非 pending 停止并完成进度
+          if (progress && (progress.status === 'generating' || progress.status === 'pending')) {
             try { if (typeof startLoading === 'function') startLoading() } catch (e) {}
-          } else if (progress && progress.status && progress.status !== 'generating') {
+          } else if (progress && progress.status && progress.status !== 'generating' && progress.status !== 'pending') {
             try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}
           }
         }
@@ -1789,16 +1836,29 @@ const persistCurrentChapterEdits = async (opts = {}) => {
     // 获取章节标题
     const getFallbackTitle = () => {
       try {
-        const byOutline = (outlineEdits.value && outlineEdits.value.length) ? (outlineEdits.value.find(x => Number(x.chapterIndex) === Number(chapterIndex))?.outline || '') : ''
-        if (byOutline && String(byOutline).trim()) return String(byOutline).trim()
-        
+        // 优先：如果 outlineEdits 中有单独的 title 字段则使用之
+        if (outlineEdits.value && outlineEdits.value.length) {
+          const entry = outlineEdits.value.find(x => Number(x.chapterIndex) === Number(chapterIndex))
+          if (entry) {
+            if (entry.title && String(entry.title).trim()) return String(entry.title).trim()
+            // 若只有合并的 outline 字段，尝试从中拆出标题（按第一段划分）
+            if (entry.outline && String(entry.outline).trim()) {
+              const txt = String(entry.outline).trim()
+              const parts = txt.split(/\n\n+/)
+              if (parts && parts.length > 1 && parts[0].trim()) return parts[0].trim()
+              // 如果没有分段但内容不长，可以当作标题
+              if (txt.length < 120) return txt
+            }
+          }
+        }
+
         try {
           const prev = JSON.parse(sessionStorage.getItem('createResult') || '{}')
           const bwOut = prev && prev.backendWork && Array.isArray(prev.backendWork.outlines) ? prev.backendWork.outlines : []
           const found = (bwOut || []).find(x => Number(x.chapterIndex) === Number(chapterIndex))
-          if (found && (found.outline || found.summary || found.title)) return String(found.outline || found.summary || found.title).trim()
+          if (found && (found.title || found.outline || found.summary)) return String(found.title || found.outline || found.summary).trim()
         } catch (e) {}
-        
+
         if (work && work.value && work.value.title) return String(work.value.title)
       } catch (e) { console.warn('getFallbackTitle failed', e) }
       return `第${Number(chapterIndex)}章`
@@ -2219,6 +2279,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         
         // 延迟弹出编辑器，给用户一个视觉反馈
         setTimeout(() => {
+          console.log('persistCurrentChapterEdits: opening outline editor: reason=persist-save-next-chapter-range, target=', nextChap, '->', total)
           showOutlineEditor.value = true
           console.log('persistCurrentChapterEdits: opened outline editor for next chapter range', nextChap, '->', total)
         }, 2000)
@@ -2824,7 +2885,17 @@ onUnmounted(async () => {
       <div class="overlay-layer"></div>
       
       <!-- 点击区域（点击进入下一句） - 🔑 修复：编辑状态下阻止点击事件 -->
-      <div class="click-area" @click="editingDialogue ? null : nextDialogue"></div>
+       <div class="click-area"
+         @pointerdown="onPointerDown"
+         @pointerup="onPointerUp"
+         @pointercancel="onPointerCancel"
+         @mousedown="onPointerDown"
+         @mouseup="onPointerUp"
+         @mouseleave="onPointerCancel"
+         @touchstart.prevent
+         @touchend.prevent
+         @click.stop
+       ></div>
 
       <!-- 选项区域（如果当前场景包含 choices） - 放在 text-box 之外，避免被裁剪 -->
       <div 
@@ -3147,7 +3218,7 @@ onUnmounted(async () => {
   <!-- 创作者在播放后端已生成结局时显示的编辑按钮 -->
   <button
     v-if="work.modifiable && work.ai_callable && isPlayingBackendGeneratedEnding"
-    @click="() => openEndingEditor({ _endingIndex: (currentScene && typeof currentScene._endingIndex !== 'undefined' && currentScene._endingIndex !== null) ? Number(currentScene._endingIndex) : ((lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? Number(lastSelectedEndingIndex.value) : null), _endingTitle: (currentScene && currentScene._endingTitle) || (work && work.title) })"
+    @click="() => openEndingEditor({ _endingIndex: (currentScene && typeof currentScene._endingIndex !== 'undefined' && currentScene._endingIndex !== null) ? Number(currentScene._endingIndex) : ((lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? Number(lastSelectedEndingIndex.value) : null), _endingTitle: (currentScene && currentScene._endingTitle) ? currentScene._endingTitle : undefined })"
     class="creator-outline-btn"
     title="编辑当前结局的大纲">
     📝 编辑结局大纲

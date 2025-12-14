@@ -2618,6 +2618,48 @@ export function useGameState(dependencies = {}) {
     }
   }
 }
+  // 快进控制（长按触发）
+  const fastForwarding = ref(false)
+  let _ffTimer = null
+  const FF_INTERVAL_MS = 90 // 快进时每句之间的间隔（毫秒）
+
+  const startFastForward = () => {
+    try {
+      if (fastForwarding.value) return
+      if (editingDialogue?.value) return
+      // 当快进开始时，停止自动播放以避免冲突
+      safeStopAutoPlay()
+      fastForwarding.value = true
+      // 立刻触发一次以避免等待第一个间隔
+      try { nextDialogue() } catch (e) { console.warn('fastForward initial nextDialogue failed', e) }
+      _ffTimer = setInterval(() => {
+        try {
+          // 如果有弹窗/选项/编辑中，停止快进
+          if (showMenu.value || choicesVisible.value || editingDialogue?.value || anyOverlayOpen?.value) {
+            stopFastForward()
+            return
+          }
+          // 如果已经到达结尾或正在拉取下一章，停止快进
+          if (isFetchingNext && isFetchingNext.value) {
+            stopFastForward()
+            return
+          }
+          try { nextDialogue() } catch (e) { console.warn('fastForward tick nextDialogue failed', e) }
+        } catch (e) { console.warn('fastForward interval error', e) }
+      }, FF_INTERVAL_MS)
+    } catch (e) { console.warn('startFastForward failed', e) }
+  }
+
+  const stopFastForward = () => {
+    try {
+      fastForwarding.value = false
+      if (_ffTimer) {
+        clearInterval(_ffTimer)
+        _ffTimer = null
+      }
+    } catch (e) { console.warn('stopFastForward failed', e) }
+  }
+
     return {
     // 状态
     isLoading,
@@ -2641,6 +2683,10 @@ export function useGameState(dependencies = {}) {
     goBack,
     nextDialogue,
     chooseOption,
+    // 快进控制
+    startFastForward,
+    stopFastForward,
+    fastForwarding,
     requestLandscape,
     handleGameEnd,
     requestNextIfNeeded,
@@ -2659,10 +2705,18 @@ export function useGameState(dependencies = {}) {
     
     // 清理方法
     cleanup: () => {
-      if (progressTimer) {
-        clearInterval(progressTimer)
-        progressTimer = null
-      }
+      try {
+        if (progressTimer) {
+          clearInterval(progressTimer)
+          progressTimer = null
+        }
+      } catch (e) { console.warn('cleanup progressTimer clear failed', e) }
+      try {
+        if (_ffTimer) {
+          clearInterval(_ffTimer)
+          _ffTimer = null
+        }
+      } catch (e) { console.warn('cleanup _ffTimer clear failed', e) }
     },
     
     // 属性/状态管理方法

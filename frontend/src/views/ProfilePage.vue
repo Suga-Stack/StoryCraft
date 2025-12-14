@@ -115,7 +115,7 @@
     </div>
 
     <!-- 举报列表区域（所有用户均可见） -->
-    <div class="section-container">
+    <div class="section-container" @click="navigateToStaff" style="cursor:pointer;">
       <van-cell 
         title="举报列表" 
         value="查看全部"
@@ -129,7 +129,7 @@
           class="book-item" 
           v-for="(r, idx) in myReports" 
           :key="r.id || idx"
-          @click.stop="navigateToReportDetail(r.id)"
+          @click="navigateToStaff"
         >
           <div style="padding:8px;display:flex;flex-direction:column;justify-content:center;height:100%;">
             <div class="book-title" style="font-size:13px;font-weight:600;">{{ r.title }}</div>
