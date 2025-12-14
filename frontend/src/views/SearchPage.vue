@@ -524,6 +524,14 @@ const fetchHotLeaderboard = async () => {
 const reactivateSearch = () => {
   if (isSearchCompleted.value) {
     isSearchCompleted.value = false
+    // 清空搜索相关输入
+    searchValue.value = ''
+    authorFilter.value = ''
+    // 清空标签选择
+    tagFilter.value = ''
+    tagDisplayText.value = ''
+    selectedTagIds.value = []
+    selectedTagNames.value = []
   }
 }
 
