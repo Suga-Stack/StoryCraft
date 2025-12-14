@@ -459,12 +459,8 @@ onMounted(async () => {
 /* 顶部导航 */
 .top-nav {
   background-color: #faf8f3;
-  padding: 8px 10px;
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 1000;
+  /* 顶部紧凑一些，避免与内容距离过大 */
+  padding: 6px 10px;
 }
 
 .nav-container {
@@ -518,8 +514,9 @@ onMounted(async () => {
 .main-content {
   max-width: 600px;
   margin: 0 auto;
-  padding: 24px 20px 40px;
-  margin-top: 60px;
+  /* 减小顶部内边距并移除额外的顶部外边距，让内容更贴近导航 */
+  padding: 16px 16px 32px;
+  margin-top: 0;
 }
 
 /* 充值选项网格 */

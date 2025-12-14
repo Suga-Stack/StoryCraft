@@ -93,11 +93,6 @@ const navigateToBookDetail = (bookId) => {
 ::v-deep .van-nav-bar {
   background: #faf8f3;
   box-shadow: none;
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 1000;
 }
 ::v-deep .van-nav-bar__title,
 ::v-deep .van-nav-bar__left .van-icon {
@@ -108,7 +103,8 @@ const navigateToBookDetail = (bookId) => {
   background-color: #faf8f3;
   min-height: 100vh;
   padding-bottom: 20px;
-  margin-top: 46px;
+  /* 使用内边距而非外边距，结合安全区更稳妥 */
+  padding-top: 0;
 }
 
 .book-list {
