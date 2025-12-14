@@ -72,13 +72,14 @@ class RecursiveField(serializers.Serializer):
 
 class CommentSerializer(serializers.ModelSerializer):
     user = serializers.StringRelatedField(read_only=True)
+    profile_picture = serializers.ImageField(source='user.profile_picture', read_only=True)
     replies = RecursiveField(many=True, read_only=True)
     like_count = serializers.SerializerMethodField()
     is_liked = serializers.SerializerMethodField()
 
     class Meta:
         model = Comment
-        fields = ('id', 'user', 'content', 'gamework', 'created_at', 'replies', 'parent', 'like_count', 'is_liked')
+        fields = ('id', 'user', 'profile_picture', 'content', 'gamework', 'created_at', 'replies', 'parent', 'like_count', 'is_liked')
 
     def get_like_count(self, obj):
         # 如果在 queryset 里注入了 like_count，则不重复统计

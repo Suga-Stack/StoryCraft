@@ -102,7 +102,7 @@
                     stroke-linejoin="round"/>
             </svg>
           </i>
-          <span class="txt">批量</span>
+          <span class="txt">管理</span>
         </button>
       </div>
     </header>

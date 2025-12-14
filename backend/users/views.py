@@ -760,6 +760,7 @@ class RewardViewSet(viewsets.ViewSet):
 class CreditLogViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = CreditLogSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = None
 
     @swagger_auto_schema(
         operation_summary="获取用户积分流水",
