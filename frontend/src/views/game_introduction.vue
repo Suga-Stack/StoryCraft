@@ -71,6 +71,19 @@ const normalizeBackendWork = (raw) => {
   }
 }
 
+// 规范化头像URL：相对路径前加站点前缀，空值返回 null
+const normalizeAvatar = (url) => {
+  if (!url) return null
+  try {
+    const u = String(url)
+    if (/^https?:\/\//i.test(u)) return u
+    if (u.startsWith('/')) return 'https://storycraft.work.gd' + u
+    return u
+  } catch {
+    return null
+  }
+}
+
 let backendWorkRaw = normalizeBackendWork(state.backendWork || sessionCreate?.backendWork || null)
 // 如果后端返回 404（作品下架/不存在），显示覆盖层阻止阅读
 const isRemoved = ref(false)
@@ -198,7 +211,7 @@ onMounted(async () => {
               return {
                 id: `${timestamp}_${idx}`,
                 author: r.username || r.user || '匿名',
-                profile_picture: r.profile_picture || r.profilePicture || null,
+                profile_picture: normalizeAvatar(r.profile_picture || r.profilePicture || null),
                 stars: Math.round((score10 || 0) / 2),
                 score10: score10,
                 time: created ? new Date(created).toLocaleString() : '未知',
@@ -1427,7 +1440,10 @@ const startReading = async () => {
               </div>
               <div v-else>
                 <div v-for="r in pagedRatings" :key="r.id" class="rating-item" style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 0;border-bottom:1px solid #f0f0f0;">
-                  <div class="comment-avatar">{{ r.author.charAt(0) }}</div>
+                  <div class="comment-avatar" style="overflow:hidden;display:flex;align-items:center;justify-content:center;">
+                    <img v-if="r.profile_picture" :src="r.profile_picture" :alt="r.author" style="width:100%;height:100%;object-fit:cover;" @error="r.profile_picture=null" />
+                    <span v-else>{{ r.author.charAt(0) }}</span>
+                  </div>
                   <div style="flex:1;min-width:0;">
                     <div style="display:flex;align-items:center;gap:0.5rem;">
                       <div style="color:#333;font-weight:600;">{{ r.author }}</div>
