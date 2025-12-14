@@ -12,6 +12,7 @@
         :show-action="true" 
         @search="handleSearch" 
         :show-left-icon="false"
+        @click="reactivateSearch"
       >
         <template #left>
           <van-icon name="arrow-left" @click="handleBack" />
@@ -520,6 +521,11 @@ const fetchHotLeaderboard = async () => {
   }
 }
 
+const reactivateSearch = () => {
+  if (isSearchCompleted.value) {
+    isSearchCompleted.value = false
+  }
+}
 
 // 页面挂载时加载搜索历史
 onMounted(() => {
@@ -982,7 +988,6 @@ const toggleTagPopup = () => {
 
 /* 可滚动的排行榜列表容器 */
 .ranking-list-wrapper {
-  max-height: 610px;
   overflow-y: auto;
   margin-bottom: 16px;
   scrollbar-width: thin;
