@@ -195,7 +195,19 @@ const submitToBackend = async () => {
 }
 
 const startCreate = async () => {
-  if (!canCreate.value) return
+  // 前端校验并给出提示（保证用户点击时能看到原因）
+  if (selectedTags.value.length < 3) {
+    showToast('请至少选择 3 个标签')
+    return
+  }
+  if (selectedTags.value.length > 6) {
+    showToast('最多只能选择 6 个标签')
+    return
+  }
+  if (!lengthType.value) {
+    showToast('请选择大概篇幅')
+    return
+  }
   // 如果已经有完成的创建任务，直接跳转到已生成的作品（避免重复请求）
   // 始终尝试发起新的生成请求（即使之前存在已完成的 creationJob），
   // 避免点击时自动跳转到之前生成的作品。我们要保证点击「一键生成」即刻向后端发起生成。
@@ -533,7 +545,8 @@ const handleTabChange = (name) => {
         </div>
       </div>
       <div class="idea-actions">
-        <button class="create-btn create-btn-small" :disabled="!canCreate || isLoading" @click="startCreate">一键生成</button>
+        <!-- 当校验未通过时仍允许点击以弹出提示；仅在 isLoading 时真正禁用按钮 -->
+        <button class="create-btn create-btn-small" :class="{ 'is-disabled': !canCreate || isLoading }" :disabled="isLoading" @click="startCreate">一键生成</button>
       </div>
     </div>
 
@@ -656,7 +669,9 @@ const handleTabChange = (name) => {
 .idea-wrap { position: relative; }
 .idea-actions { display:flex; justify-content:flex-end; margin-top: 0.5rem; }
 .create-btn-small { position: static; padding: 0.48rem 1rem; font-size: 0.92rem; border-radius: 8px; width: auto; min-width: 120px; max-width: 520px; text-align: center; }
-.create-btn-small:disabled { filter: grayscale(8%); }
+  .create-btn-small:disabled { filter: grayscale(8%); }
+  /* 当校验未通过时仅作为视觉禁用，仍允许点击以弹出提示 */
+  .create-btn-small.is-disabled { filter: grayscale(8%); opacity: 0.9; }
 
 .actions { max-width:960px; margin: 1rem auto; display:flex; justify-content:flex-end; }
 .actions-inline { max-width:960px; margin: 1rem auto; display:flex; justify-content:center; }

@@ -2,6 +2,7 @@ import { ref, watch } from 'vue'
 import { deepClone, getCurrentUserId } from '../utils/auth.js'
 import { editorInvocation } from '../config/gamepage.js'
 import http from '../utils/http.js'
+import { getScenes } from '../service/story.js'
 
 export function useCreatorMode(dependencies = {}) {
   // 从依赖中解构所需的函数和状态
@@ -197,8 +198,9 @@ export function useCreatorMode(dependencies = {}) {
       // 允许所有身份（包括阅读者）打开手动大纲编辑
       // 只有在创作者身份下，才会阻止"已保存"状态下的编辑行为。
       try {
-        // 同上：打开大纲编辑时，对于创作者或 createResult 可修改的用户，需要限制已保存状态
-        if (isCreatorIdentity?.value || modifiableFromCreate?.value) {
+        // 默认不在打开编辑器时触发全量作品详情请求（避免重复调用 /api/gameworks/gameworks/<id>/）
+        // 只有当调用方明确要求时才进行已保存检查（params.requireSavedCheck === true）
+        if ((isCreatorIdentity?.value || modifiableFromCreate?.value) && params.requireSavedCheck) {
           if (typeof checkCurrentChapterSaved === 'function') {
             const isSaved = await checkCurrentChapterSaved()
             if (isSaved) {
@@ -224,9 +226,48 @@ export function useCreatorMode(dependencies = {}) {
       const start = Number(currentChapterIndex?.value || params.currentChapterIndex?.value || 1) || 1
       const total = Math.max((Number(totalChapters?.value || params.totalChapters?.value || 0) || 5), 0)
 
+      // 尝试从多处读取后端返回的大纲（优先级：后端对应章节接口 -> session.createResult.chapterOutlines -> session.createResult.backendWork.outlines -> work.value.outlines/data.outlines -> createResult.outlines）
       let createRaw = null
       try { createRaw = JSON.parse(sessionStorage.getItem('createResult') || 'null') } catch (e) { createRaw = null }
-      const rawOutlines = (createRaw && Array.isArray(createRaw.chapterOutlines)) ? createRaw.chapterOutlines : []
+
+      let rawOutlines = []
+      // 优先尝试按章节从后端获取章节数据（不强制等待生成），以便编辑器展示该章实际内容或章级摘要
+      try {
+        const workId = (work && work.value && work.value.id) ? work.value.id : (createRaw && createRaw.backendWork && createRaw.backendWork.id)
+        if (workId) {
+          try {
+            const chap = await getScenes(workId, start, { maxRetries: 1 })
+            const chapterObj = chap && (chap.chapter || chap) || null
+            if (chapterObj) {
+              // 如果后端返回的章节 title 与作品 title 相同，则不要把它当作章节标题使用，
+              // 否则会导致作品 title 被错误覆盖为该章节 title（常见于结局章节返回整体作品信息时）。
+              const workTitle = (_work && _work.value && (_work.value.title || _work.value.name)) || ''
+              let title = chapterObj.title || chapterObj.chapter_title || ''
+              if (title && workTitle && String(title).trim() === String(workTitle).trim()) {
+                title = ''
+              }
+              const body = chapterObj.summary || chapterObj.outline || chapterObj.description || ''
+              if (title || body) {
+                // 将章节摘要放到 rawOutlines 的格式中，chapterIndex 对应 start
+                rawOutlines = [{ chapterIndex: start, title, outline: body }]
+              }
+            }
+          } catch (e) {
+            // 若按章请求失败或返回为空，回退到 session/createResult/work 中的 outlines
+          }
+        }
+      } catch (e) {}
+      try {
+        if ((!rawOutlines || rawOutlines.length === 0) && createRaw && Array.isArray(createRaw.chapterOutlines) && createRaw.chapterOutlines.length > 0) rawOutlines = createRaw.chapterOutlines
+        else if (createRaw && createRaw.backendWork && Array.isArray(createRaw.backendWork.outlines) && createRaw.backendWork.outlines.length > 0) rawOutlines = createRaw.backendWork.outlines
+        else if (Array.isArray(createRaw?.outlines) && createRaw.outlines.length > 0) rawOutlines = createRaw.outlines
+        else if (Array.isArray(createRaw?.data?.outlines) && createRaw.data.outlines.length > 0) rawOutlines = createRaw.data.outlines
+        else if (_work && _work.value) {
+          if (Array.isArray(_work.value.chapterOutlines) && _work.value.chapterOutlines.length > 0) rawOutlines = _work.value.chapterOutlines
+          else if (Array.isArray(_work.value.outlines) && _work.value.outlines.length > 0) rawOutlines = _work.value.outlines
+          else if (Array.isArray(_work.value.data?.outlines) && _work.value.data.outlines.length > 0) rawOutlines = _work.value.data.outlines
+        }
+      } catch (e) { rawOutlines = [] }
 
       const outlinesMap = {}
       let maxIdx = 0
@@ -241,10 +282,12 @@ export function useCreatorMode(dependencies = {}) {
           } catch (e) { ci = i + 1 }
           // 合并标题与大纲正文：title + 空行 + outline/summary
           try {
-            const title = (ch && (ch.title ?? ch.chapter_title)) || ''
-            const body  = (ch && (ch.outline ?? ch.summary)) || ''
-            outlinesMap[ci] = (title && body) ? `${title}\n\n${body}` : (title || body || JSON.stringify(ch))
-          } catch (e) { outlinesMap[ci] = JSON.stringify(ch) }
+            // 兼容多种后端字段命名：title/chapter_title/name 以及 outline/summary/description/content/body/story_outline
+            const title = (ch && (ch.title ?? ch.chapter_title ?? ch.name)) || ''
+            const body  = (ch && (ch.outline ?? ch.summary ?? ch.description ?? ch.content ?? ch.body ?? ch.story_outline ?? ch.name)) || ''
+            // 存储为结构化对象，保留 title 与 outline 两部分，方便编辑器分别展示与回填
+            outlinesMap[ci] = { title: title, outline: body }
+          } catch (e) { outlinesMap[ci] = { title: '', outline: JSON.stringify(ch) } }
           if (ci > maxIdx) maxIdx = ci
         }
       }
@@ -252,10 +295,17 @@ export function useCreatorMode(dependencies = {}) {
       const finalTotal = Math.max(total, maxIdx)
       outlineEdits.value = []
       for (let j = start; j <= finalTotal; j++) {
-        if (typeof outlinesMap[j] !== 'undefined') {
-          outlineEdits.value.push({ chapterIndex: j, outline: outlinesMap[j] })
+        const entry = outlinesMap[j]
+        if (typeof entry !== 'undefined') {
+          // entry 可能是结构化对象 {title, outline}
+          if (entry && typeof entry === 'object') {
+            outlineEdits.value.push({ chapterIndex: j, title: entry.title || '', outline: entry.outline || '' })
+          } else {
+            // 兜底：若仍为字符串则放到 outline 字段
+            outlineEdits.value.push({ chapterIndex: j, title: '', outline: String(entry) })
+          }
         } else {
-          outlineEdits.value.push({ chapterIndex: j, outline: `第${j}章：请在此编辑/补充本章大纲以指导生成。` })
+          outlineEdits.value.push({ chapterIndex: j, title: `第${j}章`, outline: `第${j}章：请在此编辑/补充本章大纲以指导生成。` })
         }
       }
       outlineUserPrompt.value = createRaw?.userPrompt || ''
@@ -263,6 +313,7 @@ export function useCreatorMode(dependencies = {}) {
       outlineCurrentPage.value = 0  // 初始化为第一页
       editorInvocation.value = 'manual'
       pendingOutlineTargetChapter.value = start
+      console.log('[useCreatorMode] 打开大纲编辑器: reason=manual-invocation, targetChapter=', pendingOutlineTargetChapter.value)
       showOutlineEditor.value = true
     } catch (e) { console.warn('openOutlineEditorManual failed', e) }
   }
@@ -319,10 +370,6 @@ export function useCreatorMode(dependencies = {}) {
     try {
       // 关闭编辑器界面
       showOutlineEditor.value = false
-      
-      // 关闭编辑器后不在此处启动短时加载
-      // 统一使用 fetchNextChapter / 外部的长加载逻辑来展示加载界面，
-      // 避免与后续的 fetchNextChapter 重复触发两次加载动画。
 
       const workId = work?.value?.id
       if (!workId) {
@@ -361,7 +408,19 @@ export function useCreatorMode(dependencies = {}) {
       }
 
       generationLocks.value[lockKey] = true
+      let _startedLoadingHere = false
       try {
+        // 启动加载界面：优先使用传入的 startLoading，其次尝试依赖中的 startLoading
+        try {
+          if (typeof startLoading === 'function') {
+            startLoading()
+            _startedLoadingHere = true
+          } else if (dependencies && typeof dependencies.startLoading === 'function') {
+            dependencies.startLoading()
+            _startedLoadingHere = true
+          }
+        } catch (e) { /* ignore start loading errors */ }
+
         await generateChapter(workId, targetChapter, { chapterOutlines: payloadOutlines, userPrompt: outlineUserPrompt.value })
         // showNotice?.('已提交大纲，开始生成中…')
         // 轮询作品详情，直到目标章节状态为 generated/saved
@@ -384,11 +443,13 @@ export function useCreatorMode(dependencies = {}) {
       } finally {
         try { delete generationLocks.value[lockKey] } catch (e) {}
         // 生成完成后关闭加载界面
-        if (stopLoading) {
-          try {
+        try {
+          if (typeof stopLoading === 'function') {
             await stopLoading()
-          } catch (e) {}
-        }
+          } else if (_startedLoadingHere && dependencies && typeof dependencies.stopLoading === 'function') {
+            try { await dependencies.stopLoading() } catch (e) {}
+          }
+        } catch (e) {}
       }
       pendingOutlineTargetChapter.value = null
     } catch (e) {

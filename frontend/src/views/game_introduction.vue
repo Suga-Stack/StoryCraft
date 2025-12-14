@@ -191,6 +191,16 @@ onMounted(async () => {
         try { prev.modifiable = !!payload.modifiable } catch (e) {}
         try { prev.ai_callable = typeof payload.ai_callable !== 'undefined' ? !!payload.ai_callable : (payload.data && typeof payload.data.ai_callable !== 'undefined' ? !!payload.data.ai_callable : undefined) } catch (e) {}
         sessionStorage.setItem('createResult', JSON.stringify(prev))
+        // 如果后端明确标记作品未发布（is_published === false），
+        // 仅允许具有 modifiable 权限的用户查看；其他用户（包含管理员）一律显示下架遮罩。
+        try {
+          const sess = JSON.parse(sessionStorage.getItem('createResult') || '{}')
+          const modifiableFlag = !!(payload?.modifiable || sess?.modifiable)
+          // 只有在后端显式返回 is_published === false 时认为未发布
+          if (typeof payload?.is_published !== 'undefined' && payload.is_published === false && !modifiableFlag) {
+            isRemoved.value = true
+          }
+        } catch (e) { /* ignore */ }
       } catch (e) { console.warn('failed to write createResult to sessionStorage', e) }
       // 如果 payload 中包含评论数据，归一化并写入 comments
       try {
@@ -433,8 +443,17 @@ const submitComment = async () => {
       const details = await http.get(`/api/gameworks/gameworks/${work.value.id}/`)
       const payload = details?.data || details || null
       if (payload) {
+        // 同步后端返回的按时间与按热度的原始数组，保持两者一致
         if (Array.isArray(payload.comments_by_time)) {
           rawCommentsByTime.value = payload.comments_by_time
+        }
+        if (Array.isArray(payload.comments_by_hot)) {
+          rawCommentsByHot.value = payload.comments_by_hot
+        }
+        // 根据当前排序优先刷新对应列表，保证用户在当前视图下立即看到新评论
+        if (sortBy.value === 'likes' && Array.isArray(payload.comments_by_hot)) {
+          comments.value = normalizeComments(payload.comments_by_hot)
+        } else if (Array.isArray(payload.comments_by_time)) {
           comments.value = normalizeComments(payload.comments_by_time)
         } else {
           // fallback to comments endpoint
@@ -1120,7 +1139,7 @@ const confirmReport = async () => {
 // 开始阅读：记录阅读行为后再跳转到阅读页
 const startReading = async () => {
   if (isRemoved.value) {
-    showToast('作品已下架，无法阅读', 'warning')
+    showToast('该作品已下架，无法阅读', 'warning')
     return
   }
   try {
@@ -1182,7 +1201,7 @@ const startReading = async () => {
           <rect x="4" y="8" width="16" height="12" rx="2" stroke="#d4a5a5" stroke-width="1.6" />
           <circle cx="12" cy="14" r="1.6" fill="#d4a5a5" />
         </svg>
-        <div class="removed-message">作品已下架</div>
+        <div class="removed-message">该作品已下架</div>
       </div>
     </div>
     <!-- AI生成的封面（顶部全宽） -->

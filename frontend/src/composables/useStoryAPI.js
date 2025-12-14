@@ -509,7 +509,10 @@ export function useStoryAPI() {
         if (!chapterStatus || chapterStatus === 'not_generated') {
         // 标记 pending target 为当前自动弹出的章节
         if (_pendingOutlineTargetChapter) _pendingOutlineTargetChapter.value = idx
-        if (_showOutlineEditor) _showOutlineEditor.value = true
+        if (_showOutlineEditor) {
+          console.log('[useStoryAPI] 打开大纲编辑器: reason=chapter-not-generated (auto), targetChapter=', idx)
+          _showOutlineEditor.value = true
+        }
         const confirmed = await new Promise((resolve) => { 
           if (_outlineEditorResolver) _outlineEditorResolver = resolve 
         })
