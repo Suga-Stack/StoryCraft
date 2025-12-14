@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { http } from '../service/http.js'
 import { addFavorite, deleteFavorite, getComments, postComments, likeComment, unlikeComment, reportComment } from '../api/user.js'
 import { sanitize } from '../utils/sensitiveFilter'
+import { showToast as vantToast } from 'vant'
 import { useTags } from '../composables/useTags'; // 导入标签工具函数
 
 // 初始化标签工具
@@ -23,19 +24,14 @@ const goBack = () => {
 // 允许向父组件或上层逻辑发出删除/举报事件
 const emit = defineEmits(['delete-comment', 'report-comment'])
 
-// 简单 Toast 系统（替代 alert）
-const toasts = ref([])
-const toastIdSeq = { v: 0 }
+// 使用 Vant 的 showToast 并统一样式（与其他页面保持一致）
 const showToast = (message, type = 'info', duration = 3000) => {
-  const id = ++toastIdSeq.v
-  toasts.value.push({ id, message, type })
-  if (duration > 0) {
-    setTimeout(() => {
-      toasts.value = toasts.value.filter(t => t.id !== id)
-    }, duration)
+  try {
+    vantToast({ message: String(message || ''), type: type || undefined, duration: Number(duration) || 3000, position: 'top', forbidClick: true, className: 'sc-toast-gray' })
+  } catch (e) {
+    try { alert(String(message || '')) } catch (e) { /* ignore */ }
   }
 }
-const removeToast = (id) => { toasts.value = toasts.value.filter(t => t.id !== id) }
 
 // 单个作品数据（从后端获取）
 const route = useRoute()
@@ -437,7 +433,14 @@ const submitComment = async () => {
     const parent = replyingTo.value || null
     // 在提交前进行前端敏感词过滤（将敏感词替换为星号）
     const contentToPost = sanitize(newComment.value.trim())
-    await postComments(contentToPost, work.value.id, parent)
+    // 捕获后端返回以便在未返回完整列表时进行局部更新
+    let postRes = null
+    try {
+      postRes = await postComments(contentToPost, work.value.id, parent)
+    } catch (e) {
+      // 让后续的 refresh/fallback 处理错误
+      throw e
+    }
     // 发布成功后刷新评论（优先尝试通过作品详情获取树状 comments）
     try {
       const details = await http.get(`/api/gameworks/gameworks/${work.value.id}/`)
@@ -460,7 +463,20 @@ const submitComment = async () => {
           await fetchCommentsFromAPI(1)
         }
       } else {
-        await fetchCommentsFromAPI(1)
+        // 如果作品详情没有返回完整的 comments_by_time/comments_by_hot，但 POST 返回了创建的评论对象，则局部插入
+        if (postRes) {
+          const created = postRes?.data?.comment || postRes?.data || postRes
+          if (created && (created.id || created.pk)) {
+            // 兼容后端字段名
+            const createdId = created.id || created.pk
+            // 尝试将新评论插入到 raw arrays（作为顶层或回复）
+            addToRawComments(created, parent)
+          } else {
+            await fetchCommentsFromAPI(1)
+          }
+        } else {
+          await fetchCommentsFromAPI(1)
+        }
       }
     } catch (e) {
       await fetchCommentsFromAPI(1)
@@ -839,6 +855,8 @@ const toggleLike = async (comment) => {
         if (typeof remote.like_count !== 'undefined') comment.likes = Number(remote.like_count) || comment.likes
         else if (typeof remote.likes !== 'undefined') comment.likes = Number(remote.likes) || comment.likes
       }
+      // 同步到原始 arrays，保证切换排序时能看到更新
+      updateRawCommentsLike(comment.id, comment.likes, comment.isLiked)
     } else {
       const res = await unlikeComment(comment.id)
       const remote = res?.data?.data ?? res?.data ?? res
@@ -847,11 +865,15 @@ const toggleLike = async (comment) => {
         if (typeof remote.like_count !== 'undefined') comment.likes = Number(remote.like_count) || comment.likes
         else if (typeof remote.likes !== 'undefined') comment.likes = Number(remote.likes) || comment.likes
       }
+      // 同步到原始 arrays，保证切换排序时能看到更新
+      updateRawCommentsLike(comment.id, comment.likes, comment.isLiked)
     }
   } catch (e) {
     // 回滚
     comment.isLiked = prevLiked
     comment.likes = prevLikes
+    // 回滚原始数组中的状态
+    updateRawCommentsLike(comment.id, comment.likes, comment.isLiked)
     console.error('toggleLike failed', e)
   }
 }
@@ -871,6 +893,131 @@ const removeCommentById = (id, list = comments.value) => {
     }
   }
   return false
+}
+
+// 从原始数组中删除指定 id（递归），用于同步 rawCommentsByTime/rawCommentsByHot
+const removeFromRawComments = (id, listCandidates = [rawCommentsByTime, rawCommentsByHot]) => {
+  const removeInList = (arr) => {
+    if (!Array.isArray(arr)) return false
+    for (let i = 0; i < arr.length; i++) {
+      const it = arr[i]
+      if (!it) continue
+      if (String(it.id) === String(id)) {
+        arr.splice(i, 1)
+        return true
+      }
+      if (Array.isArray(it.replies) && it.replies.length) {
+        const found = removeInList(it.replies)
+        if (found) return true
+      }
+    }
+    return false
+  }
+
+  for (const cand of listCandidates) {
+    if (!cand || !Array.isArray(cand.value)) continue
+    try { removeInList(cand.value) } catch (e) { /* ignore */ }
+  }
+
+  // 刷新当前视图
+  try {
+    if (sortBy.value === 'likes' && Array.isArray(rawCommentsByHot.value)) {
+      comments.value = normalizeComments(rawCommentsByHot.value)
+    } else if (Array.isArray(rawCommentsByTime.value)) {
+      comments.value = normalizeComments(rawCommentsByTime.value)
+    }
+  } catch (e) { /* ignore */ }
+}
+
+// 向原始数组插入新评论或回复（递归查找 parentId），如果 parentId 为 null 则插入为顶层评论
+const addToRawComments = (newItem, parentId = null, listCandidates = [rawCommentsByTime, rawCommentsByHot]) => {
+  const insertInList = (arr) => {
+    if (!Array.isArray(arr)) return false
+    if (!parentId) {
+      // 顶层评论：放到数组头部（最新优先）
+      arr.unshift(newItem)
+      return true
+    }
+    const traverse = (items) => {
+      for (const it of items) {
+        if (!it) continue
+        if (String(it.id) === String(parentId)) {
+          if (!Array.isArray(it.replies)) it.replies = []
+          it.replies.unshift(newItem)
+          return true
+        }
+        if (Array.isArray(it.replies) && it.replies.length) {
+          const found = traverse(it.replies)
+          if (found) return true
+        }
+      }
+      return false
+    }
+    return traverse(arr)
+  }
+
+  for (const cand of listCandidates) {
+    if (!cand || !Array.isArray(cand.value)) continue
+    try { insertInList(cand.value) } catch (e) { /* ignore */ }
+  }
+
+  // 刷新当前视图
+  try {
+    if (sortBy.value === 'likes' && Array.isArray(rawCommentsByHot.value)) {
+      comments.value = normalizeComments(rawCommentsByHot.value)
+    } else if (Array.isArray(rawCommentsByTime.value)) {
+      comments.value = normalizeComments(rawCommentsByTime.value)
+    }
+  } catch (e) { /* ignore */ }
+}
+
+// 将点赞状态同步到后端原始数组（rawCommentsByTime/rawCommentsByHot），保证在切换排序时数据一致
+const updateRawCommentsLike = (commentId, likes, isLiked, listCandidates = [rawCommentsByTime, rawCommentsByHot]) => {
+  const updateInList = (lst) => {
+    if (!Array.isArray(lst)) return false
+    const traverse = (items) => {
+      for (const it of items) {
+        if (!it) continue
+        // 兼容 id 类型为数字或字符串
+        if (String(it.id) === String(commentId)) {
+          try {
+            // 兼容后端字段名
+            if (typeof likes !== 'undefined') {
+              it.like_count = likes
+              it.likes = likes
+            }
+            if (typeof isLiked !== 'undefined') {
+              it.is_liked = !!isLiked
+              it.liked = !!isLiked
+            }
+          } catch (e) { /* ignore */ }
+          return true
+        }
+        if (Array.isArray(it.replies) && it.replies.length) {
+          const found = traverse(it.replies)
+          if (found) return true
+        }
+      }
+      return false
+    }
+    return traverse(lst)
+  }
+
+  for (const cand of listCandidates) {
+    if (!cand || !cand.value) continue
+    try {
+      updateInList(cand.value)
+    } catch (e) { /* ignore errors */ }
+  }
+
+  // 如果当前视图是按热度或按时间，则刷新 comments.value 保持 UI 与原始数组一致
+  try {
+    if (sortBy.value === 'likes' && Array.isArray(rawCommentsByHot.value)) {
+      comments.value = normalizeComments(rawCommentsByHot.value)
+    } else if (Array.isArray(rawCommentsByTime.value)) {
+      comments.value = normalizeComments(rawCommentsByTime.value)
+    }
+  } catch (e) { /* ignore */ }
 }
 
 // 删除评论（本地先优化 UX，随后调用后端并触发事件）
@@ -899,6 +1046,8 @@ const onDeleteComment = async (comment) => {
     if (deleted) {
       // 从本地删除以立即反映 UI
       removeCommentById(comment.id)
+      // 同步删除到原始数组，保证 latest/hot 两个数据源一致
+      try { removeFromRawComments(comment.id) } catch (e) { /* ignore */ }
       // 向外部发出事件，供上层处理（例如刷新）
       try { emit('delete-comment', comment.id) } catch (e) {}
       showToast('删除成功', 'success')
@@ -1049,7 +1198,7 @@ const confirmWorkReport = async () => {
     // 直接调用新的固定接口（不再兼容旧接口）
     await http.post('/api/users/report/gamework/', payload)
 
-    alert('举报已提交，我们会尽快处理')
+    showToast('举报已提交，我们会尽快处理', 'success')
     try { emit('report-work', work.value.id) } catch (e) {}
   } catch (e) {
     console.error('作品举报失败', e)
@@ -1664,13 +1813,7 @@ const startReading = async () => {
         <span class="read-text">开始阅读</span>
       </button>
     </div>
-    <!-- Toast 容器 -->
-    <div class="toast-container">
-      <div v-for="t in toasts" :key="t.id" :class="['toast', t.type]">
-        <div class="toast-message">{{ t.message }}</div>
-        <button class="toast-close" @click="removeToast(t.id)">×</button>
-      </div>
-    </div>
+    <!-- 使用全局 Vant 弹窗，无需本地 toast 容器 -->
   </div>
 </template>
 

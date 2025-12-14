@@ -410,7 +410,7 @@ export function useStoryAPI() {
             
             if (prevChapterStatus !== 'saved') {
             console.warn(`[fetchNextChapter] 上一章 ${idx - 1} 状态为 ${prevChapterStatus}，阻止加载第 ${idx} 章`)
-            if (_showNotice) _showNotice(`第 ${idx - 1} 章尚未保存`, 8000)
+            if (_showToast) _showToast(`第 ${idx - 1} 章尚未保存`, 8000)
             // 不抛出异常，只是返回 null，让调用方知道加载被阻止
             return null
             }
@@ -986,7 +986,7 @@ export function useStoryAPI() {
   
   // 添加依赖项的存储
   let _creatorFeatureEnabled = null
-  let _showNotice = null
+  let _showToast = null
   let _showOutlineEditor = null
   let _outlineEdits = null
   let _outlineUserPrompt = null
@@ -1004,7 +1004,7 @@ export function useStoryAPI() {
   // 提供设置依赖的方法
   const setDependencies = (deps) => {
     _creatorFeatureEnabled = deps.creatorFeatureEnabled
-    _showNotice = deps.showNotice
+    _showToast = deps.showToast
     _showOutlineEditor = deps.showOutlineEditor
     _outlineEdits = deps.outlineEdits
     _outlineUserPrompt = deps.outlineUserPrompt

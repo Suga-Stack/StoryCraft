@@ -22,7 +22,7 @@ export function useSaveLoad() {
   let _getChapterStatus
   let _currentChapterIndex
   let _creatorFeatureEnabled
-  let _showNotice
+  let _showToast
   let _stopAutoPlayTimer
   let _autoPlayEnabled
   let _anyOverlayOpen
@@ -68,7 +68,7 @@ export function useSaveLoad() {
     _getChapterStatus = deps.getChapterStatus
     _currentChapterIndex = deps.currentChapterIndex
     _creatorFeatureEnabled = deps.creatorFeatureEnabled
-    _showNotice = deps.showNotice
+    _showToast = deps.showToast
     _stopAutoPlayTimer = deps.stopAutoPlayTimer
     _autoPlayEnabled = deps.autoPlayEnabled
     _anyOverlayOpen = deps.anyOverlayOpen
@@ -145,7 +145,7 @@ export function useSaveLoad() {
       if (_checkCurrentChapterSaved) {
         const isSaved = await _checkCurrentChapterSaved()
         if (!isSaved) {
-          if (_showNotice) _showNotice('未保存，无法存档')
+          if (_showToast) _showToast('未保存，无法存档')
           return
         }
       }
@@ -156,7 +156,7 @@ export function useSaveLoad() {
     if (_creatorFeatureEnabled && _creatorFeatureEnabled.value) {
       const endingSaved = isCurrentBackendEndingSaved()
       if (!endingSaved) {
-        if (_showNotice) _showNotice('未保存，无法存档')
+        if (_showToast) _showToast('未保存，无法存档')
         return
       }
     }
@@ -213,7 +213,7 @@ export function useSaveLoad() {
           if (_getChapterStatus && _currentChapterIndex) {
             const st = _getChapterStatus(_currentChapterIndex.value)
             if (st !== 'saved') {
-              if (_showNotice) _showNotice('未保存，无法存档')
+              if (_showToast) _showToast('未保存，无法存档')
               console.log('saveGame blocked for creator: chapter status is', st)
               return
             }
@@ -235,7 +235,9 @@ export function useSaveLoad() {
       
       if (result.success) {
         lastSaveInfo.value = (_deepClone || deepClone)(result.payload || result.data)
-        saveToast.value = result.message || `存档成功（${new Date().toLocaleString()}）`
+        const msg = result.message || `存档成功（${new Date().toLocaleString()}）`
+        saveToast.value = msg
+        if (_showToast) try { _showToast(msg, 2000) } catch (e) {}
         setTimeout(() => (saveToast.value = ''), 2000)
         console.log('✅ 存档成功:', result)
       } else {
@@ -451,7 +453,9 @@ export function useSaveLoad() {
       const result = await loadGameData(workId, slot)
       
       if (!result.success) {
-        loadToast.value = result.message || '未找到存档'
+        const msg = result.message || '未找到存档'
+        loadToast.value = msg
+        if (_showToast) try { _showToast(msg, 1500) } catch (e) {}
         setTimeout(() => (loadToast.value = ''), 1500)
         return
       }
@@ -720,7 +724,9 @@ export function useSaveLoad() {
       if (_choicesVisible) _choicesVisible.value = false
       lastSaveInfo.value = deepClone(remote)
       
-      loadToast.value = result.message || `读档成功（${new Date(savedData.timestamp).toLocaleString()}）`
+      const msg = result.message || `读档成功（${new Date(savedData.timestamp).toLocaleString()}）`
+      loadToast.value = msg
+      if (_showToast) try { _showToast(msg, 2000) } catch (e) {}
       setTimeout(() => (loadToast.value = ''), 2000)
       
       console.log('✅ 读档成功:', result)
@@ -748,7 +754,9 @@ export function useSaveLoad() {
       const result = await deleteGameData(workId, slot)
       
       if (result.success) {
-        saveToast.value = result.message || '存档已删除'
+        const msg = result.message || '存档已删除'
+        saveToast.value = msg
+        if (_showToast) try { _showToast(msg, 2000) } catch (e) {}
         setTimeout(() => (saveToast.value = ''), 2000)
         console.log('✅ 删除存档成功:', result)
         

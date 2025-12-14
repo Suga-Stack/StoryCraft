@@ -18,7 +18,7 @@ export function useCreatorMode(dependencies = {}) {
     choiceHistory,
     restoreChoiceFlagsFromHistory,
     generateChapter,
-    showNotice,
+    showToast,
     isCreatorIdentity,
     modifiableFromCreate,
     // 添加缺失的依赖
@@ -135,7 +135,7 @@ export function useCreatorMode(dependencies = {}) {
 
       const allowed = (isCreatorIdentity?.value || modifiableFromCreate?.value)
       if (!allowed) {
-        if (showNotice) showNotice('无编辑权限。')
+        if (showToast) showToast('无编辑权限。')
         return
       }
 
@@ -152,7 +152,7 @@ export function useCreatorMode(dependencies = {}) {
             if (_checkCurrentChapterSaved) {
               const isSaved = await _checkCurrentChapterSaved()
               if (!isSaved) {
-                if (showNotice) showNotice('未保存')
+                if (showToast) showToast('未保存')
                 return
               }
             }
@@ -166,13 +166,13 @@ export function useCreatorMode(dependencies = {}) {
             const cs = (dependencies && dependencies.currentScene) || params.currentScene
             const cur = cs && cs.value ? cs.value : (cs || null)
             if (cur && (cur._isBackendEnding || cur.isGameEnding || cur.isEnding) && cur._endingSaved !== true) {
-              if (showNotice) showNotice('未保存')
+              if (showToast) showToast('未保存')
               return
             }
           }
         } catch (e) { /* ignore */ }
         // if (_creatorFeatureEnabled && !_creatorFeatureEnabled.value) {
-        //   if (showNotice) showNotice('进入手动编辑：当前作品未开启 AI 自动生成，仅支持人工调整后保存。')
+        //   if (showToast) showToast('进入手动编辑：当前作品未开启 AI 自动生成，仅支持人工调整后保存。')
         // 进入创作者模式时停止自动播放
         if (_stopAutoPlayTimer) {
           try { _stopAutoPlayTimer() } catch (e) {}
@@ -210,11 +210,11 @@ export function useCreatorMode(dependencies = {}) {
                 if (cur && (cur._isBackendEnding || cur.isGameEnding || cur.isEnding) && cur._endingSaved === true) {
                   // 允许进入创作者手动编辑（编辑结局与阅读者模式一致）
                 } else {
-                  showNotice?.('已保存')
+                  showToast?.('已保存')
                   return
                 }
               } catch (e) {
-                showNotice?.('已保存')
+                showToast?.('已保存')
                 return
               }
             }
@@ -359,7 +359,7 @@ export function useCreatorMode(dependencies = {}) {
         if (typeof checkCurrentChapterSaved === 'function') {
           const isSaved = await checkCurrentChapterSaved()
           if (isSaved) {
-            showNotice?.('已保存')
+            showToast?.('已保存')
             if (stopLoading) stopLoading()
             return
           }
@@ -373,7 +373,7 @@ export function useCreatorMode(dependencies = {}) {
 
       const workId = work?.value?.id
       if (!workId) {
-        showNotice?.('生成失败')
+        showToast?.('生成失败')
         if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(false); outlineEditorResolver = null }
         if (stopLoading) {
           try {
@@ -396,7 +396,7 @@ export function useCreatorMode(dependencies = {}) {
 
       const lockKey = `${workId}:${targetChapter}`
       if (generationLocks.value[lockKey]) {
-        showNotice?.('该章节正在生成中，请稍候...')
+        showToast?.('该章节正在生成中，请稍候...')
         if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(true); outlineEditorResolver = null }
         pendingOutlineTargetChapter.value = null
         if (stopLoading) {
@@ -422,7 +422,7 @@ export function useCreatorMode(dependencies = {}) {
         } catch (e) { /* ignore start loading errors */ }
 
         await generateChapter(workId, targetChapter, { chapterOutlines: payloadOutlines, userPrompt: outlineUserPrompt.value })
-        // showNotice?.('已提交大纲，开始生成中…')
+        // showToast?.('已提交大纲，开始生成中…')
         // 轮询作品详情，直到目标章节状态为 generated/saved
         try {
           await pollWorkStatus?.(workId, targetChapter, { interval: 1500, timeout: 120000 })
@@ -438,7 +438,7 @@ export function useCreatorMode(dependencies = {}) {
         if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(true); outlineEditorResolver = null }
       } catch (genErr) {
         console.warn('confirmOutlineEdits generateChapter failed', genErr)
-        showNotice?.('生成失败，请稍后重试')
+        showToast?.('生成失败，请稍后重试')
         if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(false); outlineEditorResolver = null }
       } finally {
         try { delete generationLocks.value[lockKey] } catch (e) {}
@@ -454,7 +454,7 @@ export function useCreatorMode(dependencies = {}) {
       pendingOutlineTargetChapter.value = null
     } catch (e) {
       console.warn('confirmOutlineEdits failed', e)
-      showNotice?.('确认大纲错误')
+      showToast?.('确认大纲错误')
       if (typeof outlineEditorResolver === 'function') { outlineEditorResolver(false); outlineEditorResolver = null }
       pendingOutlineTargetChapter.value = null
       if (stopLoading) {
@@ -481,7 +481,7 @@ export function useCreatorMode(dependencies = {}) {
       if (_checkCurrentChapterSaved) {
         const isSaved = await _checkCurrentChapterSaved()
         if (!isSaved) {
-          if (showNotice) showNotice('未保存')
+          if (showToast) showToast('未保存')
           return
         }
       }
@@ -628,7 +628,7 @@ export function useCreatorMode(dependencies = {}) {
 
     try {
       if (!creatorMode.value) {
-        showNotice?.('请先进入创作者模式')
+        showToast?.('请先进入创作者模式')
         return
       }
       // 已保存章节校验（若需要）
@@ -636,14 +636,14 @@ export function useCreatorMode(dependencies = {}) {
         if (_checkCurrentChapterSaved) {
           const isSaved = await _checkCurrentChapterSaved()
           if (!isSaved) {
-            showNotice?.('未保存')
+            showToast?.('未保存')
             return
           }
         }
       }
 
       const scene = _currentScene?.value || _currentScene
-      if (!scene) { showNotice?.('无法确定当前场景'); return }
+      if (!scene) { showToast?.('无法确定当前场景'); return }
       scene.dialogues = Array.isArray(scene.dialogues) ? scene.dialogues : []
       // 插入位置：当前对话后一位；若当前索引越界则插入末尾
       let insertIndex = (_currentDialogueIndex?.value != null) ? (_currentDialogueIndex.value + 1) : scene.dialogues.length
@@ -674,10 +674,10 @@ export function useCreatorMode(dependencies = {}) {
 
       // 将当前编辑索引跳到新旁白
       try { _currentDialogueIndex.value = insertIndex } catch (e) {}
-      showNotice?.('已插入旁白')
+      showToast?.('已插入旁白')
     } catch (e) {
       console.warn('addNarration failed', e)
-      showNotice?.('插入旁白失败')
+      showToast?.('插入旁白失败')
     }
   }
 
@@ -693,19 +693,19 @@ export function useCreatorMode(dependencies = {}) {
     const _showText = params.showText || dependencies.showText
 
     try {
-      if (!creatorMode.value) { showNotice?.('尚未进入创作者模式'); return }
+      if (!creatorMode.value) { showToast?.('尚未进入创作者模式'); return }
       const scene = _currentScene?.value || _currentScene
-      if (!scene) { showNotice?.('无法确定当前场景'); return }
+      if (!scene) { showToast?.('无法确定当前场景'); return }
       const idx = _currentDialogueIndex?.value ?? 0
-      if (!Array.isArray(scene.dialogues) || idx < 0 || idx >= scene.dialogues.length) { showNotice?.('当前对话索引无效'); return }
+      if (!Array.isArray(scene.dialogues) || idx < 0 || idx >= scene.dialogues.length) { showToast?.('当前对话索引无效'); return }
       const target = scene.dialogues[idx]
-      if (!isNarration(target)) { showNotice?.('当前项不是旁白，无法删除'); return }
+      if (!isNarration(target)) { showToast?.('当前项不是旁白，无法删除'); return }
 
       // 如果该场景包含选项，并且当前索引正好是触发选项的那句旁白，则禁止删除
       const hasChoices = Array.isArray(scene.choices) && scene.choices.length > 0
       const triggerIdx = (typeof scene.choiceTriggerIndex === 'number') ? scene.choiceTriggerIndex : null
       if (hasChoices && triggerIdx !== null && idx === triggerIdx) {
-        showNotice?.('无法删除触发选项的旁白，请先移动或修改选项触发点');
+        showToast?.('无法删除触发选项的旁白，请先移动或修改选项触发点');
         return
       }
 
@@ -758,10 +758,10 @@ export function useCreatorMode(dependencies = {}) {
       if (_saveOverrides) _saveOverrides(work.value.id)
       if (_applyOverridesToScenes) _applyOverridesToScenes(_showText)
 
-      showNotice?.('已删除旁白')
+      showToast?.('已删除旁白')
     } catch (e) {
       console.warn('deleteNarration failed', e)
-      showNotice?.('删除旁白失败')
+      showToast?.('删除旁白失败')
     }
   }
   
@@ -777,7 +777,7 @@ export function useCreatorMode(dependencies = {}) {
       return 
     }
     if (!allowed) { 
-      if (showNotice) showNotice('您无权替换图片：非作者或作品未开启编辑')
+      if (showToast) showToast('您无权替换图片：非作者或作品未开启编辑')
       return 
     }
     
@@ -785,7 +785,7 @@ export function useCreatorMode(dependencies = {}) {
       if (_checkCurrentChapterSaved) {
         const isSaved = await _checkCurrentChapterSaved()
         if (!isSaved) {
-          if (showNotice) showNotice('当前章节未保存(saved)状态，无法进行手动编辑')
+          if (showToast) showToast('当前章节未保存(saved)状态，无法进行手动编辑')
           return
         }
       }
@@ -832,14 +832,14 @@ export function useCreatorMode(dependencies = {}) {
               _overrides.value.scenes[sid].backgroundImage = imageUrl
               if (_saveOverrides) _saveOverrides(work.value.id)
               if (_applyOverridesToScenes) _applyOverridesToScenes(_showText)
-              if (showNotice) showNotice('图片已上传并替换为服务器 URL')
+              if (showToast) showToast('图片已上传并替换为服务器 URL')
             } else {
               console.warn('upload returned no imageUrl', resp)
-              if (showNotice) showNotice('图片已本地替换，但上传未返回 URL')
+              if (showToast) showToast('图片已本地替换，但上传未返回 URL')
             }
           } catch (uploadErr) {
             console.error('upload image failed', uploadErr)
-            if (showNotice) showNotice('图片上传失败，请稍后重试（已保留本地预览）')
+            if (showToast) showToast('图片上传失败，请稍后重试（已保留本地预览）')
           }
         } catch (e) { console.warn('image upload flow failed', e) }
 

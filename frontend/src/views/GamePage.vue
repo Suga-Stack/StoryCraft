@@ -9,6 +9,7 @@ import http from '../service/http.js'
 import * as storyService from '../service/story.js'
 import { getCurrentUserId, deepClone } from '../utils/auth.js'
 import { sanitize } from '../utils/sensitiveFilter.js'
+import { showToast as vantToast } from 'vant'
 import { USE_MOCK_STORY, USE_MOCK_SAVE, FORCE_CREATOR_FOR_TEST, isCreatorIdentity, editorInvocation, creatorFeatureEnabled, modifiableFromCreate } from '../config/gamepage.js'
 import { useSaveLoad } from '../composables/useSaveLoad.js'
 import { useAutoPlay } from '../composables/useAutoPlay.js'
@@ -103,15 +104,11 @@ const {
   lastSaveInfo
 } = saveLoadAPI
 
-// 页面内短时提醒
-const noticeToast = ref('')
-let noticeTimer = null
-const showNotice = (msg, ms = 5000) => {
+// 统一使用 Vant 的 showToast（样式与 CreateWork 中的一致）
+const showToast = (msg, ms = 5000, opts = {}) => {
   try {
-    noticeToast.value = msg
-    if (noticeTimer) clearTimeout(noticeTimer)
-    noticeTimer = setTimeout(() => { noticeToast.value = ''; noticeTimer = null }, ms)
-  } catch (e) { console.warn('showNotice failed', e) }
+    vantToast({ message: String(msg || ''), duration: Number(ms) || 3000, position: 'top', forbidClick: true, className: 'sc-toast-gray' })
+  } catch (e) { console.warn('showToast failed', e) }
 }
 
 // 检测是否在 Capacitor 环境中
@@ -132,7 +129,7 @@ const creatorModeAPI = useCreatorMode({
   choiceHistory,
   restoreChoiceFlagsFromHistory,
   generateChapter,
-  showNotice,
+  showToast,
   isCreatorIdentity,
   modifiableFromCreate,
   checkCurrentChapterSaved,
@@ -207,8 +204,8 @@ const currentIsNarration = computed(() => {
 // 尝试删除旁白：若不满足条件则给出提示
 const attemptDeleteNarration = () => {
   try {
-    if (!creatorMode.value) { showNotice('尚未进入创作者模式'); return }
-    if (!currentIsNarration.value) { showNotice('当前不是旁白，无法删除'); return }
+    if (!creatorMode.value) { showToast('尚未进入创作者模式'); return }
+    if (!currentIsNarration.value) { showToast('当前不是旁白，无法删除'); return }
     deleteNarration()
   } catch (e) { console.warn('attemptDeleteNarration failed', e) }
 }
@@ -706,7 +703,7 @@ const gameStateAPI = useGameState({
   modifiableFromCreate,
   USE_MOCK_STORY,
   isNativeApp,
-  showNotice,
+  showToast,
   deepClone,
   fetchReport,
   pendingNextChapter,
@@ -766,7 +763,7 @@ const saveCurrentEnding = async () => {
   try {
     try { if (typeof startLoading === 'function') startLoading() } catch (e) {}
     const workId = work && work.value && work.value.id
-    if (!workId) { showNotice('无法识别作品 ID，保存失败'); try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}; return }
+    if (!workId) { showToast('无法识别作品 ID，保存失败'); try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}; return }
     const endingIdx = (lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? Number(lastSelectedEndingIndex.value) : 1
     // Helper: 将前端内部的 dialogue 项规范化为后端期望的格式
     const normalizeDialogue = (item) => {
@@ -834,13 +831,13 @@ const saveCurrentEnding = async () => {
     const body = { endingIndex: endingIdx, title, scenes: scenesToSave }
     try {
       await storyService.saveEnding(workId, body)
-      showNotice('已保存结局内容')
+      showToast('已保存结局内容')
       // 标记前端缓存为已保存
       try { for (const s of storyScenes.value) { if (s && s._isBackendEnding) s._endingSaved = true } } catch (e) {}
       try { await getWorkDetails(workId) } catch (e) {}
     } catch (e) {
       console.error('saveCurrentEnding failed', e)
-      showNotice('保存结局失败', 8000)
+      showToast('保存结局失败', 8000)
       throw e
     }
   } catch (e) {
@@ -978,7 +975,7 @@ watch([isLandscapeReady, isLoading, currentChapterIndex, () => playlist.value.le
           // 只在第一次失败时提示，避免频繁通知
           if (!window.__musicAutoPlayFailedNotified) {
             window.__musicAutoPlayFailedNotified = true
-            try { showNotice('自动播放被阻止，请在菜单中手动播放', 3000) } catch (e) {}
+            try { showToast('自动播放被阻止，请在菜单中手动播放', 3000) } catch (e) {}
           }
         }
       }
@@ -1896,7 +1893,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       if (!performNetworkSave) {
         console.log('persistCurrentChapterEdits: performNetworkSave=false — skip network save for ending')
         try { await stopLoading() } catch (e) {}
-        try { showNotice && showNotice('结局已在本地生效') } catch (e) {}
+        try { showToast && showToast('结局已在本地生效') } catch (e) {}
         return
       }
       try {
@@ -1997,10 +1994,10 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           }
           try {
             await storyService.saveEnding(workId, single)
-            showNotice('已保存')
+            showToast('已保存')
           } catch (saveErr) {
             console.error('persistCurrentChapterEdits: saveEnding API failed', saveErr, saveErr?.data || (saveErr?.response && saveErr.response.data))
-            showNotice('保存失败: ' + (saveErr?.data || saveErr?.message || '未知错误'), 8000)
+            showToast('保存失败: ' + (saveErr?.data || saveErr?.message || '未知错误'), 8000)
             throw saveErr
           }
         } else {
@@ -2097,9 +2094,9 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           }
 
           if (errors.length === 0) {
-            showNotice('已保存')
+            showToast('已保存')
           } else {
-            showNotice('部分结局保存失败', 8000)
+            showToast('部分结局保存失败', 8000)
             throw errors[0].error
           }
         }
@@ -2125,16 +2122,16 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         try {
           if (!performNetworkSave) {
             console.log('persistCurrentChapterEdits: performNetworkSave=false — skip saveChapter network call')
-            showNotice('已在本地修改')
+            showToast('已在本地修改')
           } else {
             console.log('persistCurrentChapterEdits: calling saveChapter API to mark as saved', { workId, chapterIndex })
             await saveChapter(workId, chapterIndex, chapterData)
             console.log('persistCurrentChapterEdits: saveChapter API succeeded')
-            showNotice('已保存')
+            showToast('已保存')
           }
           } catch (saveErr) {
           console.error('persistCurrentChapterEdits: saveChapter API failed', saveErr, saveErr?.data || (saveErr?.response && saveErr.response.data))
-          showNotice('保存章节失败: ' + (saveErr?.data || saveErr?.message || '未知错误'), 5000)
+          showToast('保存章节失败: ' + (saveErr?.data || saveErr?.message || '未知错误'), 5000)
           throw saveErr
         }
         
@@ -2192,7 +2189,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           try {
             pendingNextChapter.value = nextChap
           } catch (e) { console.warn('set pendingNextChapter failed', e) }
-          showNotice('已保存本章，阅读至本章末尾后将弹出下一章大纲编辑器')
+          showToast('已保存本章，阅读至本章末尾后将弹出下一章大纲编辑器')
           try { await stopLoading() } catch (e) {}
           return
         }
@@ -2201,7 +2198,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         if (isLastChapter) {
           // 情况2: 末章已保存且已读完 - 进入结算页面
           console.log('末章已保存并读完，准备进入结算')
-          showNotice('作品已完结，即将进入结算页面', 3000)
+          showToast('作品已完结，即将进入结算页面', 3000)
           setTimeout(async () => {
             try {
               // 标记将在进入结局判定时显示特殊加载界面
@@ -2275,7 +2272,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         originalOutlineSnapshot.value = JSON.parse(JSON.stringify(outlineEdits.value || []))
         pendingOutlineTargetChapter.value = nextChap
         editorInvocation.value = 'auto'
-        // showNotice('即将进入下一章的大纲编辑', 2000)
+        // showToast('即将进入下一章的大纲编辑', 2000)
         
         // 延迟弹出编辑器，给用户一个视觉反馈
         setTimeout(() => {
@@ -2294,7 +2291,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       await saveChapter(workId, chapterIndex, chapterData)
       console.log('persistCurrentChapterEdits: saveChapter succeeded')
       
-      showNotice('已保存')
+      showToast('已保存')
       
       // 🔑 关键修复：保存成功后立即获取作品详情以获取最新章节状态
       try {
@@ -2323,7 +2320,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       
     } catch (e) {
       console.error('persistCurrentChapterEdits: saveChapter failed', e?.response?.data || e)
-      showNotice('保存失败')
+      showToast('保存失败')
       throw e
     }
   } catch (e) {
@@ -2559,7 +2556,7 @@ setSaveLoadDependencies({
   getChapterStatus,
   currentChapterIndex,
   creatorFeatureEnabled,
-  showNotice,
+  showToast,
   stopAutoPlayTimer,
   autoPlayEnabled,
   anyOverlayOpen,
@@ -2598,7 +2595,7 @@ setCreatorModeDependencies({
 // 设置 useStoryAPI 的依赖（在所有 composables 创建之后）
 storyAPI.setDependencies({
   creatorFeatureEnabled,
-  showNotice,
+  showToast,
   showOutlineEditor,
   outlineEdits,
   outlineUserPrompt,
@@ -3198,9 +3195,7 @@ onUnmounted(async () => {
     </div>
 
   <!-- 临时提示（存档/读档/notice） -->
-  <div class="toast save-toast" v-if="saveToast">{{ saveToast }}</div>
-  <div class="toast load-toast" v-if="loadToast">{{ loadToast }}</div>
-  <div class="toast notice-toast" v-if="noticeToast">{{ noticeToast }}</div>
+  <!-- 存档/读档提示由 Vant showToast 处理，无需本地容器 -->
   <!-- 创作者专用：手动打开大纲编辑器按钮（浮动） -->
   <!--
     修复说明：只在创作者身份（isCreatorIdentity）下显示编辑大纲按钮，
