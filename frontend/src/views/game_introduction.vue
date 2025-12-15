@@ -7,11 +7,24 @@ import { addFavorite, deleteFavorite, getComments, postComments, likeComment, un
 import { sanitize } from '../utils/sensitiveFilter'
 import { showToast as vantToast } from 'vant'
 import { useTags } from '../composables/useTags'; // 导入标签工具函数
+import ReplyItem from '@/components/ReplyItem.vue'
 
 // 初始化标签工具
 const { getTagsByIds } = useTags();
 
 const router = useRouter()
+// 记录从哪个页面进入当前介绍页，用于特殊返回逻辑
+const entryPath = ref(null)
+onMounted(() => {
+  try {
+    // 通过 history.state.back 捕获入场前一个路由（A 界面）
+    const back = router.options?.history?.state?.back
+    if (typeof back === 'string' && back) entryPath.value = back
+    // 如果从 GamePage 返回到本页，保留之前设置的入口路径
+    const stored = sessionStorage.getItem('introEntryPath')
+    if (!entryPath.value && stored) entryPath.value = stored
+  } catch (e) { /* ignore */ }
+})
 
 // 当前用户信息（用于权限判断）
 const userInfo = ref({})
@@ -19,7 +32,20 @@ try { userInfo.value = JSON.parse(localStorage.getItem('userInfo') || '{}') } ca
 const isStaff = computed(() => !!(userInfo.value.is_staff || userInfo.value.isStaff || userInfo.value.staff))
 
 const goBack = () => {
-  router.push('/')
+  // 若标记需要跳过返回 GamePage，则直接回到进入本页的 A 界面
+  const skip = sessionStorage.getItem('introSkipBackToGamePage')
+  if (skip === '1') {
+    sessionStorage.removeItem('introSkipBackToGamePage')
+    const target = entryPath.value || '/'
+    router.push(target)
+    return
+  }
+  // 默认行为：返回上一页或主页
+  if (router.options?.history?.state?.back) {
+    router.back()
+  } else {
+    router.push('/')
+  }
 }
 // 允许向父组件或上层逻辑发出删除/举报事件
 const emit = defineEmits(['delete-comment', 'report-comment'])
@@ -545,77 +571,7 @@ const toggleDescription = () => {
   isDescriptionExpanded.value = !isDescriptionExpanded.value
 }
 
-// 递归回复组件：展示任意层级的回复，样式与交互与第二层一致
-const ReplyItem = {
-  name: 'ReplyItem',
-  props: {
-    reply: { type: Object, required: true },
-    startReply: { type: Function, required: true },
-    toggleLike: { type: Function, required: true },
-    onDeleteComment: { type: Function, required: true },
-    onReportComment: { type: Function, required: true }
-  },
-
-  template: `
-    <div class="reply-item">
-      <div class="top-right-actions reply-top-actions">
-        <button
-          class="action-btn delete-btn"
-          :disabled="reply._deleting"
-          @click="onDeleteComment(reply)"
-          title="删除回复">
-          <span class="delete-x">×</span>
-        </button>
-        <button
-          class="action-btn report-btn"
-          :disabled="reply._reporting"
-          @click="onReportComment(reply)"
-          title="举报回复">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <path d="M12 9v2m0 4h.01M21 12A9 9 0 1 1 3 12a9 9 0 0 1 18 0z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-      </div>
-      <div class="comment-avatar reply-avatar">{{ reply.author.charAt(0) }}</div>
-      <div class="comment-content">
-        <div class="comment-header">
-          <span class="comment-author">{{ reply.author }}</span>
-          <span class="comment-time">{{ reply.time }}</span>
-        </div>
-        <p class="comment-text">{{ reply.text }}</p>
-        <div class="comment-actions">
-          <button 
-            class="action-btn like-btn" 
-            :class="{ active: reply.isLiked }"
-            @click="toggleLike(reply)"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            <span>{{ reply.likes }}</span>
-          </button>
-          <button class="action-btn reply-btn" @click="startReply(reply.id, reply.author)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
-            <span>回复</span>
-          </button>
-        </div>
-      </div>
-    </div>
-    <div v-if="reply.replies && reply.replies.length" class="replies-list">
-      <ReplyItem 
-        v-for="child in reply.replies" 
-        :key="child.id"
-        :reply="child"
-        :start-reply="startReply"
-        :toggle-like="toggleLike"
-        :on-delete-comment="onDeleteComment"
-        :on-report-comment="onReportComment"
-      />
-    </div>
-  `
-}
+// 递归回复组件改为独立 SFC，见 src/components/ReplyItem.vue
 
 // 计算属性：排序后的评论
 const sortedComments = computed(() => {
@@ -1322,6 +1278,12 @@ const startReading = async () => {
       coverUrl: work.value.coverUrl
     }))
 
+    // 进入 GamePage 前，记录入口路径，并设置跳过返回 GamePage 的标记
+    try {
+      if (entryPath.value) sessionStorage.setItem('introEntryPath', entryPath.value)
+      sessionStorage.setItem('introSkipBackToGamePage', '1')
+    } catch (e) { /* ignore */ }
+
     router.push({
       path: `/game/${work.value.id}`,
       state: {
@@ -1689,7 +1651,7 @@ const startReading = async () => {
               </div>
               
               <!-- 回复列表（第二层受展开控制，更深层级递归全部展示） -->
-              <div v-if="comment.replies.length > 0" class="replies-list">
+              <div v-if="Array.isArray(comment.replies) && comment.replies.length > 0" class="replies-list">
                 <ReplyItem
                   v-for="reply in topReplies(comment).slice(0,getVisibleCount(comment.id))"
                   :key="reply.id"
