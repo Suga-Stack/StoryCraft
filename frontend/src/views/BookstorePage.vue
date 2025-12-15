@@ -214,15 +214,30 @@ const handleTabChange = (name) => {
   }
 }
 
-// 添加获取评分排行榜数据的方法
+// 排行榜数据本地缓存（5分钟）
+const HOT_BOOKS_CACHE_KEY = 'hotBooksCache';
+const HOT_BOOKS_CACHE_TTL = 5 * 60 * 1000; // 5分钟
+
 const fetchHotBooks = async () => {
+  // 1. 先查缓存
+  const cacheStr = localStorage.getItem(HOT_BOOKS_CACHE_KEY);
+  if (cacheStr) {
+    try {
+      const cache = JSON.parse(cacheStr);
+      if (Date.now() - cache.time < HOT_BOOKS_CACHE_TTL && Array.isArray(cache.data)) {
+        hotBooks.value = cache.data;
+        return;
+      }
+    } catch {}
+  }
+  // 2. 缓存无效，请求后端
   try {
     const response = await getRatingLeaderboard();
     const resData = response.data;
-    
-    if (resData) { 
-      // 取前三条数据作为轮播内容
+    if (resData && Array.isArray(resData.data)) {
       hotBooks.value = resData.data.slice(0, 3);
+      // 写入缓存
+      localStorage.setItem(HOT_BOOKS_CACHE_KEY, JSON.stringify({ time: Date.now(), data: hotBooks.value }));
     } else {
       showToast(`获取排行榜失败: ${resData.message || '未知错误'}`);
     }
@@ -232,26 +247,37 @@ const fetchHotBooks = async () => {
   }
 }
 
+
+// 推荐作品本地缓存（5分钟）
+const RECOMMEND_CACHE_KEY = 'recommendBooksCache';
+const RECOMMEND_CACHE_TTL = 5 * 60 * 1000;
 const fetchRecommendedBooks = async () => {
   if (loading.value) return;
-  
+  // 1. 先查缓存
+  const cacheStr = localStorage.getItem(RECOMMEND_CACHE_KEY);
+  if (cacheStr) {
+    try {
+      const cache = JSON.parse(cacheStr);
+      if (Date.now() - cache.time < RECOMMEND_CACHE_TTL && Array.isArray(cache.data)) {
+        recommendedBooks.value = cache.data;
+        return;
+      }
+    } catch {}
+  }
   loading.value = true;
   error.value = '';
-  
   try {
     const response = await recommendWorks(1);
-
     const resData = response.data;
-
-    
     if (resData.code === 200) {
-      const books = resData.data;  
+      const books = resData.data;
       for (const book of books) {
         book.processedTags = await getTagsByIds(book.tags || []);
       }
       recommendedBooks.value = books;
-      // 如果返回空数组，可以显示提示信息
-      if (recommendedBooks.value.length === 0) {
+      // 写入缓存
+      localStorage.setItem(RECOMMEND_CACHE_KEY, JSON.stringify({ time: Date.now(), data: books }));
+      if (books.length === 0) {
         showToast('暂无推荐作品');
       }
     } else if (resData.code === 404) {
@@ -260,7 +286,6 @@ const fetchRecommendedBooks = async () => {
     } else {
       throw new Error(`请求失败: ${resData.message || '未知错误'}`);
     }
-    
   } catch (err) {
     console.error('请求详情:', err);
     error.value = '获取推荐作品失败，请稍后重试';

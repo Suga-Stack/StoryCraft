@@ -315,13 +315,33 @@ const searchHistory = ref([])
 const searchResults = ref([])
 const showTagPopup = ref(false)
 
-// 标签相关变量（仅使用本地默认标签，避免后端请求）
-const allTags = ref([...defaultTags]) 
+
+// 标签缓存（5分钟）
+const TAGS_CACHE_KEY = 'searchTagsCache';
+const TAGS_CACHE_TTL = 5 * 60 * 1000;
+const allTags = ref([])
 const tagDisplayText = ref('') 
 const tagFilter = ref('')
 const selectedTagIds = ref([])  // 新增这一行
 const selectedTagNames = ref([])  // 已存在的行
-// 已移除后端加载逻辑，不再维护加载/错误状态
+
+// 标签加载函数
+const fetchTags = () => {
+  const cacheStr = localStorage.getItem(TAGS_CACHE_KEY);
+  if (cacheStr) {
+    try {
+      const cache = JSON.parse(cacheStr);
+      if (Date.now() - cache.time < TAGS_CACHE_TTL && Array.isArray(cache.data)) {
+        allTags.value = cache.data;
+        return;
+      }
+    } catch {}
+  }
+  // 默认用 defaultTags
+  allTags.value = [...defaultTags];
+  // 写入缓存
+  localStorage.setItem(TAGS_CACHE_KEY, JSON.stringify({ time: Date.now(), data: allTags.value }));
+}
 
 
 // 标签分类相关状态
@@ -386,7 +406,21 @@ const switchTab = (tab) => {
 }
 
 // 获取收藏榜数据的函数
+
+// 排行榜缓存（5分钟）
+const FAVORITE_CACHE_KEY = 'favoriteRankCache';
+const FAVORITE_CACHE_TTL = 5 * 60 * 1000;
 const fetchFavoriteLeaderboard = async () => {
+  const cacheStr = localStorage.getItem(FAVORITE_CACHE_KEY);
+  if (cacheStr) {
+    try {
+      const cache = JSON.parse(cacheStr);
+      if (Date.now() - cache.time < FAVORITE_CACHE_TTL && Array.isArray(cache.data)) {
+        collectionRank.value = cache.data;
+        return;
+      }
+    } catch {}
+  }
   try {
     const response = await getFavoriteLeaderboard()
     const itemsWithTags = await Promise.all(
@@ -408,7 +442,8 @@ const fetchFavoriteLeaderboard = async () => {
     )
     // 按收藏数排序
     collectionRank.value = itemsWithTags.sort((a, b) => b.collectionCount - a.collectionCount)
-    
+    // 写入缓存
+    localStorage.setItem(FAVORITE_CACHE_KEY, JSON.stringify({ time: Date.now(), data: collectionRank.value }));
   } catch (error) {
     console.error('获取收藏收藏榜失败', error);
     showToast('获取收藏榜失败，请稍后重试');
@@ -416,10 +451,22 @@ const fetchFavoriteLeaderboard = async () => {
 }
 
 // 修改fetchRatingLeaderboard函数，适配新接口格式
+
+const RATING_CACHE_KEY = 'ratingRankCache';
+const RATING_CACHE_TTL = 5 * 60 * 1000;
 const fetchRatingLeaderboard = async () => {
+  const cacheStr = localStorage.getItem(RATING_CACHE_KEY);
+  if (cacheStr) {
+    try {
+      const cache = JSON.parse(cacheStr);
+      if (Date.now() - cache.time < RATING_CACHE_TTL && Array.isArray(cache.data)) {
+        ratingRank.value = cache.data;
+        return;
+      }
+    } catch {}
+  }
   try {
     const response = await getRatingLeaderboard()
-    // 转换接口返回数据为统一格式
     if (response.data) {
       const itemsWithTags = await Promise.all(
         response.data.data.map(async (item) => {
@@ -438,8 +485,9 @@ const fetchRatingLeaderboard = async () => {
         })
       )
       ratingRank.value = itemsWithTags.sort((a, b) => b.average_score - a.average_score);
+      // 写入缓存
+      localStorage.setItem(RATING_CACHE_KEY, JSON.stringify({ time: Date.now(), data: ratingRank.value }));
     }
-
   } catch (error) {
     console.error('获取评分评分榜失败', error);
     showToast('获取评分评分榜失败，请稍后重试');
@@ -532,6 +580,7 @@ const reactivateSearch = () => {
 }
 
 // 页面挂载时加载搜索历史
+
 onMounted(() => {
   const history = localStorage.getItem('searchHistory')
   if (history) {
@@ -542,9 +591,10 @@ onMounted(() => {
       localStorage.removeItem('searchHistory')
     }
   }
-  fetchRatingLeaderboard()
-  fetchFavoriteLeaderboard()
-  fetchHotLeaderboard()
+  fetchTags();
+  fetchRatingLeaderboard();
+  fetchFavoriteLeaderboard();
+  fetchHotLeaderboard();
 })
 
 // 选择标签（切换选中状态）

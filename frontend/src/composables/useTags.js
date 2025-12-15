@@ -1,6 +1,8 @@
+
 import { ref } from 'vue';
 import { getTagsName } from '../api/tags'; 
 import { showToast } from 'vant';
+import { defaultTags } from '../config/tags';
 
 export function useTags() {
   // 1. 定义10种预设颜色（对应0-9的个位数）
@@ -32,32 +34,42 @@ export function useTags() {
     return colorList[lastDigit] || '#8c8c8c';
   };
 
-  // 4. 获取标签名称（保留原有逻辑）
+  // 4. 获取标签名称（优先本地defaultTags，找不到再请求后端）
   const getTagNameById = async (tagId) => {
-    if (tagNameCache.value[tagId] !== undefined) {
-      return tagNameCache.value[tagId];
+    const cacheKey = String(tagId);
+    if (tagNameCache.value[cacheKey] !== undefined) {
+      return tagNameCache.value[cacheKey];
     }
-
+    // 统一类型，优先本地查找
+    const idNum = Number(tagId);
+    const local = defaultTags.find(t => Number(t.id) === idNum);
+    if (local) {
+      tagNameCache.value[cacheKey] = local.name;
+      return local.name;
+    }
+    // 本地找不到再请求后端
     try {
       const response = await getTagsName(tagId);
       const tagName = response.data.name;
-      tagNameCache.value[tagId] = tagName;
+      tagNameCache.value[cacheKey] = tagName;
       return tagName;
     } catch (error) {
       console.error(`获取标签ID ${tagId} 的名称失败`, error);
-      tagNameCache.value[tagId] = `未知标签(${tagId})`;
+      tagNameCache.value[cacheKey] = `未知标签(${tagId})`;
       showToast(`获取标签失败: ${tagId}`);
-      return tagNameCache.value[tagId];
+      return tagNameCache.value[cacheKey];
     }
   };
   
-  // 5. 批量转换ID为名称数组
+  // 5. 批量转换ID为名称数组（优先本地defaultTags，找不到再请求）
   const convertTagIdsToNames = async (tagIds) => {
     if (!Array.isArray(tagIds)) return [];
-    const tagNames = await Promise.all(
-      tagIds.map(id => getTagNameById(id))
-    );
-    return tagNames;
+    return Promise.all(tagIds.map(async id => {
+      const idNum = Number(id);
+      const local = defaultTags.find(t => Number(t.id) === idNum);
+      if (local) return local.name;
+      return getTagNameById(id);
+    }));
   };
 
   // 6. 批量转换ID为颜色数组

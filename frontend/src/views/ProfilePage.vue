@@ -198,6 +198,8 @@ const previewUrl = ref('')
 const defaultAvatar = ref('https://img.yzcdn.cn/vant/cat.jpeg')
 const fileInput = ref(null)
 
+const AVATAR_CACHE_KEY = 'avatarCache';
+const AVATAR_CACHE_TTL = 5 * 60 * 1000;
 const userInfo = ref({})
 const username = ref('')
 const userPoints = ref(0)
@@ -352,11 +354,27 @@ onMounted(async () => {
   activeTab.value = 'profile'
   const userId = getUserIdFromStorage();
   if (!userId) return; // 未登录则不继续
-  
+
+  // 头像缓存优先
+  let avatarFromCache = '';
+  const avatarCacheStr = localStorage.getItem(AVATAR_CACHE_KEY);
+  if (avatarCacheStr) {
+    try {
+      const cache = JSON.parse(avatarCacheStr);
+      if (Date.now() - cache.time < AVATAR_CACHE_TTL && cache.avatarUrl) {
+        avatarFromCache = cache.avatarUrl;
+      }
+    } catch {}
+  }
+
   try {
     const userData = await fetchUserInfo(userId)
     // 更新用户信息到响应式变量
     userInfo.value = userData
+    // 优先用缓存头像
+    if (avatarFromCache) {
+      userInfo.value.profile_picture = avatarFromCache;
+    }
     // 同步显示数据
     username.value = userData.username
     userPoints.value = userData.user_credits || 0
@@ -430,7 +448,8 @@ const handleFileChange = (e) => {
       const storedUser = JSON.parse(localStorage.getItem('userInfo') || '{}');
       storedUser.profile_picture = userResponse.data.profile_picture;
       localStorage.setItem('userInfo', JSON.stringify(storedUser));
-      
+      // 同步更新头像缓存
+      localStorage.setItem(AVATAR_CACHE_KEY, JSON.stringify({ time: Date.now(), avatarUrl: userResponse.data.profile_picture }));
       previewUrl.value = ''; // 清空预览
       showToast('头像更换成功');
     })
