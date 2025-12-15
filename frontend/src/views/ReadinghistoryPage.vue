@@ -7,15 +7,15 @@
         class="book-item" 
         v-for="book in readingHistory" 
         :key="book.id"
-        @click="navigateToBookDetail(book.id)"
       >
         <van-image 
           :src="book.image_url" 
           class="book-cover" 
           fit="cover"
+          @click="navigateToBookDetail(book.id)"
         />
         <div class="book-info">
-          <h3 class="book-title">{{ book.title }}</h3>
+          <h3 class="book-title"  @click="navigateToBookDetail(book.id)">{{ book.title }}</h3>
           <p class="book-author">作者: {{ book.author }}</p>
           <p class="book-desc">{{ book.description }}</p>
           <div class="book-tags">
@@ -24,6 +24,7 @@
               :key="tag.id"
               size="small"
               :style="tag.color"
+              @click="handleTagClick(tag)"
             >
               {{ tag.name }}
             </van-tag>
@@ -86,6 +87,17 @@ const navigateToBookDetail = (bookId) => {
   router.push(`/works/${bookId}`)
 };
 
+// 点击标签跳转到标签页面
+const handleTagClick = (tag) => {
+  if (!tag?.id) {
+    showToast('标签信息不完整', 'warning');
+    return;
+  }
+  router.push({
+    path: `/tag/${tag.id}`, // 跳转到标签页面，路径包含标签ID
+    query: { name: tag.name } // 可选：传递标签名称用于页面标题显示
+  });
+};
 
 </script>
 

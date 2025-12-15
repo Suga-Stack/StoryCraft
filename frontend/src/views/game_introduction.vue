@@ -1300,6 +1300,18 @@ const startReading = async () => {
     if (!isRemoved.value) router.push({ path: `/game/${work.value.id}` })
   }
 }
+
+// 点击标签跳转到标签页面
+const handleTagClick = (tag) => {
+  if (!tag?.id) {
+    showToast('标签信息不完整', 'warning');
+    return;
+  }
+  router.push({
+    path: `/tag/${tag.id}`, // 跳转到标签页面，路径包含标签ID
+    query: { name: tag.name } // 可选：传递标签名称用于页面标题显示
+  });
+};
 </script>
 
 <template>
@@ -1406,6 +1418,7 @@ const startReading = async () => {
             backgroundColor: getTagColor(index).bg,
             color: getTagColor(index).text
           }"
+          @click="handleTagClick(tag)"
         >
           {{ tag.name }}
         </span>

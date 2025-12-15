@@ -205,7 +205,6 @@
               class="ranking-item" 
               v-for="(item, index) in currentRankList" 
               :key="item.id"
-              @click="navigateToDetail(item.id)"
             >
               <!-- 排名标识 -->
               <div class="rank-number" :class="{ top3: index < 3 }">
@@ -217,11 +216,12 @@
                 :src="item.cover" 
                 class="item-cover" 
                 fit="cover"
+                @click="navigateToDetail(item.id)"
               />
               
               <!-- 信息区域 -->
               <div class="item-info">
-                <h3 class="item-title">{{ item.title }}</h3>
+                <h3 class="item-title" @click="navigateToDetail(item.id)">{{ item.title }}</h3>
                 <p class="item-author">作者: {{ item.author }}</p>
                 <div class="item-meta">
                   <span class="meta-tag">
@@ -237,6 +237,7 @@
                       :text-color="getTagColorById(tagId).color"
                       size="mini"
                       round
+                      @click="handleTagClick(tagId)"
                     >
                       {{ item.tagNames[index] }}
                     </van-tag>
@@ -261,34 +262,29 @@
           class="result-item" 
           v-for="item in searchResults" 
           :key="item.id"
-          @click="navigateToDetail(item.id)"
         >
           <van-image 
             :src="item.cover" 
             class="result-cover" 
             fit="cover"
+            @click="navigateToDetail(item.id)"
           />
           <div class="result-info">
-            <div class="result-draft">
-              <p class="result-title">{{ item.title }}</p>
-              <div class="author-tags-container">
-                <p class="result-author">作者: {{ item.author }}</p>
-                <div class="result-tags">
-                  <van-tag 
-                    v-for="(tagId, index) in item.tags.slice(0, 2)"
-                    :key="tagId"
-                    :color="getTagColorById(tagId).backgroundColor" 
-                    :text-color="getTagColorById(tagId).color"  
-                    size="small"
-                    round
-                  >
-                    {{ item.tagNames[index] }}
-                  </van-tag>
-                </div>
-              </div>
-            </div>    
-            <div class="result-description">
-              {{ item.description }}
+            <h3 class="result-title" @click="navigateToDetail(item.id)">{{ item.title }}</h3>
+            <p class="result-author">作者: {{ item.author }}</p>
+            <p class="result-desc">{{ item.description }}</p>
+            <div class="result-tags">
+              <van-tag 
+                v-for="(tagId, index) in item.tags.slice(0, 3)" 
+                :key="tagId"
+                :color="getTagColorById(tagId).backgroundColor"
+                :text-color="getTagColorById(tagId).color"
+                size="small"
+                round
+                @click="handleTagClick(tagId)"
+              >
+                {{ item.tagNames[index] }}
+              </van-tag>
             </div>
           </div>
         </div>
@@ -721,6 +717,17 @@ const toggleTagPopup = () => {
   showTagPopup.value = !showTagPopup.value;
 }
 
+// 点击标签跳转到标签页面
+const handleTagClick = (tagId) => {
+  if (!tagId) {
+    showToast('标签信息不完整', 'warning');
+    return;
+  }
+  router.push({
+    path: `/tag/${tagId}`, // 跳转到标签页面，路径包含标签ID
+  });
+};
+
 </script>
 
 <style scoped>
@@ -1118,22 +1125,22 @@ const toggleTagPopup = () => {
 
 .result-item {
   display: flex;
-  background-color: #fff;
-  border-radius: 8px;
-  padding: 12px;
   align-items: center;
+  background-color: #fff;
+  border-radius: 12px; /* 与阅读历史一致 */
+  padding: 12px;
 }
 
 .result-cover {
-  width: 80px;
-  height: 110px;
-  border-radius: 6px;
+  width: 150px;   /* 与阅读历史一致 */
+  height: 100px;  /* 与阅读历史一致 */
+  border-radius: 4px;
   flex-shrink: 0;
   overflow: hidden;
 }
 
 .result-info {
-  margin-left: 15px;
+  margin-left: 12px; /* 与阅读历史一致 */
   flex-grow: 1;
 }
 
@@ -1145,32 +1152,35 @@ const toggleTagPopup = () => {
 }
 
 .result-title {
-  font-size: 16px;
+  font-size: 15px; /* 与阅读历史一致 */
   font-weight: 500;
+  margin: 0 0 4px 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 230px;
 }
 
 .result-author {
-  font-size: 13px;
+  font-size: 12px; /* 与阅读历史一致 */
   color: #666;
-  margin: 0 20px 0 0;
+  margin: 0 0 6px 0;
 }
 
 .result-tags {
   display: flex;
-  gap: 6px;
+  gap: 4px; /* 与阅读历史一致 */
   flex-wrap: wrap;
 }
 
-.result-description {
-  font-size: 14px;
-  color: #444444;
-  height: 60px;
+.result-desc {
+  font-size: 12px;  /* 与阅读历史一致 */
+  color: #888;      /* 与阅读历史一致 */
+  margin: 0 0 10px 0;
+  display: -webkit-box;
+  line-clamp: 2;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .empty-result {

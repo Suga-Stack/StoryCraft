@@ -23,6 +23,7 @@
               :key="tag.id"
               size="small"
               :style="tag.color"
+              @click="handleTagClick(tag)"
             >
               {{ tag.name }}
             </van-tag>
@@ -333,6 +334,18 @@ const handlePublish = async (book) => {
       showToast('操作失败，请稍后重试');
     }
   }
+};
+
+// 点击标签跳转到标签页面
+const handleTagClick = (tag) => {
+  if (!tag?.id) {
+    showToast('标签信息不完整', 'warning');
+    return;
+  }
+  router.push({
+    path: `/tag/${tag.id}`, // 跳转到标签页面，路径包含标签ID
+    query: { name: tag.name } // 可选：传递标签名称用于页面标题显示
+  });
 };
 </script>
 

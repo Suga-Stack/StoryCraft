@@ -15,6 +15,7 @@ import ProfilePage from '../views/ProfilePage.vue'
 import MyCreationsPage from '../views/MyCreationsPage.vue'
 import ReadingHistoryPage from '../views/ReadinghistoryPage.vue'
 import CreditsChargePage from '../views/CreditsChargePage.vue'
+import TagWorksPage from '../views/TagWorksPage.vue';
 
 const routes = [
    {
@@ -97,6 +98,12 @@ const routes = [
     path: '/staff',
     name: 'staff',
     component: () => import('../views/staff.vue')
+  },
+  {
+    path: '/tag/:id',
+    name: 'TagWorks',
+    component: TagWorksPage,
+    props: true // 允许将路由参数作为组件属性传递
   }
 ]
 
@@ -108,7 +115,7 @@ const router = createRouter({
 // 全局前置守卫
 router.beforeEach((to, from, next) => {
   // 需要登录的页面白名单（书城页可视需求决定是否加入）
-  const needLoginPages = ['/bookshelf', '/create', '/profile', '/mycreations', '/readinghistory', '/charge', '/preferences', '/settlement', '/game/:id?', '/works/:id', '/search', '/home', '/', '/staff'];
+  const needLoginPages = ['/bookshelf', '/create', '/profile', '/mycreations', '/readinghistory', '/charge', '/preferences', '/settlement', '/game/:id?', '/works/:id', '/search', '/home', '/', '/staff', '/tag/:id'];
   
   if (needLoginPages.includes(to.path) && !isLogin()) {
     // 未登录且访问需要登录的页面，拦截并跳转登录页

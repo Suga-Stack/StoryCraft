@@ -26,7 +26,17 @@
         class="searching-btn"
         @click="$router.push('/search')"
       >
-        分类搜索
+        搜索
+        <van-icon name="arrow-right" slot="icon" />
+      </van-button>
+
+       <van-button 
+        type="info" 
+        round 
+        class="searching-btn"
+        @click="$router.push('/tag/1')"
+      >
+        分类
         <van-icon name="arrow-right" slot="icon" />
       </van-button>
     </div>
@@ -39,12 +49,12 @@
           class="book-card" 
           v-for="book in recommendedBooks" 
           :key="book.id"
-          @click="$router.push(`/works/${book.id}`)"
         > 
             <van-image 
                 :src="book.image_url" 
                 class="book-cover"
                 fit="cover"
+                @click="$router.push(`/works/${book.id}`)"
             />
             <span class="book-title"
               @click="$router.push(`/works/${book.id}`)">
@@ -58,6 +68,7 @@
                     :key="tag.id"
                     size="small"
                     :style="tag.color"
+                    @click="handleTagClick(tag)"
                     >
                     {{ tag.name }}
                     </van-tag>
@@ -371,6 +382,18 @@ const handleConfirm = () => {
 const handleClose = () => {
   showModel.value = false;  // 关闭弹窗
 };
+
+// 点击标签跳转到标签页面
+const handleTagClick = (tag) => {
+  if (!tag?.id) {
+    showToast('标签信息不完整', 'warning');
+    return;
+  }
+  router.push({
+    path: `/tag/${tag.id}`, // 跳转到标签页面，路径包含标签ID
+    query: { name: tag.name } // 可选：传递标签名称用于页面标题显示
+  });
+};
 </script>
 
 <style scoped>
@@ -427,16 +450,20 @@ const handleClose = () => {
 
 /* 功能导航 */
 .function-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center; 
   padding: 16px;
   background-color: #faf8f3;
+  gap: 20px;
 }
 
 .searching-btn {
   color: white;
   font-size: 16px;
-  width: 100%;
   background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
   border: none;
+  width: 100%; 
 }
 
 /* 最新作品推荐 */
@@ -459,7 +486,7 @@ const handleClose = () => {
 }
 
 .book-card {
-  background-color: #faf8f3;
+  background-color: #fff;
   border-radius: 8px;
   overflow: hidden;
   height: 150px;
