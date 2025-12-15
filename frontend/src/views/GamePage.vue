@@ -105,9 +105,9 @@ const {
 } = saveLoadAPI
 
 // 统一使用 Vant 的 showToast（样式与 CreateWork 中的一致）
-const showToast = (msg, ms = 5000, opts = {}) => {
+const showToast = (msg, ms = 1000, opts = {}) => {
   try {
-    vantToast({ message: String(msg || ''), duration: Number(ms) || 3000, position: 'top', forbidClick: true, className: 'sc-toast-gray' })
+    vantToast({ message: String(msg || ''), duration: Number(ms) || 1000, position: 'top', forbidClick: true, className: 'sc-toast-gray' })
   } catch (e) { console.warn('showToast failed', e) }
 }
 
@@ -221,11 +221,237 @@ const isMusicPlaying = ref(false)
 // 用于前后台恢复播放的临时状态
 let wasPlayingBeforeHidden = false
 let resumePending = false
+// 抑制在恢复播放期间被其他事件立即 pause 的竞态标记
+const suppressPauseDuringResume = ref(false)
 // 本地音乐（用户选择的文件，保存到 localStorage）
 const localTracks = ref([]) // { name, dataUrl }
 const musicInput = ref(null)
 
 const LOCAL_MUSIC_KEY = `local_music_${work.value && work.value.id ? work.value.id : 'global'}`
+
+// 可视化调试/状态对象（UI 已移除，仅保留数据用于日志）
+const audioDebug = ref({ src: '', muted: false, volume: 0, paused: true, readyState: 0, error: null, trackIndex: 0 })
+
+// 收集前端可展示的音频相关日志（用于手机上调试）
+const audioLogs = ref([]) // 每项: { ts, level, msg }
+const pushAudioLog = (level, msg) => {
+  try {
+    const ts = (new Date()).toISOString()
+    const entry = { ts, level: String(level || 'info'), msg: String(msg || '') }
+    audioLogs.value.unshift(entry)
+    // 限制最大数，避免内存无限增长
+    if (audioLogs.value.length > 200) audioLogs.value.length = 200
+    console.log('[GamePage][audioLog]', entry)
+  } catch (e) { console.warn('pushAudioLog failed', e) }
+}
+
+const copyAudioLogs = async () => {
+  try {
+    const text = JSON.stringify({ audioDebug: audioDebug.value, audioLogs: audioLogs.value }, null, 2)
+    if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text)
+      pushAudioLog('info', 'copied audio logs to clipboard')
+      showToast('调试日志已复制到剪贴板')
+    } else {
+      // fallback: open prompt
+      window.prompt('复制调试日志（Ctrl+C）', text)
+    }
+  } catch (e) {
+    console.warn('copyAudioLogs failed', e)
+    pushAudioLog('error', `copyAudioLogs failed: ${e && e.message ? e.message : e}`)
+    showToast('复制失败')
+  }
+}
+
+const clearAudioLogs = () => {
+  try { audioLogs.value = [] ; pushAudioLog('info', 'cleared audio logs') } catch (e) { console.warn('clearAudioLogs failed', e) }
+}
+
+// 调试面板与自动诊断已移除（保留后台日志函数以便未来扩展）
+
+// NOTE: visible error overlay removed; keep console logging only
+// (Previously audioErrorMessage/audioErrorLogs/pushAudioLog were used for an overlay.)
+
+const updateAudioDebug = () => {
+  try {
+    if (!audioEl.value) return
+    // 显示给用户的 src 优先使用原始请求的 src（_originalSrc），并在原生设备上将 localhost 替换为局域网 IP 以便手机端能访问
+    const originalSrc = (audioEl.value && audioEl.value._originalSrc) ? audioEl.value._originalSrc : (audioEl.value.src || '')
+    const displaySrc = (isNativeApp && isNativeApp.value) ? normalizeUrlForDevice(originalSrc) : originalSrc
+    audioDebug.value = {
+      src: displaySrc || '',
+      muted: !!audioEl.value.muted,
+      volume: typeof audioEl.value.volume === 'number' ? audioEl.value.volume : 0,
+      paused: !!audioEl.value.paused,
+      readyState: typeof audioEl.value.readyState === 'number' ? audioEl.value.readyState : 0,
+      error: audioEl.value && audioEl.value.error ? (audioEl.value.error.message || String(audioEl.value.error)) : null,
+      trackIndex: Number(currentTrackIndex.value || 0)
+    }
+  } catch (e) { console.warn('updateAudioDebug failed', e) }
+}
+
+// 已移除 blob 回退与 object URL 的实现，前端将直接使用远程 URL 播放（浏览器与手机一致）
+
+// 将 ArrayBuffer 转为 Base64（用于 Capacitor Filesystem 写入）
+const arrayBufferToBase64 = (buffer) => {
+  try {
+    let binary = ''
+    const bytes = new Uint8Array(buffer)
+    const len = bytes.byteLength
+    for (let i = 0; i < len; i++) binary += String.fromCharCode(bytes[i])
+    return btoa(binary)
+  } catch (e) {
+    console.warn('[GamePage][audio] arrayBufferToBase64 failed', e)
+    throw e
+  }
+}
+
+// 动态加载 Howler，避免在依赖未安装时引起 Vite 预解析错误
+let _howlerModule = null
+const loadHowler = async () => {
+  if (_howlerModule) return _howlerModule
+  try {
+    _howlerModule = await import('howler')
+    return _howlerModule
+  } catch (e) {
+    try { pushAudioLog('error', `loadHowler failed: ${e && e.message ? e.message : e}`) } catch {}
+    throw e
+  }
+}
+
+// Howler 基于兼容性较好的播放器实现，用于在 WebView / native 中播放音频
+const audioPlayer = {
+  sounds: {},
+  async play(trackId, url, opts = {}) {
+    try {
+      if (this.sounds[trackId]) {
+        try { this.sounds[trackId].unload() } catch (e) {}
+        delete this.sounds[trackId]
+      }
+      // 动态加载 Howler 模块
+      let HowlCtor = null
+      try {
+        const mod = await loadHowler()
+        HowlCtor = mod && mod.Howl ? mod.Howl : null
+      } catch (e) {
+        HowlCtor = null
+      }
+      return await new Promise((resolve, reject) => {
+        const finalUrl = url
+        pushAudioLog('info', `Howler.play start ${finalUrl}`)
+        const sound = new (HowlCtor || (typeof window !== 'undefined' && window.Audio ? function(cfg){ /* fallback constructor */
+          // very small fallback that tries to play using HTMLAudioElement
+          const a = new Audio(cfg.src && cfg.src[0])
+          a.preload = true
+          a.volume = cfg.volume || 0.8
+          a.muted = cfg.mute || false
+          a.addEventListener('canplay', ()=>{ try{ a.play() }catch{}; if (cfg.onload) cfg.onload() })
+          a.addEventListener('error', (ev)=> { if (cfg.onloaderror) cfg.onloaderror(0, ev) })
+          this._a = a
+          this.play = ()=>{ try{ a.play() }catch(e){} }
+          this.stop = ()=>{ try{ a.pause(); a.currentTime=0 }catch(e){} }
+          this.unload = ()=>{ try{ a.pause(); a.src=''; a.load() }catch(e){} }
+        } : HowlCtor))({
+          src: [finalUrl],
+          html5: true,
+          preload: true,
+          mute: false,
+          volume: (audioEl.value && typeof audioEl.value.volume === 'number') ? audioEl.value.volume : 0.8,
+          onload() {
+            try { sound.play() } catch (e) {}
+            pushAudioLog('info', `Howler loaded and play called ${finalUrl}`)
+            resolve(sound)
+          },
+          onloaderror(id, err) {
+            pushAudioLog('error', `Howler load error ${finalUrl} ${err}`)
+            reject(new Error(err || 'howler load error'))
+          },
+          onplayerror(id, err) {
+            pushAudioLog('error', `Howler play error ${finalUrl} ${err}`)
+            // 尝试回退
+            reject(new Error(err || 'howler play error'))
+          },
+          onend() {
+            pushAudioLog('info', `Howler ended ${finalUrl}`)
+          }
+        })
+        try { this.sounds[trackId] = sound } catch (e) {}
+      })
+    } catch (e) {
+      pushAudioLog('error', `audioPlayer.play failed: ${e && e.message ? e.message : e}`)
+      throw e
+    }
+  },
+  stop(trackId) {
+    try {
+      const s = this.sounds[trackId]
+      if (s) { try { s.stop(); s.unload() } catch (e) {} ; delete this.sounds[trackId] }
+    } catch (e) { console.warn('audioPlayer.stop failed', e) }
+  }
+}
+
+// 浏览器端使用本地 dev 地址；手机/原生应用使用部署后的后端地址
+const LOCAL_DEV_BASE = 'http://192.168.88.1:5173'
+const DEPLOY_BASE = import.meta.env.VITE_API_BASE_URL || 'https://storycraft.work.gd'
+// 判断是否移动设备（手机浏览器或原生）
+const isMobileDevice = (() => {
+  try {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '')
+  } catch (e) { return false }
+})()
+
+// 将音频 URL 按平台分开处理：
+// - 手机设备（含原生 app）：保持不改（或以部署域名为基址处理相对路径）
+// - 桌面浏览器：一律使用本地 dev 基址 LOCAL_DEV_BASE
+const normalizeUrlForDevice = (url) => {
+  try {
+    if (!url || typeof url !== 'string') return url
+
+    // 如果是完整的绝对 URL
+    if (/^https?:\/\//i.test(url)) {
+      // 如果是指向 localhost/127.0.0.1，需要根据平台替换主机部分
+      if (/^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/i.test(url)) {
+        // 桌面浏览器替换为本地 dev，手机/原生替换为部署域名
+        const replaceWith = ((isNativeApp && isNativeApp.value) || isMobileDevice) ? DEPLOY_BASE : LOCAL_DEV_BASE
+        return url.replace(/^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/i, replaceWith)
+      }
+      // 其它外部 URL 保持不变
+      return url
+    }
+
+    // 相对路径（以 / 开头）
+    const useDeploy = (isNativeApp && isNativeApp.value) || isMobileDevice || (window && window.__FORCE_USE_DEPLOYED__)
+    const base = useDeploy ? DEPLOY_BASE : LOCAL_DEV_BASE
+    if (/^\//.test(url)) {
+      return base.replace(/\/$/, '') + url
+    }
+
+    // 其它相对形式
+    try {
+      return new URL(url, base).toString()
+    } catch (_) {
+      return base.replace(/\/$/, '') + '/' + url.replace(/^\//, '')
+    }
+  } catch (e) {
+    console.warn('[GamePage][audio] normalizeUrlForDevice failed', e)
+    return url
+  }
+}
+
+// 尝试将远程音频下载并保存到设备本地（Capacitor 环境），返回可用于 <audio> 的本地 URL。
+// 在非原生环境下回退为 blob: URL
+const saveRemoteToDevice = async (url) => {
+  try {
+    if (!url) throw new Error('no url')
+    // 移除写入与 blob 回退逻辑：直接返回归一化后的 URL（浏览器与手机保持一致）
+    return normalizeUrlForDevice(url)
+  } catch (e) {
+    console.warn('[GamePage][audio] saveRemoteToDevice failed', e)
+    pushAudioLog('error', `saveRemoteToDevice failed: ${e && e.message ? e.message : e}`)
+    // 回退为原始 url
+    return url
+  }
+}
 
 const saveLocalTracksToStorage = () => {
   try {
@@ -284,7 +510,7 @@ const removeLocalTrack = (idx) => {
     saveLocalTracksToStorage()
     // 如果当前播放的就是被删除的曲目，停止播放并尝试切换到下一首
     try {
-      if (audioEl.value && removedUrl && audioEl.value.src === removedUrl) {
+      if (audioEl.value && removedUrl && (audioEl.value._originalSrc === removedUrl || audioEl.value.src === removedUrl)) {
         try { pauseMusic() } catch (e) {}
         // 如果仍有曲目，播放当前索引（或 0）
         if (playlist.value.length > 0) {
@@ -310,14 +536,14 @@ const triggerMusicFilePicker = () => {
 const playLocal = async (i) => {
   try {
     // 本地曲目按序放在 playlist 前部，直接使用索引
-    loadTrack(i)
+    await loadTrack(i)
     await playTrack()
   } catch (e) { console.warn('playLocal 失败', e) }
 }
 // DEV-only flag
 const isDev = !!(import.meta && import.meta.env && import.meta.env.DEV)
 
-const loadTrack = (idx) => {
+const loadTrack = async (idx) => {
   try {
     if (!Array.isArray(playlist.value) || playlist.value.length === 0) return
     const limited = Math.max(0, Math.min(idx || 0, playlist.value.length - 1))
@@ -327,16 +553,51 @@ const loadTrack = (idx) => {
     try { audioEl.value.crossOrigin = 'anonymous' } catch (e) {}
     try { audioEl.value.preload = 'auto' } catch (e) {}
     try { audioEl.value.setAttribute && audioEl.value.setAttribute('playsinline', '') } catch (e) {}
-    audioEl.value.src = playlist.value[limited]
+    const candidateSrc = playlist.value[limited]
+    audioEl.value._originalSrc = candidateSrc
+    // 对远程 URL 直接使用原始/归一化的 URL，不使用 blob 回退或本地保存
+    try {
+      const finalSrc = normalizeUrlForDevice(candidateSrc)
+      audioEl.value.src = finalSrc
+    } catch (e) {
+      audioEl.value.src = candidateSrc
+    }
     audioEl.value.loop = false
     // 设置默认音量，避免静音场景
-    try { audioEl.value.volume = 0.8 } catch (e) {}
+    try { audioEl.value.volume = 0.8; audioEl.value.muted = false } catch (e) {}
     audioEl.value.load()
     audioEl.value.onended = () => { playNextTrack() }
     // 更详细的事件监听，便于调试
-    audioEl.value.onplay = () => { console.log('[GamePage][audio] onplay, src=', audioEl.value.src); isMusicPlaying.value = true }
-    audioEl.value.onpause = () => { console.log('[GamePage][audio] onpause'); isMusicPlaying.value = false }
-    audioEl.value.onerror = (ev) => { console.error('[GamePage][audio] error event:', ev, 'audioEl:', audioEl.value) }
+    audioEl.value.onplay = () => {
+      try {
+        console.log('[GamePage][audio] onplay, src=', audioEl.value.src)
+        console.log('[GamePage][audio] onplay state: muted=', audioEl.value.muted, 'volume=', audioEl.value.volume, 'paused=', audioEl.value.paused, 'readyState=', audioEl.value.readyState)
+        isMusicPlaying.value = true
+        updateAudioDebug()
+      } catch (e) { console.warn('onplay handler failed', e) }
+    }
+    audioEl.value.onplaying = () => {
+      try {
+        console.log('[GamePage][audio] onplaying — audio actually rendering sound (playing event). src=', audioEl.value.src, 'currentTime=', audioEl.value.currentTime, 'readyState=', audioEl.value.readyState, 'networkState=', audioEl.value.networkState)
+        updateAudioDebug()
+      } catch (e) { console.warn('onplaying handler failed', e) }
+    }
+    audioEl.value.onpause = () => {
+      try { console.log('[GamePage][audio] onpause'); isMusicPlaying.value = false; updateAudioDebug() } catch (e) {}
+    }
+    audioEl.value.onerror = (ev) => {
+      try {
+        const aerr = audioEl.value && audioEl.value.error ? audioEl.value.error : null
+        console.error('[GamePage][audio] error event:', ev, 'audioEl:', audioEl.value)
+        if (aerr) {
+          const msg = `[audioEl.onerror] message=${aerr.message} code=${aerr.code} src=${audioEl.value?.src}`
+          console.error('[GamePage][audio] audioEl.error:', aerr, 'msg=', msg)
+        } else {
+          console.error('[GamePage][audio] audioEl.error is null, ev=', ev)
+        }
+        updateAudioDebug()
+      } catch (e) { console.warn('onerror handler failed', e) }
+    }
   } catch (e) { console.warn('loadTrack failed', e) }
 }
 
@@ -344,27 +605,70 @@ const playTrack = async (idx) => {
   try {
     if (idx != null) loadTrack(idx)
     if (!audioEl.value) audioEl.value = new Audio()
+    // 如果没有可播放的 src，则不尝试
+    const candidateSrc = (audioEl.value && (audioEl.value._originalSrc || audioEl.value.src)) || ''
+    if (!candidateSrc) {
+      console.log('[GamePage][audio] playTrack aborted: no src')
+      updateAudioDebug()
+      return
+    }
+    // 优先在移动/原生环境使用 Howler 播放，能提升 WebView 兼容性
+    const finalUrl = normalizeUrlForDevice(candidateSrc)
+    const shouldUseHowler = (isNativeApp && isNativeApp.value) || (typeof isMobileDevice !== 'undefined' && isMobileDevice)
+    if (shouldUseHowler) {
+      try {
+        await audioPlayer.play('main', finalUrl)
+        isMusicPlaying.value = true
+        // 更新 audioDebug，用 Howler 播放时填入 finalUrl
+        audioDebug.value.src = finalUrl
+        audioDebug.value.muted = false
+        audioDebug.value.volume = (audioEl.value && typeof audioEl.value.volume === 'number') ? audioEl.value.volume : 0.8
+        audioDebug.value.paused = false
+        audioDebug.value.readyState = 4
+        audioDebug.value.error = null
+        pushAudioLog('info', `Howler playback started ${finalUrl}`)
+        updateAudioDebug()
+        return
+      } catch (howErr) {
+        console.warn('[GamePage][audio] Howler playback failed, falling back to native audio:', howErr)
+        pushAudioLog('error', `Howler failed: ${howErr && howErr.message ? howErr.message : howErr}`)
+        // 继续走原生 <audio> 回退逻辑
+      }
+    }
+    // 标记抑制，以避免其它事件在我们尝试播放期间调用 pause()
+    suppressPauseDuringResume.value = true
     try {
+      // 确保使用归一化后的 URL（浏览器端可能仍使用本地 dev 地址）
+      audioEl.value.src = normalizeUrlForDevice(candidateSrc)
       await audioEl.value.play()
+      // 确保播放后解除静音并设置合理音量
+      try { audioEl.value.muted = false; audioEl.value.volume = Math.max(0.05, audioEl.value.volume || 0.8) } catch (e) {}
       isMusicPlaying.value = true
-      console.log('[GamePage][audio] playTrack succeeded, src=', audioEl.value.src)
+      updateAudioDebug()
+      console.log('[GamePage][audio] playTrack succeeded, src=', audioEl.value.src, 'muted=', audioEl.value.muted, 'volume=', audioEl.value.volume)
     } catch (playErr) {
-      // 更明确地记录播放失败的信息，方便调试 autoplay 限制或 CORS
       console.error('[GamePage][audio] playTrack failed:', playErr)
-      // 尝试静音回退：某些浏览器允许静音自动播放
+      pushAudioLog('error', `playTrack failed: ${playErr && playErr.message ? playErr.message : playErr}`)
+      // 不使用 blob 回退，直接尝试静音播放以绕过自动播放策略
+      // muted fallback
       try {
         audioEl.value.muted = true
         await audioEl.value.play()
+        // muted fallback succeeded — 记录并尝试随后取消静音
         isMusicPlaying.value = true
+        updateAudioDebug()
         console.log('[GamePage][audio] playTrack succeeded with muted fallback, src=', audioEl.value.src)
-        // 尝试在短暂延迟后取消静音并继续播放（若浏览器策略允许）
         setTimeout(async () => {
           try {
             audioEl.value.muted = false
+            // 再次确保音量
+            try { audioEl.value.volume = Math.max(0.05, audioEl.value.volume || 0.8) } catch (e) {}
             await audioEl.value.play()
+            updateAudioDebug()
             console.log('[GamePage][audio] unmuted and resumed playback')
           } catch (unmuteErr) {
             console.warn('[GamePage][audio] unmute/resume failed (likely blocked by autoplay policy):', unmuteErr)
+            console.log('[GamePage][audio] final state after unmute attempt: muted=', audioEl.value.muted, 'volume=', audioEl.value.volume, 'paused=', audioEl.value.paused)
           }
         }, 600)
       } catch (mutedErr) {
@@ -372,33 +676,44 @@ const playTrack = async (idx) => {
         throw playErr
       }
     }
-  } catch (e) { console.warn('playTrack failed', e) }
+    // small delay to allow any stray events to settle, then clear suppress
+    setTimeout(() => { suppressPauseDuringResume.value = false }, 150)
+  } catch (e) {
+    suppressPauseDuringResume.value = false
+    console.warn('playTrack failed', e)
+  }
 }
 
-const playNextTrack = () => {
+const playNextTrack = async () => {
   try {
     if (!Array.isArray(playlist.value) || playlist.value.length === 0) return
     const next = (currentTrackIndex.value + 1) % playlist.value.length
-    loadTrack(next)
-    playTrack()
+    await loadTrack(next)
+    await playTrack()
   } catch (e) { console.warn('playNextTrack failed', e) }
 }
 
-const playPrevTrack = () => {
+const playPrevTrack = async () => {
   try {
     if (!Array.isArray(playlist.value) || playlist.value.length === 0) return
     const prev = (currentTrackIndex.value - 1 + playlist.value.length) % playlist.value.length
-    loadTrack(prev)
-    playTrack()
+    await loadTrack(prev)
+    await playTrack()
   } catch (e) { console.warn('playPrevTrack failed', e) }
 }
 
-const pauseMusic = () => {
+const pauseMusic = (force = false) => {
   try {
+    // 如果正在尝试恢复播放且非强制暂停，则抑制 pause，以避免中断 play()
+    if (suppressPauseDuringResume.value && !force) {
+      console.log('[GamePage][audio] pause suppressed during resume attempt')
+      return
+    }
     if (audioEl.value) {
       audioEl.value.pause()
       isMusicPlaying.value = false
       console.log('[GamePage][audio] paused')
+      updateAudioDebug()
     }
   } catch (e) { console.warn('pauseMusic failed', e) }
 }
@@ -411,9 +726,56 @@ const stopMusic = () => {
       audioEl.value.currentTime = 0
       isMusicPlaying.value = false
       console.log('[GamePage][audio] stopped and reset')
+      updateAudioDebug()
     }
   } catch (e) { console.warn('stopMusic failed', e) }
 }
+
+// 停止所有播放器（HTMLAudio + Howler 封装）
+const stopAllAudio = () => {
+  try {
+    try { stopMusic() } catch (e) {}
+    try { audioPlayer.stop('main') } catch (e) {}
+    isMusicPlaying.value = false
+    pushAudioLog('info', 'stopAllAudio called')
+  } catch (e) { console.warn('stopAllAudio failed', e) }
+}
+
+// 只有在“阅读界面”时允许播放：横屏已就绪且不是加载界面
+const isReadingActive = computed(() => {
+  try { return !!(isLandscapeReady && isLandscapeReady.value && !isLoading && !isLoading.value) } catch (e) { return false }
+})
+
+// 监控阅读状态：当不在阅读界面时自动停止播放
+watch(isReadingActive, (active) => {
+  try {
+    if (!active) {
+      stopAllAudio()
+    }
+  } catch (e) { console.warn('watch isReadingActive failed', e) }
+})
+
+// 当页面不可见（切到后台或切换 app）时停止播放
+const handleVisibilityChange = () => {
+  try {
+    if (document.hidden) {
+      stopAllAudio()
+    }
+  } catch (e) { console.warn('handleVisibilityChange failed', e) }
+}
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+}
+
+onUnmounted(() => {
+  try {
+    // 清理并停止音频
+    stopAllAudio()
+    if (typeof document !== 'undefined' && document.removeEventListener) {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  } catch (e) { console.warn('onUnmounted cleanup failed', e) }
+})
 
 const toggleMusic = async () => {
   try {
@@ -506,20 +868,30 @@ try {
           try {
             if (document.hidden) {
               try {
-                wasPlayingBeforeHidden = !!isMusicPlaying.value
+                wasPlayingBeforeHidden = !!(audioEl.value && !audioEl.value.paused && !audioEl.value.ended)
               } catch (e) { wasPlayingBeforeHidden = false }
               console.log('[GamePage][audio] document hidden -> pause music, wasPlayingBeforeHidden=', wasPlayingBeforeHidden)
-              pauseMusic()
+              // 内部暂停（非用户触发），允许被 suppress 控制
+              pauseMusic(false)
             } else {
               console.log('[GamePage][audio] document visible -> try resume if needed, wasPlayingBeforeHidden=', wasPlayingBeforeHidden)
               if (wasPlayingBeforeHidden) {
                 try {
-                  await playTrack()
-                  wasPlayingBeforeHidden = false
-                  resumePending = false
-                  console.log('[GamePage][audio] resumed playback on visibilitychange')
+                  // 给系统时间稳定，再尝试恢复
+                  setTimeout(async () => {
+                    try {
+                      await playTrack()
+                      wasPlayingBeforeHidden = false
+                      resumePending = false
+                      console.log('[GamePage][audio] resumed playback on visibilitychange')
+                    } catch (e) {
+                      console.warn('[GamePage][audio] resume on visibilitychange blocked, will resume on user interaction', e)
+                      resumePending = true
+                    }
+                  }, 180)
                 } catch (e) {
-                  console.warn('[GamePage][audio] resume on visibilitychange blocked, will resume on user interaction', e)
+                  // 捕获外层异常（保底）
+                  console.warn('[GamePage][audio] unexpected error in visibility resume handler', e)
                   resumePending = true
                 }
               }
@@ -529,9 +901,9 @@ try {
 
         const handleBlur = () => {
           try {
-            wasPlayingBeforeHidden = !!isMusicPlaying.value
+            wasPlayingBeforeHidden = !!(audioEl.value && !audioEl.value.paused && !audioEl.value.ended)
             console.log('[GamePage][audio] window blur -> pause music, wasPlayingBeforeHidden=', wasPlayingBeforeHidden)
-            pauseMusic()
+            pauseMusic(false)
           } catch (e) { console.warn('handleBlur failed', e) }
         }
 
@@ -539,15 +911,18 @@ try {
           try {
             console.log('[GamePage][audio] window focus -> try resume if needed, wasPlayingBeforeHidden=', wasPlayingBeforeHidden)
             if (wasPlayingBeforeHidden) {
-              try {
-                await playTrack()
-                wasPlayingBeforeHidden = false
-                resumePending = false
-                console.log('[GamePage][audio] resumed playback on focus')
-              } catch (e) {
-                console.warn('[GamePage][audio] resume on focus blocked, will resume on user interaction', e)
-                resumePending = true
-              }
+              // 延迟短暂恢复，减少与系统事件冲突
+              setTimeout(async () => {
+                try {
+                  await playTrack()
+                  wasPlayingBeforeHidden = false
+                  resumePending = false
+                  console.log('[GamePage][audio] resumed playback on focus')
+                } catch (e) {
+                  console.warn('[GamePage][audio] resume on focus blocked, will resume on user interaction', e)
+                  resumePending = true
+                }
+              }, 180)
             }
           } catch (e) { console.warn('handleFocus failed', e) }
         }
@@ -577,25 +952,32 @@ try {
         let capacitorAppListener = null
         try {
           if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
-            import('@capacitor/app').then(({ App }) => {
+                import('@capacitor/app').then(({ App }) => {
               try {
                 capacitorAppListener = App.addListener('appStateChange', async (state) => {
                   try {
                     if (!state.isActive) {
-                      try { wasPlayingBeforeHidden = !!isMusicPlaying.value } catch (e) { wasPlayingBeforeHidden = false }
-                      console.log('[GamePage][audio] Capacitor appStateChange inactive -> pause music, wasPlayingBeforeHidden=', wasPlayingBeforeHidden)
-                      pauseMusic()
+                          try { wasPlayingBeforeHidden = !!(audioEl.value && !audioEl.value.paused && !audioEl.value.ended) } catch (e) { wasPlayingBeforeHidden = false }
+                          console.log('[GamePage][audio] Capacitor appStateChange inactive -> pause music, wasPlayingBeforeHidden=', wasPlayingBeforeHidden)
+                          pauseMusic(false)
                     } else {
                       console.log('[GamePage][audio] Capacitor appStateChange active -> try resume if needed, wasPlayingBeforeHidden=', wasPlayingBeforeHidden)
                       if (wasPlayingBeforeHidden) {
                         try {
-                          await playTrack()
-                          wasPlayingBeforeHidden = false
-                          resumePending = false
-                          console.log('[GamePage][audio] resumed playback on appStateChange active')
+                              setTimeout(async () => {
+                                try {
+                                  await playTrack()
+                                  wasPlayingBeforeHidden = false
+                                  resumePending = false
+                                  console.log('[GamePage][audio] resumed playback on appStateChange active')
+                                } catch (e) {
+                                  console.warn('[GamePage][audio] resume on appStateChange blocked, will resume on user interaction', e)
+                                  resumePending = true
+                                }
+                              }, 220)
                         } catch (e) {
-                          console.warn('[GamePage][audio] resume on appStateChange blocked, will resume on user interaction', e)
-                          resumePending = true
+                              console.warn('[GamePage][audio] unexpected error in appStateChange resume handler', e)
+                              resumePending = true
                         }
                       }
                     }
@@ -2790,6 +3172,7 @@ onUnmounted(async () => {
 
 <template>
   <div class="game-page" @click="onGlobalClick">
+    <!-- 调试开关已移除 -->
     <!-- 横屏准备界面 -->
     <div v-if="!isLandscapeReady" class="landscape-prompt">
       <div class="prompt-content">
@@ -2867,6 +3250,8 @@ onUnmounted(async () => {
         </div>
       </div>
     </transition>
+
+    <!-- 音频调试面板已移除 -->
     
     <!-- 游戏内容（橙光风格） -->
     <div v-show="isLandscapeReady && !isLoading" class="game-content">
@@ -2964,6 +3349,7 @@ onUnmounted(async () => {
           <line x1="3" y1="18" x2="21" y2="18" stroke-width="2"/>
         </svg>
       </button>
+      
 
       <!-- 创作者模式指示器 -->
       <div v-if="creatorMode" class="creator-badge">创作者模式</div>
@@ -3102,6 +3488,7 @@ onUnmounted(async () => {
               <button class="music-btn" @click="playNextTrack">下一首</button>
               <button class="music-btn" @click="triggerMusicFilePicker">添加本地音乐</button>
             </div>
+              <!-- debug display removed -->
             <div class="modal-row meta-small" style="margin-top:0.5rem">
               当前：{{ playlist.length ? (currentTrackIndex + 1) : 0 }} / {{ playlist.length }}
             </div>
@@ -3306,6 +3693,8 @@ onUnmounted(async () => {
     <!-- 隐藏的文件输入：用于用户替换当前背景图 -->
     <input ref="imgInput" type="file" accept="image/*" style="display:none" @change="onImageSelected" />
   </div>
+  <!-- 全屏可见的音频错误面板 -->
+  
   
   <!-- 创作者：结局编辑器模态 -->
   <div v-if="endingEditorVisible" class="modal-backdrop">

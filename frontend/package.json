@@ -13,6 +13,7 @@
     "cap:android": "cap open android"
   },
   "dependencies": {
+    "@capacitor-community/media": "^8.0.1",
     "@capacitor/android": "^7.4.3",
     "@capacitor/app": "^7.1.0",
     "@capacitor/http": "^0.0.2",
@@ -20,6 +21,7 @@
     "@capacitor/screen-orientation": "^7.0.2",
     "@capacitor/status-bar": "^7.0.2",
     "axios": "^1.13.2",
+    "howler": "^2.2.4",
     "pinia": "^3.0.4",
     "vant": "^4.9.21",
     "vue": "^3.5.22",

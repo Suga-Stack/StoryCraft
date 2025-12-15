@@ -237,7 +237,7 @@ export function useSaveLoad() {
         lastSaveInfo.value = (_deepClone || deepClone)(result.payload || result.data)
         const msg = result.message || `存档成功（${new Date().toLocaleString()}）`
         saveToast.value = msg
-        if (_showToast) try { _showToast(msg, 2000) } catch (e) {}
+        if (_showToast) try { _showToast(msg, 1000) } catch (e) {}
         setTimeout(() => (saveToast.value = ''), 2000)
         console.log('✅ 存档成功:', result)
       } else {
@@ -455,7 +455,7 @@ export function useSaveLoad() {
       if (!result.success) {
         const msg = result.message || '未找到存档'
         loadToast.value = msg
-        if (_showToast) try { _showToast(msg, 1500) } catch (e) {}
+        if (_showToast) try { _showToast(msg, 1000) } catch (e) {}
         setTimeout(() => (loadToast.value = ''), 1500)
         return
       }
@@ -726,7 +726,7 @@ export function useSaveLoad() {
       
       const msg = result.message || `读档成功（${new Date(savedData.timestamp).toLocaleString()}）`
       loadToast.value = msg
-      if (_showToast) try { _showToast(msg, 2000) } catch (e) {}
+      if (_showToast) try { _showToast(msg, 1000) } catch (e) {}
       setTimeout(() => (loadToast.value = ''), 2000)
       
       console.log('✅ 读档成功:', result)
@@ -756,7 +756,7 @@ export function useSaveLoad() {
       if (result.success) {
         const msg = result.message || '存档已删除'
         saveToast.value = msg
-        if (_showToast) try { _showToast(msg, 2000) } catch (e) {}
+        if (_showToast) try { _showToast(msg, 1000) } catch (e) {}
         setTimeout(() => (saveToast.value = ''), 2000)
         console.log('✅ 删除存档成功:', result)
         
