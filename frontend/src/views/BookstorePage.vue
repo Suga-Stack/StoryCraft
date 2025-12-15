@@ -601,24 +601,28 @@ const handleTagClick = (tag) => {
     padding: 20px 10px;
 }
 
-.nav{
-    padding:0 10px 8px 10px;
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+.nav {
+  padding: 0 20px 8px 10px;
+  position: relative; /* 相对定位容器 */
+  display: flex;
+  align-items: center;
+  justify-content: center; /* 标题居中 */
+  height: 30px; /* 固定高度确保对齐 */
 }
 
-.check-in-txt{
-    font-size: 20px;
-    color: #d4a5a5;
+.check-in-txt {
+  font-size: 20px;
+  color: #d4a5a5;
 }
 
-.close-btn{
-    font-size: 22px;
-    position: absolute;
-    right: 20px;
-
+.close-btn {
+  font-size: 22px;
+  color: #d4a5a5;
+  position: absolute; /* 绝对定位到右侧 */
+  right: 10px; /* 靠右对齐 */
+  top:30%; /* 垂直居中 */
+  transform: translateY(-50%); /* 精确垂直居中 */
+  cursor: pointer; /* 增加点击反馈 */
 }
 
 .calendar {
@@ -737,8 +741,4 @@ const handleTagClick = (tag) => {
   min-height: 40px; /* 防止按钮跳动 */
 }
 
-.close-btn {
-  cursor: pointer;
-  color: #d4a5a5;
-}
 </style>

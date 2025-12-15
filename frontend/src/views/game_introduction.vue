@@ -32,15 +32,7 @@ try { userInfo.value = JSON.parse(localStorage.getItem('userInfo') || '{}') } ca
 const isStaff = computed(() => !!(userInfo.value.is_staff || userInfo.value.isStaff || userInfo.value.staff))
 
 const goBack = () => {
-  // 若标记需要跳过返回 GamePage，则直接回到进入本页的 A 界面
-  const skip = sessionStorage.getItem('introSkipBackToGamePage')
-  if (skip === '1') {
-    sessionStorage.removeItem('introSkipBackToGamePage')
-    const target = entryPath.value || '/'
-    router.push(target)
-    return
-  }
-  // 默认行为：返回上一页或主页
+  // 只依赖路由历史回退
   if (router.options?.history?.state?.back) {
     router.back()
   } else {
@@ -1278,12 +1270,7 @@ const startReading = async () => {
       coverUrl: work.value.coverUrl
     }))
 
-    // 进入 GamePage 前，记录入口路径，并设置跳过返回 GamePage 的标记
-    try {
-      if (entryPath.value) sessionStorage.setItem('introEntryPath', entryPath.value)
-      sessionStorage.setItem('introSkipBackToGamePage', '1')
-    } catch (e) { /* ignore */ }
-
+    // 进入 GamePage 用 push，保留 introduction 历史
     router.push({
       path: `/game/${work.value.id}`,
       state: {
@@ -1297,7 +1284,7 @@ const startReading = async () => {
   } catch (e) {
     console.error('startReading 跳转失败:', e)
     // 最后兜底跳转
-    if (!isRemoved.value) router.push({ path: `/game/${work.value.id}` })
+    if (!isRemoved.value) router.replace({ path: `/game/${work.value.id}` })
   }
 }
 

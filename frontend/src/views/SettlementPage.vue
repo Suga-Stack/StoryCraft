@@ -942,7 +942,7 @@ const continueGame = () => {
     }
     sessionStorage.setItem('lastWorkMeta', JSON.stringify(meta))
   } catch {}
-  router.push({
+  router.replace({
     path: `/game/${gameData.value.work.id}`,
     state: {
       title: gameData.value.work.title,

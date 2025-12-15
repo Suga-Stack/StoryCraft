@@ -543,40 +543,38 @@ export function useGameState(dependencies = {}) {
   // 返回作品介绍页
     const goBack = async () => {
         try {
-            // 退出前自动存档到六号位
-            await autoSaveToSlot(AUTO_SAVE_SLOT)
-            // 退出横屏，恢复竖屏
-            if (isNativeApp.value) {
+          // 退出前自动存档到六号位
+          await autoSaveToSlot(AUTO_SAVE_SLOT)
+          // 退出横屏，恢复竖屏
+          if (isNativeApp.value) {
             console.log('恢复竖屏')
             await ScreenOrientation.unlock()
-            } else {
+          } else {
             // 浏览器环境：退出全屏
             if (document.exitFullscreen) {
-                await document.exitFullscreen()
+              await document.exitFullscreen()
             } else if (document.mozCancelFullScreen) {
-                document.mozCancelFullScreen()
+              document.mozCancelFullScreen()
             } else if (document.webkitExitFullscreen) {
-                document.webkitExitFullscreen()
+              document.webkitExitFullscreen()
             } else if (document.msExitFullscreen) {
-                document.msExitFullscreen()
+              document.msExitFullscreen()
             }
-            
             if (screen.orientation && screen.orientation.unlock) {
-                screen.orientation.unlock()
+              screen.orientation.unlock()
             }
-            }
+          }
         } catch (err) {
-            console.log('退出横屏失败:', err)
+          console.log('退出横屏失败:', err)
         }
-        
-        // 🔑 修复：路由到 /works/{workId} 而不是 /works
-        const workId = work && work.value && work.value.id
-        if (workId) {
-            router.push(`/works/${workId}`)
+        // 🔑 关键：直接 go(-1) 返回上一个页面（introduction）
+        if (router && typeof router.go === 'function') {
+          router.go(-1)
         } else {
-            router.push('/works')
+          // 兜底：如果 router 不可用，回退到首页
+          router && router.push ? router.push('/') : window.location.href = '/'
         }
-    }
+      }
 
     
     // 处理游戏结束，生成结算页面
