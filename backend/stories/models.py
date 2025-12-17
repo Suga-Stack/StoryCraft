@@ -13,7 +13,6 @@ class Story(models.Model):
 
     core_seed = models.TextField(default="",blank=True,null=True, help_text="用于生成故事的核心剧情种子")
     attribute_system = models.TextField(default="",blank=True,null=True, help_text="完整属性系统")
-    characters = models.TextField(default="", blank=True,null=True,help_text="主要角色设定")
     architecture = models.TextField(default="",blank=True,null=True, help_text="叙事架构")
     chapter_directory = models.TextField(default="",blank=True,null=True, help_text="章节目录")
     global_summary = models.TextField(default="",blank=True,null=True, help_text="全局摘要")

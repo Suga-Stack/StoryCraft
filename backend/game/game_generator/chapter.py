@@ -1,44 +1,26 @@
 import re
-from .openai_client import invoke
+from .openai_client import invoke, prompt
 from .prompts import(
-    build_chapter_prompt,
-    build_last_chapter_with_endings_prompt,
-    update_summary_prompt,
-    build_ending_content_prompt
+    chapter_system_prompt,
+    ending_system_prompt,
+    update_summary_prompt
 )
 
-def _parse_last_chapter_with_endings_output(text: str):
-    """
-    从合并输出的文本中解析出最后一章前半部分和各个结局概述
-    """
-    
-    # 提取最后一章前半部分（包含标题等所有信息），直到遇到 "## 结局概述"
-    parts = re.split(r"##\s*结局概述", text, maxsplit=1)
-    last_chapter_content = parts[0].strip() if parts else ""
-    
-    # 提取各个结局
-    endings = []
-    ending_pattern = r"### 结局\d+\s*\*{0,2}\s*标题\s*\*{0,2}[:：](.+?)\s*\*{0,2}\s*属性要求\s*\*{0,2}[:：](.+?)\s*\*{0,2}\s*剧情概述\s*\*{0,2}[：:](.+?)(?=### 结局|\Z)"
-    ending_matches = re.findall(ending_pattern, text, re.DOTALL)
-    
-    for match in ending_matches:
-        title, condition, summary = match
-        endings.append({
-            "title": title.strip(),
-            "condition": condition.strip(),
-            "summary": summary.strip()
-        })
-    
-    return last_chapter_content, endings
-
+def _extract_chapter_block(text: str, index: int) -> str:
+    """从目录文本中提取特定章节的块"""
+    # 匹配 ## 第X章 或 第X章 开头，直到下一个 第X章 或 结尾
+    pattern = re.compile(r"(?:##\s*)?第" + str(index) + r"章\s*-\s*(.+?)\n(.*?)(?=(?:##\s*)?第\d+章|$)", re.DOTALL)
+    match = pattern.search(text)
+    if match:
+        return f"第{index}章 - {match.group(1)}\n{match.group(2)}".strip()
+    return "未找到该章节设定"
 
 def generate_chapter_content(
     chapter_index: int, 
     total_chapters: int,
     chapter_directory: str,
     core_seed: str,
-    attribute_system: str,
-    characters: str,
+    attribute_system: str, 
     architecture: str,
     previous_chapter_content: str = "",
     global_summary: str = "",
@@ -46,55 +28,98 @@ def generate_chapter_content(
 ):
     """生成章节文本 + 更新摘要"""
     
-    if chapter_index == total_chapters:
-        base_prompt = build_last_chapter_with_endings_prompt(
-            chapter_index=chapter_index,
-            chapter_directory=chapter_directory,
-            attribute_system=attribute_system,
-            characters=characters,
-            architecture=architecture,
-            previous_chapter_content=previous_chapter_content,
-            global_summary=global_summary
-        )
-        if user_prompt:
-            base_prompt += f"\n# 创作者附加指令\n{user_prompt}\n(请合理融合但保持主线一致)"        
-        combined_content = invoke(base_prompt)
-
-        last_chapter_content, endings_summary = _parse_last_chapter_with_endings_output(combined_content)
-
-        updated_summary = invoke(update_summary_prompt(
-            global_summary=global_summary,
-            new_chapter=last_chapter_content
-        ))
-        
-        return last_chapter_content, updated_summary, endings_summary
-
+    # 1. 准备输入信息
+    current_chap_info = _extract_chapter_block(chapter_directory, chapter_index)
+    
+    if chapter_index < total_chapters:
+        next_chap_info = _extract_chapter_block(chapter_directory, chapter_index + 1)
     else:
-        # 常规章节生成
-        base_prompt = build_chapter_prompt(
-            chapter_index=chapter_index,
-            chapter_directory=chapter_directory,
-            core_seed=core_seed,
-            attribute_system=attribute_system,
-            characters=characters,
-            architecture=architecture,
-            previous_chapter_content=previous_chapter_content,
-            global_summary=global_summary
-        )
-        if user_prompt:
-            base_prompt += f"\n# 创作者附加指令\n{user_prompt}\n(请合理融合但保持主线一致)"
-        chapter_content = invoke(base_prompt)
-        updated_summary = invoke(update_summary_prompt(
-            global_summary=global_summary,
-            new_chapter=chapter_content
-        ))
-        return chapter_content, updated_summary, []
+        next_chap_info = "无（这是最后一章，结局触发点）"
+
+    prev_end = ""
+    if previous_chapter_content:
+        # 取上一章最后一段或最后500字
+        prev_end = previous_chapter_content[-500:]
+
+    # 2. 构建 User Prompt
+    input_text = f"""
+1. 基础创意设定：
+{core_seed}
+
+2. 全局叙事架构：
+{architecture}
+
+3. 本章章节目录：
+{current_chap_info}
+
+4. 下一章章节目录：
+{next_chap_info}
+
+5. 前文全局内容摘要：
+{global_summary if global_summary else "无（这是第一章）"}
+
+6. 上一章结尾段：
+{prev_end if prev_end else "无（这是第一章）"}
+
+7. 补充说明：
+{user_prompt}
+"""
+
+    # 3. 调用 AI
+    chapter_content = invoke(prompt(chapter_system_prompt, input_text))
+    
+    # 4. 更新摘要
+    # 摘要更新不需要太复杂的prompt，直接传内容即可
+    summary_input = f"新章节内容：\n{chapter_content}\n\n前文摘要：\n{global_summary}"
+    updated_summary = invoke(update_summary_prompt(global_summary,chapter_content))
+    
+    # 新流程中，结局摘要在架构阶段已生成，章节生成阶段不再生成结局摘要
+    return chapter_content, updated_summary, []
+
+def generate_ending_content(
+    ending_title: str,
+    ending_condition: str,
+    ending_summary: str,
+    chapter_index: int, 
+    attribute_system: str,
+    architecture: str,
+    previous_chapter_content: str, 
+    last_chapter_content: str,     
+    global_summary: str = "",
+    user_prompt: str = ""
+) -> str:
+    """生成单个结局的完整内容"""
+    
+    # 最后一章结尾段
+    last_end = last_chapter_content[-800:] if last_chapter_content else ""
+
+    input_text = f"""
+1. 完整框架设定：
+{architecture}
+
+2. 最后一章剧情结尾段：
+{last_end}
+
+3. 前文全文摘要总结：
+{global_summary}
+
+4. 特定结局分支触发条件：
+{ending_condition}
+
+5. 特定结局剧情梗概：
+{ending_summary}
+
+6. 补充说明：
+{user_prompt}
+"""
+    
+    ending_content = invoke(prompt(ending_system_prompt, input_text))
+    return ending_content
 
 def calculate_attributes(parsed_chapters: list, initial_attributes: dict) -> dict:
     """
     遍历所有章节，计算每个属性在游戏结束时的可能取值范围 (min, max)。
     """
-    # 初始化范围为初始属性值
     ranges = {k: [v, v] for k, v in initial_attributes.items()}
     
     for chapter in parsed_chapters:
@@ -104,7 +129,6 @@ def calculate_attributes(parsed_chapters: list, initial_attributes: dict) -> dic
                 if not choices:
                     continue
                 
-                # 收集该选择点所有选项对各属性的影响
                 impacts = {} 
                 for choice in choices:
                     deltas = choice.get("attributesDelta", {})
@@ -113,15 +137,11 @@ def calculate_attributes(parsed_chapters: list, initial_attributes: dict) -> dic
                             impacts[attr] = []
                         impacts[attr].append(val)
                 
-                # 更新范围
-                # 只要属性在 ranges 中（即初始属性），或者在 impacts 中出现过
                 all_attrs = set(ranges.keys()) | set(impacts.keys())
                 for attr in all_attrs:
                     if attr not in ranges:
-                        ranges[attr] = [0, 0] # 默认初始为0
+                        ranges[attr] = [0, 0]
                     
-                    # 获取当前选择点该属性的所有可能变化值
-                    # 如果某个选项没有该属性的变化，视为 0
                     current_deltas = []
                     for choice in choices:
                         d = choice.get("attributesDelta", {})
@@ -135,14 +155,12 @@ def calculate_attributes(parsed_chapters: list, initial_attributes: dict) -> dic
 
 def parse_ending_condition(text: str, attr_ranges: dict) -> dict:
     """
-    将自然语言条件（如"勇气较高，智慧中等"）解析为数值条件（如 {"勇气": ">=30", "智慧": ">=20,<=40"}）。
+    将自然语言条件解析为数值条件
     """
     conditions = {}
-    # 按逗号或空格分割
     parts = re.split(r'[，, ]+', text)
     
     for part in parts:
-        # 匹配 属性 + 等级
         m = re.search(r'(.+)(较高|中等|较低)', part)
         if not m:
             continue
@@ -155,55 +173,16 @@ def parse_ending_condition(text: str, attr_ranges: dict) -> dict:
         min_v, max_v = attr_ranges[attr]
         span = max_v - min_v
         if span == 0:
-            span = 1 # 避免除零
+            span = 1
         
         if level == "较高":
-            # 前 40%
             threshold = int(min_v + span * 0.60)
             conditions[attr] = f">={threshold}"
         elif level == "较低":
-            # 后 40%
             threshold = int(min_v + span * 0.40)
             conditions[attr] = f"<={threshold}"
         elif level == "中等":
-            # 前 66%
             low = int(min_v + span * 0.33)
             conditions[attr] = f">={low}"
             
     return conditions
-
-def generate_ending_content(
-    ending_title: str,
-    ending_condition: str,
-    ending_summary: str,
-    chapter_index: int, 
-    attribute_system: str,
-    characters: str,
-    architecture: str,
-    previous_chapter_content: str, 
-    last_chapter_content: str,     
-    global_summary: str = "",
-    user_prompt: str = ""
-) -> str:
-    """
-    生成单个结局的完整内容
-    """
-    prompt = build_ending_content_prompt(
-        ending_title=ending_title,
-        ending_condition=ending_condition, 
-        ending_summary=ending_summary,
-        chapter_index=chapter_index,
-        architecture=architecture,
-        attribute_system=attribute_system,
-        characters=characters,
-        global_summary=global_summary,
-        previous_chapter_content=previous_chapter_content, 
-        last_chapter_content=last_chapter_content     
-    )
-    
-    if user_prompt:
-        prompt += f"\n# 创作者附加指令\n{user_prompt}\n(请合理融合但保持结局逻辑一致)"
-
-    ending_content = invoke(prompt)
-    
-    return ending_content
