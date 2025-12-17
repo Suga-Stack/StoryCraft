@@ -4,18 +4,16 @@ services:
     command: >
       gunicorn project.wsgi:application
       --bind 0.0.0.0:8000
-      --workers 4
-      --worker-class gthread
+      --workers 2
       --threads 4
+      --worker-class gthread
       --timeout 120
       --keep-alive 5
-      --max-requests 1000
-      --max-requests-jitter 50
       --access-logfile -
       --error-logfile -
-      --log-level info
     volumes:
-      - .:/app
+      - ./staticfiles:/app/staticfiles 
+      - ./media:/app/media 
     env_file:
       - .env
     environment:
@@ -26,8 +24,10 @@ services:
       - MYSQL_USER=${DB_USER}
       - MYSQL_PASSWORD=${DB_PASSWORD}
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - backend_net
       - frontend_net
@@ -55,7 +55,15 @@ services:
 
   redis:
     image: redis:7
+    command: redis-server --appendonly yes
     restart: always
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - backend_net
 
@@ -76,6 +84,7 @@ services:
 
 volumes:
   mysql_data:
+  redis_data:
 
 networks:
   frontend_net:
