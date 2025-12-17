@@ -532,6 +532,23 @@ const normalizeComments = (list) => {
   return list.map(mapItem)
 }
 
+// 获取评论头像，优先级：comment.profile_picture > comment.user.profile_picture > getAvatar(comment.user.username)
+const getCommentAvatar = (comment) => {
+  // 1. 后端直接返回的 profile_picture 字段
+  if (comment && comment.profile_picture) {
+    return comment.profile_picture;
+  }
+  // 2. 嵌套 user 对象的 profile_picture
+  if (comment && comment.user && comment.user.profile_picture) {
+    return comment.user.profile_picture;
+  }
+  // 3. 用用户名生成头像
+  if (comment && comment.user && comment.user.username && typeof getAvatar === 'function') {
+    return getAvatar(comment.user.username);
+  }
+  return '';
+};
+
 
 // 可见回复计数（按顶层评论 id）
 const visibleReplies = ref({})
@@ -1621,7 +1638,8 @@ const handleTagClick = (tag) => {
               </button>
             </div>
             <div class="comment-avatar">
-              {{ comment.author.charAt(0) }}
+              <img v-if="getCommentAvatar(comment)" :src="getCommentAvatar(comment)" :alt="comment.author" style="width:100%;height:100%;object-fit:cover;" @error="e=>e.target.style.display='none'" />
+              <span v-else>{{ comment.author.charAt(0) }}</span>
             </div>
             <div class="comment-content">
               <div class="comment-header">
