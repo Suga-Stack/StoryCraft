@@ -41,7 +41,7 @@ export const updateUserInfo = (id, data) => {
 }
 
 export const uploadProfilePicture = (file) => {
-  return http.post(`/api/game/upload-iamge/`, file )
+  return http.post(`/api/game/upload-image/`, file )
 }
 
 export const recommend = () => {
@@ -50,6 +50,23 @@ export const recommend = () => {
 
 export const getReadingHistory = () => {
   return http.get('/api/users/read/'); 
+}
+
+/**
+ * 删除阅读历史
+ * @param {number|number[]=} gameworkId 单个id、id数组，或不传为全部删除
+ * @returns {Promise}
+ */
+export const clearReadingHistory = (gameworkId) => {
+  // 不传参数，全部删除（隐藏所有记录）
+  if (gameworkId === undefined || gameworkId === null) {
+    return http.delete('/api/users/read/');
+  }
+  // 组装逗号分隔的 ID 字符串
+  const ids = Array.isArray(gameworkId) ? gameworkId : [gameworkId]
+  const paramValue = ids.join(',')
+  // 后端在 DELETE 中通过 query 参数 `gamework_ids` 解析
+  return http.delete('/api/users/read/', { params: { gamework_ids: paramValue } })
 }
 
 export const getRecentReadingHistory = () => {

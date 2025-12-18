@@ -835,6 +835,7 @@ onMounted(async () => {
   right: 0px;
   width: 30px;
   height: 30px;
+  margin-top: -22px;
 }
 
 .charge-card{
