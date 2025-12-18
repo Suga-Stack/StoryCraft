@@ -268,7 +268,7 @@ const handleBack = () => {
   flex-wrap: nowrap;
   align-items: flex-start; /* 让箭头与首行按钮顶部对齐 */
   gap: 0.5rem;
-  padding: 0.5rem 1.4rem;
+  padding: 0.5rem 0.4rem;
   background-color: #faf8f3;
   border-bottom: 1px solid rgba(212,165,165,0.18);
 }
@@ -281,7 +281,7 @@ const handleBack = () => {
   cursor: pointer;
   color: #6b6b6b;
   font-size: 0.9rem; /* 略微缩小字号以便与箭头对齐 */
-  min-width: 80px;
+  min-width: 60px;
   text-align: center;
   transition: all 0.18s ease;
 }
