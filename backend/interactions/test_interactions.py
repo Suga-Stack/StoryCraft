@@ -38,29 +38,20 @@ class FavoriteViewSetTests(APITestCase):
         })
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_partial_update_move_to_folder(self):
+    def test_update_move_to_folder(self):
         favorite = Favorite.objects.create(user=self.user, gamework=self.gamework)
-        response = self.client.patch(
-            f'/api/interactions/favorites/{favorite.id}/',
-            {"folder": self.folder.id},
+        response = self.client.post(
+            f'/api/interactions/favorites/move_to_folder/',
+            {"favorite_ids": [favorite.id], "folder": self.folder.id},
             format='json'
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_partial_update_remove_from_folder(self):
-        favorite = Favorite.objects.create(user=self.user, gamework=self.gamework, folder=self.folder)
-        response = self.client.patch(
-            f'/api/interactions/favorites/{favorite.id}/',
-            {"folder": None},
-            format='json'
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_partial_update_invalid_folder(self):
+    def test_update_invalid_folder(self):
         favorite = Favorite.objects.create(user=self.user, gamework=self.gamework)
-        response = self.client.patch(
-            f'/api/interactions/favorites/{favorite.id}/',
-            {"folder": 9999},
+        response = self.client.post(
+            f'/api/interactions/favorites/move_to_folder/',
+            {"favorite_ids": [favorite.id], "folder": 9999},
             format='json'
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -68,7 +59,7 @@ class FavoriteViewSetTests(APITestCase):
     def test_destroy_favorite(self):
         favorite = Favorite.objects.create(user=self.user, gamework=self.gamework)
         response = self.client.delete(f'/api/interactions/favorites/{favorite.id}/')
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_move_to_folder(self):
         favorite1 = Favorite.objects.create(user=self.user, gamework=self.gamework)
@@ -153,7 +144,7 @@ class CommentViewSetTests(APITestCase):
 
     def test_delete_comment(self):
         response = self.client.delete(f'/api/interactions/comments/{self.comment.id}/')
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
 
 class RatingViewSetTests(APITestCase):
