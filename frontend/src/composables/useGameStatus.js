@@ -85,6 +85,9 @@ export function useGameState(dependencies = {}) {
   const showText = ref(false)
   const showMenu = ref(false)
   const choicesVisible = ref(false)
+  // 防止快速连续点击导致跳过选项或状态竞争（黑屏）的锁
+  const clickLock = ref(false)
+  const CLICK_LOCK_MS = 300
   let eventSource = null
   // 标记当前是否正在播放后端提供的结局场景（在读者模式下）
   const playingEndingScenes = ref(false)
@@ -979,6 +982,10 @@ export function useGameState(dependencies = {}) {
     // 选择选项
     const chooseOption = async (choice) => {
         try {
+          // 如果在短时间内已经处理过一次点击，则忽略后续点击
+          if (clickLock.value) return
+          clickLock.value = true
+          setTimeout(() => { try { clickLock.value = false } catch (e) {} }, CLICK_LOCK_MS)
             console.log('[chooseOption] 选择了选项:', choice)
             console.log('[chooseOption] 当前是否在手动编辑模式:', creatorMode?.value)
             console.log('[chooseOption] 原始 attributesDelta:', choice.attributesDelta)
@@ -1974,6 +1981,14 @@ export function useGameState(dependencies = {}) {
   // 如果读档后返回到普通章节，清除已读结局的本地标记（避免结算页展示已读结局）
   try { clearEndingReadMarkIfNeeded() } catch (e) { console.warn('clearEndingReadMarkIfNeeded invocation failed', e) }
   
+  // 防止短时间内多次点击导致跳过选项/黑屏
+  if (clickLock.value) {
+    console.log('[nextDialogue] 点击被速率限制，忽略')
+    return
+  }
+  clickLock.value = true
+  setTimeout(() => { try { clickLock.value = false } catch (e) {} }, CLICK_LOCK_MS)
+
   if (showMenu.value) {
     // 如果菜单显示，点击不做任何事
     console.log('[nextDialogue] 菜单打开，忽略点击')
