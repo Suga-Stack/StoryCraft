@@ -176,7 +176,7 @@ def _generate_multi_images_by_ref(prompts: list[str], ref_images: list[str], siz
             
     return []
 
-def generate_multi_images(prompts: list[str], size: str ="2560x1440") -> list[str]:
+def generate_multi_images(prompts: list[str], ref_images: list[str] = None, size: str ="2560x1440") -> list[str]:
     """调用AI生成多张图片，返回URL列表"""
     base_url = settings.SITE_DOMAIN
     placeholder_url = f"{base_url}{settings.MEDIA_URL}placeholders/scene.jpg"
@@ -185,21 +185,31 @@ def generate_multi_images(prompts: list[str], size: str ="2560x1440") -> list[st
     if target_count == 0:
         return []
 
-    combined_prompt = _construct_multi_image_prompt(prompts)
+    use_ref = bool(ref_images)
+    combined_prompt = _construct_multi_image_prompt(prompts, has_ref=use_ref)
     results: list[str] = []
     
     max_retries = 1
+
+    # 准备生成参数
+    generate_kwargs = {
+        "model": settings.AI_MODEL_FOR_IMAGE,
+        "prompt": combined_prompt,
+        "size": size,
+        "sequential_image_generation": "auto",
+        "sequential_image_generation_options": SequentialImageGenerationOptions(max_images=15)
+    }
+
+    if use_ref:
+        if len(ref_images) == 1:
+            generate_kwargs["image"] = ref_images[0]
+        else:
+            generate_kwargs["image"] = ref_images[-3:]
     
     # 尝试直接生成所有图片
     for attempt in range(max_retries + 1):
         try:
-            response = image_client.images.generate(
-                model=settings.AI_MODEL_FOR_IMAGE,
-                prompt=combined_prompt,
-                size=size,
-                sequential_image_generation="auto",
-                sequential_image_generation_options=SequentialImageGenerationOptions(max_images=15)
-            )
+            response = image_client.images.generate(**generate_kwargs)
             data = response.data or []
             
             # 保存生成的图片

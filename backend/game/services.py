@@ -57,7 +57,7 @@ def _build_chapter_response(chapter: StoryChapter) -> Dict[str, Any]:
 
 
 def _generate_chapter(gamework_id: int, chapter_index: int, user_prompt: str = ""):
-    story = Story.objects.get(gamework_id=gamework_id)
+    story = Story.objects.select_related('gamework').get(gamework_id=gamework_id)
     if not story.initial_generation_complete:
         raise ValueError("故事初始信息未完成，无法生成章节。")
 
@@ -78,7 +78,8 @@ def _generate_chapter(gamework_id: int, chapter_index: int, user_prompt: str = "
     )
     
     # 2. 处理图片和解析
-    scene_ranges, scene_urls = generate_scene_images(raw_chapter_content)
+    ref_images = [story.gamework.image_url] if story.gamework.image_url else None
+    scene_ranges, scene_urls = generate_scene_images(raw_chapter_content, ref_images=ref_images)
     chapter_dict = parse_raw_chapter(raw_chapter_content, scene_ranges)
     
     chapter_title = chapter_dict["title"]
@@ -164,7 +165,7 @@ def _generate_ending_task(story_id: int, ending_index: int, user_prompt: str = "
     """生成并保存单个结局的任务函数"""
     close_old_connections()
     try:
-        story = Story.objects.get(pk=story_id)
+        story = Story.objects.select_related('gamework').get(pk=story_id)
         ending = StoryEnding.objects.get(story=story, ending_index=ending_index)
         
         logger.info(f"开始生成故事 {story_id} 结局 {ending_index}")
@@ -204,7 +205,8 @@ def _generate_ending_task(story_id: int, ending_index: int, user_prompt: str = "
         )
 
         # 生成图片
-        scene_ranges, scene_urls = generate_scene_images(raw_content)
+        ref_images = [story.gamework.image_url] if story.gamework.image_url else None
+        scene_ranges, scene_urls = generate_scene_images(raw_content, ref_images=ref_images)
         # 解析
         parsed_ending = parse_raw_chapter(raw_content, scene_ranges)
 

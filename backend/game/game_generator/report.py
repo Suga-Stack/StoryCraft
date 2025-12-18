@@ -1,5 +1,5 @@
 import re
-from .openai_client import invoke
+from .openai_client import invoke,prompt
 from .prompts import build_report_prompt
 
 def _parse_report(text: str) -> dict:
@@ -21,6 +21,6 @@ def _parse_report(text: str) -> dict:
     }
 
 def generate_report_content(global_summary: str, ending_summary: str, ending_title: str) -> dict:
-    prompt = build_report_prompt(global_summary, ending_summary, ending_title)
-    response = invoke(prompt)
+    r_prompt = build_report_prompt(global_summary, ending_summary, ending_title)
+    response = invoke(prompt("",r_prompt))
     return _parse_report(response)

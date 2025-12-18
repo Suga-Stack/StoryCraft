@@ -70,8 +70,7 @@ def generate_chapter_content(
     
     # 4. 更新摘要
     # 摘要更新不需要太复杂的prompt，直接传内容即可
-    summary_input = f"新章节内容：\n{chapter_content}\n\n前文摘要：\n{global_summary}"
-    updated_summary = invoke(update_summary_prompt(global_summary,chapter_content))
+    updated_summary = invoke(prompt("",update_summary_prompt(global_summary,chapter_content)))
     
     # 新流程中，结局摘要在架构阶段已生成，章节生成阶段不再生成结局摘要
     return chapter_content, updated_summary, []
