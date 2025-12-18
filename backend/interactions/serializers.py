@@ -72,7 +72,7 @@ class RecursiveField(serializers.Serializer):
 
 class CommentSerializer(serializers.ModelSerializer):
     user = serializers.StringRelatedField(read_only=True)
-    profile_picture = serializers.ImageField(source='user.profile_picture', read_only=True)
+    profile_picture = serializers.CharField(source='user.profile_picture', read_only=True)
     replies = RecursiveField(many=True, read_only=True)
     like_count = serializers.SerializerMethodField()
     is_liked = serializers.SerializerMethodField()
