@@ -43,7 +43,17 @@
 
     <!-- 最新作品推荐 -->
     <div class="latest-books">
-      <h2 class="section-title">为你推荐</h2>
+      <div style="display: flex; align-items: center; justify-content: space-between;">
+        <h2 class="section-title" style="margin: 0;">为你推荐</h2>
+        <span 
+          @click="!loading && refreshRecommendedBooks()"
+          style="margin-left: 10px; color: #888; cursor: pointer; font-size: 15px; user-select: none; display: flex; align-items: center;"
+        >
+          <van-icon name="replay" style="margin-right: 2px;" v-if="!loading"/>
+          <van-loading size="16px" v-else style="margin-right: 2px;" />
+          刷新
+        </span>
+      </div>
       <div class="books-grid">
         <div 
           class="book-card" 
@@ -166,6 +176,12 @@ import { getSignInDates, userSignIn } from '../api/user';
 
 // 初始化标签工具
 const { getTagsByIds } = useTags();
+
+// 刷新推荐作品，清除本地缓存并重新获取
+const refreshRecommendedBooks = async () => {
+  localStorage.removeItem('recommendBooksCache');
+  await fetchRecommendedBooks();
+};
 
 // 热门作品数据
 const hotBooks = ref([])
