@@ -30,7 +30,10 @@ const props = defineProps({
         </svg>
       </button>
     </div>
-    <div class="comment-avatar reply-avatar">{{ reply.author?.charAt ? reply.author.charAt(0) : '访' }}</div>
+    <div class="comment-avatar reply-avatar">
+      <img v-if="reply.profile_picture" :src="reply.profile_picture" class="avatar-img" />
+      <template v-else>{{ reply.author?.charAt ? reply.author.charAt(0) : '访' }}</template>
+    </div>
     <div class="comment-content">
       <div class="comment-header">
         <span class="comment-author">{{ reply.author }}</span>
@@ -75,3 +78,13 @@ export default {
   name: 'ReplyItem'
 }
 </script>
+
+<style scoped>
+.avatar-img {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+</style>

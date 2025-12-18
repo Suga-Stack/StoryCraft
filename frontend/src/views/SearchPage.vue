@@ -820,16 +820,22 @@ const handleTagClick = (tagId) => {
 }
 
 .tag-popup-header {
-  height: 44px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px;
+  padding: 12px 16px; 
   border-bottom: 1px solid #eee;
 }
 
 .close-btn {
   font-size: 18px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: -12px;
+  transform: none !important;
 }
 
 .tag-popup-footer {
