@@ -61,10 +61,10 @@ export function getPersonalityReport(attributes = {}, statuses = {}) {
 
   if (match) return match.report
   return {
-    title: '初入宫闱的谨慎新人',
-    content: '你在宫中小心翼翼，每一步都走得格外谨慎。虽然还在适应宫廷生活，但你的谨慎和观察力将会是你在深宫中生存的重要武器。',
-    traits: ['小心谨慎', '善于观察', '稳重内敛', '厚积薄发'],
-    scores: { 谨慎: 85, 观察力: 80, 适应力: 75, 潜力: 82 }
+    title: '谨慎新人',
+  content: '你小心翼翼，每一步都走得格外谨慎。虽然还在适应星际生活，但你的谨慎和观察力将会是你在太空中生存的重要武器。',
+  traits: ['小心谨慎', '善于观察', '稳重内敛', '厚积薄发'],
+  scores: { 谨慎: 85, 观察力: 80, 适应力: 75, 潜力: 82 }
   }
 }
 

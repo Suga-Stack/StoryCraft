@@ -4,6 +4,7 @@
  */
 
 import { http, getUserId } from './http.js'
+import { STORY_MAX_RETRIES, STORY_RETRY_INTERVAL_MS } from '../config/polling.js'
 
 /**
  * 获取指定章节的剧情场景
@@ -24,22 +25,76 @@ import { http, getUserId } from './http.js'
  * 当场景标记了 chapterEnd: true 时，表示该场景是本章最后一个场景，
  * 播放完该场景后，前端应增加 currentChapterIndex 并请求下一章内容。
  */
-export async function getScenes(workId, chapterIndex = 1) {
-  // 与后端约定：chapterIndex 为 1-based（1 表示第一章）
-  try {
-    const body = { gameworkId: workId, chapterIndex }
-    // 严格按 game-api.md：POST /api/game/chapter/ 请求体使用 gameworkId 与 chapterIndex
-    const data = await http.post('/api/game/chapter/', body)
+export async function getScenes(workId, chapterIndex = 1, options = {}) {
+  const {
+    // 默认更耐心：约 10 分钟（120 次 * 5 秒）
+    maxRetries = STORY_MAX_RETRIES,
+    retryInterval = STORY_RETRY_INTERVAL_MS,
+    onProgress  // 进度回调函数
+  } = options
 
-    // 返回后端原始结构：{ chapterIndex, title, scenes, isGameEnding }
-    return Object.assign({}, data || {})
-  } catch (error) {
-    const status = error && error.status ? error.status : (error && error.response && error.response.status)
-    if (status === 202 || status === 204) {
-      return { generating: true }
+  let retries = 0
+
+  while (retries < maxRetries) {
+    try {
+      console.log(`[Story] 请求章节 ${chapterIndex}，重试 ${retries + 1}/${maxRetries}`)
+      console.log(`[Story] 使用 workId: ${workId}`)
+      const data = await http.get(`/api/game/chapter/${workId}/${chapterIndex}`)
+
+      console.log(`[Story] API响应:`, data)
+
+      // 根据API文档处理不同状态
+      if (data.status === 'pending') {
+        console.log(`[Story] 章节 ${chapterIndex} 等待生成中...`)
+        if (onProgress) onProgress({ status: 'pending', message: '等待生成中...' })
+      } else if (data.status === 'generating') {
+        console.log(`[Story] 章节 ${chapterIndex} 生成中...`, data.progress)
+        if (onProgress) onProgress({ status: 'generating', progress: data.progress })
+      } else if (data.status === 'ready') {
+        console.log(`[Story] 章节 ${chapterIndex} 生成完成！`)
+        console.log(`[Story] 返回数据:`, {
+          chapterIndex: data.chapter.chapterIndex,
+          title: data.chapter.title,
+          scenesCount: data.chapter.scenes ? data.chapter.scenes.length : 0,
+          scenes: data.chapter.scenes
+        })
+        return {
+          chapterIndex: data.chapter.chapterIndex,
+          title: data.chapter.title,
+          scenes: data.chapter.scenes,
+          isGameEnding: data.chapter.isGameEnding || false
+        }
+      } else if (data.status === 'error') {
+        throw new Error(data.message || '获取章节失败')
+      } else {
+        // 兼容旧格式或其他未知状态
+        console.log(`[Story] 收到未知状态:`, data.status)
+        if (data.scenes && Array.isArray(data.scenes)) {
+          return Object.assign({}, data)
+        }
+      }
+
+      // 如果还没准备好，继续等待
+      await new Promise(resolve => setTimeout(resolve, retryInterval))
+      retries++
+    } catch (error) {
+      console.error(`[Story] 获取章节 ${chapterIndex} 失败:`, error)
+      const status = error && error.status ? error.status : (error && error.response && error.response.status)
+      
+      // 对于某些HTTP状态码，继续重试
+      if (status === 202 || status === 204 || status === 503) {
+        console.log(`[Story] 服务器返回 ${status}，继续等待...`)
+        await new Promise(resolve => setTimeout(resolve, retryInterval))
+        retries++
+        continue
+      }
+      
+      // 其他错误直接抛出
+      throw error
     }
-    throw error
   }
+
+  throw new Error(`获取章节超时，已重试 ${maxRetries} 次`)
 }
 
 /**
@@ -73,7 +128,7 @@ export async function getScenes(workId, chapterIndex = 1) {
  * @returns {Promise<{id: string|number, title: string, coverUrl?: string, authorId?: string, description?: string}>}
  */
 export async function getWorkInfo(workId) {
-  return await http.get(`/api/works/${workId}`)
+  return await http.get(`/api/gameworks/gameworks/${workId}`)
 }
 
 /**
@@ -89,19 +144,72 @@ export async function getWorkList(params = {}) {
 }
 
 /**
- * 创建新作品
- * @param {Object} workData - 作品数据
- * @param {string} workData.title - 标题
- * @param {string} workData.description - 描述
- * @param {string} workData.coverUrl - 封面 URL
- * @returns {Promise<{id: string|number, title: string}>}
+ * 创建新游戏作品
+ * @param {Object} gameData - 游戏数据
+ * @param {Array} gameData.tags - 用户选择的标签数组
+ * @param {string} gameData.idea - 用户输入的构思文本
+ * @param {string} gameData.length - 篇幅类型 ("short"|"medium"|"long")
+ * @returns {Promise<{gameworkId: number, title: string, coverUrl: string, description: string, initialAttributes: Object, initialStatuses: Object, total_chapters: number}>}
  */
-export async function createWork(workData) {
-  const userId = getUserId()
-  return await http.post('/api/works', {
-    ...workData,
-    authorId: userId
-  })
+export async function createGame(gameData) {
+  try {
+    // 注意：Django 需要 URL 以斜杠结尾
+    const result = await http.post('/api/game/create/', gameData)
+    return result
+  } catch (error) {
+    console.error('Create game failed:', error)
+    throw error
+  }
+}
+
+/**
+ * 在创作者模式下：基于用户最终确认的大纲 & prompt 启动后端章节生成
+ * @param {number|string} gameworkId
+ * @param {number} chapterIndex
+ * @param {Object} body - { chapterOutlines: Array, userPrompt?: string }
+ */
+export async function generateChapter(gameworkId, chapterIndex, body = {}) {
+  try {
+    return await http.post(`/api/game/chapter/generate/${gameworkId}/${chapterIndex}/`, body)
+  } catch (e) {
+    console.error('generateChapter failed', e)
+    throw e
+  }
+}
+
+/**
+ * 将创作者在前端修改后的章节内容持久化到后端（PUT 覆盖）
+ */
+export async function saveChapter(gameworkId, chapterIndex, chapterData = {}) {
+  try {
+    return await http.put(`/api/game/chapter/${gameworkId}/${chapterIndex}/`, chapterData)
+  } catch (e) {
+    console.error('saveChapter failed', e)
+    throw e
+  }
+}
+
+/**
+ * 将创作者在前端修改后的结局内容持久化到后端。
+ * 优先使用新的按逻辑结局索引的接口：PUT /api/game/storyending/{gameworkId}/{endingIndex}/
+ * 如果 body 中包含 `endingIndex` 字段，则会使用上面的新路径；否则为兼容性回退到旧路径。
+ * @param {number|string} gameworkId
+ * @param {Object} body - { endingIndex, title, scenes }
+ */
+export async function saveEnding(gameworkId, body = {}) {
+  try {
+    // 如果提供了逻辑上的 endingIndex，则把请求发送到带索引的接口
+    const idx = (body && (body.endingIndex != null)) ? Number(body.endingIndex) : null
+    if (idx != null && !isNaN(idx)) {
+      return await http.put(`/api/game/storyending/${gameworkId}/${idx}/`, body)
+    }
+
+    // 否则保持向后兼容：调用旧的端点
+    return await http.put(`/api/game/storyending/${gameworkId}/`, body)
+  } catch (e) {
+    console.error('saveEnding failed', e)
+    throw e
+  }
 }
 
 /**
@@ -135,13 +243,57 @@ export async function getInitialScenes(workId) {
   return res.scenes || []
 }
 
+/**
+ * 获取个性化结算报告
+ * @param {string|number} workId - 作品 ID
+ * @param {Object} gameState - 游戏状态
+ * @param {Object} gameState.attributes - 当前属性
+ * @param {Object} gameState.statuses - 当前状态
+ * @returns {Promise<Object|null>} 结算报告数据，失败时返回 null
+ */
+export async function fetchSettlementReport(workId, gameState = {}) {
+  try {
+    // 支持多种调用方式：
+    // - fetchSettlementReport(workId, { attributes, statuses, endingIndex })
+    // - 向后兼容：fetchSettlementReport(workId, { attributes, statuses }) 最终回退到旧接口
+    const { attributes = {}, statuses = {}, endingIndex = null } = gameState
+
+    console.log('[Story] 请求结算报告 - workId:', workId, 'endingIndex:', endingIndex)
+    console.log('[Story] 游戏状态 - attributes:', attributes, 'statuses:', statuses)
+
+    const wid = Number(workId)
+    const idx = (endingIndex != null && !isNaN(Number(endingIndex))) ? Number(endingIndex) : null
+
+    // 优先调用新的接口：/api/game/report/{gameworkId}/{endingIndex}/
+    // 如果未提供 endingIndex 或者 workId 非整数，则回退到旧的 /api/settlement/report/ 接口以保持兼容性
+    let url
+    if (idx != null && Number.isInteger(wid)) {
+      url = `/api/game/report/${wid}/${idx}/`
+    } else {
+      url = Number.isInteger(wid) ? `/api/settlement/report/${wid}/` : '/api/settlement/report/'
+    }
+
+    const data = await http.post(url, { attributes, statuses })
+
+    console.log('[Story] 结算报告获取成功:', data)
+    return data
+  } catch (error) {
+    console.warn('[Story] 获取结算报告失败:', error)
+    return null
+  }
+}
+
 // 导出所有 API
 export default {
   getScenes,
+  createGame,
+  generateChapter,
+  saveChapter,
+  saveEnding,
   getWorkInfo,
   getWorkList,
-  createWork,
   updateWork,
   deleteWork,
-  getInitialScenes
+  getInitialScenes,
+  fetchSettlementReport
 }

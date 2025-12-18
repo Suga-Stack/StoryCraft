@@ -1,358 +1,687 @@
-<script setup>
+﻿<script setup>
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import './GamePage.css'
 import { useRouter, useRoute } from 'vue-router'
 import { ScreenOrientation } from '@capacitor/screen-orientation'
-
-// ---- 保存/读档后端集成配置 ----
-// 开启后优先尝试调用后端 API 保存/读取；若后端不可用则回退到 localStorage。
-// 若后端尚未就绪，可开启 USE_MOCK_SAVE 在前端模拟一个持久化层（基于 localStorage）。
-const USE_BACKEND_SAVE = true
-const USE_MOCK_SAVE = true
-// 是否启用故事内容的本地 mock（后端暂未就绪时）
-const USE_MOCK_STORY = true
-
+import { useUserStore } from '../store/index.js'
+import http from '../utils/http.js'
 import * as storyService from '../service/story.js'
-
-// 本地引用，允许在运行时替换为 mock 实现
-let getScenes = storyService.getScenes
-
-// 在支持 top-level await 的环境下（Vite/ESM），若开启 mock，优先加载本地 mock 模块
-// （注意）mock 模块的按需加载会在组件挂载时异步执行，避免在 script setup 顶层使用 await 导致 async setup
-
-// 注意：已移除关键词占位背景映射，界面仅显示后端/场景提供的图片
-
-// 获取当前用户 ID 的策略：
-// 1. 首选 window.__STORYCRAFT_USER__?.id（由后端渲染或认证层注入）
-// 2. 其次使用 window.__STORYCRAFT_AUTH_TOKEN__ 解码（如果你有 JWT，可从中解析 sub）——这里不实现 JWT 解码。
-// 3. 最后回退到本地生成并保存的匿名 user id（仅用于本地测试，不适合生产跨设备共享）。
-const getCurrentUserId = () => {
-  try {
-    if (window.__STORYCRAFT_USER__ && window.__STORYCRAFT_USER__.id) return window.__STORYCRAFT_USER__.id
-  } catch (e) {}
-  // 如果页面里注入了 auth token（例如：window.__STORYCRAFT_AUTH_TOKEN__），建议后端在服务端返回 userId 给前端
-  const key = 'storycraft_user_id'
-  let id = localStorage.getItem(key)
-  if (!id) {
-    id = 'anon-' + generateUUID()
-    localStorage.setItem(key, id)
-  }
-  return id
-}
-
-const generateUUID = () => {
-  // 简单的 UUID v4 生成器（适合前端唯一标识）
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-    const r = (Math.random() * 16) | 0
-    const v = c === 'x' ? r : (r & 0x3) | 0x8
-    return v.toString(16)
-  })
-}
-
-// 后端接口约定（前端将按下列约定调用）：
-// 保存（PUT）：/api/users/{userId}/saves/{workId}/{slot}
-//   Body: { workId, slot, data: {...payload...} }
-//   Response: 200 OK 或 201 Created
-// 读取（GET）：/api/users/{userId}/saves/{workId}/{slot}
-//   Response: { data: {...payload...}, timestamp }
-// 如果你的后端使用不同路径或认证，请参考下方 README 配置并告知后端。
-
-const backendSave = async (userId, workId, slot, data) => {
-  if (USE_MOCK_SAVE) return mockBackendSave(userId, workId, slot, data)
-  const url = `/api/users/${encodeURIComponent(userId)}/saves/${encodeURIComponent(workId)}/${encodeURIComponent(slot)}`
-  const body = { workId, slot, data }
-  const headers = { 'Content-Type': 'application/json' }
-  // 如果页面注入了 token，请添加 Authorization
-  if (window.__STORYCRAFT_AUTH_TOKEN__) headers['Authorization'] = `Bearer ${window.__STORYCRAFT_AUTH_TOKEN__}`
-  const res = await fetch(url, { method: 'PUT', headers, body: JSON.stringify(body) })
-  if (!res.ok) {
-    const txt = await res.text()
-    throw new Error(txt || res.statusText)
-  }
-  return res.json().catch(() => ({}))
-}
-
-const backendLoad = async (userId, workId, slot) => {
-  if (USE_MOCK_SAVE) return mockBackendLoad(userId, workId, slot)
-  const url = `/api/users/${encodeURIComponent(userId)}/saves/${encodeURIComponent(workId)}/${encodeURIComponent(slot)}`
-  const headers = {}
-  if (window.__STORYCRAFT_AUTH_TOKEN__) headers['Authorization'] = `Bearer ${window.__STORYCRAFT_AUTH_TOKEN__}`
-  const res = await fetch(url, { method: 'GET', headers })
-  if (res.status === 404) return null
-  if (!res.ok) {
-    const txt = await res.text()
-    throw new Error(txt || res.statusText)
-  }
-  const obj = await res.json()
-  // 兼容返回格式 { data: {...}, timestamp }
-  return obj && obj.data ? obj.data : obj
-}
-
-// 简单的 mock 实现（基于 localStorage），用于后端尚未就绪时的本地联调
-const mockBackendKey = (userId) => `storycraft_mock_saves_${userId}`
-const mockBackendSave = async (userId, workId, slot, data) => {
-  const mapRaw = localStorage.getItem(mockBackendKey(userId)) || '{}'
-  const map = JSON.parse(mapRaw)
-  map[`${workId}::${slot}`] = { data, timestamp: Date.now() }
-  localStorage.setItem(mockBackendKey(userId), JSON.stringify(map))
-  // 模拟网络延迟
-  await new Promise(r => setTimeout(r, 120))
-  return { ok: true }
-}
-const mockBackendLoad = async (userId, workId, slot) => {
-  const mapRaw = localStorage.getItem(mockBackendKey(userId)) || '{}'
-  const map = JSON.parse(mapRaw)
-  const entry = map[`${workId}::${slot}`]
-  await new Promise(r => setTimeout(r, 120))
-  return entry ? entry.data : null
-}
+import { getCurrentUserId, deepClone } from '../utils/auth.js'
+import { USE_MOCK_STORY, USE_MOCK_SAVE, FORCE_CREATOR_FOR_TEST, isCreatorIdentity, editorInvocation, creatorFeatureEnabled, modifiableFromCreate } from '../config/gamepage.js'
+import { useSaveLoad } from '../composables/useSaveLoad.js'
+import { useAutoPlay } from '../composables/useAutoPlay.js'
+import { useStoryAPI } from '../composables/useStoryAPI.js'
+import { useCreatorMode } from '../composables/useCreatorMode.js'
+import { useGameState } from '../composables/useGameStatus.js'
+import { INITIAL_SCENES_MAX_RETRIES } from '../config/polling.js'
 
 const router = useRouter()
 const route = useRoute()
 
-// 加载状态
-const isLoading = ref(true)
-const loadingProgress = ref(0)
-// 后续剧情生成/获取状态
-const isFetchingNext = ref(false)
-const storyEndSignaled = ref(false)
-// 横屏准备状态
-const isLandscapeReady = ref(false)
-// 结算页面生成状态
-const isGeneratingSettlement = ref(false)
-// 用户选择历史，用于生成分支探索图
-const choiceHistory = ref([])
-// 防止选项在刚点击后立即被 watch 重新展示的时间戳（ms）
-const lastChoiceTimestamp = ref(0)
+// 使用 useStoryAPI composable
+const storyAPI = useStoryAPI()
+const {
+  // 状态
+  work,
+  lastSeq,
+  storyEndSignaled,
+  isGeneratingSettlement,
+  choiceHistory,
+  lastChoiceTimestamp,
+  currentSceneIndex,
+  currentDialogueIndex,
+  currentChapterIndex,
+  chaptersStatus,
+  lastLoadedGeneratedChapter,
+  lastSelectedEndingIndex,
+  isFetchingNext,
+  isFetchingChoice,
+  storyScenes,
+  generationLocks,
+  suppressAutoShowChoices,
+  totalChapters,
+  // 计算属性
+  currentScene,
+  currentDialogue,
+  currentBackground,
+  currentSpeaker,
+  // 方法
+  fetchNextContent,
+  fetchNextChapter,
+  pushSceneFromServer,
+  getChapterStatus,
+  getWorkDetails,
+  checkCurrentChapterSaved,
+  pollWorkStatus,
+  restoreChoiceFlagsFromHistory,
+  getDialogueItem,
+  // 服务引用
+  getScenes,
+  setGetScenes,
+  generateChapter,
+  setGenerateChapter,
+  saveChapter,
+  setSaveChapter
+} = storyAPI
+
+// 从 route 初始化 work
+work.value = {
+  id: route.params.id || 1,
+  title: history.state?.title || (() => { try { return JSON.parse(sessionStorage.getItem('lastWorkMeta'))?.title } catch { return null } })() || '锦瑟深宫',
+  coverUrl: history.state?.coverUrl || (() => { try { return JSON.parse(sessionStorage.getItem('lastWorkMeta'))?.coverUrl } catch { return null } })() || '',
+  authorId: 'author_001'
+}
+
+// 使用 useSaveLoad
+const saveLoadAPI = useSaveLoad()
+const {
+  showSaveModal,
+  showLoadModal,
+  showAttributesModal,
+  slotInfos,
+  SLOTS,
+  openSaveModal,
+  openLoadModal,
+  closeSaveModal,
+  closeLoadModal,
+  openAttributes,
+  closeAttributes,
+  saveGame,
+  loadGame,
+  deleteGame,
+  refreshSlotInfos,
+  autoSaveToSlot,
+  quickLocalAutoSave,
+  attributes,
+  statuses,
+  setDependencies: setSaveLoadDependencies,
+  AUTO_SAVE_SLOT,
+  saveToast,
+  loadToast,
+  lastSaveInfo
+} = saveLoadAPI
+
+// 页面内短时提醒
+const noticeToast = ref('')
+let noticeTimer = null
+const showNotice = (msg, ms = 5000) => {
+  try {
+    noticeToast.value = msg
+    if (noticeTimer) clearTimeout(noticeTimer)
+    noticeTimer = setTimeout(() => { noticeToast.value = ''; noticeTimer = null }, ms)
+  } catch (e) { console.warn('showNotice failed', e) }
+}
+
 // 检测是否在 Capacitor 环境中
 const isNativeApp = computed(() => {
   return window.Capacitor !== undefined
 })
 
-// 作品信息（从路由 state 获取，或从后端获取）
-const work = ref({
-  id: route.params.id || 1,
-  title: history.state?.title || (() => { try { return JSON.parse(sessionStorage.getItem('lastWorkMeta'))?.title } catch { return null } })() || '锦瑟深宫',
-  // 封面图仅使用作品页传入或上次缓存，不再回退到网络站点占位图
-  coverUrl: history.state?.coverUrl || (() => { try { return JSON.parse(sessionStorage.getItem('lastWorkMeta'))?.coverUrl } catch { return null } })() || '',
-  authorId: 'author_001'
+// 使用 useCreatorMode - 需要在 gameState 之前创建
+const creatorModeAPI = useCreatorMode({
+  fetchNextChapter,
+  pollWorkStatus,
+  work,
+  storyScenes,
+  currentSceneIndex,
+  currentDialogueIndex,
+  attributes,
+  statuses,
+  choiceHistory,
+  restoreChoiceFlagsFromHistory,
+  generateChapter,
+  showNotice,
+  isCreatorIdentity,
+  modifiableFromCreate,
+  checkCurrentChapterSaved,
+  creatorFeatureEnabled,
+  // 添加缺失的依赖
+  currentChapterIndex,
+  totalChapters
 })
 
-// 记录最后收到的 seq，以便向后端请求下一段或重连
-const lastSeq = ref(0)
-// 如果后端返回了 streamUrl，则优先使用 SSE
-let eventSource = null
+const {
+  creatorMode,
+  showOutlineEditor,
+  outlineEdits,
+  outlineCurrentPage,
+  outlineUserPrompt,
+  originalOutlineSnapshot,
+  editingDialogue,
+  editableText,
+  editableDiv,
+  isComposing,
+  imgInput,
+  allowAdvance,
+  creatorEntry,
+  pendingNextChapter,
+  previewSnapshot,
+  pendingOutlineTargetChapter,
+  overrides,
+  outlineEditorResolver,
+  
+  toggleCreatorMode,
+  openOutlineEditorManual,
+  cancelOutlineEdits,
+  confirmOutlineEdits,
+  startEdit,
+  finishEdit,
+  cancelEdit,
+  triggerImagePicker,
+  onImageSelected,
+  playNextAfterEdit,
+  onEditableInput,
+  onCompositionStart,
+  onCompositionEnd,
+  // Narration 功能
+  addNarration,
+  deleteNarration,
+  isNarration,
+  
+  loadOverrides,
+  saveOverrides,
+  applyOverridesToScenes,
+  
+  setupCreatorModeWatch,
+  setDependencies: setCreatorModeDependencies
+} = creatorModeAPI
 
-// 故事场景数据（后端提供：背景图 + 对应的文字段落）
-const storyScenes = ref([
-  // 第一章·初入宫闱（引子与场景描写）
-  {
-    sceneId: 101,
-    // 使用项目 public 目录下的本地图片作为首张场景图
-    backgroundImage: '/images/scene1.jpg',
-    dialogues: [
-      '————《锦瑟深宫》第一章·初入宫闱————',
-      '建昭三年冬，新晋宫嫔入宫。你抱着鎏铜手炉坐在青帷小轿里，听见轿外老太监絮叨：“长春宫到了，西偏殿已备好银丝炭。”',
-      // 场景描写段也沿用同一底图（需要可在后续支持滤镜）
-      { text: '（场景描写）', backgroundImage: '/images/scene1.jpg' },
-      '积雪压着琉璃蹲兽，廊下鹦鹉突然尖声学舌：“贵人万福——”你抬头看见正殿檐角断裂的铃铛在风里哑晃。领路宫女突然拽住你避开积水，她袖口露出的淤痕恰似梅枝投在纸窗上的影。'
-    ]
-  },
-  {
-    sceneId: 102,
-    backgroundImage: 'https://picsum.photos/1920/1080?random=102',
-    dialogues: [
-      '【固定剧情】',
-      '三日后晨省，你跪在德妃的牡丹团垫上奉茶。釉里红盏沿突然烫手，德妃染着蔻丹的指尖在接过时微微一顿。',
-      { text: '“林选侍倒是生得雪做肌骨。”她吹开茶沫时，鎏金护甲掠过你托举的腕子，“可惜这贡茶需九十度滚水方能出香。”', speaker: '德妃' },
-      { text: '茶盏坠地声惊起梁间燕子。一片碎瓷溅到你裙裾时，德妃含笑拭去你衣上水渍：“无妨，本宫库里有先帝赏的月白釉。”', speaker: '德妃' }
-    ],
-    // 在最后一句后展示选项
-    choiceTriggerIndex: 3,
-    choices: [
-      {
-        id: 'opt_A',
-        text: 'A. 立即叩首：“是嫔妾手笨”',
-        attributesDelta: { '心计': 5, '德妃好感': -3 },
-        statusesDelta: { '谨小慎微': '3日内行动成功率提升' },
-        nextScenes: [
-          {
-            sceneId: 1101,
-            backgroundImage: 'https://picsum.photos/1920/1080?random=1101',
-            dialogues: [
-              '【选项A后续】',
-              '你叩首时额角触及冰凉的青砖，德妃轻笑命人拾起碎瓷。当夜你在灯下抄录《女戒》，发现宣纸遇墨即晕。',
-              '次日借请安之机，你将浸染墨团的纸页呈给德妃过目。德妃指尖掠过晕染的墨痕，忽将整叠宣纸掷进炭盆。',
-              '蓝焰窜起时，她替你扶正鬓边玉簪：“内务府这般怠慢，该敲打。”三日后，送纸太监因私换贡品被杖责，你收到一匣光洁如玉的澄心堂纸。'
-            ]
-          },
-          {
-            sceneId: 1201,
-            backgroundImage: 'https://picsum.photos/1920/1080?random=1201',
-            dialogues: [
-              '————《锦瑟深宫》第二章·御园惊波————',
-              '霜降这日，众妃往御花园赏金桂。德妃扶着你的手走过九曲桥，忽指向湖心：“林选侍可见过红白锦鲤同游？”',
-              '你尚未应答，桥板突然断裂——',
-              { text: '（场景描写）', backgroundImage: 'https://picsum.photos/1920/1080?blur=2&random=7201' },
-              '冰冷湖水裹着残荷淹没口鼻，浮沉间看见德妃绣金凤纹的袖口在栏杆处纹丝不动。对岸贤妃的惊呼被风撕碎，你挣扎时抓住一截枯枝，却见明黄仪仗转过假山。',
-              '无数侍卫跃入水花的巨响中，有人托起你的后颈，龙涎香混着水汽钻进鼻腔。',
-              '【当前危机·A线】德妃俯身时鎏金护甲划过你湿透衣领：“可怜见的，连桥匠都敢怠慢妹妹。”'
-            ]
-          }
-        ]
-      },
-      {
-        id: 'opt_B',
-        text: 'B. 保持举盘姿势：“愿为娘娘重沏”',
-        attributesDelta: { '才情': 8, '健康': -5, '坚韧': 10 },
-        nextScenes: [
-          {
-            sceneId: 1102,
-            backgroundImage: 'https://picsum.photos/1920/1080?random=1102',
-            dialogues: [
-              '【选项B后续】',
-              '你举着茶盘的手纹丝不动，德妃命人续上滚水。第七日清晨你端茶时衣袖滑落，腕间水泡令贤妃惊呼。',
-              '当夜太医送来的药膏带着薄荷凉意，瓷瓶底刻着“景阳宫”小字。',
-              '月光浸透窗棂时，你发现药膏里埋着金疮药药方。院判每月初五会经过御花园采露，而贤妃的堂兄正掌管太医院文书。',
-              '檐下铁马突然叮当作响，你将药方藏进妆匣夹层。'
-            ]
-          },
-          {
-            sceneId: 1202,
-            backgroundImage: 'https://picsum.photos/1920/1080?random=1202',
-            dialogues: [
-              '————《锦瑟深宫》第二章·御园惊波————',
-              '霜降这日，众妃往御花园赏金桂。德妃扶着你的手走过九曲桥，忽指向湖心：“林选侍可见过红白锦鲤同游？”',
-              '你尚未应答，桥板突然断裂——',
-              { text: '（场景描写）', backgroundImage: 'https://picsum.photos/1920/1080?blur=2&random=7202' },
-              '冰冷湖水裹着残荷淹没口鼻，浮沉间看见德妃绣金凤纹的袖口在栏杆处纹丝不动。对岸贤妃的惊呼被风撕碎，你挣扎时抓住一截枯枝，却见明黄仪仗转过假山。',
-              '无数侍卫跃入水花的巨响中，有人托起你的后颈，龙涎香混着水汽钻进鼻腔。',
-              { text: '【当前危机·B线】贤妃递来的姜汤飘着当归气：“本宫瞧着，那桥桩断口倒是齐整。”', speaker: '贤妃' }
-            ]
-          }
-        ]
-      },
-      {
-        id: 'opt_C',
-        text: 'C. 抬眼直视德妃：“娘娘教诲如醍醐灌顶”',
-        attributesDelta: { '心计': 15, '声望': 10, '德妃好感': -10 },
-        statusesDelta: { '锋芒初露': '易被高位妃嫔注意' },
-        nextScenes: [
-          {
-            sceneId: 1103,
-            backgroundImage: 'https://picsum.photos/1920/1080?random=1103',
-            dialogues: [
-              '【选项C后续】',
-              '你抬眼时恰有晨光映在德妃的九翟冠上，她赏的雨过天青茶具当夜便被收进库房。',
-              '三日后太后召见，你跪在慈宁宫金砖上听见佛珠碰撞声。',
-              '缠枝莲香炉飘出的檀香与德妃宫中的龙涎香截然不同。太后腕间沉香木念珠垂落的流穗轻晃，突然问及江南旧事——那是你父亲曾任通判的地方。',
-              '你抬头看见屏风后露出半幅明黄衣角。'
-            ]
-          },
-          {
-            sceneId: 1203,
-            backgroundImage: 'https://picsum.photos/1920/1080?random=1203',
-            dialogues: [
-              '————《锦瑟深宫》第二章·御园惊波————',
-              '霜降这日，众妃往御花园赏金桂。德妃扶着你的手走过九曲桥，忽指向湖心：“林选侍可见过红白锦鲤同游？”',
-              '你尚未应答，桥板突然断裂——',
-              { text: '（场景描写）', backgroundImage: 'https://picsum.photos/1920/1080?blur=2&random=7203' },
-              '冰冷湖水裹着残荷淹没口鼻，浮沉间看见德妃绣金凤纹的袖口在栏杆处纹丝不动。对岸贤妃的惊呼被风撕碎，你挣扎时抓住一截枯枝，却见明黄仪仗转过假山。',
-              '无数侍卫跃入水花的巨响中，有人托起你的后颈，龙涎香混着水汽钻进鼻腔。',
-              { text: '【当前危机·C线】太后掌事宫女塞来暖玉：“皇上方才问起，会凫水的侍卫是哪宫安排的。”', speaker: '掌事宫女' }
-            ]
-          }
-        ]
-      }
-    ]
-  }
-])
-
-// 将后端 scene 对象（或 firstChapter）加入本地 storyScenes（保持顺序）
-// 本函数会把 game-api.md 的 scene 格式（id, backgroundImage, dialogues[{narration, playerChoices}])
-// 适配为前端当前使用的内部结构（保留兼容性）：
-// - 为旧代码提供 .sceneId 字段
-// - 将在 dialogue 内出现的 playerChoices 抽取并放到 scene.choices + scene.choiceTriggerIndex（便于现有渲染逻辑复用）
-const pushSceneFromServer = (sceneObj) => {
+// 当前对话对象（可能是字符串或对象）
+const currentDialogueObject = computed(() => {
   try {
-    const raw = sceneObj.scene ? sceneObj.scene : sceneObj
-    if (!raw) return
+    const scene = storyScenes.value[currentSceneIndex.value]
+    if (!scene || !Array.isArray(scene.dialogues)) return null
+    const idx = currentDialogueIndex.value
+    if (idx < 0 || idx >= scene.dialogues.length) return null
+    return scene.dialogues[idx]
+  } catch (e) { return null }
+})
 
-    // 标准化 id 字段（支持旧的 sceneId 和新的 id）
-    const id = raw.id ?? raw.sceneId ?? (raw.seq ? `seq-${raw.seq}` : Math.floor(Math.random() * 1000000))
+// 是否为旁白
+const currentIsNarration = computed(() => {
+  try { return isNarration(currentDialogueObject.value) } catch (e) { return false }
+})
 
-    // 背景图
-    const backgroundImage = raw.backgroundImage || raw.bg || ''
-
-    // 转换 dialogues：支持三种输入形式：
-    // 1) 字符串数组（旧） -> { text }
-    // 2) 对象数组且带有 narration/playerChoices（game-api.md）
-    // 3) 对象数组且带有 text/speaker（旧增强形式）
-    const dialogues = []
-    let extractedChoices = null
-    for (let i = 0; i < (raw.dialogues || []).length; i++) {
-      const d = raw.dialogues[i]
-      if (typeof d === 'string') {
-        dialogues.push(d)
-      } else if (d && typeof d === 'object') {
-        // prefer narration (game-api.md), fall back to text
-        const narration = d.narration ?? d.text ?? ''
-        // store as object for UI code paths that support object dialogues
-        const item = { text: narration }
-        if (d.backgroundImage) item.backgroundImage = d.backgroundImage
-        if (d.speaker) item.speaker = d.speaker
-        // if this dialogue has playerChoices (game-api.md), extract them
-        if (Array.isArray(d.playerChoices) && d.playerChoices.length > 0) {
-          // map playerChoices to frontend-friendly structure and keep original ids if provided
-          const pcs = d.playerChoices.map((c, idx) => ({
-            id: c.id ?? `${id}-${i}-${idx}`,
-            text: c.text ?? '',
-            attributesDelta: c.attributesDelta ?? {},
-            statusesDelta: c.statusesDelta ?? {},
-            statuses: c.statuses ?? {},
-            subsequentDialogues: c.subsequentDialogues ?? []
-          }))
-          extractedChoices = { index: dialogues.length, choices: pcs }
-        }
-        dialogues.push(item)
-      } else {
-        dialogues.push(String(d))
-      }
-    }
-
-    // assemble normalized scene object for frontend
-    const scene = {
-      id: id,
-      sceneId: id, // 保留旧字段名以兼容旧代码
-      backgroundImage,
-      dialogues: dialogues,
-      isChapterEnding: raw.isChapterEnding ?? raw.chapterEnd ?? false
-    }
-
-    // 如果上层响应提供了章节信息，则保留在 scene 上，便于结算页/分支图使用
-    if (raw.chapterIndex || raw.chapterIndex === 0) scene.chapterIndex = raw.chapterIndex
-    if (raw.chapterTitle || raw.title) scene.chapterTitle = raw.chapterTitle ?? raw.title
-
-    // 如果在 dialogue 中发现了 playerChoices，则将其提升为 scene.choices（旧代码所需）
-    if (extractedChoices) {
-      scene.choiceTriggerIndex = extractedChoices.index
-      scene.choices = extractedChoices.choices
-    }
-
-    // 如果后端直接在 scene 层提供 choices（旧 mock 风格），也兼容
-    if (Array.isArray(raw.choices) && raw.choices.length > 0) {
-      scene.choices = raw.choices.map((c, idx) => ({ id: c.id ?? `${id}-c-${idx}`, text: c.text ?? '', attributesDelta: c.attributesDelta ?? {}, statusesDelta: c.statusesDelta ?? {}, subsequentDialogues: c.subsequentDialogues ?? [] }))
-      scene.choiceTriggerIndex = typeof raw.choiceTriggerIndex === 'number' ? raw.choiceTriggerIndex : (scene.dialogues.length - 1)
-    }
-
-    // 防止重复（以 sceneId 为唯一键）
-    const exists = storyScenes.value.some(x => (x.sceneId ?? x.id) === scene.sceneId)
-    if (!exists) storyScenes.value.push(scene)
-  } catch (e) { console.warn('pushSceneFromServer failed', e) }
+// 尝试删除旁白：若不满足条件则给出提示
+const attemptDeleteNarration = () => {
+  try {
+    if (!creatorMode.value) { showNotice('尚未进入创作者模式'); return }
+    if (!currentIsNarration.value) { showNotice('当前不是旁白，无法删除'); return }
+    deleteNarration()
+  } catch (e) { console.warn('attemptDeleteNarration failed', e) }
 }
 
-// 在页加载时从后端获取首章内容
-const initFromCreateResult = async () => {
+// 先定义 showSettingsModal，因为它被 anyOverlayOpen 使用
+const showSettingsModal = ref(false)
+
+// 是否正在进入结局判定的特殊加载（在跳转到结算/结局前显示）
+const isEndingLoading = ref(false)
+
+// 🔑 新增：标记是否等待用户点击以显示选项
+// 当用户阅读到带有选项的narration时，不立即显示选项，而是等待用户再点击一次
+const waitingForClickToShowChoices = ref(false)
+
+// 定义 fetchReport 函数（需要在 useGameState 之前定义）
+// 最后一章结束后,向后端请求个性化报告：POST /api/settlement/report/:workId/
+const fetchReport = async (workId) => {
+  try {
+    console.log('[GamePage] fetchReport 被调用 - workId:', workId)
+    
+    // 🔑 关键重构：使用 story.js 服务层的网络请求，传递当前达成的结局索引（endingIndex）
+    const chosenEndingIdx = (typeof lastSelectedEndingIndex !== 'undefined' && lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? Number(lastSelectedEndingIndex.value) : 1
+    const data = await storyService.fetchSettlementReport(workId, {
+      attributes: attributes.value || {},
+      statuses: statuses.value || {},
+      endingIndex: chosenEndingIdx
+    })
+    
+    if (!data) {
+      console.warn('[GamePage] fetchReport 返回空数据')
+      return null
+    }
+    
+    // 🔑 关键修复：确保后端返回的数据包含 work 信息
+    if (!data.work) {
+      console.warn('[GamePage] fetchReport 返回的数据缺少 work 信息，添加当前 work')
+      data.work = work.value
+    }
+    
+    try { 
+      sessionStorage.setItem('settlementData', JSON.stringify(data))
+      console.log('[GamePage] fetchReport 保存 settlementData 到 sessionStorage:', data)
+    } catch (e) {
+      console.error('[GamePage] 保存 settlementData 失败:', e)
+    }
+    
+    return data
+  } catch (e) { 
+    console.error('[GamePage] fetchReport 失败:', e)
+    return null 
+  }
+}
+
+
+// 现在创建 gameState - 传递所有需要的依赖
+const gameStateAPI = useGameState({
+  router,
+  route,
+  storyScenes,
+  currentSceneIndex,
+  currentDialogueIndex,
+  currentScene,
+  currentChapterIndex,
+  totalChapters,
+  storyEndSignaled,
+  isFetchingNext,
+  isFetchingChoice,
+  isGeneratingSettlement,
+  suppressAutoShowChoices,
+  choiceHistory,
+  lastChoiceTimestamp,
+  attributes,
+  statuses,
+  work,
+  fetchNextChapter,
+  fetchNextContent,
+  pushSceneFromServer,
+  getChapterStatus,
+  getWorkDetails,
+  checkCurrentChapterSaved,
+  restoreChoiceFlagsFromHistory,
+  // 添加缺失的依赖
+  creatorMode,
+  lastSelectedEndingIndex,
+  allowAdvance,
+  editingDialogue,  // 🔑 关键修复：添加编辑状态依赖
+  creatorFeatureEnabled,
+  isCreatorIdentity,
+  modifiableFromCreate,
+  USE_MOCK_STORY,
+  isNativeApp,
+  showNotice,
+  deepClone,
+  fetchReport,
+  pendingNextChapter,
+  AUTO_SAVE_SLOT,
+  autoSaveToSlot,
+  previewSnapshot,
+  waitingForClickToShowChoices  // 🔑 新增：传递等待点击显示选项的标记
+})
+
+// 解构 gameState 返回的方法和状态
+const gameStateResult = gameStateAPI
+
+const {
+  isLoading,
+  loadingProgress,
+  isLandscapeReady,
+  showText,
+  showMenu,
+  choicesVisible,
+  readingProgress,
+  isLastDialogue,
+  toggleMenu,
+  goBack,
+  nextDialogue,
+  chooseOption,
+  requestLandscape,
+  simulateLoadTo100,
+  startLoading,
+  stopLoading,
+  handleGameEnd,
+  cleanup: cleanupGameState
+} = gameStateResult
+const {
+  endingEditorVisible,
+  endingEditorBusy,
+  endingEditorForm,
+  openEndingEditor,
+  submitEndingEditor,
+  cancelEndingEditor
+} = gameStateResult
+// 如果当前场景是后端返回的结局场景且尚未被保存，我们在创作者模式下需要显示特殊的编辑/保存按钮
+const isPlayingBackendGeneratedEnding = computed(() => {
+  try {
+    const cs = currentScene.value
+    const cf = (creatorFeatureEnabled && creatorFeatureEnabled.value) || false
+    return cf && cs && cs._isBackendEnding && (cs._endingSaved !== true)
+  } catch (e) { return false }
+})
+
+// 保存当前正在播放的后端结局（将其 scenes PUT 到 /api/game/storyending/{workId}/{endingIndex}/）
+const saveCurrentEnding = async () => {
+  try {
+    try { if (typeof startLoading === 'function') startLoading() } catch (e) {}
+    const workId = work && work.value && work.value.id
+    if (!workId) { showNotice('无法识别作品 ID，保存失败'); try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}; return }
+    const endingIdx = (lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? Number(lastSelectedEndingIndex.value) : 1
+    // Helper: 将前端内部的 dialogue 项规范化为后端期望的格式
+    const normalizeDialogue = (item) => {
+      try {
+        // 如果已有后端格式（包含 narration 字段），保留
+        if (item && typeof item === 'object' && (typeof item.narration !== 'undefined' || typeof item.narration === 'string')) {
+          // 确保 narration 为字符串
+          return { narration: String(item.narration), playerChoices: item.playerChoices ?? null }
+        }
+        // 如果是字符串，直接作为 narration
+        if (typeof item === 'string') return { narration: item, playerChoices: null }
+        // 如果是对象且有 text 字段（我们内部常用 text），使用 text
+        if (item && typeof item === 'object' && typeof item.text === 'string') return { narration: item.text, playerChoices: item.playerChoices ?? null }
+        // 如果是对象且有 content 或 narrationText 等字段，尝试兜底
+        if (item && typeof item === 'object') {
+          const txt = item.text ?? item.content ?? item.narrationText ?? ''
+          return { narration: String(txt || ''), playerChoices: item.playerChoices ?? null }
+        }
+        // 其它情况返回空串，避免后端校验失败
+        return { narration: '', playerChoices: null }
+      } catch (e) { return { narration: '', playerChoices: null } }
+    }
+
+    // 从 storyScenes 中收集所有标记为 _isBackendEnding 的场景，并规范化 dialogues
+    const scenesToSave = (storyScenes.value || []).filter(s => s && s._isBackendEnding).map(s => ({
+      id: s.id ?? s.sceneId ?? undefined,
+      backgroundImage: s.backgroundImage || s.background || s.bg || '',
+      dialogues: Array.isArray(s.dialogues) ? s.dialogues.map(d => normalizeDialogue(d)) : []
+    }))
+    const title = (sessionStorage.getItem(`selectedEndingTitle_${workId}`) || (currentScene.value && currentScene.value._endingTitle) || `结局 ${endingIdx}`)
+    const body = { endingIndex: endingIdx, title, scenes: scenesToSave }
+    try {
+      await storyService.saveEnding(workId, body)
+      showNotice('已保存结局内容')
+      // 标记前端缓存为已保存
+      try { for (const s of storyScenes.value) { if (s && s._isBackendEnding) s._endingSaved = true } } catch (e) {}
+      try { await getWorkDetails(workId) } catch (e) {}
+    } catch (e) {
+      console.error('saveCurrentEnding failed', e)
+      showNotice('保存结局失败，请检查网络或控制台', 8000)
+      throw e
+    }
+  } catch (e) {
+    console.warn('saveCurrentEnding error', e)
+  } finally {
+    try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}
+  }
+}
+// 从 gameState 导出 playingEndingScenes 与 endingsAppended
+const { playingEndingScenes, endingsAppended } = gameStateResult
+
+// 计算任意弹窗是否打开 - 在 showMenu 解构之后定义
+const anyOverlayOpen = computed(() =>
+  showMenu.value ||
+  showSaveModal.value ||
+  showLoadModal.value ||
+  showAttributesModal.value ||
+  showSettingsModal.value ||
+  showOutlineEditor.value ||
+  (endingEditorVisible && endingEditorVisible.value)
+)
+
+// 初始化自动播放功能 - 在 gameState 之后创建，使用 getter 获取 nextDialogue
+const autoPlayAPI = useAutoPlay({
+  getNextDialogue: () => nextDialogue,
+  isLandscapeReady,
+  isLoading,
+  isFetchingNext,
+  isGeneratingSettlement,
+  showMenu,
+  showText,
+  choicesVisible,
+  anyOverlayOpen
+})
+
+const {
+  showSettingsModal: autoPlaySettingsModal,
+  autoPlayEnabled,
+  autoPlayIntervalMs,
+  startAutoPlayTimer,
+  stopAutoPlayTimer,
+  saveAutoPlayPrefs,
+  loadAutoPlayPrefs
+} = autoPlayAPI
+
+// 本地引用，允许在运行时替换为 mock 实现
+let didLoadInitialMock = false
+let creatorEditorHandled = false
+
+// 新增初始化函数
+const initializeGame = async () => {
+  // 检查用户是否已登录
+  const userStore = useUserStore()
+  if (!userStore.isAuthenticated) {
+    console.log('用户未登录，重定向到登录页面')
+    // 保存当前页面，登录后可以返回
+    sessionStorage.setItem('redirectAfterLogin', router.currentRoute.value.fullPath)
+    router.push('/login')
+    return
+  }
+  
+  isLoading.value = true
+  loadingProgress.value = 0
+  
+  try {
+    // 若启用本地 mock，则在组件挂载时异步加载 mock 实现
+    if (USE_MOCK_STORY) {
+      try {
+        const mock = await import('../service/story.mock.js')
+        getScenes = mock.getScenes
+        setGetScenes(mock.getScenes)
+        try { window.__USE_MOCK_STORY__ = true } catch (e) {}
+      } catch (e) {
+        console.warn('加载 story.mock.js 失败，将回退到真实 service：', e)
+      }
+    }
+    
+    let initOk = false
+    try {
+      // 测试模式：强制在进入游戏前弹出创作者大纲编辑器（若尚未处理）
+      if (FORCE_CREATOR_FOR_TEST && !creatorEditorHandled) {
+        try {
+          // 构造一个临时的 createResult 对象（从路由 或 session 的 lastWorkMeta 获取基础信息）
+          const temp = {
+            fromCreate: true,
+            backendWork: { id: work.value.id, title: work.value.title },
+            modifiable: true,
+            total_chapters: Number(totalChapters.value) || 5,
+            chapterOutlines: null
+          }
+          // 仅在 sessionStorage 中尚无 createResult 时写入临时对象，避免覆盖后端或创建页写入的真实数据
+          try {
+            const existing = sessionStorage.getItem('createResult')
+            if (!existing) sessionStorage.setItem('createResult', JSON.stringify(temp))
+          } catch (e) {}
+          // 标记为已处理，避免重复弹窗
+          creatorEditorHandled = true
+        } catch (e) { console.warn('prepare FORCE_CREATOR_FOR_TEST failed', e) }
+      }
+
+      const ok = await initFromCreateResult()
+      initOk = !!ok
+      if (!ok) {
+        // 没有来自创建页的首章，尝试获取第一章
+        if (USE_MOCK_STORY && typeof getScenes === 'function') {
+          try {
+            const resp = await getScenes(work.value.id, 1, {
+              onProgress: (progress) => {
+                console.log(`[Story] 首章生成进度:`, progress)
+                // 更新加载进度
+                if (progress.status === 'generating' && progress.progress) {
+                  loadingProgress.value = Math.min(90, (progress.progress.currentChapter / progress.progress.totalChapters) * 100)
+                }
+              }
+            })
+            const initial = (resp && resp.scenes) ? resp.scenes : (Array.isArray(resp) ? resp : [])
+            if (Array.isArray(initial) && initial.length > 0) {
+              storyScenes.value = []
+              for (const s of initial) {
+                if (s && Array.isArray(s.choices)) {
+                  const seen = new Set()
+                  s.choices = s.choices.filter(c => {
+                    const id = c?.id ?? JSON.stringify(c)
+                    if (seen.has(id)) return false
+                    seen.add(id)
+                    return true
+                  })
+                }
+                storyScenes.value.push(s)
+              }
+              try { didLoadInitialMock = true } catch (e) {}
+              currentSceneIndex.value = 0
+              currentDialogueIndex.value = 0
+              currentChapterIndex.value = 1
+            } else {
+              // mock 未返回初始场景，回退到后端请求
+              console.log('[GamePage] mock未返回场景，回退到fetchNextChapter...')
+              const result = await fetchNextChapter(work.value.id, 1, {
+                onProgress: (progress) => {
+                  console.log(`[Story] 首章生成进度:`, progress)
+                  if (progress.status === 'generating' && progress.progress) {
+                    loadingProgress.value = Math.min(90, (progress.progress.currentChapter / progress.progress.totalChapters) * 100)
+                  }
+                }
+              })
+              console.log('[GamePage] fetchNextChapter返回结果:', result)
+            }
+          } catch (e) {
+            console.warn('getInitialScenes failed, fallback to fetchNextChapter', e)
+            console.log('[GamePage] getInitialScenes失败，尝试fetchNextChapter...')
+            const result = await fetchNextChapter(work.value.id, 1, {
+              onProgress: (progress) => {
+                console.log(`[Story] 首章生成进度:`, progress)
+                if (progress.status === 'generating' && progress.progress) {
+                  loadingProgress.value = Math.min(90, (progress.progress.currentChapter / progress.progress.totalChapters) * 100)
+                }
+              }
+            })
+            console.log('[GamePage] fetchNextChapter返回结果:', result)
+          }
+        } else {
+          console.log('[GamePage] 调用fetchNextChapter获取第一章...')
+          const result = await fetchNextChapter(work.value.id, 1, {
+            onProgress: (progress) => {
+              console.log(`[Story] 首章生成进度:`, progress)
+              if (progress.status === 'generating' && progress.progress) {
+                loadingProgress.value = Math.min(90, (progress.progress.currentChapter / progress.progress.totalChapters) * 100)
+              }
+            }
+          })
+          console.log('[GamePage] fetchNextChapter返回结果:', result)
+          console.log('[GamePage] 当前storyScenes数量:', storyScenes.value?.length || 0)
+        }
+      }
+    } catch (e) { 
+      console.warn('initFromCreateResult failed', e)
+      // 如果 initFromCreateResult 失败，尝试直接获取第一章
+      try {
+        console.log('[GamePage] initFromCreateResult失败，尝试fetchNextChapter...')
+        const result = await fetchNextChapter(work.value.id, 1, {
+          onProgress: (progress) => {
+            console.log(`[Story] 首章生成进度:`, progress)
+            if (progress.status === 'generating' && progress.progress) {
+              loadingProgress.value = Math.min(90, (progress.progress.currentChapter / progress.progress.totalChapters) * 100)
+            }
+          }
+        })
+        console.log('[GamePage] fetchNextChapter返回结果:', result)
+      } catch (err) {
+        console.warn('fetchNextChapter failed in initializeGame', err)
+      }
+    }
+
+    // 绑定退出处理
+    try {
+      await ScreenOrientation.lock({ type: 'portrait' }).catch(() => {})
+    } catch (e) {}
+
+    // 检查是否已经有场景数据（从fetchNextChapter加载的）
+    console.log('[initializeGame] 检查场景数据 - storyScenes长度:', storyScenes.value?.length || 0)
+    
+    if (Array.isArray(storyScenes.value) && storyScenes.value.length > 0) {
+      console.log(`[initializeGame] 场景数据已加载，跳过等待循环。场景数量: ${storyScenes.value.length}`)
+      // 确保索引有效
+      if (currentSceneIndex.value >= storyScenes.value.length) {
+        currentSceneIndex.value = 0
+      }
+      if (currentDialogueIndex.value >= (storyScenes.value[currentSceneIndex.value]?.dialogues?.length || 0)) {
+        currentDialogueIndex.value = 0
+      }
+    } else {
+      // 如果没有场景数据，才进入等待循环
+      console.log('[initializeGame] 场景数据未加载，进入等待循环')
+      let retryCount = 0
+      // 采用全局轮询配置，延长等待时间（默认约 5 分钟）
+      const maxRetries = INITIAL_SCENES_MAX_RETRIES
+      
+      while ((!Array.isArray(storyScenes.value) || storyScenes.value.length === 0) && retryCount < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, 1000)) // 每秒检查一次
+        retryCount++
+        console.log(`[initializeGame] 等待场景数据加载... 重试 ${retryCount}/${maxRetries}`)
+        
+        // 如果进度超过50%，显示更详细的状态
+        if (loadingProgress.value > 50) {
+          console.log(`[initializeGame] 生成进度: ${loadingProgress.value}%`)
+        }
+      }
+      
+      // 如果仍然没有场景，使用一个默认场景避免黑屏
+      if (!Array.isArray(storyScenes.value) || storyScenes.value.length === 0) {
+        console.warn('[initializeGame] 等待超时，使用默认场景')
+        storyScenes.value = [{
+          sceneId: 'fallback',
+          backgroundImage: work.value.coverUrl || 'https://picsum.photos/1920/1080?random=1',
+          dialogues: ['故事正在加载中，请稍候...']
+        }]
+        currentSceneIndex.value = 0
+        currentDialogueIndex.value = 0
+      }
+    }
+
+    // 现在可以安全关闭加载界面，显示进度和剧情
+    console.log('[initializeGame] 场景加载完成，准备显示剧情。场景数量:', storyScenes.value.length)
+    console.log('[initializeGame] 当前索引 - scene:', currentSceneIndex.value, 'dialogue:', currentDialogueIndex.value)
+    console.log('[initializeGame] 当前场景内容:', storyScenes.value[currentSceneIndex.value])
+    
+    // 🔑 关键修复：确保先完成进度动画，再关闭加载界面
+    await simulateLoadTo100(800)
+    
+    // 🔑 关键修复：确保所有状态正确设置
+    isLoading.value = false
+    showText.value = true
+    
+    console.log('[initializeGame] 加载状态更新完成 - isLoading:', isLoading.value, 'showText:', showText.value)
+    
+  } catch (error) {
+    console.error('[initializeGame] Initialize game failed:', error)
+    // 即使出错也要确保有场景显示
+    if (!Array.isArray(storyScenes.value) || storyScenes.value.length === 0) {
+      storyScenes.value = [{
+        sceneId: 'error',
+        backgroundImage: work.value.coverUrl || 'https://picsum.photos/1920/1080?random=1',
+        dialogues: ['故事加载失败，请返回重试。']
+      }]
+      currentSceneIndex.value = 0
+      currentDialogueIndex.value = 0
+    }
+    await simulateLoadTo100(500)
+    isLoading.value = false
+    showText.value = true
+  }
+}
+
+// 计算用于展示的封面 URL：优先使用完整 URL；若后端返回相对路径则补齐本地开发后端地址；若不存在则返回内置占位图
+const effectiveCoverUrl = computed(() => {
+  try {
+    const raw = work.value.coverUrl || ''
+    const defaultImg = 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=1600&h=900&fit=crop'
+    if (!raw) return defaultImg
+    if (/^https?:\/\//i.test(raw)) return raw
+    // 如果是相对路径（例如 /media/xxx），为开发环境补齐后端地址
+    return 'http://localhost:8000' + (raw.startsWith('/') ? raw : ('/' + raw))
+  } catch (e) {
+    return 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=1600&h=900&fit=crop'
+  }
+})
+
+const initFromCreateResult = async (opts = {}) => {
   try {
     const raw = sessionStorage.getItem('createResult')
     if (!raw) return false
@@ -362,20 +691,152 @@ const initFromCreateResult = async () => {
       work.value.id = obj.backendWork.id || work.value.id
       work.value.title = obj.backendWork.title || work.value.title
       work.value.coverUrl = obj.backendWork.coverUrl || work.value.coverUrl
+      // 后端可能返回 ai_callable 字段，标识是否允许调用 AI 生成
+      if (typeof obj.backendWork.ai_callable !== 'undefined') {
+        work.value.ai_callable = obj.backendWork.ai_callable
+      }
     }
-  // 从 createResult 或 history.state 获取初始属性和状态
-  // 兼容两种写法：createResult 可能直接包含 initialAttributes/initialStatuses，
-  // 也可能只包含 backendWork（其中包含 initialAttributes/statuses 字段）
-  if (obj.initialAttributes) attributes.value = obj.initialAttributes
-  else if (obj.backendWork && obj.backendWork.initialAttributes) attributes.value = obj.backendWork.initialAttributes
+    // 从 createResult 或 history.state 获取初始属性和状态
+    // 兼容两种写法：createResult 可能直接包含 initialAttributes/initialStatuses，
+    // 也可能只包含 backendWork（其中包含 initialAttributes/statuses 字段）
+  // attributes/statuses: 支持多种命名与嵌套位置（camelCase / snake_case / backendWork.data）
+  if (obj.initialAttributes) {
+    attributes.value = obj.initialAttributes
+    console.log('[initFromCreateResult] 初始化 attributes (从 initialAttributes):', attributes.value)
+  } else if (obj.initial_attributes) {
+    attributes.value = obj.initial_attributes
+    console.log('[initFromCreateResult] 初始化 attributes (从 initial_attributes):', attributes.value)
+  } else if (obj.backendWork && obj.backendWork.initialAttributes) {
+    attributes.value = obj.backendWork.initialAttributes
+    console.log('[initFromCreateResult] 初始化 attributes (从 backendWork.initialAttributes):', attributes.value)
+  } else if (obj.backendWork && obj.backendWork.initial_attributes) {
+    attributes.value = obj.backendWork.initial_attributes
+    console.log('[initFromCreateResult] 初始化 attributes (从 backendWork.initial_attributes):', attributes.value)
+  } else if (obj.backendWork && obj.backendWork.data && obj.backendWork.data.initialAttributes) {
+    attributes.value = obj.backendWork.data.initialAttributes
+    console.log('[initFromCreateResult] 初始化 attributes (从 backendWork.data.initialAttributes):', attributes.value)
+  } else if (obj.backendWork && obj.backendWork.data && obj.backendWork.data.initial_attributes) {
+    attributes.value = obj.backendWork.data.initial_attributes
+    console.log('[initFromCreateResult] 初始化 attributes (从 backendWork.data.initial_attributes):', attributes.value)
+  } else {
+    console.log('[initFromCreateResult] 未找到初始属性，使用空对象')
+  }
 
-  if (obj.initialStatuses) statuses.value = obj.initialStatuses
-  else if (obj.backendWork && obj.backendWork.initialStatuses) statuses.value = obj.backendWork.initialStatuses
+  if (obj.initialStatuses) {
+    statuses.value = obj.initialStatuses
+    console.log('[initFromCreateResult] 初始化 statuses (从 initialStatuses):', statuses.value)
+  } else if (obj.initial_statuses) {
+    statuses.value = obj.initial_statuses
+    console.log('[initFromCreateResult] 初始化 statuses (从 initial_statuses):', statuses.value)
+  } else if (obj.backendWork && obj.backendWork.initialStatuses) {
+    statuses.value = obj.backendWork.initialStatuses
+    console.log('[initFromCreateResult] 初始化 statuses (从 backendWork.initialStatuses):', statuses.value)
+  } else if (obj.backendWork && obj.backendWork.initial_statuses) {
+    statuses.value = obj.backendWork.initial_statuses
+    console.log('[initFromCreateResult] 初始化 statuses (从 backendWork.initial_statuses):', statuses.value)
+  } else if (obj.backendWork && obj.backendWork.data && obj.backendWork.data.initialStatuses) {
+    statuses.value = obj.backendWork.data.initialStatuses
+    console.log('[initFromCreateResult] 初始化 statuses (从 backendWork.data.initialStatuses):', statuses.value)
+  } else if (obj.backendWork && obj.backendWork.data && obj.backendWork.data.initial_statuses) {
+    statuses.value = obj.backendWork.data.initial_statuses
+    console.log('[initFromCreateResult] 初始化 statuses (从 backendWork.data.initial_statuses):', statuses.value)
+  } else {
+    console.log('[initFromCreateResult] 未找到初始状态，使用空对象')
+  }
+
+    // total_chapters（若提供）
+    if (obj.total_chapters) totalChapters.value = obj.total_chapters
+    else if (obj.backendWork && (obj.backendWork.total_chapters || obj.backendWork.total_chapters === 0)) totalChapters.value = obj.backendWork.total_chapters || null
     
+    // 根据 createResult 与 backendWork 决定是否启用创作者功能
+    try {
+      creatorFeatureEnabled.value = !!(obj.modifiable && !(obj.backendWork && obj.backendWork.ai_callable === false))
+    } catch (e) { creatorFeatureEnabled.value = !!obj.modifiable }
+    // 记录 createResult.modifiable，用于决定是否允许菜单触发的手动创作编辑（即使 ai_callable 为 false）
+    try { modifiableFromCreate.value = !!obj.modifiable } catch (e) { modifiableFromCreate.value = !!obj.modifiable }
+
+    // 尝试获取作品详情以初始化章节状态（chapters_status）
+    try { 
+      await getWorkDetails(work.value.id)
+      console.log('[initFromCreateResult] 获取作品详情后的章节状态:', chaptersStatus.value)
+    } catch (e) { 
+      console.warn('[initFromCreateResult] 获取作品详情失败:', e)
+    }
+
     // 从后端获取首章内容（chapterIndex = 1，后端为 1-based）
     try {
       const workId = work.value.id
-      const result = await getScenes(workId, 1)
+      // 如果当前 createResult 同时表示为创作者模式且后端允许 AI 调用，先让用户编辑大纲再触发生成（即使后端尚未返回大纲）
+      // 但只在第一章状态为 not_generated 时才弹出编辑器
+      if (creatorFeatureEnabled.value && !(opts && opts.suppressAutoEditor)) {
+        // 检查第一章的状态
+        const firstChapterStatus = getChapterStatus(1)
+        console.log(`[initFromCreateResult] 第一章状态: ${firstChapterStatus}，所有章节状态:`, chaptersStatus.value)
+        
+        // 只在状态为 not_generated 或 null (未知状态) 时才弹出编辑器
+        if (!firstChapterStatus || firstChapterStatus === 'not_generated') {
+          // 如果当前进入者是作品创建者身份（isCreatorIdentity），我们需要自动弹出编辑器用于生成大纲
+          if (isCreatorIdentity.value && !creatorEditorHandled) {
+            editorInvocation.value = 'auto'
+            creatorEditorHandled = true
+          } else {
+            // 仅标识该作品支持创作者功能，但不自动启用菜单创作者模式
+            // 菜单中的 creatorMode 由用户在页面手动切换
+          }
+
+          // 将后端可能返回的 chapterOutlines 映射为编辑器使用的格式：{ chapterIndex, outline }
+          try {
+            // 支持后端在多种字段位置返回大纲：优先使用 createResult.chapterOutlines，其次尝试 backendWork.outlines / data.outlines / outlines
+            let rawOutlines = []
+            if (Array.isArray(obj.chapterOutlines) && obj.chapterOutlines.length > 0) rawOutlines = obj.chapterOutlines
+            else if (obj.backendWork && Array.isArray(obj.backendWork.outlines) && obj.backendWork.outlines.length > 0) rawOutlines = obj.backendWork.outlines
+            else if (Array.isArray(obj.outlines) && obj.outlines.length > 0) rawOutlines = obj.outlines
+            else if (obj.data && Array.isArray(obj.data.outlines) && obj.data.outlines.length > 0) rawOutlines = obj.data.outlines
+
+            if (rawOutlines.length > 0) {
+              // 合并标题与大纲正文：title + 空行 + outline/summary
+              const mapped = rawOutlines.map((ch, i) => {
+                const ci = (ch && (ch.chapterIndex ?? ch.chapter_index)) || (i + 1)
+                const title = (ch && (ch.title ?? ch.chapter_title)) || ''
+                const body = (ch && (ch.outline ?? ch.summary)) || ''
+                const combined = (title && body) ? `${title}\n\n${body}` : (title || body || JSON.stringify(ch))
+                return { chapterIndex: Number(ci), outline: combined }
+              })
+              outlineEdits.value = mapped
+            } else {
+              // 不再合成本地 mock：如果后端未返回大纲，则使用空数组，让编辑器呈现空状态由用户或后端生成
+              outlineEdits.value = []
+            }
+
+            // 若 createResult 中包含 userPrompt 字段，则带入编辑器供用户修改
+            outlineUserPrompt.value = obj.userPrompt || ''
+          } catch (mapErr) {
+            console.warn('map chapterOutlines failed', mapErr)
+            outlineEdits.value = []
+          }
+
+          // 记录原始大纲快照（用于取消时按原始大纲生成）
+          try { originalOutlineSnapshot.value = JSON.parse(JSON.stringify(outlineEdits.value || [])) } catch(e) { originalOutlineSnapshot.value = (outlineEdits.value || []).slice() }
+          // 标记 pending target 为首章（createResult 路径用于首章生成，target = 1）
+          pendingOutlineTargetChapter.value = 1
+          showOutlineEditor.value = true
+          // 等待用户确认或取消（confirmOutlineEdits/cancelOutlineEdits 会 resolve outlineEditorResolver）
+          await new Promise((resolve) => { outlineEditorResolver = resolve })
+          // 如果用户确认，confirmOutlineEdits 已调用 generateChapter，后端可能仍在生成，getScenes 会轮询等待
+        } else {
+          // 第一章已经生成或保存，跳过编辑器直接加载
+          console.log(`[initFromCreateResult] 第一章状态为 ${firstChapterStatus}，跳过编辑器直接加载`)
+        }
+      }
+  const result = await getScenes(workId, 1, {
+        onProgress: (progress) => {
+          console.log(`[Story] 首章生成进度:`, progress)
+          // 更新加载进度
+          if (progress.status === 'generating' && progress.progress) {
+            loadingProgress.value = Math.min(90, (progress.progress.currentChapter / progress.progress.totalChapters) * 100)
+          }
+        }
+      })
       if (result && result.scenes && result.scenes.length > 0) {
         storyScenes.value = []
         for (const sc of result.scenes) {
@@ -391,1438 +852,56 @@ const initFromCreateResult = async () => {
         currentDialogueIndex.value = 0
         // 明确设置当前章节为首章（1-based）
         currentChapterIndex.value = 1
+        
+        console.log(`[Story] 从 createResult 成功加载首章，共 ${result.scenes.length} 个场景`)
+        return true
+      } else {
+        console.warn('[Story] createResult 返回空场景数据')
+        return false
       }
     } catch (e) { 
       console.warn('Failed to fetch first chapter from backend:', e)
       return false
     }
     
-    return true
-  } catch (e) { console.warn('initFromCreateResult failed', e); return false }
-}
-
-// 打开 SSE 流（后端 streamUrl），按 seq 添加场景或其他消息
-const openStream = (url) => {
-  try {
-    if (!url || typeof EventSource === 'undefined') return
-    if (eventSource) eventSource.close()
-    eventSource = new EventSource(url)
-    eventSource.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(ev.data)
-        if (!msg || !msg.type) return
-        // 更新 lastSeq
-        if (typeof msg.seq === 'number') lastSeq.value = Math.max(lastSeq.value, msg.seq)
-        switch (msg.type) {
-          case 'work_meta':
-            if (msg.title) work.value.title = msg.title
-            if (msg.coverUrl) work.value.coverUrl = msg.coverUrl
-            break
-          case 'scene':
-            pushSceneFromServer(msg.scene || msg)
-            break
-          case 'mainline':
-            pushSceneFromServer(msg.scene)
-            break
-          case 'choice_effect':
-            // 将可选项暂存在当前 scene 的 choices 中以便前端显示
-            try {
-              const curr = storyScenes.value[storyScenes.value.length - 1]
-              if (curr) curr.choices = msg.choices
-            } catch (e) { console.warn(e) }
-            break
-          case 'special_event':
-            // 可把特殊事件的对话直接插入为临时 scene
-            if (msg.resultIfMet && msg.resultIfMet.dialogues) pushSceneFromServer({ sceneId: `ev-${msg.eventId}-${msg.seq}`, dialogues: msg.resultIfMet.dialogues })
-            break
-          case 'report':
-            // 保存结算报告并跳转结算页面
-            try { sessionStorage.setItem('settlementData', JSON.stringify(msg)) } catch {}
-            break
-          default:
-            console.log('unknown stream message', msg.type)
-        }
-      } catch (e) { console.warn('EventSource message parse failed', e) }
-    }
-    eventSource.onerror = (err) => {
-      console.warn('EventSource error', err)
-      // 不关闭，浏览器会自动重试；若需要应用级重连策略可在此实现
-    }
-  } catch (e) { console.warn('openStream failed', e) }
-}
-
-// 向后端请求下一章：GET /api/works/:workId/next?afterSeq=NN
-const fetchNextChapter = async (workId, afterSeq = 0) => {
-  try {
-    if (!workId) workId = work.value.id
-    const url = `/api/works/${encodeURIComponent(workId)}/next?afterSeq=${encodeURIComponent(afterSeq || 0)}`
-    isFetchingNext.value = true
-    const headers = { 'Accept': 'application/json' }
-    if (window.__STORYCRAFT_AUTH_TOKEN__) headers['Authorization'] = `Bearer ${window.__STORYCRAFT_AUTH_TOKEN__}`
-    const res = await fetch(url, { method: 'GET', headers })
-    isFetchingNext.value = false
-    if (!res.ok) {
-      console.warn('fetchNextChapter failed', res.status)
-      return null
-    }
-    const data = await res.json()
-    // 支持返回：{ messages: [ { type: 'scene'|'mainline'|'choice_effect'|... , ... } ], lastSeq }
-    if (Array.isArray(data.messages)) {
-      for (const m of data.messages) {
-        if (m.seq && typeof m.seq === 'number') lastSeq.value = Math.max(lastSeq.value, m.seq)
-        if (m.type === 'scene' || m.type === 'mainline') pushSceneFromServer(m.scene || m)
-        if (m.type === 'choice_effect') {
-          const curr = storyScenes.value[storyScenes.value.length - 1]
-          if (curr) curr.choices = m.choices
-        }
-        if (m.type === 'report') {
-          try { sessionStorage.setItem('settlementData', JSON.stringify(m)) } catch {}
-        }
-      }
-    } else if (data.scene) {
-      pushSceneFromServer(data.scene)
-      if (data.lastSeq) lastSeq.value = Math.max(lastSeq.value, data.lastSeq)
-    }
-    return data
-  } catch (e) { isFetchingNext.value = false; console.warn('fetchNextChapter error', e); return null }
-}
-
-// 在玩家阅读到场景开头（函数 nextDialogue 或进入新 scene 调用处）调用此函数以触发后端生成下一章（若后端未通过 streamUrl 自动推送）
-const requestNextIfNeeded = async () => {
-  try {
-    // 如果已由 SSE 推送，则不需要额外请求
-    if (eventSource) return
-  // 不再阻止 mock 情况下的预取 — 允许按需加载下一章
-    // 向后端请求 next
-    // 当使用本地 story mock 时，fetchNextContent 会调用运行时的 getNextScenes 并以 sceneId 为 after 参数
-    if (USE_MOCK_STORY) {
-      const nextChapter = currentChapterIndex.value + 1
-      await fetchNextContent(work.value.id, nextChapter)
-    } else {
-      await fetchNextChapter(work.value.id, lastSeq.value)
-    }
-  } catch (e) { console.warn('requestNextIfNeeded failed', e) }
-}
-
-// 最后一章结束后，向后端请求个性化报告：GET /api/works/:workId/report
-const fetchReport = async (workId) => {
-  try {
-    const url = `/api/works/${encodeURIComponent(workId)}/report`
-    const headers = { 'Accept': 'application/json' }
-    if (window.__STORYCRAFT_AUTH_TOKEN__) headers['Authorization'] = `Bearer ${window.__STORYCRAFT_AUTH_TOKEN__}`
-    const res = await fetch(url, { method: 'GET', headers })
-    if (!res.ok) return null
-    const data = await res.json()
-    try { sessionStorage.setItem('settlementData', JSON.stringify(data)) } catch {}
-    return data
-  } catch (e) { console.warn('fetchReport failed', e); return null }
-}
-
-// 统一主线剧情（在任一分支后都会拼接该主线场景）
-const MAINLINE_SCENE = {
-  sceneId: 2000,
-  isMainline: true,
-  title: '当前抉择',
-  backgroundImage: 'https://picsum.photos/1920/1080?random=2000',
-  dialogues: [
-    '【主线】',
-    '你先前的抉择如同在水面投下一粒石子，涟漪终归于平。',
-    '夜漏将尽，永巷尽头传来更鼓声。你披衣而起，窗纸上檐兽的影子缓缓挪动。',
-    '一张未封的黄绫诏帖被人塞入门缝，烛火映出上头的朱印。新的风向，正在形成。'
-  ],
-  // 在主线末尾出现新一轮选择
-  choiceTriggerIndex: 3,
-  choices: [
-    {
-      id: 'main_A',
-      text: 'A. 焚毁所有邀帖称病不出',
-      attributesDelta: { '健康': -10, '心计': 15 },
-      statusesDelta: { '闭门谢客': '称病谢客', '事件:雪地密报': '已触发' },
-      nextScenes: [
-        {
-          sceneId: 2101,
-          backgroundImage: 'https://picsum.photos/1920/1080?random=2101',
-          dialogues: [
-            '【选项A后续】',
-            '当夜忽降大雪，您咳着煎药时，窗缝塞进沾血的字条："桥桩乃桐油所蚀"。',
-            '次日太医请脉时，德妃竟亲自带着血燕来访，她指尖抚过您枕边《孙子兵法》的书页，笑问妹妹病的可巧？'
-          ]
-        }
-      ]
-    },
-    {
-      id: 'main_B',
-      text: 'B. 赴德妃宴席并献上家传调香术',
-      attributesDelta: { '圣宠': 20, '才情': 10, '贤妃好感': -30 },
-      statusesDelta: { '焚香之契': '与德妃香契', '事件:香料危机': '进行中' },
-      nextScenes: [
-        {
-          sceneId: 2201,
-          backgroundImage: 'https://picsum.photos/1920/1080?random=2201',
-          dialogues: [
-            '【选项B后续】',
-            '您在菊园调制"雪中春信"时，皇帝的目光越过众妃落在您腕间香珠。',
-            '当夜司寝太监来记档，德妃却派人送来掺着麝香的胭脂。',
-            '更鼓声里，您盯着妆台上并排的香珠与胭脂，听见贤妃宫中传来摔瓷声。'
-          ]
-        }
-      ]
-    },
-    {
-      id: 'main_C',
-      text: 'C. 往太后佛堂供经时提及侍卫冤情',
-      attributesDelta: { '声望': 25, '德妃阵营': -50 },
-      statusesDelta: { '佛前青眼': '太后青眼相加', '事件:经书疑云': '进行中' },
-      nextScenes: [
-        {
-          sceneId: 2301,
-          backgroundImage: 'https://picsum.photos/1920/1080?random=2301',
-          dialogues: [
-            '【选项C后续】',
-            '您抄录的《心经》被太后供在佛前，第三日却发现菩提子经匣夹层藏着巫蛊人偶。',
-            '掌事宫女突然推门而入，窗外闪过德妃心腹太监的藏蓝衣角。',
-            '您捏着人偶的手微微发抖，发现背面绣着太后的生辰八字。'
-          ]
-        }
-      ]
-    }
-  ]
-}
-
-// 尝试在当前剧情队列末尾拼接主线（若尚未拼接）
-const appendMainlineIfNeeded = () => {
-  try {
-    const exists = storyScenes.value.some(s => s.isMainline || s.sceneId === MAINLINE_SCENE.sceneId)
-    if (!exists) {
-      storyScenes.value.push(MAINLINE_SCENE)
-    }
-  } catch (e) {
-    console.warn('appendMainlineIfNeeded failed:', e)
-  }
-}
-// ============ 自动播放 ============
-const showSettingsModal = ref(false)
-const autoPlayEnabled = ref(false)
-const autoPlayIntervalMs = ref(2000) // 默认2秒一段（范围：2s~10s）
-let autoPlayTimer = null
-
-const canAutoAdvance = computed(() => {
-  return autoPlayEnabled.value &&
-    isLandscapeReady.value &&
-    !isLoading.value &&
-    !isFetchingNext.value &&
-    !isGeneratingSettlement.value &&
-    !showMenu.value &&
-    showText.value &&
-    !choicesVisible.value
-})
-
-const tickAutoPlay = () => {
-  if (canAutoAdvance.value) {
-    try { nextDialogue() } catch (e) { console.warn('auto-play next failed', e) }
+  } catch (e) { 
+    console.warn('initFromCreateResult failed', e); 
+    return false 
   }
 }
 
-const clampInterval = (ms) => {
-  const val = Number(ms) || 2000
-  return Math.min(10000, Math.max(2000, val))
-}
+// 防止重复调用 requestNextIfNeeded
+let isRequestingNext = false
 
-const startAutoPlayTimer = () => {
-  stopAutoPlayTimer()
-  // 不在弹窗打开时才启动自动播放
-  try {
-    if (anyOverlayOpen && anyOverlayOpen.value) return
-  } catch (e) {}
-  autoPlayTimer = setInterval(tickAutoPlay, clampInterval(autoPlayIntervalMs.value))
-}
+// fetchReport 已在前面定义（在 useGameState 之前）
 
-const stopAutoPlayTimer = () => {
-  if (autoPlayTimer) {
-    clearInterval(autoPlayTimer)
-    autoPlayTimer = null
-  }
-}
 
 // 当用户开始进入页面或重新加载时，尝试从 createResult 初始化；否则请求第一章
 onMounted(async () => {
-  // 若启用本地 mock，则在组件挂载时异步加载 mock 实现，避免顶层 await 导致 async setup
   if (USE_MOCK_STORY) {
     try {
       const mock = await import('../service/story.mock.js')
-  getScenes = mock.getScenes
+      getScenes = mock.getScenes
+      setGetScenes(mock.getScenes)
       try { window.__USE_MOCK_STORY__ = true } catch (e) {}
     } catch (e) {
       console.warn('加载 story.mock.js 失败，将回退到真实 service：', e)
     }
   }
-  try {
-    const ok = await initFromCreateResult()
-    if (!ok) {
-      // 没有来自创建页的首章：
-      // 1) 若启用本地 mock，则优先调用 mock 的 getInitialScenes 以替换内置默认剧情；
-      // 2) 否则回退到请求后端的 fetchNextChapter
-      if (USE_MOCK_STORY && typeof getScenes === 'function') {
-        try {
-          const resp = await getScenes(work.value.id, 1)
-          const initial = (resp && resp.scenes) ? resp.scenes : (Array.isArray(resp) ? resp : [])
-          if (Array.isArray(initial) && initial.length > 0) {
-              storyScenes.value = []
-              // 规范化初始场景中的 choices 避免重复
-              for (const s of initial) {
-                if (s && Array.isArray(s.choices)) {
-                  const seen = new Set()
-                  s.choices = s.choices.filter(c => {
-                    const id = c?.id ?? JSON.stringify(c)
-                    if (seen.has(id)) return false
-                    seen.add(id)
-                    return true
-                  })
-                }
-                storyScenes.value.push(s)
-              }
-              // 暴露调试对象，便于在控制台检查当前 scenes / choices
-              try { window.__STORY_DEBUG__ = { storyScenes, currentSceneIndex, currentDialogueIndex } } catch (e) {}
-            currentSceneIndex.value = 0
-            currentDialogueIndex.value = 0
-            // 首章对应的章节索引为 1（后端 1-based）
-            currentChapterIndex.value = 1
-          } else {
-            // mock 未返回初始场景，回退到后端请求
-            await fetchNextChapter(work.value.id, 0)
-          }
-        } catch (e) {
-          console.warn('getInitialScenes failed, fallback to fetchNextChapter', e)
-          await fetchNextChapter(work.value.id, 0)
-        }
-      } else {
-        await fetchNextChapter(work.value.id, 0)
-      }
-    }
-  } catch (e) { console.warn('init onMounted failed', e) }
-  // 绑定退出处理
-  try {
-    await ScreenOrientation.lock({ type: 'portrait' }).catch(() => {})
-  } catch (e) {}
-  isLoading.value = false
-})
-
-onUnmounted(() => {
-  // 关闭 SSE
-  try { if (eventSource) eventSource.close() } catch (e) {}
-  stopAutoPlayTimer()
-})
-
-const saveAutoPlayPrefs = () => {
-  try {
-    localStorage.setItem('autoPlayEnabled', JSON.stringify(!!autoPlayEnabled.value))
-    localStorage.setItem('autoPlayIntervalMs', JSON.stringify(clampInterval(autoPlayIntervalMs.value)))
-  } catch {}
-}
-
-const loadAutoPlayPrefs = () => {
-  try {
-    const en = JSON.parse(localStorage.getItem('autoPlayEnabled'))
-    const ms = JSON.parse(localStorage.getItem('autoPlayIntervalMs'))
-    if (typeof en === 'boolean') autoPlayEnabled.value = en
-    if (typeof ms === 'number' && !Number.isNaN(ms)) autoPlayIntervalMs.value = clampInterval(ms)
-  } catch {}
-}
-
-// 设置变化时，动态启停计时器
-watch([autoPlayEnabled, autoPlayIntervalMs], () => {
-  saveAutoPlayPrefs()
-  if (autoPlayEnabled.value) {
-    // 如果存在任一弹窗打开，则不要启动自动播放
-    try {
-      if (anyOverlayOpen && anyOverlayOpen.value) return
-    } catch (e) {}
-    startAutoPlayTimer()
-  } else {
-    stopAutoPlayTimer()
-  }
-})
-// 打开菜单时暂停自动播放；关闭菜单后若开启则恢复
-// 注意：需要在 showMenu 定义之后再注册（见下方）
-
-// 当前场景索引
-const currentSceneIndex = ref(0)
-// 当前对话索引
-const currentDialogueIndex = ref(0)
-  // 当前章节索引（1-based），用于调用统一的 getScenes(workId, chapterIndex)
-const currentChapterIndex = ref(1)
-// 是否显示菜单
-const showMenu = ref(false)
-// 是否显示文字（用于淡入效果）
-const showText = ref(false)
-
-// 打开菜单时暂停自动播放；关闭菜单后若开启则恢复
-watch(showMenu, (open) => {
-  if (open) {
-    stopAutoPlayTimer()
-  } else if (autoPlayEnabled.value) {
-    startAutoPlayTimer()
-  }
-})
-
-// 注意：其它弹窗的监听需放在相关 ref 定义之后（见下文）
-
-// 获取当前场景
-const currentScene = computed(() => {
-  return storyScenes.value[currentSceneIndex.value] || null
-})
-
-// 对话项可能是字符串或对象：{ text, backgroundImage, speaker }
-const getDialogueItem = (scene, idx) => {
-  if (!scene) return null
-  const item = scene.dialogues?.[idx]
-  if (item == null) return null
-  if (typeof item === 'string') return { text: item }
-  if (typeof item === 'object') return { text: item.text ?? '', backgroundImage: item.backgroundImage, speaker: item.speaker }
-  return null
-}
-
-// 获取当前对话文字
-const currentDialogue = computed(() => {
-  const scene = currentScene.value
-  const item = getDialogueItem(scene, currentDialogueIndex.value)
-  return item?.text || ''
-})
-
-// 获取当前背景图：若当前对话项提供了 backgroundImage，则优先展示该图，否则回退到场景背景
-const currentBackground = computed(() => {
-  const scene = currentScene.value
-  const item = getDialogueItem(scene, currentDialogueIndex.value)
-  // 仅使用服务端/场景或对话项提供的背景图
-  if (item?.backgroundImage) return item.backgroundImage
-  return scene?.backgroundImage || ''
-})
-
-// 当前说话人（仅当对白带有 speaker 时显示；叙述性文字不显示）
-const currentSpeaker = computed(() => {
-  const scene = currentScene.value
-  const item = getDialogueItem(scene, currentDialogueIndex.value)
-  return (item && typeof item.speaker === 'string' && item.speaker.trim()) ? item.speaker.trim() : ''
-})
-
-// 计算阅读进度
-const readingProgress = computed(() => {
-  let totalDialogues = 0
-  let currentDialogues = 0
   
-  storyScenes.value.forEach((scene, index) => {
-    totalDialogues += scene.dialogues.length
-    if (index < currentSceneIndex.value) {
-      currentDialogues += scene.dialogues.length
-    } else if (index === currentSceneIndex.value) {
-      currentDialogues += currentDialogueIndex.value + 1
-    }
-  })
-  
-  return (currentDialogues / totalDialogues) * 100
-})
-
-// 是否是最后一句对话
-const isLastDialogue = computed(() => {
-  return currentSceneIndex.value === storyScenes.value.length - 1 &&
-         currentDialogueIndex.value === currentScene.value.dialogues.length - 1
-})
-
-// 点击屏幕进入下一段对话
-const nextDialogue = async () => {
-  console.log('nextDialogue called, showMenu:', showMenu.value)
-  
-  if (showMenu.value) {
-    // 如果菜单显示，点击不做任何事
-    return
-  }
-
-  // 如果当前显示选项，必须选择后才能继续
-  if (choicesVisible.value) {
-    console.log('Choices are visible, must select an option to continue')
+  // 检查用户是否已登录
+  const userStore = useUserStore()
+  if (!userStore.isAuthenticated) {
+    console.log('用户未登录，重定向到登录页面')
+    router.push('/login')
     return
   }
   
-  const scene = currentScene.value
-  console.log('Current scene:', scene, 'dialogue index:', currentDialogueIndex.value)
-  
-  // 如果当前场景还有下一段对话
-  if (currentDialogueIndex.value < scene.dialogues.length - 1) {
-    showText.value = false
-    setTimeout(() => {
-      currentDialogueIndex.value++
-      showText.value = true
-      console.log('Next dialogue:', currentDialogueIndex.value)
-    }, 200)
-    } else {
-      // 当前场景对话结束，检查是否是章节结束
-  const isChapterEnd = (scene?.isChapterEnding === true) || (scene?.chapterEnd === true)
-      
-      // 切换到下一个场景
-      if (currentSceneIndex.value < storyScenes.value.length - 1) {
-        showText.value = false
-        setTimeout(async () => {
-          // 如果当前场景标记为章节结束，增加章节索引
-          if (isChapterEnd) {
-            currentChapterIndex.value++
-            console.log('Chapter ended, moving to chapter:', currentChapterIndex.value)
-          }
-          
-          // 切换场景时重置选项显示
-          choicesVisible.value = false
-          currentSceneIndex.value++
-          currentDialogueIndex.value = 0
-          showText.value = true
-          console.log('Next scene:', currentSceneIndex.value)
-          // 如果没有预加载下一章，则在新场景开始时阻塞式请求下一章（显示加载覆盖层）
-          try {
-            const hasNextLoaded = storyScenes.value.length > currentSceneIndex.value + 1
-            if (!eventSource && !hasNextLoaded) {
-              startLoading()
-              try {
-                if (USE_MOCK_STORY) {
-                  // 如果刚刚标记了章节结束，请求新的章节；否则请求下一章
-                  const nextChapter = isChapterEnd ? currentChapterIndex.value : (currentChapterIndex.value + 1)
-                  await fetchNextContent(work.value.id, nextChapter)
-                } else {
-                  await fetchNextChapter(work.value.id, lastSeq.value)
-                }
-              } finally {
-                await stopLoading()
-              }
-            } else {
-              // 非阻塞预取
-              try { requestNextIfNeeded() } catch (e) { console.warn('requestNextIfNeeded failed', e) }
-            }
-          } catch (e) {
-            console.warn('preload next failed', e)
-            isLoading.value = false
-          }
-        }, 300)
-      } else {
-        // 已到当前已加载内容的末尾
-        // 如果当前场景标记为章节结束，增加章节索引
-        if (isChapterEnd) {
-          currentChapterIndex.value++
-          console.log('Chapter ended at last scene, moving to chapter:', currentChapterIndex.value)
-        }
-        
-        if (storyEndSignaled.value) {
-          console.log('故事结束')
-          // 开始生成结算页面，而不是直接弹出结束提示
-          handleGameEnd()
-          return
-        }
-        // 尚未收到结束信号，则尝试拉取下一段剧情（阻塞式）
-        try {
-          startLoading()
-          let data
-          if (USE_MOCK_STORY) {
-            // 如果刚刚标记了章节结束，请求新的章节；否则请求下一章
-            const nextChapter = isChapterEnd ? currentChapterIndex.value : (currentChapterIndex.value + 1)
-            data = await fetchNextContent(work.value.id, nextChapter)
-          } else {
-            data = await fetchNextChapter(work.value.id, lastSeq.value)
-          }
-          await stopLoading()
-          if (!data || (data.end === true)) {
-            storyEndSignaled.value = true
-            handleGameEnd()
-          }
-        } catch (e) {
-          console.warn('fetching next content failed', e)
-          await stopLoading()
-          alert('后续剧情正在生成，请稍候再试')
-        }
-      }
-  }
-}
-
-// 切换菜单显示
-const toggleMenu = () => {
-  showMenu.value = !showMenu.value
-}
-
-// 返回作品介绍页
-const goBack = async () => {
-  try {
-    // 退出前自动存档到六号位
-    await autoSaveToSlot(AUTO_SAVE_SLOT)
-    // 退出横屏，恢复竖屏
-    if (isNativeApp.value) {
-      console.log('恢复竖屏')
-      await ScreenOrientation.unlock()
-    } else {
-      // 浏览器环境：退出全屏
-      if (document.exitFullscreen) {
-        await document.exitFullscreen()
-      } else if (document.mozCancelFullScreen) {
-        document.mozCancelFullScreen()
-      } else if (document.webkitExitFullscreen) {
-        document.webkitExitFullscreen()
-      } else if (document.msExitFullscreen) {
-        document.msExitFullscreen()
-      }
-      
-      if (screen.orientation && screen.orientation.unlock) {
-        screen.orientation.unlock()
-      }
-    }
-  } catch (err) {
-    console.log('退出横屏失败:', err)
-  }
-  
-  router.push('/works')
-}
-
-// 处理游戏结束，生成结算页面
-const handleGameEnd = async () => {
-  isGeneratingSettlement.value = true
-  isLoading.value = true
-  loadingProgress.value = 0
-  
-  // 模拟结算页面生成过程
-  const generateSettlement = async () => {
-    for (let i = 0; i <= 100; i += 5) {
-      loadingProgress.value = i
-      await new Promise(resolve => setTimeout(resolve, 50))
-    }
-    
-    // 生成完成后跳转到结算页面
-    // 由于Vue Router不支持state参数，我们将数据存储到sessionStorage中
-    const settlementData = {
-      work: work.value,
-      choiceHistory: choiceHistory.value,
-      finalAttributes: attributes.value,
-      finalStatuses: statuses.value,
-      storyScenes: storyScenes.value,
-      currentSceneIndex: currentSceneIndex.value,
-      currentDialogueIndex: currentDialogueIndex.value
-    }
-    
-    sessionStorage.setItem('settlementData', JSON.stringify(settlementData))
-    
-    router.push('/settlement')
-  }
-  
-  generateSettlement()
-}
-
-// 尝试从后端拉取下一段剧情并在成功后自动推进
-const ensureNextContentAndAdvance = async () => {
-  if (isFetchingNext.value) return
-  isFetchingNext.value = true
-  try {
-    const lastScene = storyScenes.value[storyScenes.value.length - 1]
-    const afterSceneId = lastScene?.sceneId
-    const data = await fetchNextContent(work.value.id, afterSceneId)
-    if (!data) throw new Error('无返回')
-    if (data.end === true || (Array.isArray(data.scenes) && data.scenes.length === 0)) {
-      storyEndSignaled.value = true
-      // 小延迟后提示结束
-      setTimeout(() => {
-        alert('故事结束，感谢阅读！')
-      }, 100)
-      return
-    }
-    if (Array.isArray(data.scenes) && data.scenes.length > 0) {
-      const startIdx = storyScenes.value.length
-      storyScenes.value.push(...data.scenes)
-      // 自动前进到新插入的第一幕
-      showText.value = false
-      setTimeout(() => {
-        choicesVisible.value = false
-        currentSceneIndex.value = startIdx
-        currentDialogueIndex.value = 0
-        showText.value = true
-      }, 150)
-    }
-  } catch (e) {
-    console.warn('获取后续剧情失败：', e)
-    alert('后续剧情生成中，请稍后再试…')
-  } finally {
-    isFetchingNext.value = false
-  }
-}
-
-// 后端：获取指定章节的剧情（按章节索引） — 使用运行时的 getScenes(workId, chapterIndex)
-const fetchNextContent = async (workId, chapterIndex) => {
-  try {
-    console.log('[Story] fetchNextContent chapter =', chapterIndex)
-    const resp = await getScenes(workId, chapterIndex)
-    if (!resp) return null
-    if (resp.generating) return { generating: true, end: false, scenes: [] }
-    // 兼容 mock 与后端字段：后端可能使用 `end` 或 `isGameEnding` 标记章节/作品结束
-    const isEnd = (resp.end === true) || (resp.isGameEnding === true) || (resp.isGameEnd === true)
-
-    const scenes = Array.isArray(resp.scenes) ? resp.scenes : (Array.isArray(resp) ? resp : [])
-    if (scenes.length > 0) {
-      const startIdx = storyScenes.value.length
-      // 逐条规范化并插入，确保 dialogue.narration 被转换为 item.text
-      for (const sc of scenes) {
-        try {
-          // 把章节信息传给每个 scene（resp 由 getScenes 返回，包含 chapterIndex/title）
-          if (resp.chapterIndex || resp.chapterIndex === 0) sc.chapterIndex = resp.chapterIndex
-          if (resp.title) sc.chapterTitle = resp.title
-          pushSceneFromServer(sc)
-        } catch (e) { console.warn('pushSceneFromServer failed while fetching next content', e) }
-      }
-      // 注意：此处仅追加已加载的场景，不更新 currentChapterIndex，
-      // 避免预取下一章时把“当前阅读章节”错误地提前到下一章。
-      if (resp.lastSeq) lastSeq.value = Math.max(lastSeq.value, resp.lastSeq)
-    }
-
-    return { generating: false, end: !!isEnd, scenes }
-  } catch (err) {
-    console.warn('fetchNextContent error', err)
-    return { generating: false, end: false, scenes: [] }
-  }
-}
-
-// Mock：根据当前最后一个 sceneId 简单返回一段占位剧情，或模拟结束
-const mockFetchNextContent = async (workId, afterSceneId) => {
-  await new Promise(r => setTimeout(r, 1200))
-  // 简单规则：到了 1203 后不再生成（视为结束）
-  if (afterSceneId >= 1203) {
-    return { end: true, nextScenes: [] }
-  }
-  const nextId = (afterSceneId || 1000) + 10
-  return {
-    end: false,
-    nextScenes: [
-      {
-        sceneId: nextId,
-        backgroundImage: 'https://picsum.photos/1920/1080?random=' + (nextId % 9999),
-        dialogues: [
-          '（场景描写）',
-          '后续剧情占位段落：系统正在为您生成更精彩的内容…',
-          '请继续点击屏幕，稍后将进入新的篇章。'
-        ]
-      }
-    ]
-  }
-}
-
-// 存档 / 读档 / 属性 模态与逻辑
-const showAttributesModal = ref(false)
-const saveToast = ref('')
-const loadToast = ref('')
-const lastSaveInfo = ref(null)
-// 新增：存/读档弹窗及槽位信息
-const showSaveModal = ref(false)
-const showLoadModal = ref(false)
-const SLOTS = ['slot1', 'slot2', 'slot3', 'slot4', 'slot5', 'slot6']
-const slotInfos = ref({ slot1: null, slot2: null, slot3: null, slot4: null, slot5: null, slot6: null })
-
-// 玩家属性与“特殊状态”（由 AI/后端生成并随剧情变化）
-// 属性示例：好感度、善良值等；特殊状态示例：『顾景琛的怀疑』『负伤』等
-const attributes = ref(history.state?.attributes || {
-  '心计': 30,
-  '才情': 60,
-  '声望': 10,
-  '圣宠': 0,
-  '健康': 100
-})
-const statuses = ref(history.state?.statuses || {
-  '姓名': '林微月',
-  '位份': '从七品选侍',
-  '年龄': 16,
-  '阵营': '无',
-  '明眸善睐': '眼波流转间易获好感',
-  '暗香盈袖': '体带天然冷梅香'
-})
-
-// 选项交互状态
-const isFetchingChoice = ref(false)
-
-
-// 本地回退存档 key（包含 userId，避免不同用户冲突）
-const localSaveKey = (userId, workId, slot = 'default') => `storycraft_save_${userId}_${workId}_${slot}`
-
-// 简单深拷贝（避免引用被后续修改影响到存档/展示）
-const deepClone = (obj) => JSON.parse(JSON.stringify(obj))
-
-// 自动存档槽位（退出时写入）
-const AUTO_SAVE_SLOT = 'slot6'
-
-// 其它弹窗（存档/读档/属性/设置）打开时同样应暂停自动播放
-const anyOverlayOpen = computed(() =>
-  showMenu.value ||
-  showSaveModal.value ||
-  showLoadModal.value ||
-  showAttributesModal.value ||
-  showSettingsModal.value
-)
-
-watch(anyOverlayOpen, (open) => {
-  if (open) {
-    stopAutoPlayTimer()
-  } else if (autoPlayEnabled.value) {
-    startAutoPlayTimer()
-  }
-})
-
-// 构建当前存档快照（不再在 payload 中包含完整的 storyScenes）
-const buildSavePayload = () => ({
-  work: work.value,
-  // 明确传递定位信息（后端/存档使用这三项来定位进度）
-  chapterIndex: currentChapterIndex.value,
-  sceneId: (currentScene.value && (currentScene.value.id || currentScene.value.sceneId)) ? String(currentScene.value.id ?? currentScene.value.sceneId) : String(currentSceneIndex.value),
-  dialogueIndex: currentDialogueIndex.value,
-  attributes: deepClone(attributes.value),
-  statuses: deepClone(statuses.value),
-  choiceHistory: deepClone(choiceHistory.value),
-  timestamp: Date.now()
-})
-
-const saveGame = async (slot = 'default') => {
-  const payload = buildSavePayload()
-
-  const userId = getCurrentUserId()
-  const workId = work.value.id
-
-  // 优先使用后端存储（如果开启）
-  if (USE_BACKEND_SAVE) {
-    try {
-      await backendSave(userId, workId, slot, payload)
-  lastSaveInfo.value = deepClone(payload)
-      saveToast.value = `已上传存档（${new Date(payload.timestamp).toLocaleString()}）`
-      setTimeout(() => (saveToast.value = ''), 2000)
-      console.log('saved to backend', { userId, workId, slot, payload })
-      return
-    } catch (err) {
-      console.warn('后端存档失败，回退到 localStorage：', err)
-      // fallthrough to localStorage save
-    }
-  }
-
-  // fallback: localStorage（包含 userId 以避免不同用户冲突）
-  try {
-    const key = localSaveKey(userId, workId, slot)
-    localStorage.setItem(key, JSON.stringify(payload))
-  lastSaveInfo.value = deepClone(payload)
-    saveToast.value = `已本地存档（${new Date(payload.timestamp).toLocaleString()}）`
-    setTimeout(() => (saveToast.value = ''), 2000)
-    console.log('saved to localStorage', key, payload)
-  } catch (err) {
-    console.error('保存失败', err)
-    alert('保存失败：' + err.message)
-  }
-}
-
-// 静默自动存档（退出时使用，不弹 toast）
-const autoSaveToSlot = async (slot = AUTO_SAVE_SLOT) => {
-  try {
-    const payload = buildSavePayload()
-    const userId = getCurrentUserId()
-    const workId = work.value.id
-    if (USE_BACKEND_SAVE) {
-      try {
-        await backendSave(userId, workId, slot, payload)
-        return
-      } catch (e) {
-        // 忽略错误，回落到本地
-      }
-    }
-    const key = localSaveKey(userId, workId, slot)
-    localStorage.setItem(key, JSON.stringify(payload))
-  } catch (e) {
-    // 保底失败忽略
-  }
-}
-
-// 快速本地存档（用于 beforeunload 场景，不进行网络请求）
-const quickLocalAutoSave = (slot = AUTO_SAVE_SLOT) => {
-  try {
-    const payload = buildSavePayload()
-    const userId = getCurrentUserId()
-    const workId = work.value.id
-    const key = localSaveKey(userId, workId, slot)
-    localStorage.setItem(key, JSON.stringify(payload))
-  } catch (e) {}
-}
-
-const loadGame = async (slot = 'default') => {
-  const userId = getCurrentUserId()
-  const workId = work.value.id
-
-  // 尝试后端读取
-  if (USE_BACKEND_SAVE) {
-    try {
-      const remote = await backendLoad(userId, workId, slot)
-      if (remote) {
-        // Note: 存档 payload 不再包含完整的 storyScenes。若后端仍返回 scenes，可在后端和前端协商后再恢复。
-        // 支持新存档格式：chapterIndex / sceneId / dialogueIndex
-        const deriveIndexFromPayload = (p) => {
-          try {
-            if (!p) return null
-            // 优先使用 sceneId 来定位
-            if (p.sceneId != null && Array.isArray(storyScenes.value)) {
-              // 强制字符串比较，避免后端/前端存储的 id 类型（number/string）不一致导致匹配失败
-              const pid = String(p.sceneId)
-              const idx = storyScenes.value.findIndex(s => s && (String(s.id) === pid || String(s.sceneId) === pid))
-              if (idx >= 0) return idx
-              // 如果没有在当前已加载的 storyScenes 中找到对应 sceneId，回退到起始场景（0）
-              return 0
-            }
-            // 兼容老字段 currentSceneIndex
-            if (typeof p.currentSceneIndex === 'number') return p.currentSceneIndex
-            if (typeof p.chapterIndex === 'number') {
-              // 尝试使用 chapterIndex 映射到第一条该章节的场景
-              const idx = storyScenes.value.findIndex(s => s && (s.chapterIndex === p.chapterIndex || s.chapter === p.chapterIndex))
-              if (idx >= 0) return idx
-            }
-          } catch (e) {}
-          return null
-        }
-
-        let derived = deriveIndexFromPayload(remote)
-        if (derived != null) {
-          currentSceneIndex.value = derived
-        } else if (remote.sceneId != null && typeof remote.chapterIndex === 'number') {
-          // 若当前 storyScenes 中没有该 sceneId，则尝试按 chapterIndex 拉取该章节的场景并拼接，再定位
-          try {
-            const fetched = await fetchNextContent(workId, remote.chapterIndex)
-            if (fetched && Array.isArray(fetched.scenes) && fetched.scenes.length > 0) {
-              // 将获取到的 scenes 推入本地队列（使用 pushSceneFromServer 以保留兼容处理）
-              for (const s of fetched.scenes) {
-                try { pushSceneFromServer(s) } catch (e) { console.warn('pushSceneFromServer failed when restoring chapter', e) }
-              }
-              // 重新尝试定位
-              derived = deriveIndexFromPayload(remote)
-              if (derived != null) currentSceneIndex.value = derived
-            }
-          } catch (e) { console.warn('fetchNextContent failed while restoring saved chapter:', e) }
-        }
-        if (typeof currentSceneIndex.value !== 'number') {
-          if (typeof remote.currentSceneIndex === 'number') currentSceneIndex.value = remote.currentSceneIndex
-          else currentSceneIndex.value = 0
-        }
-        if (typeof remote.currentDialogueIndex === 'number') currentDialogueIndex.value = remote.currentDialogueIndex
-        else if (remote.dialogueIndex != null) currentDialogueIndex.value = remote.dialogueIndex
-        // attributes/statuses 使用存档快照完整覆盖，缺省则置空，避免选项后的变化残留
-        attributes.value = deepClone(remote.attributes || {})
-        statuses.value = deepClone(remote.statuses || {})
-  // 恢复选择历史
-  choiceHistory.value = deepClone(remote.choiceHistory || [])
-  // 根据选择历史恢复场景的已选标记与解锁后续选项
-  try { restoreChoiceFlagsFromHistory() } catch (e) { console.warn('restoreChoiceFlagsFromHistory error (remote):', e) }
-        // 恢复文字显示状态，并让选项由 watch 重新判断
-        showText.value = true
-        choicesVisible.value = false
-        lastSaveInfo.value = deepClone(remote)
-        loadToast.value = `已从服务器读档（${new Date(remote.timestamp || Date.now()).toLocaleString()}）`
-        setTimeout(() => (loadToast.value = ''), 2000)
-        console.log('loaded from backend', { userId, workId, slot, remote })
-        // 读档成功后自动关闭读档弹窗
-        showLoadModal.value = false
-        return
-      }
-      // 如果后端返回 null/404，则回退到本地
-    } catch (err) {
-      console.warn('后端读档失败，回退到 localStorage：', err)
-      // fallback to localStorage below
-    }
-  }
-
-  // fallback: localStorage（包含 userId 以避免不同用户冲突）
-  try {
-    const key = localSaveKey(userId, workId, slot)
-    const raw = localStorage.getItem(key)
-    if (!raw) {
-      loadToast.value = '未找到本地存档'
-      setTimeout(() => (loadToast.value = ''), 1500)
-      return
-    }
-    const payload = JSON.parse(raw)
-    // 存档不再包含 storyScenes；若本地存档含 scenes，可按需手动恢复（默认这里忽略）
-    // 支持新的保存字段 sceneId / chapterIndex / dialogueIndex，同时兼容旧字段 currentSceneIndex
-    const deriveIndexFromPayloadLocal = (p) => {
-      try {
-        if (!p) return null
-        if (p.sceneId != null && Array.isArray(storyScenes.value)) {
-              const pid = String(p.sceneId)
-              const idx = storyScenes.value.findIndex(s => s && (String(s.id) === pid || String(s.sceneId) === pid))
-              if (idx >= 0) return idx
-              return 0
-            }
-        if (typeof p.currentSceneIndex === 'number') return p.currentSceneIndex
-        if (typeof p.chapterIndex === 'number') {
-          const idx = storyScenes.value.findIndex(s => s && (s.chapterIndex === p.chapterIndex || s.chapter === p.chapterIndex))
-          if (idx >= 0) return idx
-        }
-      } catch (e) {}
-      return null
-    }
-    let derivedLocal = deriveIndexFromPayloadLocal(payload)
-    if (derivedLocal != null) {
-      currentSceneIndex.value = derivedLocal
-    } else if (payload.sceneId != null && typeof payload.chapterIndex === 'number') {
-      try {
-        const fetched = await fetchNextContent(workId, payload.chapterIndex)
-        if (fetched && Array.isArray(fetched.scenes) && fetched.scenes.length > 0) {
-          for (const s of fetched.scenes) {
-            try { pushSceneFromServer(s) } catch (e) { console.warn('pushSceneFromServer failed when restoring chapter (local):', e) }
-          }
-          derivedLocal = deriveIndexFromPayloadLocal(payload)
-          if (derivedLocal != null) currentSceneIndex.value = derivedLocal
-        }
-      } catch (e) { console.warn('fetchNextContent failed while restoring saved chapter (local):', e) }
-    }
-    if (typeof currentSceneIndex.value !== 'number') {
-      currentSceneIndex.value = 0
-    }
-    if (typeof payload.currentDialogueIndex === 'number') currentDialogueIndex.value = payload.currentDialogueIndex
-    else if (payload.dialogueIndex != null) currentDialogueIndex.value = payload.dialogueIndex
-    // attributes/statuses 使用存档快照完整覆盖，缺省则置空
-    attributes.value = deepClone(payload.attributes || {})
-    statuses.value = deepClone(payload.statuses || {})
-  // 恢复选择历史
-  choiceHistory.value = deepClone(payload.choiceHistory || [])
-  // 根据选择历史恢复场景的已选标记与解锁后续选项
-  try { restoreChoiceFlagsFromHistory() } catch (e) { console.warn('restoreChoiceFlagsFromHistory error (local):', e) }
-    showText.value = true
-    choicesVisible.value = false
-    lastSaveInfo.value = deepClone(payload)
-    loadToast.value = `本地读档成功（${new Date(payload.timestamp).toLocaleString()}）`
-    setTimeout(() => (loadToast.value = ''), 2000)
-    console.log('loaded from localStorage', key, payload)
-    // 读档成功后自动关闭读档弹窗
-    showLoadModal.value = false
-  } catch (err) {
-    console.error('读档失败', err)
-    alert('读档失败：' + err.message)
-  }
-}
-
-// 如果选项对象本身包含分支数据（后端已经把每个选项的后续剧情一并返回）
-const applyChoiceBranch = (choiceObj) => {
-  try {
-    if (!choiceObj) return
-  // 属性变更
-  if (choiceObj.attributesDelta) applyAttributesDelta(choiceObj.attributesDelta)
-  // 特殊状态变更
-  if (choiceObj.statusesDelta) applyStatusesDelta(choiceObj.statusesDelta)
-  if (choiceObj.statuses) applyStatusesDelta(choiceObj.statuses)
-
-    if (choiceObj.nextScene) {
-      storyScenes.value.push(choiceObj.nextScene)
-  // 标记上一个场景的已选选项（保留 choices 数据供分支图使用）
-  try { const prev = storyScenes.value[storyScenes.value.length - 2]; if (prev) prev.chosenChoiceId = choiceObj?.id || choiceObj?.choiceId || null } catch (e) {}
-      currentSceneIndex.value = storyScenes.value.length - 1
-      currentDialogueIndex.value = 0
-      showText.value = true
-      if (autoPlayEnabled.value) startAutoPlayTimer()
-      return
-    }
-
-    if (choiceObj.nextScenes && Array.isArray(choiceObj.nextScenes)) {
-      const startIdx = storyScenes.value.length
-      storyScenes.value.push(...choiceObj.nextScenes)
-  // 标记上一个场景的已选选项（保留 choices 数据供分支图使用）
-  try { const prev = storyScenes.value[startIdx - 1]; if (prev) prev.chosenChoiceId = choiceObj?.id || choiceObj?.choiceId || null } catch (e) {}
-      currentSceneIndex.value = startIdx
-      currentDialogueIndex.value = 0
-      showText.value = true
-      if (autoPlayEnabled.value) startAutoPlayTimer()
-      return
-    }
-
-    if (choiceObj.dialogues) {
-      const idx = currentSceneIndex.value
-      const newScene = Object.assign({}, storyScenes.value[idx], {
-        backgroundImage: choiceObj.backgroundImage || storyScenes.value[idx].backgroundImage,
-        dialogues: choiceObj.dialogues
-      })
-      storyScenes.value.splice(idx, 1, newScene)
-      currentDialogueIndex.value = 0
-      showText.value = true
-      if (autoPlayEnabled.value) startAutoPlayTimer()
-      return
-    }
-  } catch (err) {
-    console.error('applyChoiceBranch 失败', err)
-  }
-}
-
-// 控制选项展示（在某句阅读结束后出现）
-const choicesVisible = ref(false)
-
-// 当场景或对话索引变动，检查是否应该显示选项
-watch([currentSceneIndex, currentDialogueIndex], () => {
-  // 如果刚刚处理过一次选项，短时间内不要重新显示选项（防止选项被重复展示）
-  try {
-    if (Date.now() - (lastChoiceTimestamp.value || 0) < 600) return
-  } catch (e) {}
-  const scene = currentScene.value
-  // 如果该场景的选项已被消费过（用户已经选择过），不要再次显示
-  try { if (scene && scene.choiceConsumed) return } catch (e) {}
-  if (!scene) return
-  // 如果场景有 choices 且指定了触发句索引
-  if (Array.isArray(scene.choices) && typeof scene.choiceTriggerIndex === 'number') {
-    // 当阅读到触发句的索引（即等于或超过）时显示选项
-    if (currentDialogueIndex.value >= scene.choiceTriggerIndex && showText.value) {
-      choicesVisible.value = true
-      // 自动播放遇到选项时暂停
-      stopAutoPlayTimer()
-    }
-  }
-})
-
-const openAttributes = () => {
-  showAttributesModal.value = true
-  // 打开属性面板时暂停自动播放
-  stopAutoPlayTimer()
-}
-
-const closeAttributes = () => {
-  showAttributesModal.value = false
-  // 关闭后在没有其它弹窗且用户开启自动播放时恢复
-  try { if (autoPlayEnabled.value && !(anyOverlayOpen && anyOverlayOpen.value)) startAutoPlayTimer() } catch (e) {}
-}
-
-// 打开存档弹窗 / 读档弹窗，并刷新槽位信息
-const openSaveModal = async () => {
-  showSaveModal.value = true
-  stopAutoPlayTimer()
-  await refreshSlotInfos()
-}
-const openLoadModal = async () => {
-  showLoadModal.value = true
-  stopAutoPlayTimer()
-  await refreshSlotInfos()
-}
-const closeSaveModal = () => { showSaveModal.value = false; try { if (autoPlayEnabled.value && !(anyOverlayOpen && anyOverlayOpen.value)) startAutoPlayTimer() } catch (e) {} }
-const closeLoadModal = () => { showLoadModal.value = false; try { if (autoPlayEnabled.value && !(anyOverlayOpen && anyOverlayOpen.value)) startAutoPlayTimer() } catch (e) {} }
-
-const refreshSlotInfos = async () => {
-  try {
-    const userId = getCurrentUserId()
-    const workId = work.value.id
-    const results = await Promise.all(SLOTS.map(async (slot) => {
-      // 优先尝试后端或 mock 后端
-      if (USE_BACKEND_SAVE) {
-        try {
-          const data = await backendLoad(userId, workId, slot)
-          if (data) return { slot, data: deepClone(data) }
-        } catch (e) {
-          // 忽略错误，回退到本地
-        }
-      }
-      // 回退到本地
-      const key = localSaveKey(userId, workId, slot)
-      const raw = localStorage.getItem(key)
-      if (raw) {
-  const data = JSON.parse(raw)
-  return { slot, data: deepClone(data) }
-      }
-      return { slot, data: null }
-    }))
-  const info = {}
-  SLOTS.forEach(s => (info[s] = null))
-  results.forEach(r => { if (r && r.slot) info[r.slot] = r.data })
-    slotInfos.value = info
-  } catch (e) {
-    console.warn('刷新槽位信息失败：', e)
-  }
-}
-
-// 请求横屏
-const requestLandscape = async () => {
-  const element = document.documentElement
-  
-  // 横屏准备完成，开始加载（先显示，再尝试全屏）
-  isLandscapeReady.value = true
-  startLoading()
-  
-  try {
-    // 在原生 APP 中，使用 Capacitor 插件锁定横屏
-    if (isNativeApp.value) {
-      console.log('检测到 APP 环境，使用 ScreenOrientation 插件')
-      // 使用 Capacitor 插件锁定为横屏
-      await ScreenOrientation.lock({ orientation: 'landscape' })
-      console.log('✅ 成功锁定为横屏')
-      
-      // APP 中也尝试全屏（提供更沉浸的体验）
-      if (element.requestFullscreen) {
-        await element.requestFullscreen().catch(err => {
-          console.log('全屏请求失败（APP 中可选）:', err)
-        })
-      }
-    } else {
-      console.log('检测到浏览器环境，使用标准 API')
-      // 在浏览器中，先请求全屏再锁定方向
-      if (element.requestFullscreen) {
-        await element.requestFullscreen()
-      } else if (element.mozRequestFullScreen) {
-        await element.mozRequestFullScreen()
-      } else if (element.webkitRequestFullscreen) {
-        await element.webkitRequestFullscreen()
-      } else if (element.msRequestFullscreen) {
-        await element.msRequestFullscreen()
-      }
-      
-      // 锁定屏幕方向为横屏
-      if (screen.orientation && screen.orientation.lock) {
-        await screen.orientation.lock('landscape').catch(err => {
-          console.log('屏幕方向锁定失败:', err)
-        })
-      }
-    }
-  } catch (err) {
-    console.log('进入横屏失败:', err)
-    // 开发环境降级处理：依赖 CSS 媒体查询实现横屏布局
-  }
-}
-
-const applyAttributesDelta = (delta) => {
-  if (!delta) return
-  Object.keys(delta).forEach(k => {
-    const v = delta[k]
-    if (typeof v === 'number') {
-      attributes.value[k] = (attributes.value[k] || 0) + v
-    } else {
-      // 非数值类型直接覆盖
-      attributes.value[k] = v
-    }
-  })
-}
-
-// 应用“特殊状态”变化
-// 规则：
-// - 数值：累加（用于『怀疑 +10』）
-// - null/false：移除该状态
-// - 其他类型（字符串/对象/布尔）：覆盖
-const applyStatusesDelta = (delta) => {
-  if (!delta) return
-  const target = statuses.value
-  if (Array.isArray(delta)) {
-    delta.forEach(entry => {
-      if (!entry) return
-      const key = entry.name || entry.key
-      if (!key) return
-      const v = entry.value ?? entry.level ?? entry.state ?? entry.description ?? entry
-      if (v === null || v === false || entry.remove === true) {
-        delete target[key]
-      } else if (typeof v === 'number') {
-        const cur = target[key]
-        const curNum = typeof cur === 'number' ? cur : (cur?.value ?? cur?.level ?? 0)
-        target[key] = (curNum || 0) + v
-      } else {
-        target[key] = v
-      }
-    })
-    return
-  }
-  if (typeof delta === 'object') {
-    Object.keys(delta).forEach(key => {
-      const v = delta[key]
-      if (v === null || v === false) {
-        delete target[key]
-      } else if (typeof v === 'number') {
-        const cur = target[key]
-        const curNum = typeof cur === 'number' ? cur : (cur?.value ?? cur?.level ?? 0)
-        target[key] = (curNum || 0) + v
-      } else {
-        target[key] = v
-      }
-    })
-  }
-}
-
-// 根据已保存的 choiceHistory 恢复场景的已选标记，并解锁后续场景的选项
-const restoreChoiceFlagsFromHistory = () => {
-  try {
-    // 先重置所有场景的标记
-    if (Array.isArray(storyScenes.value)) {
-      storyScenes.value.forEach(s => {
-        try { if (s) { s.choiceConsumed = false; s.chosenChoiceId = null } } catch (e) {}
-      })
-    }
-    // 根据历史还原已选择的项（标记为已消耗）
-    if (Array.isArray(choiceHistory.value)) {
-      choiceHistory.value.forEach(h => {
-        try {
-          const sid = h.sceneId || h.sceneId
-          const psid = String(sid)
-          const idx = Array.isArray(storyScenes.value) ? storyScenes.value.findIndex(s => s && (String(s.id) === psid || String(s.sceneId) === psid)) : -1
-          if (idx >= 0 && storyScenes.value[idx]) {
-            try { storyScenes.value[idx].chosenChoiceId = h.choiceId || h.choiceId } catch (e) {}
-            try { storyScenes.value[idx].choiceConsumed = true } catch (e) {}
-          }
-        } catch (e) {}
-      })
-    }
-    // 确保当前场景（如果在可选择位置）不要被错误地标记为已消费，允许用户继续选择后续选项
-    try {
-      const cur = storyScenes.value && storyScenes.value[currentSceneIndex.value]
-      if (cur && cur.choiceConsumed && typeof cur.choiceTriggerIndex === 'number') {
-        // 如果当前对话尚未到触发选项的索引，则允许显示选项（取消已消费标记）
-        if (typeof currentDialogueIndex.value === 'number' && currentDialogueIndex.value < cur.choiceTriggerIndex) {
-          try { cur.choiceConsumed = false; cur.chosenChoiceId = null } catch (e) {}
-        }
-      }
-    } catch (e) {}
-  } catch (e) {
-    console.warn('restoreChoiceFlagsFromHistory failed', e)
-  }
-}
-
-// 处理选项点击：向后端请求选项后续剧情并应用返回结果
-const chooseOption = async (choiceId) => {
-  if (isFetchingChoice.value) return
-  
-  // 记录用户选择历史
-  const scene = currentScene.value
-  const choiceObj = scene?.choices?.find(c => c.id === choiceId)
-  if (choiceObj) {
-    choiceHistory.value.push({
-      sceneId: scene.id || scene.sceneId,
-      sceneTitle: scene.title || `场景 ${currentSceneIndex.value + 1}`,
-      choiceId: choiceId,
-      choiceText: choiceObj.text,
-      timestamp: Date.now(),
-      sceneIndex: currentSceneIndex.value,
-      dialogueIndex: currentDialogueIndex.value
-    })
-  }
-  
-  // 用户点击选项后立即隐藏选项，直到后端返回或 mock 完成
-  choicesVisible.value = false
-  // 记录点击时间，短时间内抑制选项重新弹出
-  try { lastChoiceTimestamp.value = Date.now() } catch (e) {}
-  isFetchingChoice.value = true
-  try {
-    const scene = currentScene.value
-    const localChoice = scene?.choices?.find(c => c.id === choiceId)
-
-    // 优先使用本地选项自带的后续剧情（subsequentDialogues / nextScenes / nextScene）
-    if (localChoice) {
-      // 属性/状态变化直接应用
-      if (localChoice.attributesDelta) applyAttributesDelta(localChoice.attributesDelta)
-      if (localChoice.statusesDelta) applyStatusesDelta(localChoice.statusesDelta)
-      if (localChoice.statuses) applyStatusesDelta(localChoice.statuses)
-
-      // 若选项自带 subsequentDialogues（插入到当前场景）
-      if (Array.isArray(localChoice.subsequentDialogues) && localChoice.subsequentDialogues.length > 0) {
-        const idx = currentSceneIndex.value
-        // 标记当前场景选项已被消费，防止后续重复弹出
-        try { storyScenes.value[idx].choiceConsumed = true } catch (e) {}
-        const insertAt = currentDialogueIndex.value + 1
-        // 规范化为前端对话项（字符串或对象）
-        const toInsert = localChoice.subsequentDialogues.map(d => (typeof d === 'string') ? d : (d.narration ?? d.text ?? String(d)))
-        const currentDialogues = Array.isArray(storyScenes.value[idx].dialogues) ? storyScenes.value[idx].dialogues.slice() : []
-        currentDialogues.splice(insertAt, 0, ...toInsert)
-        storyScenes.value.splice(idx, 1, Object.assign({}, storyScenes.value[idx], { dialogues: currentDialogues }))
-        // 移动到第一条插入的对话
-        currentDialogueIndex.value = insertAt
-        showText.value = true
-        try { const prev = storyScenes.value[idx]; if (prev) prev.chosenChoiceId = choiceId } catch (e) {}
-        if (autoPlayEnabled.value) startAutoPlayTimer()
-        return
-      }
-
-      // 若选项自带 nextScenes（跳转到新场景序列）
-      if (Array.isArray(localChoice.nextScenes) && localChoice.nextScenes.length > 0) {
-        const startIdx = storyScenes.value.length
-        for (const sc of localChoice.nextScenes) {
-          try { pushSceneFromServer(sc) } catch (e) { console.warn('pushSceneFromServer failed for choice nextScenes entry', e) }
-        }
-        // 标记上一个场景选项已被消费（避免回到上一场景时再次弹出）
-        try { const prev = storyScenes.value[startIdx - 1]; if (prev) prev.choiceConsumed = true } catch (e) {}
-        currentSceneIndex.value = startIdx
-        currentDialogueIndex.value = 0
-        showText.value = true
-        try { const prev = storyScenes.value[startIdx - 1]; if (prev) prev.chosenChoiceId = choiceId } catch (e) {}
-        if (autoPlayEnabled.value) startAutoPlayTimer()
-        return
-      }
-
-      // 若选项携带单条 nextScene
-      if (localChoice.nextScene) {
-        const startIdx = storyScenes.value.length
-        try { pushSceneFromServer(localChoice.nextScene) } catch (e) { console.warn('pushSceneFromServer failed for choice nextScene', e) }
-        // 标记上一个场景选项已被消费
-        try { const prev = storyScenes.value[startIdx - 1]; if (prev) prev.choiceConsumed = true } catch (e) {}
-        currentSceneIndex.value = startIdx
-        currentDialogueIndex.value = 0
-        showText.value = true
-        try { const prev = storyScenes.value[startIdx - 1]; if (prev) prev.chosenChoiceId = choiceId } catch (e) {}
-        if (autoPlayEnabled.value) startAutoPlayTimer()
-        return
-      }
-
-      // 如果本地选项没有后续剧情，只标记选择并尝试推进到下一个场景
-      try { const prev = storyScenes.value[currentSceneIndex.value]; if (prev) prev.chosenChoiceId = choiceId } catch (e) {}
-      if (currentSceneIndex.value < storyScenes.value.length - 1) {
-        // 标记当前场景选项已被消费（用户已选择，即使没有插入后续剧情）
-        try { const prev = storyScenes.value[currentSceneIndex.value]; if (prev) prev.choiceConsumed = true } catch (e) {}
-        currentSceneIndex.value++
-        currentDialogueIndex.value = 0
-        showText.value = true
-      } else {
-        try { requestNextIfNeeded() } catch (e) { console.warn('requestNextIfNeeded failed after localChoice', e) }
-      }
-      return
-    }
-
-    // 没有本地选项数据的情况：尝试推进到下一个已有场景或触发预取下一章
-    if (currentSceneIndex.value < storyScenes.value.length - 1) {
-      currentSceneIndex.value++
-      currentDialogueIndex.value = 0
-      showText.value = true
-    } else {
-      try { await requestNextIfNeeded() } catch (e) { console.warn('requestNextIfNeeded failed', e) }
-    }
-  } catch (err) {
-    console.error('选择处理失败', err)
-    // 为保持“锦瑟深宫”剧情纯净，移除与主题无关的离线回退
-    alert('获取选项后续剧情失败：' + (err?.message || '网络异常'))
-  } finally {
-    isFetchingChoice.value = false
-  }
-}
-
-// 加载过程：加载页背景直接使用封面；进度条缓慢推进，便于可视化
-const startLoading = () => {
-  isLoading.value = true
-  loadingProgress.value = 0
-
-  // 如果存在封面，先展示启动进度
-  try { if (work.value.coverUrl) loadingProgress.value = Math.max(loadingProgress.value, 8) } catch (e) {}
-
-  // 清理已有计时器（若有）并启动新的平滑计时器
-  if (startLoading._timer) {
-    clearInterval(startLoading._timer)
-    startLoading._timer = null
-  }
-  // 以 200ms 步进，平滑推进到 90% 的目标，真实完成时调用 stopLoading
-  startLoading._timer = setInterval(() => {
-    try {
-      const target = 90
-      const delta = Math.max(0.4, (target - loadingProgress.value) * 0.06)
-      loadingProgress.value = Math.min(target, +(loadingProgress.value + delta).toFixed(2))
-    } catch (e) { console.warn('startLoading timer err', e) }
-  }, 200)
-}
-
-// 停止 loading 并显示完成状态（可选短延迟以显示 100%），并清理计时器
-const stopLoading = async (opts = { delay: 200 }) => {
-  try { if (startLoading._timer) { clearInterval(startLoading._timer); startLoading._timer = null } } catch (e) {}
-  try { loadingProgress.value = 100 } catch (e) {}
-  if (opts && opts.delay) await new Promise(r => setTimeout(r, opts.delay))
-  isLoading.value = false
-  showText.value = true
-  // 延迟清零进度，避免视觉闪烁
-  setTimeout(() => { try { loadingProgress.value = 0 } catch (e) {} }, 120)
-}
-
-
-// 页面加载时请求横屏并开始加载
-onMounted(async () => {
-  // 加载自动播放偏好并按需启动
+  // 加载自动播放偏好（watch 会自动处理启动定时器）
   loadAutoPlayPrefs()
-  if (autoPlayEnabled.value) startAutoPlayTimer()
+  // 🔧 注释掉手动启动，因为 watch 监听器会在 autoPlayEnabled 变化时自动启动
+  // if (autoPlayEnabled.value) startAutoPlayTimer()
+  
   // 检查是否从结算页面跳回来并携带了加载数据
   if (history.state?.loadedData) {
     const loadedData = history.state.loadedData
@@ -1864,7 +943,13 @@ onMounted(async () => {
     
     // 直接进入游戏
     isLandscapeReady.value = true
-    isLoading.value = false
+    // 即便数据已恢复，为了视觉一致性仍然执行一次平滑加载到 100% 的动画
+    try {
+      const dur = USE_MOCK_STORY ? 10000 : 900
+      await simulateLoadTo100(dur)
+    } catch (e) {
+      isLoading.value = false
+    }
     showText.value = true
     return
   }
@@ -1872,13 +957,14 @@ onMounted(async () => {
   if (isNativeApp.value) {
     // APP 环境：直接进入横屏
     isLandscapeReady.value = true
-    requestLandscape()
+    await requestLandscape()
+    await initializeGame()
   } else {
     // 浏览器环境：在开发模式下自动进入阅读以便测试选项；生产模式仍显示进入阅读按钮
     try {
       if (import.meta.env && import.meta.env.DEV) {
         isLandscapeReady.value = true
-        startLoading()
+        await initializeGame()
       } else {
         // 生产/正式环境：显示进入阅读按钮
       }
@@ -1891,15 +977,9 @@ onMounted(async () => {
     if (document.hidden) {
       // 后台：暂停自动播放，避免后台计时推进
       stopAutoPlayTimer()
-      autoSaveToSlot(AUTO_SAVE_SLOT)
-    } else {
-      // 回到前台：如当前设置开启自动播放且没有弹窗打开，则恢复计时器
-      try {
-        if (autoPlayEnabled.value && !(anyOverlayOpen && anyOverlayOpen.value)) startAutoPlayTimer()
-      } catch (e) {
-        if (autoPlayEnabled.value) startAutoPlayTimer()
-      }
+      autoSaveToSlot()
     }
+    // 回到前台时,自动播放会通过内部 watch 自动恢复,不需要手动启动
   }
   document.addEventListener('visibilitychange', onVisibility)
   // 卸载/刷新前的本地快速存档
@@ -1914,10 +994,1138 @@ onMounted(async () => {
   })
 })
 
+
+
+onUnmounted(() => {
+  // 关闭 SSE
+  try { if (eventSource) eventSource.close() } catch (e) {}
+  stopAutoPlayTimer()
+})
+
+// 打开菜单时会自动暂停,关闭菜单后会自动恢复(由 useAutoPlay 内部的 watch 处理)
+// 不需要额外的 watch
+
+// 注意：其它弹窗的监听需放在相关 ref 定义之后（见下文）
+
+// 以下变量已从 useStoryAPI 导入: 
+// currentScene, currentDialogue, currentBackground, currentSpeaker, isFetchingNext
+
+// --------- 用户可编辑 / 图片替换支持（前端优先，本地持久化） ---------
+// 存储 key：storycraft_overrides_{userId}_{workId}
+const overridesKey = (userId, workId) => `storycraft_overrides_${userId}_${workId}`
+const userId = getCurrentUserId()
+
+// 将当前章节（currentChapterIndex）中前端当前 scenes 的修改持久化到后端（PUT /api/game/chapter/{id}/{chapterIndex}/）
+// opts:
+//  - auto: boolean (默认 true) 表示调用是否为自动保存（卸载/切换/退出创作者模式），自动保存不应把已生成但未确认的章节标记为 saved
+//  - allowSaveGenerated: boolean 手动确认时应传 true，以允许将 generated -> saved
+//  - chapterIndex: number 可选，指定要保存的章节
+const persistCurrentChapterEdits = async (opts = {}) => {
+  try {
+    if (!(modifiableFromCreate.value || isCreatorIdentity.value)) {
+      console.log('persistCurrentChapterEdits skipped: no edit permission')
+      return
+    }
+    const workId = work.value && (work.value.id || work.value.gameworkId || work.value.workId)
+    if (!workId) return
+    
+    const auto = (typeof opts.auto === 'undefined') ? true : !!opts.auto
+    const allowSaveGenerated = !!opts.allowSaveGenerated
+    // 控制是否对后端执行网络保存（PUT）。默认 true（兼容旧逻辑）。
+    // 在自动触发的持久化（退出创作模式、unmount、toggle creator 自动持久化）时传入 performNetworkSave:false
+    const performNetworkSave = (typeof opts.performNetworkSave === 'boolean') ? opts.performNetworkSave : true
+    const chapterIndex = Number(opts.chapterIndex || currentChapterIndex.value) || 1
+
+    // 如果是自动保存且当前章节处于 generated（未确认）状态，则跳过自动保存
+    try {
+      const st = getChapterStatus(chapterIndex)
+      if (auto && st === 'generated') {
+        console.log('persistCurrentChapterEdits: skipping auto-save for generated chapter', { chapterIndex })
+        return
+      }
+    } catch (e) { /* ignore errors from getChapterStatus */ }
+
+    // 简化逻辑：storyScenes 现在只包含当前章节，直接使用全部内容
+    if (!storyScenes.value || storyScenes.value.length === 0) {
+      console.log('persistCurrentChapterEdits: no scenes to persist')
+      return
+    }
+
+    // 🔑 关键修复：首先应用 overrides 中的编辑到 storyScenes
+    // 这样后续的 normalizeDialogue 才能正确处理编辑后的内容
+    const scenesWithOverrides = storyScenes.value.map(scene => {
+      const sceneId = String(scene._uid ?? scene.sceneId ?? scene.id ?? '')
+      const ov = overrides.value?.scenes?.[sceneId]
+      if (!ov) return scene
+      
+      // 克隆场景以避免修改原始数据
+      const clonedScene = JSON.parse(JSON.stringify(scene))
+      
+      // 应用背景图覆盖
+      if (ov.backgroundImage) {
+        clonedScene.backgroundImage = ov.backgroundImage
+      }
+      
+      // 应用对话覆盖
+      if (ov.dialogues) {
+        for (const k in ov.dialogues) {
+          const idx = Number(k)
+          if (!isNaN(idx) && idx < clonedScene.dialogues.length) {
+            const orig = clonedScene.dialogues[idx]
+            const overrideText = ov.dialogues[k]
+            
+            // 🔑 关键修复：检查这个对话是否来自 subsequentDialogues
+            if (typeof orig === 'object' && orig._fromChoiceId != null && orig._fromChoiceIndex != null) {
+              // 找到对应的选项，更新其 subsequentDialogues
+              const choiceId = orig._fromChoiceId
+              const choiceIdx = orig._fromChoiceIndex
+              
+              if (Array.isArray(clonedScene.choices)) {
+                const choice = clonedScene.choices.find(c => String(c.id) === String(choiceId))
+                if (choice && Array.isArray(choice.subsequentDialogues)) {
+                  // 直接更新 subsequentDialogues 中的对应项
+                  choice.subsequentDialogues[choiceIdx] = overrideText
+                  console.log(`[persistCurrentChapterEdits] 更新选项 ${choiceId} 的 subsequentDialogues[${choiceIdx}]`)
+                }
+              }
+              // 更新对话本身的显示文本
+              if (typeof orig === 'string') {
+                clonedScene.dialogues[idx] = overrideText
+              } else {
+                clonedScene.dialogues[idx] = {
+                  ...orig,
+                  text: overrideText
+                }
+              }
+            } else {
+              // 普通对话，直接替换
+              if (typeof orig === 'string') {
+                clonedScene.dialogues[idx] = overrideText
+              } else if (typeof orig === 'object') {
+                clonedScene.dialogues[idx] = {
+                  text: overrideText,
+                  backgroundImage: orig.backgroundImage,
+                  speaker: orig.speaker
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      return clonedScene
+    })
+
+    // 构建对话数据的规范化函数
+    const normalizeDialogue = (d, scene, dIdx) => {
+      try {
+        // 🔑 关键修复：如果对话标记为来自 subsequentDialogues，则跳过它
+        // 因为它已经被更新到对应选项的 subsequentDialogues 中了
+        if (typeof d === 'object' && d._fromChoiceId != null && d._fromChoiceIndex != null) {
+          // 返回 null 表示这个对话不应该作为独立的 narration 输出
+          return null
+        }
+        
+        // 如果是字符串，包装为 narration
+        if (typeof d === 'string') {
+          const playerChoicesFromScene = (scene && Array.isArray(scene.choices) && Number(scene.choiceTriggerIndex) === Number(dIdx)) ? scene.choices.map((c, idx) => {
+            const pc = { text: c.text ?? c.label ?? '', attributesDelta: c.attributesDelta || c.delta || {}, statusesDelta: c.statusesDelta || c.statuses || {}, subsequentDialogues: c.subsequentDialogues || c.nextLines || [] }
+            const maybeId = Number(c.choiceId ?? c.id)
+            pc.choiceId = Number.isInteger(maybeId) ? maybeId : (idx + 1)
+            return pc
+          }) : []
+          return { narration: d, playerChoices: playerChoicesFromScene }
+        }
+        // 如果是对象，规范化 playerChoices
+        if (d && typeof d === 'object') {
+          const narration = (typeof d.narration === 'string') ? d.narration : (d.text || d.content || '')
+          let playerChoices = []
+          if (Array.isArray(d.playerChoices) && d.playerChoices.length > 0) {
+            playerChoices = d.playerChoices.map((c, idx) => {
+              const pc = { text: c.text ?? c.label ?? '', attributesDelta: c.attributesDelta || c.delta || {}, statusesDelta: c.statusesDelta || c.statuses || {}, subsequentDialogues: c.subsequentDialogues || c.nextLines || [] }
+              const maybeId = Number(c.choiceId ?? c.id)
+              pc.choiceId = Number.isInteger(maybeId) ? maybeId : (idx + 1)
+              return pc
+            })
+          } else if (Array.isArray(d.choices) && d.choices.length > 0) {
+            playerChoices = d.choices.map((c, idx) => {
+              const pc = { text: c.text ?? c.label ?? '', attributesDelta: c.attributesDelta || c.delta || {}, statusesDelta: c.statusesDelta || c.statuses || {}, subsequentDialogues: c.subsequentDialogues || c.nextLines || [] }
+              const maybeId = Number(c.choiceId ?? c.id)
+              pc.choiceId = Number.isInteger(maybeId) ? maybeId : (idx + 1)
+              return pc
+            })
+          } else if (scene && Array.isArray(scene.choices) && Number(scene.choiceTriggerIndex) === Number(dIdx)) {
+            playerChoices = scene.choices.map((c, idx) => {
+              const pc = { text: c.text ?? c.label ?? '', attributesDelta: c.attributesDelta || c.delta || {}, statusesDelta: c.statusesDelta || c.statuses || {}, subsequentDialogues: c.subsequentDialogues || c.nextLines || [] }
+              const maybeId = Number(c.choiceId ?? c.id)
+              pc.choiceId = Number.isInteger(maybeId) ? maybeId : (idx + 1)
+              return pc
+            })
+          }
+          return { narration: narration || '', playerChoices }
+        }
+      } catch (e) { console.warn('normalizeDialogue failed', e) }
+      return { narration: '', playerChoices: [] }
+    }
+
+    // 构建场景数据
+    const scenesPayload = scenesWithOverrides.map((s, idx) => {
+      let sid = Number(s.sceneId ?? s.id)
+      if (!Number.isInteger(sid) || sid <= 0) sid = idx + 1
+      const bg = (s.backgroundImage || s.background_image || s.background || '')
+      const rawDialogues = Array.isArray(s.dialogues) ? s.dialogues : []
+      // 🔑 关键修复：过滤掉 null 值（来自 subsequentDialogues 的对话）
+      let dialogues = rawDialogues
+        .map((d, dIdx) => normalizeDialogue(d, s, dIdx))
+        .filter(d => d !== null)
+
+      // 额外过滤：保证每个 dialogue 的 narration 非空或至少包含 playerChoices
+      dialogues = dialogues.map(d => {
+        const narration = (d.narration || '')
+        const hasChoices = Array.isArray(d.playerChoices) && d.playerChoices.length > 0
+        if (!String(narration).trim() && !hasChoices) {
+          // 如果既没有叙述也没有选项，丢弃该 dialogue（后续 .filter 会移除）
+          return null
+        }
+        if (!String(narration).trim() && hasChoices) {
+          // 如果没有叙述但存在选项，设置为单个空格以满足后端非空校验
+          d.narration = ' '
+        }
+        return d
+      }).filter(d => d !== null)
+      return { id: Number(sid), backgroundImage: bg || '', dialogues }
+    })
+
+    // 获取章节标题
+    const getFallbackTitle = () => {
+      try {
+        const byOutline = (outlineEdits.value && outlineEdits.value.length) ? (outlineEdits.value.find(x => Number(x.chapterIndex) === Number(chapterIndex))?.outline || '') : ''
+        if (byOutline && String(byOutline).trim()) return String(byOutline).trim()
+        
+        try {
+          const prev = JSON.parse(sessionStorage.getItem('createResult') || '{}')
+          const bwOut = prev && prev.backendWork && Array.isArray(prev.backendWork.outlines) ? prev.backendWork.outlines : []
+          const found = (bwOut || []).find(x => Number(x.chapterIndex) === Number(chapterIndex))
+          if (found && (found.outline || found.summary || found.title)) return String(found.outline || found.summary || found.title).trim()
+        } catch (e) {}
+        
+        if (work && work.value && work.value.title) return String(work.value.title)
+      } catch (e) { console.warn('getFallbackTitle failed', e) }
+      return `第${Number(chapterIndex)}章`
+    }
+
+    const chapterData = {
+      chapterIndex: Number(chapterIndex),
+      title: getFallbackTitle(),
+      scenes: scenesPayload
+    }
+
+    // 检测是否为结局场景：只有当场景数据本身被标记为结局时才认为是结局，
+    // 避免单纯依赖 storyEndSignaled 导致普通章节被误判为结局而走错保存接口。
+    const isEndingChapter = (Array.isArray(scenesWithOverrides) && scenesWithOverrides.some(s => s.isChapterEnding || s.isGameEnding || s.isGameEnd || s.chapterEnd || s.end || s.isEnding))
+    if (isEndingChapter) {
+      console.log('persistCurrentChapterEdits: Detected ending chapter — will call storyending save endpoint', { workId, chapterIndex })
+      if (!performNetworkSave) {
+        console.log('persistCurrentChapterEdits: performNetworkSave=false — skip network save for ending')
+        try { await stopLoading() } catch (e) {}
+        try { showNotice && showNotice('结局已在本地生效（未发送到后端）') } catch (e) {}
+        return
+      }
+      try {
+        // 尝试获取后端已存在的结局列表，以便定位 endingId 与 title（兼容没有 id 的实现）
+        let endingId = null
+        let endingTitle = chapterData.title || ''
+        try {
+          const resp = await storyService.getWorkInfo(workId)
+          // 如果 getWorkInfo 包含 endings 字段（某些后端可能返回在作品详情里），尝试读取
+          const payload = resp && resp.data ? resp.data : resp
+          const endingsFromWork = Array.isArray(payload?.endings) ? payload.endings : []
+          if (endingsFromWork.length > 0) {
+            const idx = (lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? (Number(lastSelectedEndingIndex.value) - 1) : 0
+            const chosen = endingsFromWork[idx] || endingsFromWork[0]
+            if (chosen) {
+              endingId = chosen.id ?? chosen.endingId ?? null
+              endingTitle = endingTitle || chosen.title || chosen.name || endingTitle
+            }
+          } else {
+            // 否则再尝试直接读取 /api/game/storyending 接口
+            try {
+              const resp2 = await http.get(`/api/game/storyending/${workId}`)
+              const payload2 = resp2 && resp2.data ? resp2.data : resp2
+              const endings2 = Array.isArray(payload2?.endings) ? payload2.endings : []
+              if (endings2.length > 0) {
+                const idx2 = (lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? (Number(lastSelectedEndingIndex.value) - 1) : 0
+                const chosen2 = endings2[idx2] || endings2[0]
+                endingId = chosen2.id ?? chosen2.endingId ?? null
+                endingTitle = endingTitle || chosen2.title || chosen2.name || endingTitle
+              }
+            } catch (e) { /* ignore */ }
+          }
+        } catch (e) { /* ignore */ }
+
+        // 我们要把所有结局按后端 GET 返回的结构逐个 PUT 回去（包含不可进入的结局）
+        // 1) 先尝试读取后端现有的 endings 列表
+        let existingEndings = []
+        try {
+          // 优先使用作品详情中的 endings 字段
+          const resp = await storyService.getWorkInfo(workId)
+          const payload = resp && resp.data ? resp.data : resp
+          existingEndings = Array.isArray(payload?.endings) ? payload.endings : []
+        } catch (e) {
+          // 如果作品详情没有返回 endings，尝试直接读取 storyending 列表接口
+          try {
+            const resp2 = await http.get(`/api/game/storyending/${workId}/`)
+            const p2 = resp2 && resp2.data ? resp2.data : resp2
+            existingEndings = Array.isArray(p2?.endings) ? p2.endings : []
+          } catch (e2) {
+            // 忽略，后面会至少保存当前编辑的结局
+            existingEndings = []
+          }
+        }
+
+        // helper: 限制 title 长度到 255
+        const safeTitle = (t) => {
+          if (!t && t !== 0) return ''
+          const s = String(t)
+          return s.length > 255 ? s.slice(0, 255) : s
+        }
+
+        // 确定当前要保存的 endingIndex（以 1 为基数）
+        // 优先策略：如果当前编辑来自于一个已读/加载的存档并且该存档包含 `endingindex`，
+        // 则使用该 `endingindex` 来定位要覆盖的逻辑结局（确保我们覆盖的是用户实际修改的结局）。
+        // 否则再回退到 UI 中选中的 lastSelectedEndingIndex，或最终回退到 1。
+        // 注意：不要把后端 DB 的 `id` 当作逻辑上的 endingIndex 使用。
+        let currentEndingIndex = 1
+        try {
+          if (lastSaveInfo && lastSaveInfo.value && lastSaveInfo.value.state) {
+            const s = lastSaveInfo.value.state
+            const si = (typeof s.endingindex === 'number') ? s.endingindex : (s.endingIndex != null ? Number(s.endingIndex) : null)
+            if (si != null && !isNaN(si)) {
+              currentEndingIndex = Number(si)
+            } else if (lastSelectedEndingIndex && lastSelectedEndingIndex.value) {
+              currentEndingIndex = Number(lastSelectedEndingIndex.value)
+            }
+          } else if (lastSelectedEndingIndex && lastSelectedEndingIndex.value) {
+            currentEndingIndex = Number(lastSelectedEndingIndex.value)
+          }
+        } catch (e) {
+          // 发生异常时安全回退
+          try { if (lastSelectedEndingIndex && lastSelectedEndingIndex.value) currentEndingIndex = Number(lastSelectedEndingIndex.value) } catch (ee) { currentEndingIndex = 1 }
+        }
+
+        // 如果没有任何 existingEndings，至少构建一个基于当前编辑的结局以保证保存
+        if (!existingEndings || existingEndings.length === 0) {
+          const single = {
+            endingIndex: currentEndingIndex,
+            title: safeTitle(endingTitle || chapterData.title || `结局 ${currentEndingIndex}`),
+            scenes: scenesPayload
+          }
+          try {
+            await storyService.saveEnding(workId, single)
+            showNotice('已保存结局内容')
+          } catch (saveErr) {
+            console.error('persistCurrentChapterEdits: saveEnding API failed', saveErr, saveErr?.data || (saveErr?.response && saveErr.response.data))
+            showNotice('保存结局失败: ' + (saveErr?.data || saveErr?.message || '未知错误'), 8000)
+            throw saveErr
+          }
+        } else {
+          // 遍历所有 existingEndings，构造与 GET 时相同的 payload 并 PUT
+          const errors = []
+          // Build a map of existing endings by their logical endingIndex (if provided).
+          // We will try to match and replace by that logical index. If an existing ending
+          // does not expose a logical endingIndex (only has DB id), we will fallback to
+          // preserving its scenes but will not treat that DB id as the logical index.
+          const existingByIndex = {}
+          const fallbackList = []
+          for (let i = 0; i < existingEndings.length; i++) {
+            const e = existingEndings[i]
+            // Prefer an explicit `endingIndex` field; if not present, try `endingId`.
+            const logicalIdx = (e.endingIndex != null) ? Number(e.endingIndex) : (e.endingId != null ? Number(e.endingId) : null)
+            if (logicalIdx != null && !isNaN(logicalIdx)) {
+              existingByIndex[logicalIdx] = e
+            } else {
+              // Unknown-index endings are kept in fallback order
+              fallbackList.push(e)
+            }
+          }
+
+          // Prepare payloads: for all logical indices found, preserve order by ascending index
+          const indices = Object.keys(existingByIndex).map(x => Number(x)).sort((a,b)=>a-b)
+          const payloads = []
+
+          // helper: try to resolve backend-provided title for a logical ending index
+          const getBackendTitle = (idx) => {
+            try {
+              if (!existingEndings || existingEndings.length === 0) return null
+              // check explicit mapping first
+              const byIdx = existingByIndex[idx]
+              if (byIdx && (byIdx.title || byIdx.name)) return byIdx.title || byIdx.name
+              // fallback: search full list for matching logical fields
+              for (const ee of existingEndings) {
+                const logical = (ee.endingIndex != null) ? Number(ee.endingIndex) : (ee.endingId != null ? Number(ee.endingId) : null)
+                if (logical === idx) return ee.title || ee.name || null
+              }
+              // last resort: if idx maps to array position
+              const pos = idx - 1
+              if (pos >=0 && pos < existingEndings.length) {
+                const cand = existingEndings[pos]
+                if (cand && (cand.title || cand.name)) return cand.title || cand.name
+              }
+            } catch (e) { /* ignore */ }
+            return null
+          }
+          // Add logical-indexed endings first
+          for (const idx of indices) {
+            const e = existingByIndex[idx]
+            const backendTitle = getBackendTitle(idx)
+            payloads.push({
+              endingIndex: idx,
+              title: safeTitle( backendTitle || (idx === currentEndingIndex ? (endingTitle || chapterData.title) : (e.title || e.name || `结局 ${idx}`)) ),
+              scenes: (idx === currentEndingIndex) ? scenesPayload : (Array.isArray(e.scenes) ? e.scenes : [])
+            })
+          }
+          // Append fallback (unknown-index) endings preserving their original scenes
+          for (let j = 0; j < fallbackList.length; j++) {
+            const e = fallbackList[j]
+            // For unknown-index entries, do not attempt to reassign the logical index.
+            payloads.push({
+              // We do not set a logical endingIndex here if backend didn't expose one;
+              // keep whatever fields backend expects by passing through its scenes and title.
+              endingIndex: e.endingIndex != null ? Number(e.endingIndex) : (e.endingId != null ? Number(e.endingId) : (j + 1)),
+              title: safeTitle(e.title || e.name || `结局 ${j + 1}`),
+              scenes: Array.isArray(e.scenes) ? e.scenes : []
+            })
+          }
+
+          // If there is no existing ending matching currentEndingIndex, append it
+          if (!indices.includes(currentEndingIndex)) {
+            const backendTitleForCurrent = getBackendTitle(currentEndingIndex)
+            payloads.push({
+              endingIndex: currentEndingIndex,
+              title: safeTitle( backendTitleForCurrent || endingTitle || chapterData.title || `结局 ${currentEndingIndex}` ),
+              scenes: scenesPayload
+            })
+          }
+
+          // Send payloads in order
+          while (payloads.length > 0) {
+            const p = payloads.shift()
+            try {
+              await storyService.saveEnding(workId, p)
+              console.log('persistCurrentChapterEdits: saved ending', p.endingIndex)
+            } catch (saveErr) {
+              console.error('persistCurrentChapterEdits: failed saving an ending', saveErr, saveErr?.data || (saveErr?.response && saveErr.response.data))
+              errors.push({ endingIndex: p.endingIndex, error: saveErr })
+            }
+          }
+
+          if (errors.length === 0) {
+            showNotice('已保存全部结局内容')
+          } else {
+            showNotice('部分结局保存失败，请检查控制台错误', 8000)
+            throw errors[0].error
+          }
+        }
+
+        // 刷新作品详情
+        try { await getWorkDetails(workId) } catch (e) { /* ignore */ }
+        try { await stopLoading() } catch (e) {}
+        return
+      } catch (e) {
+        console.warn('persistCurrentChapterEdits: failed saving ending, falling back to abort', e, e?.data || (e?.response && e.response.data))
+        try { await stopLoading() } catch (err) {}
+        throw e
+      }
+    }
+
+    console.log('persistCurrentChapterEdits: saving chapter', { workId, chapterIndex, scenesCount: scenesPayload.length })
+    
+    try {
+      // 特殊处理：创作者身份下，手动确认已生成章节（allowSaveGenerated）
+      // 需要调用后端 API 将章节状态更新为 saved
+  if (allowSaveGenerated && (creatorFeatureEnabled.value || isCreatorIdentity.value || modifiableFromCreate.value)) {
+        // 1) 调用后端 API 保存章节并更新状态为 saved
+        try {
+          if (!performNetworkSave) {
+            console.log('persistCurrentChapterEdits: performNetworkSave=false — skip saveChapter network call')
+            showNotice('已在本地应用修改（未发送到后端）')
+          } else {
+            console.log('persistCurrentChapterEdits: calling saveChapter API to mark as saved', { workId, chapterIndex })
+            await saveChapter(workId, chapterIndex, chapterData)
+            console.log('persistCurrentChapterEdits: saveChapter API succeeded')
+            showNotice('已将本章保存并标记为 saved')
+          }
+          } catch (saveErr) {
+          console.error('persistCurrentChapterEdits: saveChapter API failed', saveErr, saveErr?.data || (saveErr?.response && saveErr.response.data))
+          showNotice('保存章节失败: ' + (saveErr?.data || saveErr?.message || '未知错误'), 5000)
+          throw saveErr
+        }
+        
+        // 2) 刷新作品详情以获取最新章节状态
+        try {
+          await getWorkDetails(workId)
+          console.log('persistCurrentChapterEdits: refreshed work details, chapter status:', getChapterStatus(chapterIndex))
+        } catch (e) {
+          console.warn('persistCurrentChapterEdits: failed to refresh work details', e)
+        }
+
+        // 2) 清除已生成但未保存标记
+        try { lastLoadedGeneratedChapter.value = null } catch (e) {}
+
+        // 3) 如果用户已经阅读到本章末尾，则立即准备并弹出下一章的大纲编辑器；
+        //    否则仅将下一章标记为 pending（不弹窗），用户继续阅读到章末时会触发后续流程。
+        try {
+          const nextChap = Number(chapterIndex) + 1
+
+          const isAtChapterEnd = (currentSceneIndex.value >= (storyScenes.value.length - 1)) &&
+                                 (currentDialogueIndex.value >= ((storyScenes.value[currentSceneIndex.value]?.dialogues?.length || 1) - 1))
+
+          if (!isAtChapterEnd) {
+            // 不在章末：设置 pendingNextChapter，使后续到达章末时能正常触发加载/编辑器流程
+            try {
+              pendingNextChapter.value = nextChap
+            } catch (e) { console.warn('set pendingNextChapter failed', e) }
+            showNotice('已保存本章，阅读至本章末尾后将弹出下一章大纲编辑器')
+            try { await stopLoading() } catch (e) {}
+            return
+          }
+
+          // 在章末的情况：准备并弹出下一章的大纲编辑器（复用原有逻辑）
+          // 构建下一章的大纲占位（尽量复用已有 createResult 或 outlineEdits）
+          let createRaw = null
+          try { createRaw = JSON.parse(sessionStorage.getItem('createResult') || 'null') } catch (e) { createRaw = null }
+          let rawOutlines = []
+          if (createRaw && Array.isArray(createRaw.chapterOutlines) && createRaw.chapterOutlines.length) rawOutlines = createRaw.chapterOutlines
+          else if (createRaw && createRaw.backendWork && Array.isArray(createRaw.backendWork.outlines) && createRaw.backendWork.outlines.length) rawOutlines = createRaw.backendWork.outlines
+          else rawOutlines = []
+
+          // 尝试找到 nextChap 对应的大纲，否则使用占位文本
+          let nextOutlineText = `第${nextChap}章：请在此编辑/补充本章大纲以指导生成。`
+          try {
+            if (Array.isArray(rawOutlines) && rawOutlines.length) {
+              const found = rawOutlines.find(x => Number(x.chapterIndex) === Number(nextChap)) || rawOutlines[nextChap - 1]
+              if (found) {
+                const title = (found && (found.title ?? found.chapter_title)) || ''
+                const body = (found && (found.outline ?? found.summary)) || ''
+                const combined = (title && body) ? `${title}\n\n${body}` : (title || body)
+                if (combined) nextOutlineText = combined
+              }
+            }
+          } catch (e) { console.warn('prepare next outline failed', e) }
+
+          // 构建 nextChap 以及其后的所有章节大纲（若 totalChapters 不可用则至少包含 nextChap）
+          const outlinesToShow = []
+          const total = Math.max((Number(totalChapters.value) || 5), nextChap)
+          for (let c = nextChap; c <= total; c++) {
+            let text = `第${c}章：请在此编辑/补充本章大纲以指导生成。`
+            try {
+              if (Array.isArray(rawOutlines) && rawOutlines.length) {
+                const foundC = rawOutlines.find(x => Number(x.chapterIndex) === Number(c)) || rawOutlines[c - 1]
+                if (foundC) {
+                  const title = (foundC && (foundC.title ?? foundC.chapter_title)) || ''
+                  const body = (foundC && (foundC.outline ?? foundC.summary)) || ''
+                  const combined = (title && body) ? `${title}\n\n${body}` : (title || body)
+                  if (combined) text = combined
+                }
+              }
+            } catch (e) { console.warn('prepare outline for chapter', c, 'failed', e) }
+            outlinesToShow.push({ chapterIndex: c, outline: text })
+          }
+
+          // 将多个章节的大纲写入编辑器，默认聚焦到 nextChap
+          outlineEdits.value = outlinesToShow
+          outlineUserPrompt.value = (createRaw && createRaw.userPrompt) ? createRaw.userPrompt : ''
+          originalOutlineSnapshot.value = JSON.parse(JSON.stringify(outlineEdits.value || []))
+          pendingOutlineTargetChapter.value = nextChap
+          editorInvocation.value = 'auto'
+          // 直接弹出编辑器，不进行 fetchNextChapter（避免前端 PUT 或 GET）
+          showOutlineEditor.value = true
+          console.log('persistCurrentChapterEdits: opened outline editor for next chapter range', nextChap, '->', total)
+        } catch (openErr) {
+          console.warn('打开下一章大纲编辑器失败', openErr)
+        }
+
+        // 结束该分支：已经向后端保存并更新了章节状态
+        try { await stopLoading() } catch (e) {}
+        return
+      }
+
+      // 默认行为：非创作者确认或允许向后端保存的情况，仍然走原先的 PUT 流程
+      console.log('persistCurrentChapterEdits: outbound chapterData:', chapterData)
+      await saveChapter(workId, chapterIndex, chapterData)
+      console.log('persistCurrentChapterEdits: saveChapter succeeded')
+      
+      showNotice('已将本章修改保存到后端')
+      
+      // 刷新作品详情以获取最新章节状态
+      await getWorkDetails(workId).catch(() => {})
+      
+      // 如果这是手动确认保存，则清除已生成但未保存标记
+      if (allowSaveGenerated) lastLoadedGeneratedChapter.value = null
+      
+      // 更新 sessionStorage.createResult 中的大纲
+      try {
+        const prev = JSON.parse(sessionStorage.getItem('createResult') || '{}')
+        prev.backendWork = prev.backendWork || {}
+        prev.backendWork.outlines = prev.backendWork.outlines || []
+        const idx = (prev.backendWork.outlines || []).findIndex(x => Number(x.chapterIndex) === Number(chapterIndex))
+        if (idx >= 0 && outlineEdits.value && outlineEdits.value.length) {
+          prev.backendWork.outlines[idx].outline = outlineEdits.value.find(x => Number(x.chapterIndex) === Number(chapterIndex))?.outline || prev.backendWork.outlines[idx].outline
+        }
+        sessionStorage.setItem('createResult', JSON.stringify(prev))
+      } catch (e) { console.warn('persistCurrentChapterEdits: update createResult failed', e, e?.data || (e?.response && e.response.data)) }
+
+      // 如果是手动确认保存（allowSaveGenerated为true），检查是否已读完当前章，如果已读完且不是末章，则弹出下一章编辑器
+  if (allowSaveGenerated && (creatorFeatureEnabled.value || isCreatorIdentity.value || modifiableFromCreate.value)) {
+        try {
+          // 检查是否已读到当前章的末尾
+          const isAtChapterEnd = currentSceneIndex.value >= storyScenes.value.length - 1 && 
+                                 currentDialogueIndex.value >= (storyScenes.value[currentSceneIndex.value]?.dialogues?.length - 1 || 0)
+          
+          console.log('保存后检查章节状态 - 已读到章末:', isAtChapterEnd, '当前场景:', currentSceneIndex.value, '总场景数:', storyScenes.value.length)
+          
+          // 检查当前章是否为末章
+          const isLastChapter = totalChapters.value && Number(chapterIndex) === Number(totalChapters.value)
+          console.log('保存后检查是否为末章 - 当前章:', chapterIndex, '总章数:', totalChapters.value, '是否末章:', isLastChapter)
+          
+          if (isLastChapter) {
+            // 是末章，如果已读完就跳转到结算页面
+            if (isAtChapterEnd) {
+              console.log('末章已保存并读完，准备进入结算')
+              showNotice('作品已完结，即将进入结算页面', 3000)
+              setTimeout(async () => {
+                try {
+                  // 标记将在进入结局判定时显示特殊加载界面
+                  storyEndSignaled.value = true
+                  isEndingLoading.value = true
+                  // 启动常规加载界面（复用现有加载逻辑）
+                  try { startLoading() } catch (e) { /* ignore */ }
+                  // 平滑显示进度
+                  try { await simulateLoadTo100(800) } catch (e) { /* ignore */ }
+                  // 调用结局处理（可能会导航到结算页面）
+                  await handleGameEnd()
+                } catch (e) {
+                  console.warn('进入结算处理失败', e)
+                } finally {
+                  // 关闭结局专用加载标记（如果组件还在）
+                  try { isEndingLoading.value = false } catch (e) {}
+                  try { await stopLoading() } catch (e) {}
+                }
+              }, 3000)
+            } else {
+              console.log('末章已保存但未读完，提示用户读完后将进入结算')
+              showNotice('最后一章已保存，读完后将进入结算页面', 3000)
+            }
+          } else if (isAtChapterEnd) {
+            // 不是末章，且已读完，弹出下一章的大纲编辑器
+            console.log('非末章已保存并读完，准备弹出下一章大纲编辑器 - 下一章:', chapterIndex + 1)
+            showNotice('即将进入下一章的大纲编辑', 2000)
+            
+            setTimeout(async () => {
+              try {
+                // 章节索引+1，准备加载下一章
+                currentChapterIndex.value = chapterIndex + 1
+                startLoading()
+                
+                // 调用 fetchNextChapter 来处理下一章的大纲编辑和生成
+                // fetchNextChapter 会自动检查章节状态，如果是 not_generated 则弹出大纲编辑器
+                await fetchNextChapter(workId, currentChapterIndex.value, { replace: true, suppressAutoEditor: false })
+                await stopLoading()
+                
+                // 加载成功后，重置场景和对话索引
+                currentSceneIndex.value = 0
+                currentDialogueIndex.value = 0
+                choicesVisible.value = false
+                showText.value = false
+                setTimeout(() => {
+                  showText.value = true
+                  console.log('已切换到下一章:', currentChapterIndex.value)
+                }, 300)
+              } catch (e) {
+                console.error('加载下一章失败:', e)
+                showNotice('加载下一章时出错，请刷新页面重试。')
+                await stopLoading()
+              }
+            }, 2000)
+          }
+        } catch (e) {
+          console.warn('保存后检查章节状态失败:', e)
+        }
+      }
+      
+    } catch (e) {
+      console.error('persistCurrentChapterEdits: saveChapter failed', e?.response?.data || e)
+      showNotice('保存失败，请检查网络或稍后重试')
+      throw e
+    }
+  } catch (e) {
+    console.warn('persistCurrentChapterEdits failed', e)
+    throw e
+  }
+}
+
+// 在组件挂载时加载 overrides
+onMounted(() => {
+  loadOverrides()
+  applyOverridesToScenes()
+  // 注册全局点击处理器：当没有弹窗/选项并且不在编辑模式时，点击任意非交互元素推进下一句
+  try {
+    document.addEventListener('click', globalClickHandler)
+  } catch (e) { console.warn('register globalClickHandler failed', e) }
+})
+
+// 在组件卸载时自动持久化当前章节（如果可手动编辑）
+onUnmounted(() => {
+  try {
+    (async () => {
+      try {
+        await persistCurrentChapterEdits({ performNetworkSave: false })
+      } catch (e) { console.warn('persistCurrentChapterEdits onUnmount failed', e) }
+    })()
+    try { document.removeEventListener('click', globalClickHandler) } catch (e) { /* ignore */ }
+  } catch (e) { console.warn('onUnmounted persist failed', e) }
+})
+
+// 全局点击处理函数（放在文件末尾以便使用到上面定义的 reactive refs）
+function globalClickHandler(e) {
+  try {
+    // 编辑模式正在编辑文本时不要推进
+    if (typeof editingDialogue !== 'undefined' && editingDialogue && editingDialogue.value) return
+    // 如果正在显示选项，不响应全局推进
+    if (typeof choicesVisible !== 'undefined' && choicesVisible && choicesVisible.value) return
+    // 如果任意弹窗打开，也不响应
+    if (typeof anyOverlayOpen !== 'undefined' && anyOverlayOpen && anyOverlayOpen.value) return
+
+    const target = e && e.target
+    if (target && typeof target.closest === 'function') {
+      // 如果点击落在交互元素上（按钮/链接/输入/选择/菜单/弹窗/选项等），忽略
+      const skip = target.closest('button, a, input, textarea, select, .menu-panel, .modal-panel, .choice-btn, .edit-btn, .menu-button, .van-popup, .van-dialog, .menu-item')
+      if (skip) return
+    }
+
+    // 最终调用 nextDialogue 推进（保护调用）
+    try { if (typeof nextDialogue === 'function') nextDialogue() } catch (e) { /* ignore */ }
+  } catch (err) {
+    console.warn('globalClickHandler error', err)
+  }
+}
+
+
+// 观察 creatorMode：进入记录位置并禁用 advance；退出回到 entry 的那句话（修改版）并恢复播放权限
+watch(creatorMode, (val) => {
+  if (val) {
+    try {
+      // 🔑 进入手动编辑模式：保存完整的状态快照
+      console.log('进入手动编辑模式 - 保存状态快照')
+      creatorEntry.sceneIndex = currentSceneIndex.value
+      creatorEntry.dialogueIndex = currentDialogueIndex.value
+      
+      // 🔑 关键：保存选择历史的快照，退出时恢复
+      try {
+        creatorEntry.choiceHistorySnapshot = deepClone(choiceHistory.value || [])
+        console.log('保存选择历史快照，长度:', creatorEntry.choiceHistorySnapshot.length)
+      } catch (e) {
+        creatorEntry.choiceHistorySnapshot = JSON.parse(JSON.stringify(choiceHistory.value || []))
+      }
+      
+      // 🔑 保存场景的 choiceConsumed 状态快照
+      try {
+        creatorEntry.scenesChoiceStateSnapshot = {}
+        storyScenes.value.forEach((scene, idx) => {
+          if (scene) {
+            creatorEntry.scenesChoiceStateSnapshot[idx] = {
+              choiceConsumed: scene.choiceConsumed || false,
+              chosenChoiceId: scene.chosenChoiceId || null
+            }
+          }
+        })
+        console.log('保存场景选项状态快照')
+      } catch (e) {
+        console.warn('保存场景选项状态快照失败:', e)
+      }
+      
+      // 🔑 保存属性和状态的快照
+      try {
+        creatorEntry.attributesSnapshot = deepClone(attributes.value || {})
+        creatorEntry.statusesSnapshot = deepClone(statuses.value || {})
+        console.log('保存属性快照:', Object.keys(creatorEntry.attributesSnapshot).length, '个属性')
+        console.log('保存状态快照:', Object.keys(creatorEntry.statusesSnapshot).length, '个状态')
+      } catch (e) {
+        try {
+          creatorEntry.attributesSnapshot = JSON.parse(JSON.stringify(attributes.value || {}))
+          creatorEntry.statusesSnapshot = JSON.parse(JSON.stringify(statuses.value || {}))
+        } catch (e2) {
+          console.warn('保存属性和状态快照失败:', e2)
+        }
+      }
+      
+      allowAdvance.value = false
+      // 暂停自动播放
+      try { stopAutoPlayTimer() } catch (e) {}
+    } catch (e) { console.warn('enter creatorMode failed', e) }
+  } else {
+    try {
+      // 在退出创作者模式前尝试将当前章节的本地修改持久化到后端（仅当 createResult 标记为 modifiable 时）
+      try {
+        (async () => {
+          try {
+            // When exiting menu creatorMode (manual editing from menu), persist current chapter edits.
+            // If the current scene is a backend-generated ending, we should perform a network save
+            // so the edited ending is sent to the backend via PUT /api/game/storyending/{workId}/{endingIndex}/.
+            const curScene = currentScene?.value || (Array.isArray(storyScenes.value) ? storyScenes.value[currentSceneIndex.value] : null)
+            let shouldPerformNetworkSave = false
+            try {
+              if (curScene && (curScene._isBackendEnding === true || curScene.isChapterEnding || curScene.isGameEnding || curScene.isEnding || curScene.end || curScene.chapterEnd)) {
+                shouldPerformNetworkSave = true
+              }
+            } catch (e) { /* ignore and fall back to false */ }
+
+            await persistCurrentChapterEdits({ auto: false, allowSaveGenerated: false, chapterIndex: currentChapterIndex.value, performNetworkSave: shouldPerformNetworkSave })
+          } catch (e) { console.warn('persistCurrentChapterEdits on exit creatorMode failed', e) }
+        })()
+      } catch (e) { console.warn('trigger persist on exit creatorMode failed', e) }
+      
+      // 🔑 退出手动编辑模式：恢复进入时的位置和状态
+      console.log('退出手动编辑模式 - 恢复状态快照')
+      
+      // 🔑 关键：恢复选择历史，撤销手动编辑模式中的所有选择
+      if (creatorEntry.choiceHistorySnapshot) {
+        try {
+          choiceHistory.value = deepClone(creatorEntry.choiceHistorySnapshot)
+          console.log('恢复选择历史快照，长度:', choiceHistory.value.length)
+          // 恢复后需要重新应用选择标记
+          try { restoreChoiceFlagsFromHistory() } catch (e) { console.warn('restoreChoiceFlagsFromHistory failed:', e) }
+        } catch (e) {
+          choiceHistory.value = JSON.parse(JSON.stringify(creatorEntry.choiceHistorySnapshot))
+          try { restoreChoiceFlagsFromHistory() } catch (e) {}
+        }
+        creatorEntry.choiceHistorySnapshot = null
+      }
+      
+      // 🔑 恢复场景的 choiceConsumed 状态
+      if (creatorEntry.scenesChoiceStateSnapshot) {
+        try {
+          Object.keys(creatorEntry.scenesChoiceStateSnapshot).forEach(idx => {
+            const sceneIdx = parseInt(idx)
+            if (storyScenes.value[sceneIdx]) {
+              const savedState = creatorEntry.scenesChoiceStateSnapshot[idx]
+              storyScenes.value[sceneIdx].choiceConsumed = savedState.choiceConsumed
+              storyScenes.value[sceneIdx].chosenChoiceId = savedState.chosenChoiceId
+            }
+          })
+          console.log('恢复场景选项状态快照')
+        } catch (e) {
+          console.warn('恢复场景选项状态快照失败:', e)
+        }
+        creatorEntry.scenesChoiceStateSnapshot = null
+      }
+      
+      // 🔑 恢复属性和状态
+      if (creatorEntry.attributesSnapshot) {
+        try {
+          attributes.value = deepClone(creatorEntry.attributesSnapshot)
+          console.log('恢复属性快照:', Object.keys(attributes.value).length, '个属性')
+        } catch (e) {
+          try {
+            attributes.value = JSON.parse(JSON.stringify(creatorEntry.attributesSnapshot))
+          } catch (e2) {
+            console.warn('恢复属性快照失败:', e2)
+          }
+        }
+        creatorEntry.attributesSnapshot = null
+      }
+      
+      if (creatorEntry.statusesSnapshot) {
+        try {
+          statuses.value = deepClone(creatorEntry.statusesSnapshot)
+          console.log('恢复状态快照:', Object.keys(statuses.value).length, '个状态')
+        } catch (e) {
+          try {
+            statuses.value = JSON.parse(JSON.stringify(creatorEntry.statusesSnapshot))
+          } catch (e2) {
+            console.warn('恢复状态快照失败:', e2)
+          }
+        }
+        creatorEntry.statusesSnapshot = null
+      }
+      
+      // 恢复位置
+      if (creatorEntry.sceneIndex != null) {
+        currentSceneIndex.value = creatorEntry.sceneIndex
+        currentDialogueIndex.value = creatorEntry.dialogueIndex != null ? creatorEntry.dialogueIndex : 0
+        showText.value = true
+        console.log('恢复位置 - 场景:', currentSceneIndex.value, '对话:', currentDialogueIndex.value)
+      }
+      
+      allowAdvance.value = true
+      // 自动播放会自动恢复,不需要手动启动
+      // 如果之前在创作者模式中到达了本章末并保存了待加载章节，则在退出创作者模式后触发加载
+      try {
+        if (pendingNextChapter.value != null) {
+          const chap = pendingNextChapter.value
+          pendingNextChapter.value = null
+          // 异步触发加载下一章（与原逻辑一致）
+          (async () => {
+            try {
+              startLoading()
+              await fetchNextChapter(workId, chap)
+            } catch (e) { console.warn('load pending next chapter failed', e) }
+            try { await stopLoading() } catch (e) {}
+          })()
+        }
+      } catch (e) { console.warn('trigger pending next chapter failed', e) }
+      // 如果存在预览快照，退出创作者模式时需要恢复到快照状态（移除预览）
+      try {
+        if (previewSnapshot.value) {
+          console.log('Restoring previewSnapshot on exit creatorMode')
+          try { storyScenes.value = deepClone(previewSnapshot.value.storyScenes || []) } catch(e) { storyScenes.value = previewSnapshot.value.storyScenes || [] }
+          currentSceneIndex.value = previewSnapshot.value.currentSceneIndex || 0
+          currentDialogueIndex.value = previewSnapshot.value.currentDialogueIndex || 0
+          try { attributes.value = deepClone(previewSnapshot.value.attributes || {}) } catch(e) { attributes.value = previewSnapshot.value.attributes || {} }
+          try { statuses.value = deepClone(previewSnapshot.value.statuses || {}) } catch(e) { statuses.value = previewSnapshot.value.statuses || {} }
+          try { choiceHistory.value = deepClone(previewSnapshot.value.choiceHistory || []) } catch(e) { choiceHistory.value = previewSnapshot.value.choiceHistory || [] }
+          previewSnapshot.value = null
+          try { restoreChoiceFlagsFromHistory() } catch(e) {}
+        }
+      } catch(e) { console.warn('restore previewSnapshot failed', e) }
+    } catch (e) { console.warn('exit creatorMode failed', e) }
+  }
+})
+
+// Ensure first sentence shows when we have scenes and are ready (entering landscape & not loading).
+watch([isLandscapeReady, isLoading, () => storyScenes.value.length], (values) => {
+  try {
+    const [land, loading, len] = values
+    if (land && !loading && Array.isArray(storyScenes.value) && storyScenes.value.length > 0) {
+      // clamp scene index
+      if (typeof currentSceneIndex.value !== 'number' || currentSceneIndex.value >= storyScenes.value.length) currentSceneIndex.value = 0
+      const s = storyScenes.value[currentSceneIndex.value]
+      if (!s || !Array.isArray(s.dialogues) || s.dialogues.length === 0) {
+        // nothing to show
+        showText.value = false
+        return
+      }
+      // clamp dialogue index
+      if (typeof currentDialogueIndex.value !== 'number' || currentDialogueIndex.value >= s.dialogues.length) currentDialogueIndex.value = 0
+      // show first dialogue immediately
+      showText.value = true
+    }
+  } catch (e) { console.warn('auto-show first dialogue watch failed', e) }
+}, { immediate: true })
+
+
+// 设置 useSaveLoad 的依赖
+setSaveLoadDependencies({
+  checkCurrentChapterSaved,
+  getChapterStatus,
+  currentChapterIndex,
+  creatorFeatureEnabled,
+  showNotice,
+  stopAutoPlayTimer,
+  autoPlayEnabled,
+  anyOverlayOpen,
+  startAutoPlayTimer,
+  currentScene,
+  currentSceneIndex,
+  currentDialogueIndex,
+  storyScenes,
+  choiceHistory,
+  fetchNextChapter,
+  pushSceneFromServer,
+  deepClone,
+  currentBackground,
+  effectiveCoverUrl
+  ,
+  lastSelectedEndingIndex,
+  // 传入结局播放标记，方便读档时设置
+  playingEndingScenes,
+  endingsAppended
+})
+
+// 设置 useCreatorMode 的依赖（在 autoPlayAPI 创建之后）
+setCreatorModeDependencies({
+  stopAutoPlayTimer,
+  startAutoPlayTimer,
+  autoPlayEnabled,
+  persistCurrentChapterEdits,
+  creatorFeatureEnabled,
+  showMenu,
+  showText,
+  currentDialogue,
+  currentScene,
+  nextDialogue
+})
+
+// 设置 useStoryAPI 的依赖（在所有 composables 创建之后）
+storyAPI.setDependencies({
+  creatorFeatureEnabled,
+  showNotice,
+  showOutlineEditor,
+  outlineEdits,
+  outlineUserPrompt,
+  originalOutlineSnapshot,
+  editorInvocation,
+  pendingOutlineTargetChapter,
+  outlineEditorResolver,
+  loadingProgress,
+  // 传入属性/状态引用，供结局条件匹配使用
+  attributes,
+  statuses
+})
+
+// 自动播放的启动/停止已由 useAutoPlay 内部自动处理,不需要额外的 watch
+// useAutoPlay 会监听所有关键状态(showText, anyOverlayOpen, choicesVisible 等)的变化
+
+// 控制选项展示（在某句阅读结束后出现）
+
+// 当从存档/读档恢复到某句带有 playerChoices 的话时，避免立即自动展示选项。
+
+// 当场景或对话索引变动，检查是否应该显示选项
+watch([currentSceneIndex, currentDialogueIndex], () => {
+  // 如果刚刚处理过一次选项，短时间内不要重新显示选项（防止选项被重复展示）
+  try {
+    const timeSinceLastChoice = Date.now() - (lastChoiceTimestamp.value || 0)
+    if (timeSinceLastChoice < 600) {
+      console.log('[watch] 选项刚被处理,抑制重复显示,距上次:', timeSinceLastChoice, 'ms')
+      return
+    }
+  } catch (e) {}
+  
+  const scene = currentScene.value
+  if (!scene) {
+    console.log('[watch] 场景不存在，隐藏选项')
+    choicesVisible.value = false
+    return
+  }
+  
+  // 🔑 关键修复：如果该场景的选项已被消费过（用户已经选择过），不要再次显示
+  if (scene.choiceConsumed) {
+    console.log('[watch] 场景选项已消费,不显示选项 - 场景:', currentSceneIndex.value, 
+      '对话:', currentDialogueIndex.value, 
+      '选项触发点:', scene.choiceTriggerIndex,
+      '已选ID:', scene.chosenChoiceId,
+      '场景有choices:', Array.isArray(scene.choices),
+      '场景有choiceTriggerIndex:', typeof scene.choiceTriggerIndex === 'number')
+    choicesVisible.value = false
+    return
+  }
+  
+  // 🔑 智能检查：检查选择历史，但要考虑当前阅读位置
+  // 只有当用户已经通过了选项触发点（选过或跳过）时，才拒绝显示选项
+  try {
+    const sceneId = String(scene.id || scene.sceneId)
+    const historyRecord = choiceHistory.value.find(h => String(h.sceneId) === sceneId)
+    if (historyRecord) {
+      // 确定触发索引
+      const triggerIndex = typeof scene.choiceTriggerIndex === 'number' 
+        ? scene.choiceTriggerIndex 
+        : (typeof historyRecord.choiceTriggerIndex === 'number' ? historyRecord.choiceTriggerIndex : null)
+      
+      // 🔑 关键判断：只有当当前对话位置大于触发点时，才说明用户已经"通过"了选项
+      // 如果当前位置等于触发点，说明用户正好在这里，可能是从前面阅读过来的，应该显示选项
+      // 如果当前位置小于触发点，说明用户还没到，肯定要显示选项
+      if (triggerIndex !== null && currentDialogueIndex.value > triggerIndex) {
+        console.log('[watch] ⛔ 智能拒绝：用户已通过选项触发点，不再显示 - 场景ID:', sceneId, 
+          '当前位置:', currentDialogueIndex.value,
+          '触发点:', triggerIndex,
+          '历史记录:', historyRecord)
+        choicesVisible.value = false
+        // 同时标记场景为已消费，避免后续再次检查
+        if (!scene.choiceConsumed) {
+          scene.choiceConsumed = true
+          scene.chosenChoiceId = historyRecord.choiceId
+          if (typeof historyRecord.choiceTriggerIndex === 'number' && typeof scene.choiceTriggerIndex !== 'number') {
+            scene.choiceTriggerIndex = historyRecord.choiceTriggerIndex
+          }
+          console.log('[watch] ⛔ 已自动标记场景为已消费')
+        }
+        return
+      } else if (triggerIndex !== null && currentDialogueIndex.value === triggerIndex) {
+        // 当前正好在触发点，如果历史中有记录，说明是从后面回退的，应该拒绝
+        // 但如果是从前面阅读过来的，应该允许显示
+        // 可以通过检查是否刚完成读档来判断
+        console.log('[watch] 🤔 在触发点检测到历史记录，但用户可能从前面阅读过来 - 场景ID:', sceneId, 
+          '当前位置:', currentDialogueIndex.value,
+          '触发点:', triggerIndex)
+        // 这里不做拦截，让后续逻辑决定是否显示（可能是用户从前面正常阅读过来的）
+      } else {
+        console.log('[watch] ✅ 允许：用户还未到达触发点，允许显示选项 - 场景ID:', sceneId, 
+          '当前位置:', currentDialogueIndex.value,
+          '触发点:', triggerIndex)
+        // 用户还未到达触发点，清除可能错误的标记
+        if (scene.choiceConsumed) {
+          scene.choiceConsumed = false
+          scene.chosenChoiceId = null
+          console.log('[watch] ✅ 清除错误的消费标记，允许用户正常阅读到选项')
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[watch] 检查选择历史时出错:', e)
+  }
+  
+  // 🔑 关键修复：检查是否有有效的选项配置
+  // 注意：即使场景没有 choices 配置，如果它被标记为 choiceConsumed=true，
+  // 上面的检查已经阻止了选项显示，所以这里只需要检查是否有可显示的选项
+  const hasValidChoices = Array.isArray(scene.choices) && 
+                          scene.choices.length > 0 && 
+                          typeof scene.choiceTriggerIndex === 'number'
+  
+  if (!hasValidChoices) {
+    console.log('[watch] 场景无有效选项配置，隐藏选项 - choiceConsumed:', scene.choiceConsumed)
+    choicesVisible.value = false
+    return
+  }
+  
+  // 🔑 关键修复：当对话索引等于触发索引时显示选项（停留在触发句）
+  const shouldShowChoices = currentDialogueIndex.value === scene.choiceTriggerIndex && 
+                            showText.value && 
+                            !suppressAutoShowChoices.value
+  
+  if (shouldShowChoices) {
+    // 🔑 修改：不立即显示选项，而是设置标记，等待用户点击
+    console.log('[watch] 到达选项触发点 - 场景:', currentSceneIndex.value, 
+      '对话:', currentDialogueIndex.value, 
+      '触发索引:', scene.choiceTriggerIndex,
+      '选项数:', scene.choices.length,
+      '触发句内容:', scene.dialogues[currentDialogueIndex.value])
+    console.log('[watch] 选项详细数据:', scene.choices.map(c => ({
+      id: c.id,
+      text: c.text,
+      attributesDelta: c.attributesDelta,
+      statusesDelta: c.statusesDelta
+    })))
+    console.log('[watch] 设置等待用户点击标记，不立即显示选项')
+    waitingForClickToShowChoices.value = true
+    choicesVisible.value = false
+    // 自动播放遇到选项时暂停
+    stopAutoPlayTimer()
+  } else {
+    // 只在不是触发点时隐藏选项
+    if (currentDialogueIndex.value !== scene.choiceTriggerIndex) {
+      choicesVisible.value = false
+      // 🔑 清除等待标记（当离开触发点时）
+      waitingForClickToShowChoices.value = false
+    }
+    console.log('[watch] 选项未触发 - suppressAuto:', suppressAutoShowChoices.value, 
+      'dialogueIdx:', currentDialogueIndex.value, 
+      'triggerIdx:', scene.choiceTriggerIndex, 
+      'showText:', showText.value)
+  }
+}, { immediate: false }) // 🔑 不立即执行，避免初始化时误触发
+
+// 选项的显示/隐藏已由 useAutoPlay 内部自动处理,不需要额外的 watch
+
 // 页面卸载时解锁屏幕方向
 onUnmounted(async () => {
   // 停止自动播放计时器
   stopAutoPlayTimer()
+  
+  // 清理游戏状态的进度定时器
+  if (cleanupGameState) {
+    cleanupGameState()
+  }
+  
   try {
     // 卸载前自动存档
     await autoSaveToSlot(AUTO_SAVE_SLOT)
@@ -1953,43 +2161,43 @@ onUnmounted(async () => {
     <transition name="fade">
       <div v-if="isLandscapeReady && isLoading" class="loading-screen">
         <!-- 封面背景图 -->
-        <div class="loading-cover-bg" :style="{ backgroundImage: `url(${work.coverUrl})` }"></div>
+  <div class="loading-cover-bg" :style="{ backgroundImage: `url(${effectiveCoverUrl})` }"></div>
         
         <div class="loading-content">
-          <!-- 游戏标题（使用作品名） -->
-          <h1 class="game-title">{{ work.title }}</h1>
+          <!-- 游戏标题（作品名；结局判定时展示特殊标题） -->
+          <h1 class="game-title">{{ isEndingLoading ? '结局判定中' : work.title }}</h1>
           
-          <!-- 毛笔动画 -->
-          <div class="brush-container">
-            <svg class="brush-icon" viewBox="0 0 64 64" fill="none">
-              <!-- 毛笔笔杆 -->
-              <path 
-                d="M32 8 L32 40" 
-                stroke="#8B4513" 
-                stroke-width="3" 
-                stroke-linecap="round"
-              />
-              <!-- 毛笔笔头 -->
-              <path 
-                d="M32 40 L28 52 L32 56 L36 52 Z" 
-                fill="#2C2C2C"
-                stroke="#1C1C1C"
-                stroke-width="1"
-              />
-              <!-- 毛笔尖 -->
-              <path 
-                d="M32 56 L30 60 L32 62 L34 60 Z" 
-                fill="#1C1C1C"
-              />
-              <!-- 笔杆装饰 -->
-              <circle cx="32" cy="12" r="2" fill="#D4A574"/>
-              <circle cx="32" cy="20" r="2" fill="#D4A574"/>
-              <circle cx="32" cy="28" r="2" fill="#D4A574"/>
-            </svg>
-          </div>
-          
-          <!-- 进度条容器 -->
+          <!-- 进度条与毛笔（毛笔跟随进度条滑动） -->
           <div class="loading-progress-container">
+            <!-- 毛笔：使用 left 绑定使其跟随进度条的 thumb（通过 translateX(-50%) 居中） -->
+            <div class="brush-container" :style="{ left: loadingProgress + '%' }">
+              <svg class="brush-icon" viewBox="0 0 64 64" fill="none">
+                <!-- 毛笔笔杆 -->
+                <path 
+                  d="M32 8 L32 40" 
+                  stroke="#8B4513" 
+                  stroke-width="3" 
+                  stroke-linecap="round"
+                />
+                <!-- 毛笔笔头 -->
+                <path 
+                  d="M32 40 L28 52 L32 56 L36 52 Z" 
+                  fill="#2C2C2C"
+                  stroke="#1C1C1C"
+                  stroke-width="1"
+                />
+                <!-- 毛笔尖 -->
+                <path 
+                  d="M32 56 L30 60 L32 62 L34 60 Z" 
+                  fill="#1C1C1C"
+                />
+                <!-- 笔杆装饰 -->
+                <circle cx="32" cy="12" r="2" fill="#D4A574"/>
+                <circle cx="32" cy="20" r="2" fill="#D4A574"/>
+                <circle cx="32" cy="28" r="2" fill="#D4A574"/>
+              </svg>
+            </div>
+
             <div class="loading-progress-bg">
               <div class="loading-progress-fill" :style="{ width: loadingProgress + '%' }">
                 <div class="progress-shine"></div>
@@ -2000,7 +2208,9 @@ onUnmounted(async () => {
           
           <!-- 加载提示 -->
           <div class="loading-tips">
-            <p class="tip-text">{{ isGeneratingSettlement ? '结算页面生成中...' : '正在准备故事...' }}</p>
+            <p class="tip-text">
+              {{ isEndingLoading ? '结局判定中，请稍候...' : (isGeneratingSettlement ? '结算页面生成中...' : '正在准备故事...') }}
+            </p>
           </div>
         </div>
         
@@ -2026,33 +2236,58 @@ onUnmounted(async () => {
       <!-- 遮罩层（让文字更清晰） -->
       <div class="overlay-layer"></div>
       
-      <!-- 点击区域（点击进入下一句） -->
-      <div class="click-area" @click="nextDialogue"></div>
+      <!-- 点击区域（点击进入下一句） - 🔑 修复：编辑状态下阻止点击事件 -->
+      <div class="click-area" @click="editingDialogue ? null : nextDialogue"></div>
 
       <!-- 选项区域（如果当前场景包含 choices） - 放在 text-box 之外，避免被裁剪 -->
       <div 
         v-if="currentScene && currentScene.choices && choicesVisible" 
         class="choices-container" 
-        :class="{ disabled: showMenu }"
+        :class="{ disabled: showMenu, 'ending-choices': currentScene._isEndingChoiceScene }"
         @click.stop>
         <div class="choice" v-for="choice in currentScene.choices" :key="choice.id">
           <button 
             class="choice-btn" 
             :disabled="isFetchingChoice || showMenu" 
-            @click="chooseOption(choice.id)">
+            @click="chooseOption(choice)">
             {{ choice.text }}
           </button>
         </div>
       </div>
       
-      <!-- 文字栏 -->
-      <div class="text-box" @click="nextDialogue">
+      <!-- 文字栏 - 🔑 修复：编辑状态下阻止点击触发对话切换 -->
+      <div class="text-box" :class="{ editing: editingDialogue, 'creator-mode': creatorMode }" @click="editingDialogue ? $event.stopPropagation() : nextDialogue()">
         <!-- 说话人标签（可选） -->
         <div v-if="currentSpeaker" class="speaker-badge">{{ currentSpeaker }}</div>
         <transition name="text-fade">
-          <p v-show="showText" class="dialogue-text">{{ currentDialogue }}</p>
+          <!-- 非编辑态显示当前对话 -->
+          <p v-if="!editingDialogue && showText" class="dialogue-text">{{ currentDialogue }}</p>
+          <!-- 编辑态：contenteditable，编辑内容保存在 editableText - 🔑 修复：阻止点击事件冒泡 -->
+    <div v-else-if="editingDialogue" ref="editableDiv" class="dialogue-text" contenteditable="true"
+      @click.stop
+      @input="onEditableInput"
+      @compositionstart="onCompositionStart"
+      @compositionend="onCompositionEnd"
+      @keydown.enter.prevent="finishEdit"
+      @blur="finishEdit"></div>
         </transition>
-        
+
+        <!-- 编辑与替换图片按钮：仅在创作者模式可见 -->
+        <div v-if="creatorMode" class="edit-controls" aria-hidden="false">
+          <template v-if="!editingDialogue">
+            <button class="edit-btn" title="编辑文本" @click.stop="startEdit()">编辑</button>
+            <button class="edit-btn" title="替换当前背景" @click.stop="triggerImagePicker">替换图片</button>
+            <button class="edit-btn" title="播放下一句" @click.stop="playNextAfterEdit">播放下一句</button>
+            <!-- 🔧 新增旁白功能按钮 -->
+            <button class="edit-btn" title="在当前后插入旁白" @click.stop="addNarration()">新增旁白</button>
+            <button class="edit-btn" :class="{ disabled: !currentIsNarration }" :title="currentIsNarration ? '删除当前旁白' : '当前不是旁白'" @click.stop="attemptDeleteNarration">删除旁白</button>
+          </template>
+          <template v-else>
+            <button class="edit-btn" title="确认编辑" @click.stop="finishEdit()">确认</button>
+            <button class="edit-btn" title="取消编辑" @click.stop="cancelEdit()">取消</button>
+          </template>
+        </div>
+
         <!-- 继续提示箭头 -->
         <div v-if="showText && !isLastDialogue" class="continue-hint">
           <svg viewBox="0 0 24 24" fill="currentColor">
@@ -2068,12 +2303,15 @@ onUnmounted(async () => {
       
       <!-- 菜单按钮 -->
       <button class="menu-button" @click.stop="toggleMenu">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+        <svg viewBox="0 0  24 24" fill="none" stroke="currentColor">
           <line x1="3" y1="12" x2="21" y2="12" stroke-width="2"/>
           <line x1="3" y1="6" x2="21" y2="6" stroke-width="2"/>
           <line x1="3" y1="18" x2="21" y2="18" stroke-width="2"/>
         </svg>
       </button>
+
+      <!-- 创作者模式指示器 -->
+      <div v-if="creatorMode" class="creator-badge">创作者模式</div>
 
       <!-- 顶部不再显示快速操作，相关功能移动到菜单中 -->
       
@@ -2110,8 +2348,8 @@ onUnmounted(async () => {
             </button>
             <button class="menu-item" @click="showMenu = false; openAttributes()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <circle cx="12" cy="12" r="3" stroke-width="2"/>
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V22a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H2a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0A1.65 1.65 0 0 0 9 2.09V2a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0A1.65 1.65 0 0 0 21.91 11H22a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14" stroke-width="2"/>
+                <path d="M3 7h18M8 11l2.5 3L13 11l4 6H7l1-2z" stroke-width="2"/>
               </svg>
               <span>属性</span>
             </button>
@@ -2121,6 +2359,14 @@ onUnmounted(async () => {
                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.27.27a2 2 0 1 1-2.83 2.83l-.27-.27a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V22a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.27.27a2 2 0 1 1-2.83-2.83l.27-.27a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H2a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.27-.27a2 2 0 1 1 2.83-2.83l.27.27a1.65 1.65 0 0 0 1.82.33h0A1.65 1.65 0 0 0 9 2.09V2a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.27-.27a2 2 0 1 1 2.83 2.83l-.27.27a1.65 1.65 0 0 0-.33 1.82v0A1.65 1.65 0 0 0 21.91 11H22a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
               <span>设置</span>
+            </button>
+            <!-- 创作者模式开关 -->
+            <button class="menu-item" @click="toggleCreatorMode(); showMenu = false">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" stroke-width="1.5"/>
+                <circle cx="12" cy="12" r="3" stroke-width="1.5"/>
+              </svg>
+              <span>{{ creatorMode ? '退出手动编辑模式' : '进入手动编辑模式' }}</span>
             </button>
           </div>
           
@@ -2142,14 +2388,21 @@ onUnmounted(async () => {
         <div class="slot-list">
           <div v-for="slot in SLOTS" :key="slot" class="slot-card">
             <div class="slot-title">{{ slot.toUpperCase() }}</div>
-            <div class="slot-meta" v-if="slotInfos[slot]">
-              <div>时间：{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}</div>
-              <div>场景：{{ slotInfos[slot].sceneTitle ? slotInfos[slot].sceneTitle : (slotInfos[slot].sceneId ? ('id:' + slotInfos[slot].sceneId) : ((slotInfos[slot].currentSceneIndex ?? 0) + 1)) }}</div>
-              <div>对话：{{ (slotInfos[slot].dialogueIndex ?? slotInfos[slot].currentDialogueIndex ?? 0) + 1 }}</div>
+            <div v-if="slotInfos[slot]">
+                <div class="slot-thumb" v-if="(slotInfos[slot].thumbnailData || slotInfos[slot].thumbnail || (slotInfos[slot].game_state && (slotInfos[slot].game_state.thumbnailData || slotInfos[slot].game_state.thumbnail)))">
+                  <img :src="slotInfos[slot].thumbnailData || slotInfos[slot].thumbnail || (slotInfos[slot].game_state && (slotInfos[slot].game_state.thumbnailData || slotInfos[slot].game_state.thumbnail))" alt="thumb" />
+                  <div class="thumb-meta">
+                    <div class="meta-time">{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}</div>
+                  </div>
+                </div>
+                <div class="slot-meta" v-else>
+                  <div>时间：{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}</div>
+                </div>
             </div>
             <div class="slot-meta empty" v-else>空槽位</div>
             <div class="slot-actions">
               <button @click="saveGame(slot).then(() => refreshSlotInfos())">保存到 {{ slot.toUpperCase() }}</button>
+              <button v-if="slotInfos[slot]" @click="deleteGame(slot)" class="delete-btn">删除</button>
             </div>
           </div>
         </div>
@@ -2193,14 +2446,21 @@ onUnmounted(async () => {
         <div class="slot-list">
           <div v-for="slot in SLOTS" :key="slot" class="slot-card">
             <div class="slot-title">{{ slot.toUpperCase() }}</div>
-            <div class="slot-meta" v-if="slotInfos[slot]">
-              <div>时间：{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}</div>
-              <div>场景：{{ slotInfos[slot].sceneTitle ? slotInfos[slot].sceneTitle : (slotInfos[slot].sceneId ? ('id:' + slotInfos[slot].sceneId) : ((slotInfos[slot].currentSceneIndex ?? 0) + 1)) }}</div>
-              <div>对话：{{ (slotInfos[slot].dialogueIndex ?? slotInfos[slot].currentDialogueIndex ?? 0) + 1 }}</div>
+            <div v-if="slotInfos[slot]">
+              <div class="slot-thumb" v-if="(slotInfos[slot].thumbnailData || slotInfos[slot].thumbnail || (slotInfos[slot].game_state && (slotInfos[slot].game_state.thumbnailData || slotInfos[slot].game_state.thumbnail)))">
+                <img :src="slotInfos[slot].thumbnailData || slotInfos[slot].thumbnail || (slotInfos[slot].game_state && (slotInfos[slot].game_state.thumbnailData || slotInfos[slot].game_state.thumbnail))" alt="thumb" />
+                <div class="thumb-meta">
+                  <div class="meta-time">{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}</div>
+                </div>
+              </div>
+              <div class="slot-meta" v-else>
+                <div>时间：{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}</div>
+              </div>
             </div>
             <div class="slot-meta empty" v-else>空槽位</div>
             <div class="slot-actions">
               <button :disabled="!slotInfos[slot]" @click="loadGame(slot)">读取 {{ slot.toUpperCase() }}</button>
+              <button v-if="slotInfos[slot]" @click="deleteGame(slot)" class="delete-btn">删除</button>
             </div>
           </div>
         </div>
@@ -2262,8 +2522,131 @@ onUnmounted(async () => {
       </div>
     </div>
 
-    <!-- 临时提示（存档/读档） -->
-    <div class="toast save-toast" v-if="saveToast">{{ saveToast }}</div>
-    <div class="toast load-toast" v-if="loadToast">{{ loadToast }}</div>
+  <!-- 临时提示（存档/读档/notice） -->
+  <div class="toast save-toast" v-if="saveToast">{{ saveToast }}</div>
+  <div class="toast load-toast" v-if="loadToast">{{ loadToast }}</div>
+  <div class="toast notice-toast" v-if="noticeToast">{{ noticeToast }}</div>
+  <!-- 创作者专用：手动打开大纲编辑器按钮（浮动） -->
+  <!--
+    修复说明：只在创作者身份（isCreatorIdentity）下显示编辑大纲按钮，
+    阅读者身份不应该看到此按钮。
+  -->
+
+  <button 
+    v-if="creatorFeatureEnabled && getChapterStatus(currentChapterIndex) !== 'saved'"
+    @click="openOutlineEditorManual()"
+    class="creator-outline-btn" 
+    title="编辑/生成章节大纲">
+    📝 编辑大纲
+  </button>
+  
+  <!-- 创作者在播放后端已生成结局时显示的编辑按钮 -->
+  <button
+    v-if="(creatorFeatureEnabled || creatorMode) && isPlayingBackendGeneratedEnding"
+    @click="() => openEndingEditor({ _endingIndex: (currentScene && typeof currentScene._endingIndex !== 'undefined' && currentScene._endingIndex !== null) ? Number(currentScene._endingIndex) : ((lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? Number(lastSelectedEndingIndex.value) : null), _endingTitle: (currentScene && currentScene._endingTitle) || (work && work.title) })"
+    class="creator-outline-btn"
+    title="编辑当前结局的大纲">
+    📝 编辑结局大纲
+  </button>
+  <!-- 创作者专用：当当前章节已由 AI 生成（generated）时，可确认并保存本章，标记为 saved -->
+  <button 
+    v-if="creatorFeatureEnabled && getChapterStatus(currentChapterIndex) !== 'saved' && !isPlayingBackendGeneratedEnding" 
+    @click="persistCurrentChapterEdits({ auto: false, allowSaveGenerated: true })" 
+    class="creator-confirm-btn" 
+    title="确认并保存本章">
+    ✓ 确认保存
+  </button>
+
+  <!-- 创作者在播放后端已生成结局时显示的保存按钮 -->
+  <button
+    v-if="(creatorFeatureEnabled || creatorMode) && isPlayingBackendGeneratedEnding"
+    @click="saveCurrentEnding"
+    class="creator-confirm-btn"
+    title="保存当前结局">
+    ✓ 保存结局
+  </button>
+
+  <!-- 创作者大纲编辑器模态（当 createResult.modifiable 且有 chapterOutlines 时显示） -->
+  <div v-if="showOutlineEditor" class="modal-backdrop">
+      <div class="modal-panel outline-editor-panel">
+        <h3 class="outline-editor-title">✨ 编辑章节大纲</h3>
+        <p class="outline-editor-desc">编辑完成后点击"确认"可以基于此大纲生成章节内容哦~</p>
+        
+        <!-- 分页章节显示 -->
+        <div class="outline-chapters-container">
+          <div v-if="outlineEdits[outlineCurrentPage]" class="outline-chapter-item">
+            <div class="chapter-label">📖 第 {{ outlineEdits[outlineCurrentPage].chapterIndex }} 章 大纲</div>
+            <textarea 
+              v-model="outlineEdits[outlineCurrentPage].outline" 
+              rows="3" 
+              class="outline-textarea" 
+              placeholder="请输入该章节的大纲内容...">
+            </textarea>
+          </div>
+        </div>
+
+        <!-- 分页控制 -->
+        <div class="outline-pagination">
+          <button 
+            class="pagination-btn" 
+            @click="outlineCurrentPage = Math.max(0, outlineCurrentPage - 1)"
+            :disabled="outlineCurrentPage === 0">
+            ← 上一章
+          </button>
+          <span class="pagination-info">{{ outlineCurrentPage + 1 }} / {{ outlineEdits.length }}</span>
+          <button 
+            class="pagination-btn" 
+            @click="outlineCurrentPage = Math.min(outlineEdits.length - 1, outlineCurrentPage + 1)"
+            :disabled="outlineCurrentPage === outlineEdits.length - 1">
+            下一章 →
+          </button>
+        </div>
+
+        <!-- 额外指令 -->
+        <div class="outline-prompt-section">
+          <div class="chapter-label">💡 指令 (可选)</div>
+          <textarea 
+            v-model="outlineUserPrompt" 
+            rows="2" 
+            class="outline-textarea outline-textarea-small" 
+            placeholder="为本章生成提出您的指令吧...">
+          </textarea>
+        </div>
+
+        <!-- 操作按钮 -->
+        <div class="outline-editor-actions">
+          <button v-if="editorInvocation !== 'auto'" class="edit-btn btn-cancel" @click="cancelOutlineEdits">取消</button>
+          <button 
+            class="edit-btn btn-confirm" 
+            :disabled="!(editorInvocation === 'auto' || editorInvocation === 'manual' || creatorMode)" 
+            @click="confirmOutlineEdits({ startLoading, stopLoading })">
+            确认生成
+          </button>
+        </div>
+      </div>
+    </div>
+    <!-- 隐藏的文件输入：用于用户替换当前背景图 -->
+    <input ref="imgInput" type="file" accept="image/*" style="display:none" @change="onImageSelected" />
+  </div>
+  
+  <!-- 创作者：结局编辑器模态 -->
+  <div v-if="endingEditorVisible" class="modal-backdrop">
+    <div class="modal-panel outline-editor-panel">
+      <h3 class="outline-editor-title">✍️ 编辑结局大纲</h3>
+      <p class="outline-editor-desc">修改结局标题与大纲，或提供生成指令。提交后会触发结局生成并轮询直到完成。</p>
+
+      <div class="outline-chapter-item">
+        <div class="chapter-label">结局索引: {{ endingEditorForm.endingIndex || '-' }}</div>
+        <input v-model="endingEditorForm.title" class="outline-textarea" placeholder="结局标题" />
+        <textarea v-model="endingEditorForm.outline" rows="4" class="outline-textarea" placeholder="结局大纲，例如：你战胜了魔王，成为了王国的英雄..."></textarea>
+        <div class="chapter-label">生成指令 (可选)</div>
+        <textarea v-model="endingEditorForm.userPrompt" rows="2" class="outline-textarea outline-textarea-small" placeholder="例如：请让结局更悲壮一些"></textarea>
+      </div>
+
+      <div class="outline-editor-actions">
+        <button class="edit-btn btn-cancel" @click="cancelEndingEditor">取消</button>
+        <button class="edit-btn btn-confirm" :disabled="endingEditorBusy" @click="submitEndingEditor">提交并生成</button>
+      </div>
+    </div>
   </div>
 </template>

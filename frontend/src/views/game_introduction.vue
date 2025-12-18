@@ -2,6 +2,12 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { useRouter } from 'vue-router'
+import { http } from '../service/http.js'
+import { addFavorite, deleteFavorite, getComments, postComments, likeComment, unlikeComment } from '../api/user.js'
+import { useTags } from '../composables/useTags'; // 导入标签工具函数
+
+// 初始化标签工具
+const { getTagsByIds } = useTags();
 
 const router = useRouter()
 
@@ -15,24 +21,49 @@ const state = history.state || {}
 // 若存在 createResult，则优先使用 sessionStorage.createResult 中的 backendWork
 let sessionCreate = null
 try { sessionCreate = JSON.parse(sessionStorage.getItem('createResult')) } catch (e) { sessionCreate = null }
-const incomingTags = (state.selectedTags && Array.isArray(state.selectedTags))
-  ? state.selectedTags
-  : (() => { try { return JSON.parse(sessionStorage.getItem('createRequest'))?.tags } catch { return null } })()
-const backendWork = state.backendWork || sessionCreate?.backendWork || null
+
+// 规范化后端返回的数据字段（兼容 image_url / coverUrl / cover_url 等差异）
+const normalizeBackendWork = (raw) => {
+  if (!raw) return null
+  const coverCandidate = raw.coverUrl || raw.cover_url || raw.image_url || raw.imageUrl || raw.cover || (raw.image && raw.image.url) || ''
+  let cover = coverCandidate || ''
+  if (cover && /^\//.test(cover)) cover = 'http://localhost:8000' + cover
+  // 如果已经是完整 URL，保留原样
+  return {
+    id: raw.id,
+    author: raw.author,
+    title: raw.title || raw.name || raw.work_title || '',
+    description: raw.description || raw.desc || raw.summary || '',
+    coverUrl: cover || raw.coverUrl || raw.image_url || '',
+    tags: raw.tags || raw.tag_names || raw.tag_ids || [],
+    favoritesCount: raw.favorite_count || raw.favoritesCount || 0,
+      publishedAt: raw.published_at || raw.publishedAt || raw.created_at || null,
+    updatedAt: raw.updated_at || raw.updatedAt || raw.modified || null,
+    isFavorited: raw.is_favorited || false,
+    averageScore: raw.average_score || raw.averageScore || 0,
+    ratingCount: raw.rating_count || raw.ratingCount || 0,
+    wordCount: raw.word_count || null,
+    // 兼容后端可能使用的 price 或 unlock_points_needed 字段，用于解锁/付费显示
+    price: typeof raw.price !== 'undefined' ? raw.price : (typeof raw.unlock_points_needed !== 'undefined' ? raw.unlock_points_needed : undefined),
+    readCount: raw.read_count || 0
+  }
+}
+
+let backendWorkRaw = normalizeBackendWork(state.backendWork || sessionCreate?.backendWork || null)
 
 const work = ref({
-  id: backendWork?.id || 1,
-  title: backendWork?.title || '锦瑟深宫',
-  coverUrl: backendWork?.coverUrl || 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=800&h=500&fit=crop',
-  authorId: backendWork?.authorId || 'user_12345',
-  tags: incomingTags || backendWork?.tags || ['科幻', '冒险', '太空', '未来'],
-  description: backendWork?.description || `柳晚晚穿越成后宫小透明，她把宫斗当成终身职业来经营。
+  id: backendWorkRaw?.id || 1,
+  title: backendWorkRaw?.title || '锦瑟深宫',
+  coverUrl: backendWorkRaw?.coverUrl || 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=800&h=500&fit=crop',
+  authorId: backendWorkRaw?.authorId || 'user_12345',
+  tags: backendWorkRaw?.tags || ['科幻', '冒险', '太空', '未来'],
+  description: backendWorkRaw?.description || `柳晚晚穿越成后宫小透明，她把宫斗当成终身职业来经营。
 不争宠不夺权，只求平安活到退休。
-
+ 
 别人算计位份，她研究菜谱
 别人争抢赏赐，她核算份例
 在步步惊心的深宫里，她用一口小锅涮出温暖天地。
-
+ 
 皇帝觉得她省心，妃嫔当她没威胁。直到风波来临，众人才发现——这个整天算账吃饭的鹌鹑，早把生存智慧练到满级。
 
 当六宫争得头破血流时，
@@ -41,7 +72,166 @@ const work = ref({
 
 在这吃人的后宫，不想争宠的干饭人，
 正在悄悄苟成最后赢家。`,
-  isFavorite: false
+  isFavorite: backendWorkRaw?.isFavorited || false
+})
+
+// 如果首次没有传入 backendWork（直接打开 /works 或刷新），尝试在挂载时去后端拉取最新详情并规范化映射
+onMounted(async () => {
+  try {
+    // 每次进入作品介绍页都向后端拉取最新详情，避免展示本地占位内容
+    // 优先使用路由参数 / query 中的 id，其次使用 sessionStorage.createResult 中的 backendWork.id，最后回退到当前 work.value.id
+    let sr = null
+    try { sr = JSON.parse(sessionStorage.getItem('createResult')) } catch (e) { sr = null }
+    const paramId = route.params?.id || route.query?.id || null
+    const candidateId = paramId || sr?.backendWork?.id || new URLSearchParams(window.location.search).get('id') || work.value.id
+
+    if (!candidateId) {
+      console.warn('[game_introduction] no candidate id to fetch')
+      return
+    }
+
+    const details = await http.get(`/api/gameworks/gameworks/${candidateId}/`)
+    // 兼容不同后端返回格式，优先取 data
+    const payload = details?.data || details || null
+    if (!payload) {
+      console.warn('[game_introduction] fetched empty payload for id', candidateId)
+      return
+    }
+
+    const normalized = normalizeBackendWork(payload)
+    if (normalized) {
+      // 完整覆盖界面字段，优先使用后端数据（但保留 tags 若路由/导航传入 overrides）
+      work.value.id = normalized.id || work.value.id
+      work.value.authorId = normalized.author || work.value.authorId
+      work.value.title = normalized.title || work.value.title
+      work.value.coverUrl = normalized.coverUrl || work.value.coverUrl
+      work.value.description = normalized.description || work.value.description
+     
+      const fetchedTags = await getTagsByIds(normalized.tags || []);
+      work.value.tags = fetchedTags || ['科幻', '冒险', '太空', '未来'];
+      
+      work.value.isFavorite = normalized.isFavorited || work.value.isFavorite
+      try { favoritesCount.value = payload.favorite_count || payload.favoritesCount || favoritesCount.value } catch (e) {}
+      try { publishedAt.value = payload.published_at || payload.publishedAt || payload.created_at || publishedAt.value } catch (e) {}
+      try { updatedAt.value = payload.updated_at || payload.updatedAt || payload.modified || updatedAt.value } catch (e) {}
+      try { averageScore.value = payload.average_score || payload.averageScore || averageScore.value } catch (e) {}
+      try { ratingCount.value = payload.rating_count || payload.ratingCount || ratingCount.value } catch (e) {}
+      work.value.isFavorite = normalized.isFavorited
+      
+      // 更新统计数据
+      favoritesCount.value = normalized.favoritesCount
+      publishedAt.value = normalized.publishedAt || publishedAt.value
+      updatedAt.value = normalized.updatedAt || updatedAt.value
+      averageScore.value = normalized.averageScore
+      ratingCount.value = normalized.ratingCount
+      readCount.value = normalized.readCount
+      // 如果后端返回积分相关字段，更新前端显示（兼容 price / unlock_points_needed / 嵌套 gamwork.data）
+      try {
+        if (typeof payload.unlock_points_needed !== 'undefined') {
+          unlockPointsNeeded.value = payload.unlock_points_needed
+        } else if (typeof payload.price !== 'undefined') {
+          unlockPointsNeeded.value = payload.price
+        } else if (payload.gamework && typeof payload.gamework.price !== 'undefined') {
+          unlockPointsNeeded.value = payload.gamework.price
+        } else if (payload.data && typeof payload.data.price !== 'undefined') {
+          unlockPointsNeeded.value = payload.data.price
+        }
+
+        // 后端可能使用多种字段表示“当前用户已送出积分”的值：优先使用 user_reward_amount（明确表示当前用户当次/累计送出数），
+        // 然后回退到 user_given_points 或嵌套对象中的同名字段。
+        if (typeof payload.user_reward_amount !== 'undefined') {
+          userGivenPoints.value = payload.user_reward_amount
+        } else if (payload.data && typeof payload.data.user_reward_amount !== 'undefined') {
+          userGivenPoints.value = payload.data.user_reward_amount
+        } else if (typeof payload.user_given_points !== 'undefined') {
+          userGivenPoints.value = payload.user_given_points
+        } else if (payload.gamework && typeof payload.gamework.user_given_points !== 'undefined') {
+          userGivenPoints.value = payload.gamework.user_given_points
+        }
+      } catch (e) {}
+      if (normalized.wordCount !== null) {
+        backendWordCount.value = normalized.wordCount
+      }
+
+      // 如果后端返回章节数，则更新 totalChapters
+      try {
+        if (typeof payload.total_chapters !== 'undefined') totalChapters.value = payload.total_chapters
+        else if (typeof payload.totalChapters !== 'undefined') totalChapters.value = payload.totalChapters
+      } catch (e) {}
+
+      // 将获取到的后端原始数据写回 sessionStorage.createResult，方便其他页面/刷新时复用
+      try {
+        const prev = JSON.parse(sessionStorage.getItem('createResult') || '{}')
+        // 写入后端原始数据到 backendWork，便于其它页面读取；同时保留两个重要标记：modifiable / ai_callable
+        prev.backendWork = payload
+        // 兼容性：将 modifiable 与 ai_callable 同时写回顶级 createResult，便于前端快速判断权限/能力
+        try { prev.modifiable = !!payload.modifiable } catch (e) {}
+        try { prev.ai_callable = typeof payload.ai_callable !== 'undefined' ? !!payload.ai_callable : (payload.data && typeof payload.data.ai_callable !== 'undefined' ? !!payload.data.ai_callable : undefined) } catch (e) {}
+        sessionStorage.setItem('createResult', JSON.stringify(prev))
+      } catch (e) { console.warn('failed to write createResult to sessionStorage', e) }
+      // 如果 payload 中包含评论数据，归一化并写入 comments
+      try {
+        if (Array.isArray(payload.comments_by_time)) {
+          rawCommentsByTime.value = payload.comments_by_time
+          comments.value = normalizeComments(payload.comments_by_time)
+        }
+        if (Array.isArray(payload.comments_by_hot)) {
+          rawCommentsByHot.value = payload.comments_by_hot
+        }
+        // 如果后端返回 rating_details，则用它初始化评分分页数据
+        try {
+          if (Array.isArray(payload.rating_details)) {
+            ratings.value = payload.rating_details.map((r, idx) => {
+              const created = r.created_at || r.createdAt || r.time || null
+              const timestamp = created ? Date.parse(created) : Date.now() - idx
+              const score10 = Number(r.score || r.score10 || 0)
+              return {
+                id: `${timestamp}_${idx}`,
+                author: r.username || r.user || '匿名',
+                profile_picture: r.profile_picture || r.profilePicture || null,
+                stars: Math.round((score10 || 0) / 2),
+                score10: score10,
+                time: created ? new Date(created).toLocaleString() : '未知',
+                timestamp: timestamp
+              }
+            })
+            // 尝试读取当前登录用户的用户名（优先 window 注入，其次 localStorage.userInfo）
+            try {
+              if (!currentUsername.value) {
+                if (window.__STORYCRAFT_USER__ && window.__STORYCRAFT_USER__.username) currentUsername.value = window.__STORYCRAFT_USER__.username
+                else {
+                  const stored = localStorage.getItem('userInfo')
+                  if (stored) {
+                    const u = JSON.parse(stored)
+                    currentUsername.value = u?.username || u?.user || null
+                  }
+                }
+              }
+            } catch (e) {}
+
+            // 如果当前用户已在后端评分记录中出现，标记为已评分并在星级处显示他之前的分数
+            try {
+              if (currentUsername.value) {
+                const found = payload.rating_details.find(r => (r.username || r.user) === currentUsername.value)
+                if (found) {
+                  userHasRated.value = true
+                  const s10 = Number(found.score || found.score10 || 0)
+                  if (!isNaN(s10) && s10 > 0) selectedStars.value = Math.round(s10 / 2)
+                }
+              }
+            } catch (e) { console.warn('check user rating failed', e) }
+          }
+        } catch (e) { console.warn('failed to parse rating_details from payload', e) }
+      } catch (e) { console.warn('failed to parse comments from payload', e) }
+    }
+    // 仅在作品详情未包含任何评论时，回退到独立的 comments API 拉取（避免覆盖已加载的评论）
+    if ((!rawCommentsByTime.value || rawCommentsByTime.value.length === 0) && (!rawCommentsByHot.value || rawCommentsByHot.value.length === 0)) {
+      await fetchCommentsFromAPI(1)
+    }
+
+  } catch (e) {
+    console.warn('fetch work details failed:', e)
+  }
 })
 
 // 切换收藏状态
@@ -49,22 +239,119 @@ const toggleFavorite = () => {
   work.value.isFavorite = !work.value.isFavorite
 }
 // 收藏数（示例初始值或来自后端）
-const favoritesCount = ref(backendWork?.favoritesCount || 124)
+const favoritesCount = ref(backendWorkRaw?.favoritesCount || 0)
 
 // 修改切换收藏以维护收藏计数
-const toggleFavoriteWithCount = () => {
-  work.value.isFavorite = !work.value.isFavorite
-  favoritesCount.value += work.value.isFavorite ? 1 : -1
+const toggleFavoriteWithCount = async () => {
+  try {
+    // 如果当前是未收藏状态，调用收藏接口
+    if (!work.value.isFavorite) {
+      await addFavorite(work.value.id); // 这里的收藏夹可以根据实际需求修改或让用户选择
+      work.value.isFavorite = true;
+      favoritesCount.value += 1;
+    } else {
+      await deleteFavorite(work.value.id);
+      work.value.isFavorite = false;
+      favoritesCount.value -= 1;
+    }
+  } catch (e) {
+    console.error('收藏操作失败:', e);
+    // 操作失败时回滚状态
+    work.value.isFavorite = !work.value.isFavorite;
+  }
 }
+
 // 发表时间（来自后端或默认当前时间）
-const publishedAt = ref(backendWork?.publishedAt || backendWork?.publishedDate || new Date().toISOString())
+const publishedAt = ref(backendWorkRaw?.publishedAt || backendWorkRaw?.publishedDate || new Date().toISOString())
+
+// 章节数（来自后端，字段名可能为 total_chapters 或 totalChapters）
+const totalChapters = ref(backendWorkRaw?.totalChapters || backendWorkRaw?.total_chapters || null)
+
+// 最后更新时间（来自后端 updated_at）
+const updatedAt = ref(backendWorkRaw?.updatedAt || backendWorkRaw?.updated_at || null)
+
+// 评分数据（从后端获取）
+const averageScore = ref(backendWorkRaw?.averageScore || 0)
+const ratingCount = ref(backendWorkRaw?.ratingCount || 0)
+const readCount = ref(backendWorkRaw?.readCount || 0)
+const backendWordCount = ref(backendWorkRaw?.wordCount || null)
+
+// 积分/打赏相关（用于作品简介与评论评分之间的“送积分”模块）
+// 优先从后端返回的 price 字段，否则使用 unlock_points_needed，默认 100
+const unlockPointsNeeded = ref((backendWorkRaw?.price !== undefined) ? backendWorkRaw.price : (backendWorkRaw?.unlock_points_needed || 100)) // 解锁该作品需要的积分（后端可返回字段）
+const userGivenPoints = ref(backendWorkRaw?.user_given_points || 0) // 当前用户已在该作品上送出的积分
+const sendingPoints = ref(false)
+// 页面内 modal 控制：改为页面内弹窗输入数量
+const showPointsModal = ref(false)
+const pointsAmount = ref(10)
+// 预设额度（含自定义）
+const presets = [30, 60, 98, 158, 268, 388, 618, 998, '自定义']
+const selectedPreset = ref(presets[0])
+
+const openPointsModal = () => {
+  pointsAmount.value = 30
+  selectedPreset.value = presets[0]
+  showPointsModal.value = true
+}
+
+const cancelSendPoints = () => {
+  showPointsModal.value = false
+}
+
+const selectPreset = (p) => {
+  selectedPreset.value = p
+  if (p === '自定义') {
+    pointsAmount.value = ''
+    // focus will be handled by user interaction
+  } else {
+    pointsAmount.value = p
+  }
+}
+
+const confirmSendPoints = async () => {
+  const amount = parseInt(pointsAmount.value)
+  if (isNaN(amount) || amount <= 0) {
+    alert('请输入大于 0 的整数')
+    return
+  }
+  try {
+    sendingPoints.value = true
+    // 后端：POST /api/users/reward/  { "gamework_id": <id>, "amount": <amount> }
+    const res = await http.post('/api/users/reward/', { gamework_id: work.value.id, amount })
+    // 后端返回示例：{ code:200, message:'打赏成功', amount: 20, author: '作者用户名' }
+    if (res && res.data && typeof res.data.amount !== 'undefined') {
+      // 将用户已送出积分更新为后端返回的总数（若后端返回累计值）
+      userGivenPoints.value = res.data.amount
+    } else {
+      userGivenPoints.value += amount
+    }
+    showPointsModal.value = false
+    alert('送积分成功，谢谢支持！')
+  } catch (e) {
+    console.error('sendPoints error', e)
+    alert('送积分失败，请稍后重试')
+  } finally {
+    sendingPoints.value = false
+  }
+}
 
 const publicationDisplay = computed(() => {
   try {
+    if (!publishedAt.value) return '—'
     const d = new Date(publishedAt.value)
-    return d.toLocaleDateString()
+    return d.toLocaleString()
   } catch (e) {
     return publishedAt.value
+  }
+})
+
+const updatedDisplay = computed(() => {
+  try {
+    if (!updatedAt.value) return '—'
+    const d = new Date(updatedAt.value)
+    return d.toLocaleString()
+  } catch (e) {
+    return updatedAt.value
   }
 })
 // 标签颜色配置（低饱和度浅色）
@@ -89,52 +376,67 @@ const isDescriptionExpanded = ref(false)
 const newComment = ref('')
 const replyingTo = ref(null) // 正在回复的评论ID
 const sortBy = ref('latest') // 排序方式: 'latest' 或 'likes'
+// comments will be populated from backend. rawCommentsByTime/rawCommentsByHot keep original payloads.
+const comments = ref([])
+const rawCommentsByTime = ref(null)
+const rawCommentsByHot = ref(null)
+const submitComment = async () => {
+  if (!newComment.value.trim()) return
+  try {
+    const parent = replyingTo.value || null
+    // 调用后端发表评论接口
+    await postComments(newComment.value.trim(), work.value.id, parent)
+    // 发布成功后刷新评论（优先尝试通过作品详情获取树状 comments）
+    try {
+      const details = await http.get(`/api/gameworks/gameworks/${work.value.id}/`)
+      const payload = details?.data || details || null
+      if (payload) {
+        if (Array.isArray(payload.comments_by_time)) {
+          rawCommentsByTime.value = payload.comments_by_time
+          comments.value = normalizeComments(payload.comments_by_time)
+        } else {
+          // fallback to comments endpoint
+          await fetchCommentsFromAPI(1)
+        }
+      } else {
+        await fetchCommentsFromAPI(1)
+      }
+    } catch (e) {
+      await fetchCommentsFromAPI(1)
+    }
+    // 清理输入/回复状态
+    newComment.value = ''
+    replyingTo.value = null
+  } catch (e) {
+    console.error('post comment failed', e)
+    alert('发表评论失败，请稍后重试')
+  }
+}
 
-const comments = ref([
-  { id: 1, author: 'user_001', text: '这个作品太棒了！期待后续更新！', time: '2小时前', timestamp: Date.now() - 2 * 60 * 60 * 1000, likes: 15, isLiked: false,
-    replies: [
-      { id: 101, author: 'user_004', text: '同感！已经追更好几天了', time: '1小时前', timestamp: Date.now() - 1 * 60 * 60 * 1000, likes: 3, isLiked: false },
-      { id: 102, author: 'user_005', text: '我更喜欢主角的设定，希望加强世界观', time: '50分钟前', timestamp: Date.now() - 50 * 60 * 1000, likes: 6, isLiked: false },
-      { id: 103, author: 'user_006', text: '情节推进有点慢，但人物刻画不错', time: '30分钟前', timestamp: Date.now() - 30 * 60 * 1000, likes: 1, isLiked: false },
-      { id: 104, author: 'user_007', text: '怎么没有番外？', time: '10分钟前', timestamp: Date.now() - 10 * 60 * 1000, likes: 0, isLiked: false }
-    ] },
-  { id: 2, author: 'user_002', text: '故事情节很吸引人，写得很不错。', time: '5小时前', timestamp: Date.now() - 5 * 60 * 60 * 1000, likes: 8, isLiked: false,
-    replies: [ { id: 201, author: 'user_008', text: '我觉得第二章高潮部分很精彩', time: '4小时前', timestamp: Date.now() - 4 * 60 * 60 * 1000, likes: 2, isLiked: false } ] },
-  { id: 3, author: 'user_003', text: '设定很有创意，支持作者！', time: '1天前', timestamp: Date.now() - 24 * 60 * 60 * 1000, likes: 23, isLiked: false,
-    replies: [ { id: 301, author: 'user_009', text: '这个设定让我想到了某部经典作品', time: '23小时前', timestamp: Date.now() - 23 * 60 * 60 * 1000, likes: 10, isLiked: false },
-               { id: 302, author: 'user_010', text: '完全同意，期待下一章', time: '22小时前', timestamp: Date.now() - 22 * 60 * 60 * 1000, likes: 5, isLiked: false },
-               { id: 303, author: 'user_011', text: '作者大大加油！', time: '20小时前', timestamp: Date.now() - 20 * 60 * 60 * 1000, likes: 2, isLiked: false } ] },
-  { id: 4, author: 'user_012', text: '节奏感很好，人物关系把握得当。', time: '3天前', timestamp: Date.now() - 3 * 24 * 60 * 60 * 1000, likes: 5, isLiked: false, replies: [] },
-  { id: 5, author: 'user_013', text: '不太懂为什么某个设定会存在，希望出设定说明。', time: '6天前', timestamp: Date.now() - 6 * 24 * 60 * 60 * 1000, likes: 2, isLiked: false,
-    replies: [ { id: 501, author: 'user_014', text: '可以去看作者之前的笔记，有些线索在里面', time: '5天前', timestamp: Date.now() - 5 * 24 * 60 * 60 * 1000, likes: 1, isLiked: false } ] },
-  { id: 6, author: 'user_015', text: '文笔细腻，氛围感抓得很好。', time: '1周前', timestamp: Date.now() - 7 * 24 * 60 * 60 * 1000, likes: 12, isLiked: false,
-    replies: [ { id: 601, author: 'user_016', text: '确实，这段描写很打动我', time: '6天前', timestamp: Date.now() - 6 * 24 * 60 * 60 * 1000, likes: 4, isLiked: false },
-               { id: 602, author: 'user_017', text: '学习了文笔写法', time: '5天前', timestamp: Date.now() - 5 * 24 * 60 * 60 * 1000, likes: 3, isLiked: false } ] },
-  { id: 7, author: 'user_018', text: '喜欢人物的反转设定，期待后续发展。', time: '8天前', timestamp: Date.now() - 8 * 24 * 60 * 60 * 1000, likes: 20, isLiked: false,
-    replies: [ { id: 701, author: 'user_019', text: '反转太精彩了！', time: '7天前', timestamp: Date.now() - 7 * 24 * 60 * 60 * 1000, likes: 8, isLiked: false },
-               { id: 702, author: 'user_020', text: '这一点真的出乎我意料', time: '6天前', timestamp: Date.now() - 6 * 24 * 60 * 60 * 1000, likes: 6, isLiked: false },
-               { id: 703, author: 'user_021', text: '作者就是这样留悬念', time: '5天前', timestamp: Date.now() - 5 * 24 * 60 * 60 * 1000, likes: 2, isLiked: false } ] },
-  { id: 8, author: 'user_022', text: '有些设定逻辑上不通，但总体还不错。', time: '9天前', timestamp: Date.now() - 9 * 24 * 60 * 60 * 1000, likes: 1, isLiked: false, replies: [] },
-  { id: 9, author: 'user_023', text: '最喜欢主角的成长线！', time: '10天前', timestamp: Date.now() - 10 * 24 * 60 * 60 * 1000, likes: 30, isLiked: false,
-    replies: [ { id: 901, author: 'user_024', text: '成长线写得太好了', time: '9天前', timestamp: Date.now() - 9 * 24 * 60 * 60 * 1000, likes: 12, isLiked: false } ] },
-  { id: 10, author: 'user_025', text: '配角塑造也很成功。', time: '11天前', timestamp: Date.now() - 11 * 24 * 60 * 60 * 1000, likes: 4, isLiked: false, replies: [] },
-  { id: 11, author: 'user_026', text: '期待番外和设定集。', time: '12天前', timestamp: Date.now() - 12 * 24 * 60 * 60 * 1000, likes: 7, isLiked: false,
-    replies: [ { id: 1101, author: 'user_027', text: '番外要来！', time: '11天前', timestamp: Date.now() - 11 * 24 * 60 * 60 * 1000, likes: 3, isLiked: false } ] },
-  { id: 12, author: 'user_028', text: '节奏稍慢，希望加快。', time: '13天前', timestamp: Date.now() - 13 * 24 * 60 * 60 * 1000, likes: 2, isLiked: false, replies: [] },
-  { id: 13, author: 'user_029', text: '画面感很强，细节很喜欢。', time: '14天前', timestamp: Date.now() - 14 * 24 * 60 * 60 * 1000, likes: 9, isLiked: false,
-    replies: [ { id: 1301, author: 'user_030', text: '细节控表示满意', time: '13天前', timestamp: Date.now() - 13 * 24 * 60 * 60 * 1000, likes: 2, isLiked: false },
-               { id: 1302, author: 'user_031', text: '画面感太强了', time: '12天前', timestamp: Date.now() - 12 * 24 * 60 * 60 * 1000, likes: 1, isLiked: false } ] },
-  { id: 14, author: 'user_032', text: '没看懂第三章的伏笔。', time: '15天前', timestamp: Date.now() - 15 * 24 * 60 * 60 * 1000, likes: 0, isLiked: false, replies: [] },
-  { id: 15, author: 'user_033', text: '人物对白太生动了。', time: '16天前', timestamp: Date.now() - 16 * 24 * 60 * 60 * 1000, likes: 11, isLiked: false, replies: [] },
-  { id: 16, author: 'user_034', text: '背景设定能否详细说明一下？', time: '17天前', timestamp: Date.now() - 17 * 24 * 60 * 60 * 1000, likes: 3, isLiked: false,
-    replies: [ { id: 1601, author: 'user_035', text: '后台资料见作者置顶', time: '16天前', timestamp: Date.now() - 16 * 24 * 60 * 60 * 1000, likes: 1, isLiked: false } ] },
-  { id: 17, author: 'user_036', text: '伏笔很多，希望结局不要崩。', time: '18天前', timestamp: Date.now() - 18 * 24 * 60 * 60 * 1000, likes: 6, isLiked: false, replies: [] },
-  { id: 18, author: 'user_037', text: '配乐好像也很适合这个故事，想要BGM', time: '19天前', timestamp: Date.now() - 19 * 24 * 60 * 60 * 1000, likes: 8, isLiked: false, replies: [] },
-  { id: 19, author: 'user_038', text: '翻译质量也不错（若有外文）', time: '20天前', timestamp: Date.now() - 20 * 24 * 60 * 60 * 1000, likes: 1, isLiked: false, replies: [] },
-  { id: 20, author: 'user_039', text: '感谢作者，支持番外！', time: '21天前', timestamp: Date.now() - 21 * 24 * 60 * 60 * 1000, likes: 14, isLiked: false,
-    replies: [ { id: 2001, author: 'user_040', text: '支持！', time: '20天前', timestamp: Date.now() - 20 * 24 * 60 * 60 * 1000, likes: 5, isLiked: false },
-               { id: 2002, author: 'user_041', text: '同求番外～', time: '19天前', timestamp: Date.now() - 19 * 24 * 60 * 60 * 1000, likes: 3, isLiked: false } ] }
-])
+// 将后端的评论结构（comments_by_time / comments_by_hot）归一化为前端使用的格式
+const normalizeComments = (list) => {
+  if (!Array.isArray(list)) return []
+  const mapItem = (item) => {
+    const mapped = {
+      id: item.id,
+      author: item.user || item.author || '匿名',
+      text: item.content || item.text || '',
+      time: item.created_at ? new Date(item.created_at).toLocaleString() : (item.time || ''),
+      timestamp: item.created_at ? Date.parse(item.created_at) : (item.timestamp || Date.now()),
+      // 统一将 likes 强制为数字，避免字符串导致的显示/计算异常
+      likes: Number(item.like_count ?? item.likes ?? item.like_counted ?? 0) || 0,
+      // 兼容多种后端字段名并强制为布尔值，避免 "true"/1 等假值造成类绑定不生效
+      isLiked: !!(item.is_liked ?? item.isLiked ?? item.liked ?? item.user_liked ?? item.liked_by_user ?? false),
+      replies: []
+    }
+    if (Array.isArray(item.replies) && item.replies.length) {
+      mapped.replies = item.replies.map(mapItem)
+    }
+    return mapped
+  }
+  return list.map(mapItem)
+}
+
 
 // 可见回复计数（按顶层评论 id）
 const visibleReplies = ref({})
@@ -188,6 +490,10 @@ const ratings = ref([
   // { id: 1, author: 'user_010', stars: 5, time: '1天前', timestamp: Date.now() - 24 * 60 * 60 * 1000 }
 ])
 const selectedStars = ref(0)
+// 当前操作用户的用户名（尝试从 window 全局或 localStorage 中读取）
+const currentUsername = ref(null)
+// 表示当前用户是否已对该作品评分（用于禁止重复提交并在 UI 上显示历史评分）
+const userHasRated = ref(false)
 const ratingPage = ref(1)
 const ratingPageSize = 5
 
@@ -223,7 +529,7 @@ const onPullMove = (e) => {
   // 如果拉动超过 80px 且还未触发，则触发加载
   if (pullDistance.value > 80 && !pullTriggered.value) {
     pullTriggered.value = true
-    loadMoreComments()
+    loadMoreComments() // 调用新的加载更多函数
   }
 }
 
@@ -246,8 +552,11 @@ const pagedRatings = computed(() => {
   return ratings.value.slice(start, start + ratingPageSize)
 })
 
-// 字数（按字符数统计，去除换行）
+// 字数（优先使用后端返回的 word_count，否则按字符数统计）
 const wordCount = computed(() => {
+  if (backendWordCount.value !== null) {
+    return backendWordCount.value
+  }
   const d = work.value.description || ''
   return d.replace(/\n/g, '').length
 })
@@ -260,26 +569,76 @@ const selectStar = (n) => {
   selectedStars.value = n
 }
 
-const submitRating = () => {
-  if (selectedStars.value <= 0) return
-  ratings.value.unshift({
-    id: Date.now(),
-    author: 'current_user',
-    stars: selectedStars.value,
-    score10: selectedStars.value * 2,
-    time: '刚刚',
-    timestamp: Date.now()
-  })
-  // reset
-  selectedStars.value = 0
-  ratingPage.value = 1
+const handleStarClick = (n) => {
+  if (userHasRated.value) return
+  selectStar(n)
 }
 
-// 平均分（10分制），根据已有 ratings 中的 score10（若不存在则用 stars*2）
+const submitRating = async () => {
+  if (selectedStars.value <= 0) return
+  if (userHasRated.value) {
+    alert('您已评分，无法重复提交')
+    return
+  }
+  const score10 = selectedStars.value * 2
+  try {
+    // post rating to backend
+    const res = await http.post('/api/interactions/ratings/', { id: work.value.id, score: score10 })
+    // 如果后端返回 average_score，直接使用
+    if (res && (res.average_score || res.data?.average_score)) {
+      const avg = res.average_score || res.data.average_score
+      averageScore.value = Number(avg) || averageScore.value
+    }
+
+    // 刷新作品详情以获取最新的 rating_count 等统计数据
+    try {
+      const details = await http.get(`/api/gameworks/gameworks/${work.value.id}/`)
+      const payload = details?.data || details || null
+      if (payload) {
+        try { ratingCount.value = payload.rating_count || payload.ratingCount || ratingCount.value } catch (e) {}
+        try { averageScore.value = payload.average_score || payload.averageScore || averageScore.value } catch (e) {}
+      }
+    } catch (e) {
+      console.warn('刷新作品详情失败，无法更新评分统计', e)
+    }
+
+    // 本地也保持一个评分记录用于立即显示
+    ratings.value.unshift({
+      id: Date.now(),
+      author: currentUsername.value || 'current_user',
+      stars: selectedStars.value,
+      score10: score10,
+      time: '刚刚',
+      timestamp: Date.now()
+    })
+
+    // 标记为已评分，禁止再次提交
+    userHasRated.value = true
+
+    // reset
+    selectedStars.value = 0
+    ratingPage.value = 1
+  } catch (e) {
+    console.error('提交评分失败', e)
+    alert('提交评分失败，请稍后重试')
+  }
+}
+
+// 平均分（10分制），优先使用后端返回的 averageScore，否则根据已有 ratings 中的 score10（若不存在则用 stars*2）
 const averageRating10 = computed(() => {
+  // 优先使用后端返回的评分
+  if (averageScore.value > 0) {
+    return averageScore.value
+  }
+  // 否则使用本地 ratings 计算
   if (!ratings.value.length) return 0
   const sum = ratings.value.reduce((s, r) => s + ((r.score10 !== undefined) ? r.score10 : (r.stars || 0) * 2), 0)
   return sum / ratings.value.length
+})
+
+// 评分人数（优先使用后端返回的 ratingCount）
+const totalRatingCount = computed(() => {
+  return ratingCount.value > 0 ? ratingCount.value : ratings.value.length
 })
 
 const prevRatingPage = () => {
@@ -294,56 +653,77 @@ const nextRatingPage = () => {
 // 筛选下拉（替换原来的两个平铺按钮）
 const showFilterDropdown = ref(false)
 const toggleFilter = () => { showFilterDropdown.value = !showFilterDropdown.value }
-const selectFilter = (opt) => { sortBy.value = opt; showFilterDropdown.value = false }
-
-// 提交评论
-const submitComment = () => {
-  if (newComment.value.trim()) {
-    if (replyingTo.value) {
-      // 回复评论（支持回复顶层评论或回复下的回复）
-      let parentComment = comments.value.find(c => c.id === replyingTo.value)
-      if (!parentComment) {
-        // 在每个 comment.replies 中查找 id，找到所属的顶层 parent
-        for (const c of comments.value) {
-          if (Array.isArray(c.replies) && c.replies.some(r => r.id === replyingTo.value)) {
-            parentComment = c
-            break
-          }
-        }
+const selectFilter = async (opt) => {
+  sortBy.value = opt
+  showFilterDropdown.value = false
+  try {
+    if (opt === 'likes') {
+      if (rawCommentsByHot.value) {
+        comments.value = normalizeComments(rawCommentsByHot.value)
+      } else {
+        // fallback to fetching from comments endpoint
+        await fetchCommentsFromAPI(1)
       }
-      if (parentComment) {
-        parentComment.replies.push({
-          id: Date.now(),
-          author: 'current_user',
-          text: newComment.value,
-          time: '刚刚',
-          timestamp: Date.now(),
-          likes: 0,
-          isLiked: false
-        })
-      }
-      replyingTo.value = null
     } else {
-      // 发表新评论
-      comments.value.unshift({
-        id: Date.now(),
-        author: 'current_user',
-        text: newComment.value,
-        time: '刚刚',
-        timestamp: Date.now(),
-        likes: 0,
-        isLiked: false,
-        replies: []
-      })
+      if (rawCommentsByTime.value) comments.value = normalizeComments(rawCommentsByTime.value)
+      else await fetchCommentsFromAPI(1)
     }
-    newComment.value = ''
+  } catch (e) { console.warn('failed to apply filter', e) }
+}
+
+// 从后端的 /interactions/comments/ 接口获取（用于回退/独立调用）
+const fetchCommentsFromAPI = async (page = 1) => {
+  try {
+    const res = await getComments(page, work.value.id)
+    // 支持多种后端返回格式
+    const data = res?.data || res
+    let list = null
+    if (Array.isArray(data.comments_by_time)) list = data.comments_by_time
+    else if (Array.isArray(data.results)) list = data.results
+    else if (Array.isArray(data)) list = data
+    comments.value = normalizeComments(list || [])
+  } catch (e) {
+    console.warn('fetchCommentsFromAPI failed', e)
+    comments.value = []
   }
 }
 
-// 点赞评论
-const toggleLike = (comment) => {
-  comment.isLiked = !comment.isLiked
-  comment.likes += comment.isLiked ? 1 : -1
+// `submitComment` is implemented above to call backend and refresh comments
+// 点赞评论（乐观更新，失败回滚）
+const toggleLike = async (comment) => {
+  if (!comment || !comment.id) return
+  const prevLiked = !!comment.isLiked
+  const prevLikes = typeof comment.likes === 'number' ? comment.likes : 0
+
+  // 乐观更新
+  comment.isLiked = !prevLiked
+  comment.likes = prevLikes + (comment.isLiked ? 1 : -1)
+
+  try {
+    if (comment.isLiked) {
+      const res = await likeComment(comment.id)
+      // 后端可能返回多个格式，优先使用后端返回的 is_liked 与 like_count
+      const remote = res?.data?.data ?? res?.data ?? res
+      if (remote) {
+        if (typeof remote.is_liked !== 'undefined') comment.isLiked = !!remote.is_liked
+        if (typeof remote.like_count !== 'undefined') comment.likes = Number(remote.like_count) || comment.likes
+        else if (typeof remote.likes !== 'undefined') comment.likes = Number(remote.likes) || comment.likes
+      }
+    } else {
+      const res = await unlikeComment(comment.id)
+      const remote = res?.data?.data ?? res?.data ?? res
+      if (remote) {
+        if (typeof remote.is_liked !== 'undefined') comment.isLiked = !!remote.is_liked
+        if (typeof remote.like_count !== 'undefined') comment.likes = Number(remote.like_count) || comment.likes
+        else if (typeof remote.likes !== 'undefined') comment.likes = Number(remote.likes) || comment.likes
+      }
+    }
+  } catch (e) {
+    // 回滚
+    comment.isLiked = prevLiked
+    comment.likes = prevLikes
+    console.error('toggleLike failed', e)
+  }
 }
 
 // 开始回复
@@ -363,21 +743,39 @@ const closeModal = () => {
   isDescriptionExpanded.value = false
 }
 
-// 开始阅读
-const startReading = () => {
-  // 跳转到阅读页面，通过路由 state 传递作品信息和初始属性
+// 开始阅读：记录阅读行为后再跳转到阅读页
+const startReading = async () => {
   try {
-    // 从 createResult 中获取初始属性和状态
+    // 首先尝试向后端记录阅读（若用户已记录则会更新 read_at）
+    try {
+      await http.post('/api/users/read/', { gamework_id: work.value.id })
+    } catch (e) {
+      // 不阻塞跳转：记录阅读失败时仅打印警告
+      console.warn('记录阅读行为失败：', e)
+    }
+
+    // 尝试刷新作品详情以获取最新的阅读统计
+    try {
+      const details = await http.get(`/api/gameworks/gameworks/${work.value.id}/`)
+      const payload = details?.data || details || null
+      if (payload) {
+        try { readCount.value = payload.read_count || payload.readCount || readCount.value } catch (e) {}
+      }
+    } catch (e) {
+      console.warn('刷新作品详情失败，无法更新阅读量', e)
+    }
+
+    // 从 createResult 中获取初始属性和状态（非必需，仅用于传递给阅读页）
     const createResult = JSON.parse(sessionStorage.getItem('createResult') || '{}')
     const initialAttributes = createResult?.initialAttributes || {}
     const initialStatuses = createResult?.initialStatuses || {}
-    
+
     // 同步缓存，确保 GamePage 与加载页统一使用本次选择的封面/标题
     sessionStorage.setItem('lastWorkMeta', JSON.stringify({
       title: work.value.title,
       coverUrl: work.value.coverUrl
     }))
-    
+
     router.push({
       path: `/game/${work.value.id}`,
       state: {
@@ -389,16 +787,9 @@ const startReading = () => {
       }
     })
   } catch (e) {
-    console.error('Failed to read createResult:', e)
-    // 降级处理，使用默认值
-    router.push({
-      path: `/game/${work.value.id}`,
-      state: {
-        title: work.value.title,
-        coverUrl: work.value.coverUrl,
-        workId: work.value.id
-      }
-    })
+    console.error('startReading 跳转失败:', e)
+    // 最后兜底跳转
+    router.push({ path: `/game/${work.value.id}` })
   }
 }
 </script>
@@ -435,15 +826,19 @@ const startReading = () => {
         <!-- 元数据：字数、收藏数、评分（位于作者与标签之间） -->
         <div class="meta-stats">
           <div class="meta-item">
-            <div class="meta-label">字数</div>
-            <div class="meta-value">{{ wordCount }}</div>
+            <div class="meta-label">章节数</div>
+            <div class="meta-value">{{ totalChapters !== null ? totalChapters : '—' }}</div>
           </div>
+            <div class="meta-item">
+              <div class="meta-label">阅读量</div>
+              <div class="meta-value">{{ readCount || 0 }}</div>
+            </div>
           <div class="meta-item">
             <div class="meta-label">收藏</div>
             <div class="meta-value">{{ favoritesCount }}</div>
           </div>
           <div class="meta-item">
-              <div class="meta-label">{{ ratings.length ? (ratings.length + ' 人已评分') : '0 人已评分' }}</div>
+              <div class="meta-label">{{ totalRatingCount > 0 ? (totalRatingCount + ' 人已评分') : '0 人已评分' }}</div>
               <div class="meta-value rating-inline">
                 <span class="rating-text">{{ averageRating10 > 0 ? (averageRating10).toFixed(1) : '—' }}</span>
               </div>
@@ -452,6 +847,11 @@ const startReading = () => {
           <div class="meta-item">
             <div class="meta-label">发表</div>
             <div class="meta-value">{{ publicationDisplay }}</div>
+          </div>
+          <!-- 更新时间 -->
+          <div class="meta-item">
+            <div class="meta-label">更新时间</div>
+            <div class="meta-value">{{ updatedDisplay }}</div>
           </div>
         </div>
       
@@ -466,7 +866,7 @@ const startReading = () => {
             color: getTagColor(index).text
           }"
         >
-          {{ tag }}
+          {{ tag.name }}
         </span>
       </div>
       
@@ -488,6 +888,53 @@ const startReading = () => {
         </button>
       </div>
       
+      <!-- 送积分模块：显示解锁所需积分与用户已送出的积分 -->
+      <div class="points-box">
+        <div class="points-info">
+          <div class="points-row">
+            <div class="points-label">解锁本篇需</div>
+            <div class="points-value">{{ unlockPointsNeeded }} 积分</div>
+          </div>
+          <div class="points-row">
+            <div class="points-label">你已送出</div>
+            <div class="points-value">{{ userGivenPoints }} 积分</div>
+          </div>
+        </div>
+        <div class="points-actions">
+          <button :disabled="sendingPoints" class="submit-comment-btn" @click="openPointsModal">
+            {{ sendingPoints ? '发送中...' : '送积分' }}
+          </button>
+        </div>
+      </div>
+      
+      <!-- 页面内送积分弹窗 -->
+      <div v-if="showPointsModal" class="modal-overlay" @click="cancelSendPoints">
+        <div class="modal-content" @click.stop>
+          <h2 class="modal-title">送出积分</h2>
+          <p style="color:#555;margin-top:0.5rem;">向作者送出积分以支持创作。请输入送出的积分数量（整数）。</p>
+          <div style="margin-top:1rem;">
+            <div class="preset-grid">
+              <button
+                v-for="(p, idx) in presets"
+                :key="idx"
+                :class="['preset-btn', { active: selectedPreset === p || selectedPreset === p } ]"
+                @click="selectPreset(p)">
+                {{ p }}
+              </button>
+            </div>
+
+            <div v-if="selectedPreset === '自定义'" style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center;">
+              <input type="number" v-model.number="pointsAmount" min="1" style="flex:1;padding:0.6rem;border:1px solid #e0e0e0;border-radius:8px;font-size:1rem;" />
+              <div style="color:#999;font-size:0.95rem;">积分</div>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-top:1.25rem;">
+            <button class="close-btn" @click="cancelSendPoints" aria-label="关闭" title="关闭" style="background:#f0f0f0;color:#333;padding:0.5rem 0.9rem;border-radius:8px;border:none">×</button>
+            <button class="submit-comment-btn" @click="confirmSendPoints">确认送出</button>
+          </div>
+        </div>
+      </div>
+      
       <!-- 评论区域 -->
       <div class="comments-section">
         <div class="comments-header">
@@ -501,12 +948,12 @@ const startReading = () => {
               </button>
               <button class="tab-btn" :class="{ active: showingRatings }" @click="showingRatings = true" style="flex:1;justify-content:center;">
                 <div class="tab-label">评分</div>
-                <div class="tab-count">{{ ratings.length }} <span class="tab-unit">人</span></div>
+                <div class="tab-count">{{ totalRatingCount }} <span class="tab-unit">人</span></div>
               </button>
             </div>
 
             <!-- 平铺的平均评分显示（仅在评分 tab 激活时显示） -->
-            <div class="avg-rating" v-if="showingRatings && ratings.length > 0" style="display:flex;align-items:center;gap:0.5rem;">
+            <div class="avg-rating" v-if="showingRatings && totalRatingCount > 0" style="display:flex;align-items:center;gap:0.5rem;">
               <div class="avg-stars">
                 <span v-for="n in 5" :key="n" class="star" :class="{ filled: n <= Math.round(averageRating) }">★</span>
               </div>
@@ -565,19 +1012,19 @@ const startReading = () => {
                   v-for="n in 5"
                   :key="n"
                   class="star"
-                  :class="{ filled: n <= selectedStars }"
-                  @click="selectStar(n)">
+                  :class="{ filled: n <= selectedStars, disabled: userHasRated }"
+                  @click="handleStarClick(n)">
                   ★
                 </span>
               </div>
               <div style="margin-left:auto;">
-                <button class="submit-comment-btn" @click="submitRating">提交评分</button>
+                <button class="submit-comment-btn" :disabled="userHasRated" @click="submitRating">{{ userHasRated ? '已评分' : '提交评分' }}</button>
               </div>
             </div>
 
             <!-- 分页显示评分列表 -->
             <div class="ratings-list" style="width:100%;margin-top:0.5rem;">
-              <div v-if="ratings.length === 0" class="empty-comments">
+              <div v-if="totalRatingCount === 0" class="empty-comments">
                 <p>还没有评分，快来评分吧！</p>
               </div>
               <div v-else>
@@ -709,7 +1156,7 @@ const startReading = () => {
               <span class="empty-icon">💬</span>
               <p>还没有评论，快来抢沙发吧！</p>
             </div>
-            <div v-else style="color:#999;margin-top:0.5rem;">没有更多评论了</div>
+            <div v-else style="color:#999;margin-top:0.5rem;">你看到了我的底线</div>
           </div>
         </div>
       </div>
@@ -767,7 +1214,7 @@ const startReading = () => {
   min-height: 200px;
   max-height: 350px;
   overflow: hidden;
-  background-color: #f0f0f0;
+  background-color: #faf8f3;
 }
 
 .cover-image {
@@ -1315,7 +1762,7 @@ const startReading = () => {
 .sort-selector {
   display: flex;
   gap: 0.5rem;
-  background: #f5f5f5;
+  background: #faf8f3;
   padding: 0.25rem;
   border-radius: 8px;
 }
@@ -1440,6 +1887,63 @@ const startReading = () => {
 
 .cancel-reply-btn:hover {
   color: #c89090;
+}
+
+/* 送积分模块 */
+.points-box {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:1rem;
+  background: white;
+  border-radius: 12px;
+  padding: 1rem;
+  margin: 1rem 0 1.5rem 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.points-info {
+  display:flex;
+  flex-direction:column;
+  gap:0.5rem;
+}
+.points-row {
+  display:flex;
+  gap:0.75rem;
+  align-items:center;
+}
+.points-label {
+  color:#777;
+  font-size:0.95rem;
+}
+.points-value {
+  color:#2c3e50;
+  font-weight:700;
+}
+.points-actions {
+  display:flex;
+  align-items:center;
+}
+
+/* 预设额度按钮 */
+.preset-grid {
+  display:flex;
+  flex-wrap:wrap;
+  gap:0.5rem;
+}
+.preset-btn {
+  padding:0.5rem 0.9rem;
+  border-radius:8px;
+  border:1px solid #eee;
+  background:#fff;
+  cursor:pointer;
+  font-weight:600;
+  color: #999; /* 未选中时字体浅灰 */
+}
+.preset-btn.active {
+  background:#d4a5a5; /* 与 submit-comment-btn 一致的肉粉色 */
+  color:#fff;
+  border-color:transparent;
+  box-shadow:0 4px 12px rgba(212,165,165,0.28);
 }
 
 /* 评论输入区 */

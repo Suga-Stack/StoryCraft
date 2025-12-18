@@ -36,6 +36,26 @@ export async function createWorkOnBackend(payload = {}) {
   // 用户的构思保留在 payload.idea 中，如果需要展示，应在 UI 的其他位置单独呈现。
   
   // 按照 game-api.md 的返回格式组织 mock 返回
+  // 如果是创作者模式（modifiable），返回章节大纲以供前端编辑
+  if (payload.modifiable) {
+    return {
+      gameworkId: id,
+      title: payload.title || generatedTitle,
+      coverUrl: payload.coverUrl || '/images/仙界封面.jpg',
+      description: payload.description || generatedDescription,
+      initialAttributes: payload.initialAttributes || { '灵石': 50, '道心': 5, '人气': 5, '商业头脑': 10 },
+      initialStatuses: payload.initialStatuses || { '修为': '炼气期三层' },
+      total_chapters: 5,
+      chapterOutlines: [
+        { chapterIndex: 1, outline: '主角穿越到修仙世界，发现了一个奇怪的系统。' },
+        { chapterIndex: 2, outline: '主角为赚取灵石进入坊市，卷入小冲突并获得线索。' },
+        { chapterIndex: 3, outline: '主角深入洞府探险，遭遇妖兽与谜题。' },
+        { chapterIndex: 4, outline: '主角在洞府中得到关键线索，揭开部分过去。' },
+        { chapterIndex: 5, outline: '回到人世后，新的势力已经注意到主角。' }
+      ]
+    }
+  }
+
   return {
     gameworkId: id,
     title: payload.title || generatedTitle,

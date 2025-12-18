@@ -1,8 +1,9 @@
-<script setup>
+﻿<script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { saveGameData, loadGameData, refreshSlotInfos, SLOTS } from '../utils/saveLoad.js'
 import { fetchPersonalityReportVariants } from '../service/personality.js'
+import { getScenes, getWorkInfo } from '../service/story.js'
+import { http } from '../service/http.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -24,9 +25,87 @@ const getGameDataFromSession = () => {
 
 const sessionData = getGameDataFromSession()
 
+// 尝试从多个来源获取 workId
+const getWorkId = () => {
+  // 优先级：sessionData > history.state > route.params > sessionStorage.lastWorkMeta
+  if (sessionData?.work?.id) {
+    console.log('[Settlement] workId 来自 sessionData.work.id:', sessionData.work.id)
+    return sessionData.work.id
+  }
+  if (history.state?.work?.id) {
+    console.log('[Settlement] workId 来自 history.state.work.id:', history.state.work.id)
+    return history.state.work.id
+  }
+  if (route.params?.id) {
+    console.log('[Settlement] workId 来自 route.params.id:', route.params.id)
+    return parseInt(route.params.id)
+  }
+  
+  // 尝试从 sessionStorage 获取最后一次游戏的作品信息
+  try {
+    const lastWorkMeta = JSON.parse(sessionStorage.getItem('lastWorkMeta'))
+    if (lastWorkMeta?.id) {
+      console.log('[Settlement] workId 来自 lastWorkMeta:', lastWorkMeta.id)
+      return lastWorkMeta.id
+    }
+  } catch (e) {
+    console.warn('Failed to parse lastWorkMeta:', e)
+  }
+  
+  console.error('[Settlement] 无法获取 workId，将使用默认值 1')
+  return 1
+}
+
+const workId = getWorkId()
+
+// 从多个来源获取完整的 work 对象
+const getWorkObject = () => {
+  // 优先从 sessionData 获取完整的 work 对象
+  if (sessionData?.work && typeof sessionData.work === 'object') {
+    console.log('[Settlement] work 对象来自 sessionData:', sessionData.work)
+    // 确保 work 对象包含 id
+    return {
+      id: sessionData.work.id || workId,
+      ...sessionData.work
+    }
+  }
+  
+  // 其次从 history.state 获取
+  if (history.state?.work && typeof history.state.work === 'object') {
+    console.log('[Settlement] work 对象来自 history.state:', history.state.work)
+    // 确保 work 对象包含 id
+    return {
+      id: history.state.work.id || workId,
+      ...history.state.work
+    }
+  }
+  
+  // 尝试从 lastWorkMeta 获取
+  try {
+    const lastWorkMeta = JSON.parse(sessionStorage.getItem('lastWorkMeta'))
+    if (lastWorkMeta && typeof lastWorkMeta === 'object') {
+      console.log('[Settlement] work 对象来自 lastWorkMeta:', lastWorkMeta)
+      // 确保 work 对象包含 id
+      return {
+        id: lastWorkMeta.id || workId,
+        ...lastWorkMeta
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to parse lastWorkMeta:', e)
+  }
+  
+  // 如果都没有，构造一个基本的 work 对象
+  console.warn('[Settlement] 无法获取完整 work 对象，使用基本信息构造')
+  return {
+    id: workId,
+    title: sessionData?.work?.title || history.state?.work?.title || '未知作品'
+  }
+}
+
 // 从多个来源获取游戏数据，优先级：sessionStorage > history.state > 默认值
 const gameData = ref({
-  work: sessionData?.work || history.state?.work || { title: '锦瑟深宫', id: 1 },
+  work: getWorkObject(),
   choiceHistory: sessionData?.choiceHistory || history.state?.choiceHistory || [],
   finalAttributes: sessionData?.finalAttributes || history.state?.finalAttributes || {},
   finalStatuses: sessionData?.finalStatuses || history.state?.finalStatuses || {},
@@ -35,50 +114,38 @@ const gameData = ref({
   currentDialogueIndex: sessionData?.currentDialogueIndex || history.state?.currentDialogueIndex || 0
 })
 
+console.log('[Settlement] 使用的 workId:', workId, '完整 work 信息:', gameData.value.work)
+
 // 如果没有传递真实的属性数据，才使用默认值（用于调试）
+// NOTE: Removed local mock defaults so settlement page uses backend-provided data for testing.
+// If backend does not provide finalAttributes/finalStatuses, leave them empty and
+// surface a visible warning in the UI (handled in template) or in the console.
 if (Object.keys(gameData.value.finalAttributes).length === 0) {
-  console.warn('No finalAttributes passed, using default values for debugging')
-  gameData.value.finalAttributes = {
-    '心计': 30,
-    '才情': 60,
-    '声望': 10,
-    '圣宠': 0,
-    '健康': 100
-  }
+  console.warn('SettlementPage: finalAttributes not provided by backend; leaving empty for backend testing')
 }
 
 if (Object.keys(gameData.value.finalStatuses).length === 0) {
-  console.warn('No finalStatuses passed, using default values for debugging')
-  gameData.value.finalStatuses = {
-    '姓名': '林微月',
-    '位份': '从七品选侍',
-    '年龄': 16,
-    '阵营': '无',
-    '明眸善睐': '眼波流转间易获好感',
-    '暗香盈袖': '体带天然冷梅香'
-  }
+  console.warn('SettlementPage: finalStatuses not provided by backend; leaving empty for backend testing')
 }
 
 console.log('SettlementPage - Final Game Data:', gameData.value) // 调试日志
 
 // UI 状态
 const showAttributesModal = ref(false)
-const showSaveModal = ref(false) 
-const showLoadModal = ref(false)
 const currentView = ref('overview') // overview, branching, personality
-
-// 存档/读档相关状态
-const slotInfos = ref({ slot1: null, slot2: null, slot3: null, slot4: null, slot5: null, slot6: null })
-const saveToast = ref('')
-const loadToast = ref('')
 
 // 分支探索图状态
 const branchingGraph = ref({ nodes: [], edges: [] })
 const isDragging = ref(false)
 const dragNode = ref(null)
-const NODE_W = 120
-const NODE_H = 60
-const NODE_MARGIN = 16
+const isBranchingFullscreen = ref(false)
+// 节点与缩略图尺寸（统一缩略图用于节点顶部）
+const THUMB_W = 160
+const THUMB_H = 96
+const NODE_MARGIN = 20
+// 节点内边距（用于使图片与边框保持间距，产生“包裹/融合”感）
+const NODE_PAD_X = 12
+const NODE_PAD_Y = 10
 
 // 文本拆行辅助：将长字符串按固定宽度切分为多行（用于 SVG <tspan> 渲染）
 const splitLines = (text = '', chunk = 12) => {
@@ -99,9 +166,10 @@ const stripDecorative = (s = '') => {
 
 // 计算节点尺寸和描述行：基于字符宽度估算，使节点宽度/高度自适应文本
 const computeNodeLayout = (title = '', description = '', opts = {}) => {
+  // 支持图片尺寸的布局计算：如果提供 imageWidth/imageHeight，则节点宽度与图片宽一致
   const CHAR_PX = opts.charPx || 8
-  const PAD_X = opts.padX || 12
-  const PAD_Y = opts.padY || 10
+  const PAD_X = typeof opts.padX === 'number' ? opts.padX : NODE_PAD_X
+  const PAD_Y = typeof opts.padY === 'number' ? opts.padY : NODE_PAD_Y
   const TITLE_H = opts.titleH || 18
   const LINE_H = opts.lineH || 14
   const MIN_W = opts.minW || 80
@@ -110,31 +178,42 @@ const computeNodeLayout = (title = '', description = '', opts = {}) => {
 
   const descLines = splitLines(stripDecorative(description || ''), Math.max(6, Math.min(MAX_CHARS, opts.chunk || 18)))
   const maxLineLen = Math.max(String(title || '').length, ...descLines.map(l => l.length || 0))
-  const width = Math.min(MAX_W, Math.max(MIN_W, maxLineLen * CHAR_PX + PAD_X * 2))
-  const height = PAD_Y * 2 + TITLE_H + (descLines.length > 0 ? descLines.length * LINE_H : 0)
-  return { width, height, descLines }
+
+  // 图片优先决定宽度。为让边框包裹图片，节点宽度在图片宽度基础上增加左右内边距
+  const imageW = opts.imageW || null
+  const width = imageW ? (imageW + PAD_X * 2) : Math.min(MAX_W, Math.max(MIN_W, maxLineLen * CHAR_PX + PAD_X * 2))
+
+  // 高度：上下内边距 + 顶部图片高度 + 标题高度 + 描述行高度
+  const imageH = opts.imageH || 0
+  const height = PAD_Y * 2 + imageH + TITLE_H + (descLines.length > 0 ? descLines.length * LINE_H : 0)
+  return { width, height, descLines, imageW, imageH }
 }
 
 // 根据节点动态计算画布尺寸，确保可以滚动查看全部内容
 const graphHeight = computed(() => {
   const nodes = branchingGraph.value.nodes || []
-  const maxY = nodes.reduce((m, n) => Math.max(m, typeof n.y === 'number' ? n.y : 0), 0)
+  if (!nodes || nodes.length === 0) return 600
+  // 计算基于节点底部的高度，并添加上下留白
+  const bottoms = nodes.map(n => (n.y || 0) + (n.height || THUMB_H) / 2)
+  const tops = nodes.map(n => (n.y || 0) - (n.height || THUMB_H) / 2)
+  const maxBottom = Math.max(...bottoms)
+  const minTop = Math.min(...tops)
   const padding = 200
-  return Math.max(600, maxY + padding)
+  const h = (maxBottom - minTop) + padding
+  return Math.max(600, h)
 })
 
 const graphWidth = computed(() => {
   const nodes = branchingGraph.value.nodes || []
-  let minX = Infinity
-  let maxX = 0
-  nodes.forEach(n => {
-    const x = typeof n.x === 'number' ? n.x : 0
-    if (x < minX) minX = x
-    if (x > maxX) maxX = x
-  })
-  if (!isFinite(minX)) return 900
+  if (!nodes || nodes.length === 0) return 900
+  // 计算基于节点左右边界的画布宽度
+  const lefts = nodes.map(n => (n.x || 0) - (n.width || THUMB_W) / 2)
+  const rights = nodes.map(n => (n.x || 0) + (n.width || THUMB_W) / 2)
+  const minLeft = Math.min(...lefts)
+  const maxRight = Math.max(...rights)
   const padding = 300
-  return Math.max(900, (maxX - minX) + padding)
+  const w = (maxRight - minLeft) + padding
+  return Math.max(900, w)
 })
 
 // 简单的碰撞消解：多轮相互推开，减少重叠
@@ -142,26 +221,39 @@ const resolveNodeOverlaps = () => {
   const nodes = branchingGraph.value.nodes
   if (!nodes || nodes.length <= 1) return
   const maxIter = 10
+  // 基于每个节点的宽高做碰撞消解，支持节点尺寸不一（图片导致宽度不同）
   for (let iter = 0; iter < maxIter; iter++) {
     let moved = false
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
         const a = nodes[i]
         const b = nodes[j]
+        // 确保有坐标
+        if (typeof a.x !== 'number' || typeof a.y !== 'number' || typeof b.x !== 'number' || typeof b.y !== 'number') continue
+
         const dx = a.x - b.x
         const dy = a.y - b.y
-        const overlapX = (NODE_W + NODE_MARGIN) - Math.abs(dx)
-        const overlapY = (NODE_H + NODE_MARGIN) - Math.abs(dy)
+
+        const aHalfW = (a.width || THUMB_W) / 2
+        const bHalfW = (b.width || THUMB_W) / 2
+        const aHalfH = (a.height || THUMB_H) / 2
+        const bHalfH = (b.height || THUMB_H) / 2
+
+        const overlapX = (aHalfW + bHalfW + NODE_MARGIN) - Math.abs(dx)
+        const overlapY = (aHalfH + bHalfH + NODE_MARGIN) - Math.abs(dy)
+
         if (overlapX > 0 && overlapY > 0) {
-          // 选择重叠更严重的方向分离
+          // 优先沿着重合更严重的方向分离
           if (overlapX > overlapY) {
             const push = overlapX / 2
-            a.x += dx >= 0 ? push : -push
-            b.x -= dx >= 0 ? push : -push
+            const sign = dx >= 0 ? 1 : -1
+            a.x += sign * push
+            b.x -= sign * push
           } else {
             const push = overlapY / 2
-            a.y += dy >= 0 ? push : -push
-            b.y -= dy >= 0 ? push : -push
+            const sign = dy >= 0 ? 1 : -1
+            a.y += sign * push
+            b.y -= sign * push
           }
           moved = true
         }
@@ -213,30 +305,127 @@ const personalityTemplates = [
 
 // 默认个性报告
 const defaultPersonalityReport = {
-  title: '初入宫闱的谨慎新人',
-  content: '你在宫中小心翼翼，每一步都走得格外谨慎。虽然还在适应宫廷生活，但你的谨慎和观察力将会是你在深宫中生存的重要武器。',
+  title: '谨慎新人',
+  content: '你小心翼翼,每一步都走得格外谨慎。虽然还在适应星际生活,但你的谨慎和观察力将会是你在太空中生存的重要武器。',
   traits: ['小心谨慎', '善于观察', '稳重内敛', '厚积薄发'],
   scores: { 谨慎: 85, 观察力: 80, 适应力: 75, 潜力: 82 }
+}
+
+// 缓存章节数据,避免重复请求
+const chapterDataCache = ref({})
+
+// 获取指定章节的数据(包括背景图等)
+const fetchChapterData = async (workId, chapterIndex) => {
+  const cacheKey = `${workId}_${chapterIndex}`
+  
+  // 如果已缓存,直接返回
+  if (chapterDataCache.value[cacheKey]) {
+    return chapterDataCache.value[cacheKey]
+  }
+  
+  try {
+    console.log(`[Settlement] 获取章节 ${chapterIndex} 的数据...`)
+    const data = await getScenes(workId, chapterIndex, { maxRetries: 1 })
+    
+    // 提取第一个场景的背景图作为章节代表图
+    let backgroundImage = null
+    if (data && data.scenes && data.scenes.length > 0) {
+      backgroundImage = data.scenes[0].backgroundImage || null
+    }
+    
+    const result = {
+      chapterIndex: data?.chapterIndex || chapterIndex,
+      title: data?.title || `第${chapterIndex}章`,
+      backgroundImage: backgroundImage,
+      scenes: data?.scenes || []
+    }
+    
+    // 缓存结果
+    chapterDataCache.value[cacheKey] = result
+    console.log(`[Settlement] 章节 ${chapterIndex} 数据获取成功:`, result)
+    
+    return result
+  } catch (error) {
+    console.warn(`[Settlement] 获取章节 ${chapterIndex} 数据失败:`, error)
+    // 返回默认数据
+    return {
+      chapterIndex: chapterIndex,
+      title: `第${chapterIndex}章`,
+      backgroundImage: null,
+      scenes: []
+    }
+  }
 }
 
 // 生成分支探索图
 // 规则：
 // - 每个选择场景都会展示所有选项；
-// - 用户实际选择的选项用高亮标记，并连接到“主线继续”节点；
-// - 未选择的选项连接到一个问号节点“?”；
+// - 用户实际选择的选项用高亮标记，并连接到"主线继续"节点；
+// - 未选择的选项连接到一个问号节点"?"；
 // - 所有节点标题限制为前6个字符；
-// - 尝试在末端显示“故事完结”或“主线”汇合节点。
-const generateBranchingGraph = () => {
+// - 尝试在末端显示"故事完结"或"主线"汇合节点。
+const generateBranchingGraph = async () => {
   const nodes = []
   const edges = []
   let nodeId = 0
 
-  // 起始节点：优先使用后端传来的第一章标题作为起始节点名称（例如“第一章 标题”），
+  // 确保使用有效的 workId
+  const currentWorkId = gameData.value.work?.id || workId
+  if (!currentWorkId || currentWorkId <= 0) {
+    console.warn('[Settlement] 无法生成分支图: 缺少有效的 workId，当前值:', currentWorkId)
+    branchingGraph.value = { nodes: [], edges: [] }
+    return
+  }
+  
+  console.log('[Settlement] 生成分支图，使用 workId:', currentWorkId)
+
+  // 收集所有需要获取的章节索引
+  const chaptersToFetch = new Set([1]) // 始终获取第一章
+  gameData.value.choiceHistory.forEach((userChoice) => {
+    const chapterIdx = userChoice.chapterIndex
+    if (chapterIdx != null && chapterIdx > 0) {
+      chaptersToFetch.add(chapterIdx)
+    }
+  })
+  
+  // 批量获取所有章节数据
+  console.log('[Settlement] 需要获取的章节:', Array.from(chaptersToFetch))
+  const chapterDataPromises = Array.from(chaptersToFetch).map(idx => 
+    fetchChapterData(currentWorkId, idx)
+  )
+  await Promise.all(chapterDataPromises)
+  console.log('[Settlement] 所有章节数据已加载完成')
+
+  // 起始节点：优先使用后端传来的第一章标题作为起始节点名称（例如"第一章 标题"），
   // 如果没有可用章节数据则回退到默认标题
   const firstChapter = (gameData.value.storyScenes && gameData.value.storyScenes.length > 0) ? gameData.value.storyScenes[0] : null
   let startTitle = '初入深宫'
   let startDescription = '故事开始，初入宫闱'
-  if (firstChapter) {
+  let startImage = null
+  
+  // 从缓存中获取第一章数据 - 使用 currentWorkId
+  const cacheKey1 = `${currentWorkId}_1`
+  const chapter1Data = chapterDataCache.value[cacheKey1]
+  if (chapter1Data) {
+    startTitle = chapter1Data.title || startTitle
+    startDescription = chapter1Data.title || startDescription
+    startImage = chapter1Data.backgroundImage || null
+    
+    // 如果缓存中的标题为空，尝试从第一个场景的 dialogue 获取
+    if (!startDescription || startDescription === chapter1Data.title) {
+      if (chapter1Data.scenes && chapter1Data.scenes.length > 0) {
+        const firstScene = chapter1Data.scenes[0]
+        if (Array.isArray(firstScene.dialogues) && firstScene.dialogues.length > 0) {
+          const raw = firstScene.dialogues[0]
+          const txt = raw && (raw.text ?? raw.narration ?? '')
+          const stripped = stripDecorative(txt)
+          if (stripped) startDescription = stripped
+        }
+      }
+    }
+  } 
+  // 如果缓存中没有数据，再使用 firstChapter（来自 gameData）
+  else if (firstChapter) {
     const idx = firstChapter.chapterIndex || 1
     const chapterLabel = idx === 1 ? '第一章' : `第${idx}章`
     startTitle = `${chapterLabel} ${firstChapter.title || ''}`.trim()
@@ -250,9 +439,23 @@ const generateBranchingGraph = () => {
   }
 
   // 起始节点的粗体标题只显示章节编号（例如：第1章），完整章节名放在 description 中
-  const startShortTitle = firstChapter && (firstChapter.chapterIndex || firstChapter.chapterIndex === 0) ? `第${firstChapter.chapterIndex}章` : '第1章'
+  const startShortTitle = '第1章'
   {
-    const layout = computeNodeLayout(startShortTitle, startDescription)
+    // 如果还没有图片，尝试从 chapter1Data 或 firstChapter 获取（作为后备）
+    if (!startImage) {
+      if (chapter1Data && chapter1Data.scenes && chapter1Data.scenes.length > 0) {
+        startImage = chapter1Data.scenes[0].backgroundImage || null
+      } else if (firstChapter) {
+        if (Array.isArray(firstChapter.scenes) && firstChapter.scenes.length > 0) {
+          startImage = firstChapter.scenes[0].backgroundImage || null
+        } else if (firstChapter.backgroundImage) {
+          startImage = firstChapter.backgroundImage || null
+        } else if (firstChapter.scene && firstChapter.scene.backgroundImage) {
+          startImage = firstChapter.scene.backgroundImage || null
+        }
+      }
+    }
+    const layout = computeNodeLayout(startShortTitle, startDescription, { imageW: THUMB_W, imageH: THUMB_H })
     nodes.push({
       id: nodeId++,
       title: startShortTitle,
@@ -262,7 +465,10 @@ const generateBranchingGraph = () => {
       description: startDescription,
       width: layout.width,
       height: layout.height,
-      descLines: layout.descLines
+      descLines: layout.descLines,
+      image: startImage,
+      imageW: layout.imageW || 0,
+      imageH: layout.imageH || 0
     })
   }
 
@@ -271,44 +477,88 @@ const generateBranchingGraph = () => {
 
   // 根据用户的选择历史按顺序生成分支图
   gameData.value.choiceHistory.forEach((userChoice, historyIndex) => {
-    // 找到对应的场景
-    const scene = gameData.value.storyScenes.find(s => 
-      s.id === userChoice.sceneId || 
-      s.sceneId === userChoice.sceneId
-    )
+    // 首先确定章节索引
+    let chapterIdx = null
+    if (userChoice && userChoice.chapterIndex) {
+      chapterIdx = userChoice.chapterIndex
+    }
+    const fallbackIdx = historyIndex + 1
+    const displayIdx = chapterIdx != null ? chapterIdx : fallbackIdx
     
-    if (!scene || !scene.choices) return
+    // 🔑 关键修复：从缓存中获取该章节的完整数据
+    const cacheKey = `${currentWorkId}_${displayIdx}`
+    const cachedChapterData = chapterDataCache.value[cacheKey]
+    
+    console.log(`[Settlement] 处理章节 ${displayIdx}，缓存数据:`, cachedChapterData)
+    
+    // 🔑 关键修复：优先使用缓存的章节数据中的选项列表
+    let choicesForThisChapter = []
+    
+    // 从缓存的章节数据中提取所有选项
+    if (cachedChapterData && cachedChapterData.scenes && cachedChapterData.scenes.length > 0) {
+      // 查找具有 choices 的场景（通常是第一个有选择的场景）
+      const sceneWithChoices = cachedChapterData.scenes.find(s => s.choices && s.choices.length > 0)
+      if (sceneWithChoices && sceneWithChoices.choices) {
+        choicesForThisChapter = sceneWithChoices.choices
+        console.log(`[Settlement] 章节 ${displayIdx} 从缓存获取到 ${choicesForThisChapter.length} 个选项:`, choicesForThisChapter)
+      }
+    }
+    
+    // 如果缓存中没有找到选项，尝试从 userChoice 中恢复
+    if (choicesForThisChapter.length === 0) {
+      console.log(`[Settlement] 警告：章节 ${displayIdx} 缓存中无选项，尝试从 userChoice 恢复`)
+      
+      if (userChoice.allChoices && Array.isArray(userChoice.allChoices) && userChoice.allChoices.length > 0) {
+        choicesForThisChapter = userChoice.allChoices
+        console.log(`[Settlement] 从 userChoice.allChoices 恢复了 ${choicesForThisChapter.length} 个选项`)
+      } else if (userChoice.choices && Array.isArray(userChoice.choices) && userChoice.choices.length > 0) {
+        choicesForThisChapter = userChoice.choices
+        console.log(`[Settlement] 从 userChoice.choices 恢复了 ${choicesForThisChapter.length} 个选项`)
+      } else if (userChoice.choiceId) {
+        // 至少构造用户选择的那个选项
+        choicesForThisChapter = [{ 
+          id: userChoice.choiceId, 
+          text: userChoice.choiceText || '已选择',
+          choiceId: userChoice.choiceId
+        }]
+        console.log(`[Settlement] 从 userChoice 构造了单个选项`)
+      }
+    }
 
     // 场景节点（选择发生的地方）
     const sceneNodeId = nodeId++
+    
     // 场景节点：粗体（title）只显示章节编号，如 "第1章"；浅色描述（description）显示完整章节标题
-    let chapterIdx = null
     let chapterTitle = ''
-    if (scene && (scene.chapterIndex || scene.chapterIndex === 0)) {
-      chapterIdx = scene.chapterIndex
-    } else if (userChoice && userChoice.chapterIndex) {
-      chapterIdx = userChoice.chapterIndex
-    }
-    if (scene && (scene.chapterTitle || scene.title)) {
-      chapterTitle = scene.chapterTitle || scene.title || ''
+    
+    // 优先从缓存的章节数据获取标题
+    if (cachedChapterData && cachedChapterData.title) {
+      chapterTitle = cachedChapterData.title
     } else if (userChoice && userChoice.sceneTitle) {
       chapterTitle = userChoice.sceneTitle
     }
 
-    const fallbackIdx = historyIndex + 1
-    const displayIdx = chapterIdx != null ? chapterIdx : fallbackIdx
     const sceneShortTitle = `第${displayIdx}章`
-    // 若没有显式的 chapterTitle，则尝试从场景第一个 dialogue 提取（例如 '———— 第一章：破产的修仙生涯 ————'）
     let sceneFullTitle = chapterTitle || `第${displayIdx}章`
-    if ((!chapterTitle || chapterTitle === '') && Array.isArray(scene.dialogues) && scene.dialogues.length > 0) {
-      const raw = scene.dialogues[0]
-      const txt = raw && (raw.text ?? raw.narration ?? '')
-      const stripped = stripDecorative(txt)
-      if (stripped) sceneFullTitle = stripped
+    
+    // 若没有显式的 chapterTitle，则尝试从缓存的章节数据或场景第一个 dialogue 提取
+    if (!chapterTitle || chapterTitle === '') {
+      if (cachedChapterData && cachedChapterData.scenes && cachedChapterData.scenes.length > 0) {
+        const firstCachedScene = cachedChapterData.scenes[0]
+        if (Array.isArray(firstCachedScene.dialogues) && firstCachedScene.dialogues.length > 0) {
+          const raw = firstCachedScene.dialogues[0]
+          const txt = raw && (raw.text ?? raw.narration ?? '')
+          const stripped = stripDecorative(txt)
+          if (stripped) sceneFullTitle = stripped
+        }
+      }
     }
 
+    // 从缓存中获取当前章节的背景图
+    const sceneImage = cachedChapterData?.backgroundImage || null
+    
     {
-      const layout = computeNodeLayout(sceneShortTitle, sceneFullTitle)
+      const layout = computeNodeLayout(sceneShortTitle, sceneFullTitle, { imageW: THUMB_W, imageH: THUMB_H })
       nodes.push({
         id: sceneNodeId,
         title: sceneShortTitle,
@@ -318,7 +568,10 @@ const generateBranchingGraph = () => {
         description: sceneFullTitle,
         width: layout.width,
         height: layout.height,
-        descLines: layout.descLines
+        descLines: layout.descLines,
+        image: sceneImage,
+        imageW: layout.imageW || 0,
+        imageH: layout.imageH || 0
       })
     }
 
@@ -330,75 +583,75 @@ const generateBranchingGraph = () => {
       isSelected: true
     })
 
-    // 为这个场景的所有选项创建节点
-    const choiceSpacing = 180
-    const startX = 400 - (scene.choices.length - 1) * choiceSpacing / 2
+    // 🔑 关键修复：为这个章节的所有选项创建节点（使用正确的选项列表）
+    const choiceSpacing = 240
+    const startX = 400 - (choicesForThisChapter.length - 1) * choiceSpacing / 2
+    
+    console.log(`[Settlement] 章节 ${displayIdx} 渲染 ${choicesForThisChapter.length} 个选项`)
 
-    scene.choices.forEach((choice, choiceIndex) => {
+    choicesForThisChapter.forEach((choice, choiceIndex) => {
       const choiceX = startX + choiceIndex * choiceSpacing
       const choiceY = currentY + 120
 
+      // 兼容选项的 id 或 choiceId 字段
+      const currentChoiceId = choice.id || choice.choiceId
+      
       // 判断是否是用户实际选择的选项
-      // 优先使用历史记录中的 choiceId，只有当历史里没有 choiceId 时才回退到 scene.chosenChoiceId
-      const selectedChoiceId = userChoice && userChoice.choiceId ? userChoice.choiceId : (scene && scene.chosenChoiceId ? scene.chosenChoiceId : null)
-      const isUserChoice = selectedChoiceId != null && choice.id === selectedChoiceId
+      const selectedChoiceId = userChoice && userChoice.choiceId ? userChoice.choiceId : null
+      const isUserChoice = selectedChoiceId != null && currentChoiceId === selectedChoiceId
 
-      // 选项节点：粗体显示为“选项A/选项B”，浅色描述显示完整选项文本（用于多行展示）
-      const choiceNodeId = nodeId++
       const optLetter = String.fromCharCode(65 + choiceIndex) // A, B, C...
       const choiceShortTitle = `选项${optLetter}`
-      {
-        const layout = computeNodeLayout(choiceShortTitle, (choice.text || '').toString())
+
+      console.log(`[Settlement] 章节 ${displayIdx} 选项 ${choiceIndex}: choiceId=${currentChoiceId}, isUserChoice=${isUserChoice}, text="${choice.text}"`)
+
+      if (isUserChoice) {
+        // 显示带缩略图的用户选择节点
+        const choiceNodeId = nodeId++
+        
+        const layout = computeNodeLayout(choiceShortTitle, (choice.text || '').toString(), { imageW: THUMB_W, imageH: THUMB_H })
         nodes.push({
           id: choiceNodeId,
           title: choiceShortTitle,
-          type: isUserChoice ? 'choice-selected' : 'choice-unselected',
+          type: 'choice-selected',
           x: choiceX,
           y: choiceY,
           description: (choice.text || '').toString(),
           width: layout.width,
           height: layout.height,
           descLines: layout.descLines,
-          isSelected: isUserChoice
+          isSelected: true,
+          image: sceneImage, // 使用场景的背景图
+          imageW: layout.imageW || 0,
+          imageH: layout.imageH || 0
         })
-      }
 
-      // 连接场景到选项
-      edges.push({
-        from: sceneNodeId,
-        to: choiceNodeId,
-        label: '',
-        isSelected: isUserChoice
-      })
+        // 连接场景到选项
+        edges.push({ from: sceneNodeId, to: choiceNodeId, label: '', isSelected: true })
 
-      if (isUserChoice) {
-        // 只为用户实际选择的选项创建主线继续节点
+        // 为用户选择创建主线节点
         const mainlineNodeId = nodeId++
         const mainDesc = `选择"${(choice.text || '').toString()}"后接入主线`
-        const layoutMain = computeNodeLayout('主线', mainDesc)
+        const layoutMain = computeNodeLayout('主线', mainDesc, { imageW: THUMB_W, imageH: THUMB_H })
         nodes.push({
           id: mainlineNodeId,
           title: '主线',
           type: 'result',
           x: choiceX,
-          y: choiceY + 100,
+          y: choiceY + 120,
           description: mainDesc,
           width: layoutMain.width,
           height: layoutMain.height,
-          descLines: layoutMain.descLines
+          descLines: layoutMain.descLines,
+          image: sceneImage, // 使用场景的背景图
+          imageW: layoutMain.imageW || 0,
+          imageH: layoutMain.imageH || 0
         })
 
-        edges.push({
-          from: choiceNodeId,
-          to: mainlineNodeId,
-          label: '',
-          isSelected: true
-        })
-
-        // 为下一轮循环准备
+        edges.push({ from: choiceNodeId, to: mainlineNodeId, label: '', isSelected: true })
         lastNodeId = mainlineNodeId
       } else {
-        // 为未选择的选项创建问号终点
+        // 未选择的选项直接显示问号节点（不显示背景图和具体选项文本）
         const questionNodeId = nodeId++
         const layoutQ = computeNodeLayout('?', '未探索的分支')
         nodes.push({
@@ -410,31 +663,134 @@ const generateBranchingGraph = () => {
           description: '未探索的分支',
           width: layoutQ.width,
           height: layoutQ.height,
-          descLines: layoutQ.descLines
+          descLines: layoutQ.descLines,
+          imageW: layoutQ.imageW || 0,
+          imageH: layoutQ.imageH || 0
         })
 
-        edges.push({
-          from: choiceNodeId,
-          to: questionNodeId,
-          label: '',
-          isSelected: false
-        })
+        // 场景直接连接到问号节点
+        edges.push({ from: sceneNodeId, to: questionNodeId, label: '', isSelected: false })
       }
     })
 
-    currentY += 250
+    currentY += 320 // 增加垂直间距以容纳缩略图与文字
   })
 
   // 结束节点
+  // 在生成结束/汇合节点之前，尝试获取后端的结局列表并把已进入的结局显示为图像，其它结局显示为问号并在下方显示标题
+  try {
+    const resp = await http.get(`/api/game/storyending/${currentWorkId}`)
+    const payload = resp && resp.data ? resp.data : resp
+    const endings = Array.isArray(payload?.endings) ? payload.endings : []
+    if (endings.length > 0) {
+      // 优先尝试使用已记录的结局索引（比仅靠标题更可靠）
+      const storedTitle = sessionStorage.getItem(`selectedEndingTitle_${currentWorkId}`)
+      const storedIdxStr = sessionStorage.getItem(`lastSelectedEndingIndex_${currentWorkId}`)
+      const storedIdx = storedIdxStr ? Number(storedIdxStr) : null
+
+      // 如果有 selected index，则向后端请求该结局的完整详情以获取缩略图与准标题
+      let selectedEndingDetail = null
+      if (storedIdx && Number.isFinite(storedIdx)) {
+        try {
+          const det = await http.get(`/api/game/storyending/${currentWorkId}/${storedIdx}`)
+          const detPayload = det && det.data ? det.data : det
+          selectedEndingDetail = detPayload?.ending || detPayload || null
+          console.log('[Settlement] 获取已选结局详情:', storedIdx, selectedEndingDetail)
+        } catch (e) {
+          console.warn('[Settlement] 获取已选结局详细信息失败，继续使用结局列表:', e)
+          selectedEndingDetail = null
+        }
+      }
+
+      const endCount = endings.length
+      const endSpacing = 240
+      const endStartX = 400 - (endCount - 1) * endSpacing / 2
+      let endY = currentY + 40
+      // 保存进入结局前的父节点ID，所有结局分支都从该节点分出，避免将未选中结局连接到已选中结局的节点上
+      const endingsParentNodeId = lastNodeId
+      for (let ei = 0; ei < endings.length; ei++) {
+        const ed = endings[ei]
+        const ex = endStartX + ei * endSpacing
+        // list 接口返回的索引字段可能是 endingIndex
+        const listIndex = ed.endingIndex || (ei + 1)
+        // 优先使用从 detail 获取到的标题/场景（如果是用户所选的结局）
+        let etitle = ed.title || `结局 ${listIndex}`
+        let endImage = (Array.isArray(ed.scenes) && ed.scenes.length > 0) ? (ed.scenes[0].backgroundImage || null) : null
+
+        // 如果我们 fetch 了 selectedEndingDetail，并且它对应当前 list 项，则覆盖 title/image
+        if (selectedEndingDetail && storedIdx && Number(listIndex) === Number(storedIdx)) {
+          etitle = selectedEndingDetail.title || etitle
+          if (Array.isArray(selectedEndingDetail.scenes) && selectedEndingDetail.scenes.length > 0) {
+            endImage = selectedEndingDetail.scenes[0].backgroundImage || endImage
+          }
+        }
+
+        // 判断是否为已进入结局：优先使用索引匹配，其次回退到按标题匹配（兼容旧 session 存储）
+        const isEnteredByIndex = storedIdx && Number(listIndex) === Number(storedIdx)
+        const isEnteredByTitle = storedTitle && etitle === storedTitle
+
+        if (isEnteredByIndex || isEnteredByTitle) {
+          // 已进入的结局：显示首图缩略并连接为已选分支
+          const layoutE = computeNodeLayout('结局', etitle, { imageW: THUMB_W, imageH: THUMB_H })
+          const endNodeId = nodeId++
+          nodes.push({
+            id: endNodeId,
+            title: '结局',
+            type: 'ending-selected',
+            x: ex,
+            y: endY,
+            description: etitle,
+            width: layoutE.width,
+            height: layoutE.height,
+            descLines: layoutE.descLines,
+            image: endImage,
+            imageW: layoutE.imageW || 0,
+            imageH: layoutE.imageH || 0,
+            isSelected: true
+          })
+          edges.push({ from: endingsParentNodeId, to: endNodeId, label: '', isSelected: true })
+          // 不要修改 lastNodeId，这样后续未选中结局仍然从 parent 出发
+        } else {
+          // 未进入的结局：显示问号节点，但在描述中显示结局标题
+          const layoutQ = computeNodeLayout('?', etitle)
+          const qNodeId = nodeId++
+          nodes.push({
+            id: qNodeId,
+            title: '?',
+            type: 'ending-unseen',
+            x: ex,
+            y: endY,
+            description: etitle,
+            width: layoutQ.width,
+            height: layoutQ.height,
+            descLines: layoutQ.descLines,
+            imageW: layoutQ.imageW || 0,
+            imageH: layoutQ.imageH || 0
+          })
+          edges.push({ from: endingsParentNodeId, to: qNodeId, label: '', isSelected: false })
+        }
+      }
+      currentY += 220
+    }
+  } catch (e) {
+    console.warn('[Settlement] 获取结局列表失败，跳过在分支图显示结局缩略图:', e)
+  }
+
   if (gameData.value.choiceHistory.length > 0) {
     const endNodeId = nodeId++
+    const layoutEnd = computeNodeLayout('主线/完结', '分支收束于主线，完成一次旅程')
     nodes.push({
       id: endNodeId,
       title: '主线/完结',
       type: 'end',
       x: 400,
       y: currentY + 100,
-      description: '分支收束于主线，完成一次旅程'
+      description: '分支收束于主线，完成一次旅程',
+      width: layoutEnd.width,
+      height: layoutEnd.height,
+      descLines: layoutEnd.descLines,
+      imageW: layoutEnd.imageW || 0,
+      imageH: layoutEnd.imageH || 0
     })
 
     edges.push({
@@ -447,6 +803,22 @@ const generateBranchingGraph = () => {
   branchingGraph.value = { nodes, edges }
   // 生成后做一次碰撞消解，减少重合
   resolveNodeOverlaps()
+  // 归一化：确保最左/最上有足够留白，避免被 svg 裁剪
+  if (nodes.length > 0) {
+    const lefts = nodes.map(n => (n.x || 0) - (n.width || THUMB_W) / 2)
+    const tops = nodes.map(n => (n.y || 0) - (n.height || THUMB_H) / 2)
+    const minLeft = Math.min(...lefts)
+    const minTop = Math.min(...tops)
+    const PAD = 40
+    const offsetX = minLeft < PAD ? (PAD - minLeft) : 0
+    const offsetY = minTop < PAD ? (PAD - minTop) : 0
+    if (offsetX !== 0 || offsetY !== 0) {
+      nodes.forEach(n => {
+        n.x = (n.x || 0) + offsetX
+        n.y = (n.y || 0) + offsetY
+      })
+    }
+  }
 }
 
 // 生成个性报告（调用 service 层；service 会尝试后端，失败时回退到前端 mock）
@@ -472,8 +844,24 @@ const generatePersonalityReport = async () => {
   try {
     const attrs = gameData.value.finalAttributes || {}
     const statuses = gameData.value.finalStatuses || {}
-    console.log('Fetching personality report variants... attrs/statuses:', attrs, statuses)
-    const variants = await fetchPersonalityReportVariants('all')
+    // 确保使用有效的 workId
+    const currentWorkId = gameData.value.work?.id || workId
+    console.log('Fetching personality report variants... workId:', currentWorkId, 'attrs/statuses:', attrs, statuses)
+    // 优先使用 sessionStorage 中已由前端 fetchReport/后端返回并保存的结算数据（避免重复请求）
+    if (sessionData && sessionData.status === 'ready' && sessionData.details) {
+      console.log('[Settlement] 使用 sessionData.details 作为个性报告', sessionData.details)
+      const d = sessionData.details
+      personalityReport.value = {
+        title: d.title || defaultPersonalityReport.title,
+        content: d.content || defaultPersonalityReport.content,
+        traits: Array.isArray(d.traits) ? d.traits : defaultPersonalityReport.traits,
+        scores: (d.scores && typeof d.scores === 'object') ? d.scores : defaultPersonalityReport.scores
+      }
+      console.log('Selected personality report from sessionData:', personalityReport.value)
+      return
+    }
+
+    const variants = await fetchPersonalityReportVariants(currentWorkId, attrs, statuses)
     console.log('Variants received:', variants)
 
     const matched = (Array.isArray(variants) ? variants.find(v => variantMatches(v, attrs, statuses)) : null)
@@ -520,81 +908,15 @@ const startDrag = (event, node) => {
   }
 }
 
-// 存档相关
-const saveGame = async (slot) => {
-  try {
-    const result = await saveGameData({
-      work: gameData.value.work,
-      currentSceneIndex: gameData.value.currentSceneIndex,
-      currentDialogueIndex: gameData.value.currentDialogueIndex,
-      attributes: gameData.value.finalAttributes,
-      statuses: gameData.value.finalStatuses,
-      storyScenes: gameData.value.storyScenes,
-      choiceHistory: gameData.value.choiceHistory
-    }, slot)
-    
-    if (result.success) {
-      saveToast.value = result.message
-      setTimeout(() => (saveToast.value = ''), 2000)
-      showSaveModal.value = false
-      // 刷新槽位信息
-      await refreshSlotInfosData()
-    }
-  } catch (err) {
-    console.error('存档失败:', err)
-    alert('存档失败：' + err.message)
-  }
-}
-
-const loadGame = async (slot) => {
-  try {
-    const result = await loadGameData(gameData.value.work.id, slot)
-    if (result.success) {
-      // 跳转回游戏页面并传递加载的数据
-      router.push({
-        path: `/game/${gameData.value.work.id}`,
-        state: {
-          loadedData: result.data,
-          title: gameData.value.work.title,
-          coverUrl: gameData.value.work.coverUrl
-        }
-      })
-    } else {
-      alert(result.message)
-    }
-  } catch (err) {
-    console.error('读档失败:', err)
-    alert('读档失败：' + err.message)
-  }
-}
-
-// 刷新槽位信息
-const refreshSlotInfosData = async () => {
-  try {
-    const infos = await refreshSlotInfos(gameData.value.work.id, SLOTS)
-    slotInfos.value = infos
-  } catch (err) {
-    console.error('刷新槽位信息失败:', err)
-  }
-}
-
-// 打开存档/读档弹窗
-const openSaveModal = async () => {
-  showSaveModal.value = true
-  await refreshSlotInfosData()
-}
-
-const openLoadModal = async () => {
-  showLoadModal.value = true
-  await refreshSlotInfosData()
-}
-
-const closeSaveModal = () => { showSaveModal.value = false }
-const closeLoadModal = () => { showLoadModal.value = false }
-
-// 返回游戏或主页
+// 返回游戏作品详情页（使用当前 workId）
 const goBack = () => {
-  router.push('/works')
+  try {
+    const targetId = gameData.value.work?.id || workId
+    router.push({ path: `/works/${targetId}` })
+  } catch (e) {
+    console.warn('goBack failed, fallback to /works', e)
+    router.push('/works')
+  }
 }
 
 const continueGame = () => {
@@ -620,9 +942,21 @@ onMounted(async () => {
   console.log('SettlementPage mounted with data:', gameData.value)
   console.log('Final Attributes:', gameData.value.finalAttributes)
   console.log('Final Statuses:', gameData.value.finalStatuses)
-  generateBranchingGraph()
+  
+  // 获取作品详情，更新作品标题
+  try {
+    const workInfo = await getWorkInfo(workId)
+    if (workInfo && workInfo.title) {
+      gameData.value.work.title = workInfo.title
+      console.log('[Settlement] 成功获取作品详情:', workInfo.title)
+    }
+  } catch (error) {
+    console.warn('[Settlement] 获取作品详情失败:', error)
+    // 保持使用原有的 title，不影响页面渲染
+  }
+  
+  await generateBranchingGraph()
   await generatePersonalityReport()
-  refreshSlotInfosData()
   
   // 清理sessionStorage中的临时数据
   setTimeout(() => {
@@ -646,8 +980,6 @@ onMounted(async () => {
       
       <div class="quick-actions">
         <button class="nav-btn" @click="showAttributesModal = true">属性</button>
-        <button class="nav-btn" @click="openSaveModal">存档</button>
-        <button class="nav-btn" @click="openLoadModal">读档</button>
       </div>
     </div>
 
@@ -663,7 +995,7 @@ onMounted(async () => {
       <button 
         class="tab-btn" 
         :class="{ active: currentView === 'branching' }"
-        @click="currentView = 'branching'"
+        @click="currentView = 'branching'; isBranchingFullscreen = true"
       >
         分支探索
       </button>
@@ -702,14 +1034,60 @@ onMounted(async () => {
       </div>
 
       <!-- 分支探索图 -->
-      <div v-if="currentView === 'branching'" class="branching-content">
-        <div class="branching-header">
-          <h3>你的故事分支</h3>
-          <p>拖动节点查看你的选择路径</p>
+      <div v-if="currentView === 'branching'" :class="['branching-content', { 'fullscreen': isBranchingFullscreen }]">
+        <div v-if="isBranchingFullscreen" class="fullscreen-header">
+          <button class="exit-fullscreen-btn" @click="isBranchingFullscreen = false">×</button>
         </div>
-        
-        <div class="branching-graph">
-          <svg class="graph-svg" :width="graphWidth" :height="graphHeight">
+        <div class="branching-graph" :style="{ 
+            width: isBranchingFullscreen ? 'auto' : graphWidth + 'px',
+            height: isBranchingFullscreen ? 'auto' : graphHeight + 'px',
+            minWidth: isBranchingFullscreen ? graphWidth + 'px' : 'auto',
+            minHeight: isBranchingFullscreen ? graphHeight + 'px' : 'auto',
+            maxWidth: isBranchingFullscreen ? 'none' : graphWidth + 'px',
+            maxHeight: isBranchingFullscreen ? 'none' : graphHeight + 'px'
+          }">
+          <!-- 全屏展开按钮放入图框左上角（只有在非全屏时显示） -->
+          <button v-if="!isBranchingFullscreen" class="expand-fullscreen-btn" @click="isBranchingFullscreen = true" title="全屏查看">⛶</button>
+          <svg class="graph-svg" :width="isBranchingFullscreen ? graphWidth : graphWidth" :height="graphHeight" :viewBox="isBranchingFullscreen ? `0 0 ${graphWidth} ${graphHeight}` : null" preserveAspectRatio="xMidYMid meet">
+            <defs>
+              <!-- 墨汁晕染渐变 -->
+              <radialGradient id="inkGradient" cx="30%" cy="30%" r="70%">
+                <stop offset="0%" style="stop-color:#2c1810;stop-opacity:0.9"/>
+                <stop offset="40%" style="stop-color:#4a2c1a;stop-opacity:0.7"/>
+                <stop offset="70%" style="stop-color:#8b7355;stop-opacity:0.4"/>
+                <stop offset="100%" style="stop-color:#d4c4a8;stop-opacity:0.2"/>
+              </radialGradient>
+              
+              <radialGradient id="inkGradientStart" cx="40%" cy="40%" r="80%">
+                <stop offset="0%" style="stop-color:#8b4513;stop-opacity:0.95"/>
+                <stop offset="30%" style="stop-color:#a0522d;stop-opacity:0.8"/>
+                <stop offset="60%" style="stop-color:#cd853f;stop-opacity:0.5"/>
+                <stop offset="100%" style="stop-color:#f4e4bc;stop-opacity:0.3"/>
+              </radialGradient>
+              
+              <radialGradient id="inkGradientScene" cx="35%" cy="35%" r="75%">
+                <stop offset="0%" style="stop-color:#654321;stop-opacity:0.85"/>
+                <stop offset="35%" style="stop-color:#8b7355;stop-opacity:0.7"/>
+                <stop offset="65%" style="stop-color:#b8860b;stop-opacity:0.4"/>
+                <stop offset="100%" style="stop-color:#f5f5dc;stop-opacity:0.2"/>
+              </radialGradient>
+              
+              <radialGradient id="inkGradientChoice" cx="25%" cy="25%" r="65%">
+                <stop offset="0%" style="stop-color:#8b4513;stop-opacity:0.8"/>
+                <stop offset="40%" style="stop-color:#a0522d;stop-opacity:0.6"/>
+                <stop offset="70%" style="stop-color:#cd853f;stop-opacity:0.3"/>
+                <stop offset="100%" style="stop-color:#fff8dc;stop-opacity:0.1"/>
+              </radialGradient>
+              
+              <radialGradient id="inkGradientSelected" cx="45%" cy="45%" r="85%">
+                <stop offset="0%" style="stop-color:#2c1810;stop-opacity:1"/>
+                <stop offset="25%" style="stop-color:#4a2c1a;stop-opacity:0.9"/>
+                <stop offset="50%" style="stop-color:#8b7355;stop-opacity:0.7"/>
+                <stop offset="75%" style="stop-color:#d4c4a8;stop-opacity:0.4"/>
+                <stop offset="100%" style="stop-color:#f5f5dc;stop-opacity:0.2"/>
+              </radialGradient>
+            </defs>
+            
             <!-- 边 -->
             <g class="edges">
               <line
@@ -739,15 +1117,26 @@ onMounted(async () => {
                   rx="8"
                   class="node-rect"
                 />
+                <!-- 缩略图（位于节点顶部） -->
+                <image
+                  v-if="node.image"
+                  :href="node.image"
+                  :x="NODE_PAD_X"
+                  :y="NODE_PAD_Y"
+                  :width="(node.width || THUMB_W) - NODE_PAD_X * 2"
+                  :height="node.imageH || THUMB_H"
+                  preserveAspectRatio="xMidYMid slice"
+                  style="filter: drop-shadow(0 6px 12px rgba(0,0,0,0.12)); border-radius:4px;"
+                />
                 <text
                   :x="(node.width || 120) / 2"
-                  :y="18"
+                  :y="( (node.imageH || 0) ? (NODE_PAD_Y + (node.imageH || 0) + 18) : (NODE_PAD_Y + 16) )"
                   text-anchor="middle"
                   class="node-title"
                 >{{ node.title }}</text>
                 <text
                   :x="(node.width || 120) / 2"
-                  :y="36"
+                  :y="( (node.imageH || 0) ? (NODE_PAD_Y + (node.imageH || 0) + 36) : (NODE_PAD_Y + 34) )"
                   text-anchor="middle"
                   class="node-desc"
                 >
@@ -770,7 +1159,6 @@ onMounted(async () => {
       <div v-if="currentView === 'personality'" class="personality-content">
         <div class="personality-header">
           <h2 class="personality-title">{{ personalityReport.title }}</h2>
-          <p class="personality-subtitle">基于你的选择生成的个性分析</p>
         </div>
         
         <div class="personality-body">
@@ -862,61 +1250,6 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- 存档弹窗 -->
-    <div v-if="showSaveModal" class="modal-backdrop" @click="closeSaveModal">
-      <div class="modal-panel save-load-modal" @click.stop>
-        <div class="modal-header">
-          <h3>保存存档</h3>
-          <button class="modal-close" @click="closeSaveModal">×</button>
-        </div>
-        
-        <div class="slot-list">
-          <div v-for="slot in SLOTS" :key="slot" class="slot-card">
-            <div class="slot-title">{{ slot === 'slot6' ? '自动存档' : `存档位 ${slot.slice(-1)}` }}</div>
-            <div class="slot-meta" :class="{ empty: !slotInfos[slot] }">
-              <template v-if="slotInfos[slot]">
-                {{ slotInfos[slot].sceneTitle }}<br>
-                {{ new Date(slotInfos[slot].timestamp).toLocaleString() }}
-              </template>
-              <template v-else>空存档位</template>
-            </div>
-            <div class="slot-actions">
-              <button @click="saveGame(slot)">保存</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 读档弹窗 -->
-    <div v-if="showLoadModal" class="modal-backdrop" @click="closeLoadModal">
-      <div class="modal-panel save-load-modal" @click.stop>
-        <div class="modal-header">
-          <h3>读取存档</h3>
-          <button class="modal-close" @click="closeLoadModal">×</button>
-        </div>
-        
-        <div class="slot-list">
-          <div v-for="slot in SLOTS" :key="slot" class="slot-card">
-            <div class="slot-title">{{ slot === 'slot6' ? '自动存档' : `存档位 ${slot.slice(-1)}` }}</div>
-            <div class="slot-meta" :class="{ empty: !slotInfos[slot] }">
-              <template v-if="slotInfos[slot]">
-                {{ slotInfos[slot].sceneTitle }}<br>
-                {{ new Date(slotInfos[slot].timestamp).toLocaleString() }}
-              </template>
-              <template v-else>空存档位</template>
-            </div>
-            <div class="slot-actions">
-              <button :disabled="!slotInfos[slot]" @click="loadGame(slot)">读取</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Toast 提示 -->
-    <div v-if="saveToast" class="toast save-toast">{{ saveToast }}</div>
-    <div v-if="loadToast" class="toast load-toast">{{ loadToast }}</div>
   </div>
 </template>
 
@@ -933,7 +1266,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 1rem 2rem;
+  padding: 0.6rem 1rem; /* 压缩上下与左右空间，腾出内容区 */
   background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(212, 165, 165, 0.2);
@@ -963,7 +1296,7 @@ onMounted(async () => {
 }
 
 .page-title {
-  font-size: 1.5rem;
+  font-size: 1.15rem; /* 缩小以节省垂直空间 */
   color: #2c1810;
   margin: 0;
   font-weight: 600;
@@ -971,7 +1304,7 @@ onMounted(async () => {
 
 .quick-actions {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.35rem;
 }
 
 /* 视图切换标签 */
@@ -979,18 +1312,20 @@ onMounted(async () => {
   display: flex;
   background: white;
   border-bottom: 1px solid rgba(212, 165, 165, 0.2);
-  padding: 0 2rem;
+  padding: 0 1rem; /* 压缩左右内边距 */
+  height: 44px; /* 固定较小高度 */
+  align-items: center;
 }
 
 .tab-btn {
-  padding: 1rem 2rem;
+  padding: 0.55rem 1rem; /* 缩小垂直占用 */
   border: none;
   background: transparent;
   color: #8B7355;
-  font-size: 1rem;
+  font-size: 0.95rem;
   cursor: pointer;
   border-bottom: 3px solid transparent;
-  transition: all 0.3s ease;
+  transition: all 0.18s ease;
 }
 
 .tab-btn:hover {
@@ -1006,7 +1341,7 @@ onMounted(async () => {
 /* 内容区域 */
 .content-area {
   flex: 1;
-  padding: 2rem;
+  padding: 1rem; /* 减少整体内边距，让主要内容占更多可视高度 */
   overflow-y: auto;
 }
 
@@ -1053,53 +1388,147 @@ onMounted(async () => {
   border-radius: 12px;
   padding: 1.5rem;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  position: relative;
 }
 
-.branching-header {
-  text-align: center;
-  margin-bottom: 2rem;
+.branching-content.fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  padding: 2rem;
+  z-index: 1000;
+  /* 纯色羊皮纸底色并加上微小斑点以模拟瑕疵，避免条纹 */
+  background: 
+    radial-gradient(circle at 20% 80%, rgba(101, 67, 33, 0.08) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(139, 115, 85, 0.06) 0%, transparent 50%),
+    radial-gradient(circle at 40% 40%, rgba(160, 130, 90, 0.04) 0%, transparent 50%),
+    radial-gradient(circle at 60% 30%, rgba(139, 115, 85, 0.03) 0%, transparent 40%),
+    radial-gradient(circle at 30% 70%, rgba(101, 67, 33, 0.05) 0%, transparent 45%),
+    linear-gradient(135deg, #f4f1e8 0%, #e8dcc0 30%, #f4f1e8 70%, #e8dcc0 100%);
+  background-size: 100% 100%, 100% 100%, 100% 100%, 80% 80%, 70% 70%, 100% 100%;
+  box-shadow: inset 0 0 100px rgba(139, 115, 85, 0.3);
 }
 
-.branching-header h3 {
-  color: #8B7355;
-  margin: 0 0 0.5rem 0;
+.fullscreen-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 1rem;
 }
 
-.branching-header p {
-  color: #666;
-  margin: 0;
+.exit-fullscreen-btn {
+  background: rgba(44, 24, 16, 0.8);
+  color: #f4e4bc;
+  border: 2px solid #8b7355;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  font-size: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(44, 24, 16, 0.3);
+}
+
+.exit-fullscreen-btn:hover {
+  background: rgba(44, 24, 16, 0.9);
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(44, 24, 16, 0.4);
+}
+
+.expand-fullscreen-btn {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: rgba(44, 24, 16, 0.8);
+  color: #f4e4bc;
+  border: 2px solid #8b7355;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(44, 24, 16, 0.3);
+  z-index: 10;
+}
+
+.expand-fullscreen-btn:hover {
+  background: rgba(44, 24, 16, 0.9);
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(44, 24, 16, 0.4);
 }
 
 .branching-graph {
   position: relative;
-  height: 600px;
+  height: calc(100vh - 200px);
   overflow: auto;
   border: 1px solid #eee;
   border-radius: 8px;
+  flex: 1;
+}
+
+.branching-content.fullscreen .branching-graph {
+  flex: 1;
+  width: auto;
+  min-width: 100%;
+  min-height: 100%;
+  border: none;
+  border-radius: 0;
+  overflow: auto;
+  display: flex;
+  justify-content: flex-start;
+  align-items: flex-start;
+  padding: 1rem;
 }
 
 .graph-svg {
   cursor: grab;
   display: block;
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  min-width: 100%;
+  min-height: 100%;
+  flex-shrink: 0;
 }
 
 .edge-line {
-  stroke: #d4a5a5;
+  stroke: #8b7355;
   stroke-width: 2;
   opacity: 0.6;
 }
 
 .edge-selected {
-  stroke: #8b5a3c;
+  stroke: #2c1810;
   stroke-width: 3;
   opacity: 0.9;
 }
 
 .edge-unselected {
-  stroke: #d4a5a5;
-  stroke-width: 1;
-  opacity: 0.3;
-  stroke-dasharray: 5,5;
+  /* 未探索的分支：提高对比度以便更清晰可见（略带虚线样式） */
+  stroke: #6b8aa4;
+  stroke-width: 1.6;
+  opacity: 0.9;
+  stroke-dasharray: 6,4;
 }
 
 .node-group {
@@ -1107,63 +1536,79 @@ onMounted(async () => {
 }
 
 .node-rect {
-  fill: white;
-  stroke: #d4a5a5;
-  stroke-width: 2;
+  fill: url(#inkGradient);
+  stroke: #2c1810;
+  stroke-width: 1.5;
+  filter: drop-shadow(0 2px 4px rgba(44, 24, 16, 0.3));
 }
 
 .node-start .node-rect {
-  fill: #e8f5e8;
-  stroke: #4caf50;
+  fill: url(#inkGradientStart);
+  stroke: #8b4513;
+  stroke-width: 2;
 }
 
 .node-scene .node-rect {
-  fill: #f3e5f5;
-  stroke: #9c27b0;
+  fill: url(#inkGradientScene);
+  stroke: #654321;
+  stroke-width: 1.5;
 }
 
 .node-choice .node-rect {
-  fill: #fff3e0;
-  stroke: #ff9800;
+  fill: url(#inkGradientChoice);
+  stroke: #8b4513;
+  stroke-width: 1.5;
 }
 
 .node-choice-selected .node-rect {
-  fill: #e8f5e8;
-  stroke: #4caf50;
-  stroke-width: 3;
+  fill: url(#inkGradientSelected);
+  stroke: #2c1810;
+  stroke-width: 2.5;
 }
 
 .node-choice-unselected .node-rect {
-  fill: #fafafa;
-  stroke: #bdbdbd;
+  fill: url(#inkGradientChoice);
+  stroke: #8b4513;
+  stroke-width: 1.5;
   stroke-dasharray: 5,5;
 }
 
 .node-result .node-rect {
-  fill: #e3f2fd;
-  stroke: #2196f3;
+  fill: url(#inkGradientScene);
+  stroke: #654321;
+  stroke-width: 1.5;
 }
 
 .node-question .node-rect {
-  fill: #ffebee;
-  stroke: #f44336;
+  fill: url(#inkGradientChoice);
+  stroke: #2c1810;
+  stroke-width: 1.5;
   stroke-dasharray: 3,3;
 }
 
 .node-end .node-rect {
-  fill: #fce4ec;
-  stroke: #e91e63;
+  fill: url(#inkGradientStart);
+  stroke: #8b4513;
+  stroke-width: 2;
 }
 
 .node-title {
-  fill: #333;
+  fill: #2c1810;
   font-size: 12px;
   font-weight: 600;
+  text-shadow: 0 1px 2px rgba(244, 228, 188, 0.8);
+}
+
+.node-question .node-title {
+  fill: #000000;
+  font-size: 16px;
+  font-weight: bold;
 }
 
 .node-desc {
-  fill: #666;
+  fill: #654321;
   font-size: 10px;
+  text-shadow: 0 1px 2px rgba(244, 228, 188, 0.6);
 }
 
 /* 个性报告 */
@@ -1405,101 +1850,6 @@ onMounted(async () => {
   background: rgba(212,165,165,0.15); 
   color:#fff; 
   border:1px solid rgba(212,165,165,0.3);
-}
-
-/* 存/读档弹窗样式 */
-.save-load-modal {
-  width: min(88vw, 720px);
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.slot-list { 
-  display:grid; 
-  grid-template-columns: repeat(3, 1fr); 
-  gap: 0.75rem; 
-  margin-top: 0.5rem; 
-  flex: 1 1 auto; 
-  overflow-y: auto; 
-  min-height: 0; 
-  padding-right: 0.25rem; 
-}
-
-.slot-card { 
-  background:#ffffff; 
-  border:1px solid rgba(212,165,165,0.2); 
-  border-radius:8px; 
-  padding:0.75rem; 
-  display:flex; 
-  flex-direction:column; 
-  gap:0.5rem;
-}
-
-.slot-title { 
-  font-weight:700; 
-  color:#8B7355; 
-  letter-spacing: 0.08em; 
-}
-
-.slot-meta { 
-  font-size: 0.9rem; 
-  color:#555; 
-  line-height:1.4;
-}
-
-.slot-meta.empty { 
-  color:#aaa;
-}
-
-.slot-actions { 
-  display:flex; 
-  justify-content:flex-end; 
-}
-
-.slot-actions button { 
-  padding:0.4rem 0.8rem; 
-  border-radius:6px; 
-  cursor:pointer; 
-  background: rgba(212,165,165,0.15); 
-  color:#2c1810; 
-  border:1px solid rgba(212,165,165,0.35);
-}
-
-.slot-actions button:hover { 
-  background: rgba(212,165,165,0.22);
-}
-
-.slot-actions button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.slot-actions button:disabled:hover {
-  background: rgba(212,165,165,0.15);
-}
-
-/* Toast 提示 */
-.toast { 
-  position: fixed; 
-  right: 1rem; 
-  bottom: 1rem; 
-  background: rgba(0,0,0,0.8); 
-  color: #fff; 
-  padding: 0.6rem 1rem; 
-  border-radius: 6px; 
-  z-index: 11000;
-}
-
-.save-toast { 
-  background: linear-gradient(90deg,#d4a574,#f5e6d3); 
-  color:#2c1810;
-}
-
-.load-toast { 
-  background: linear-gradient(90deg,#a5d4a5,#d3f5d3); 
-  color:#183a12;
 }
 
 /* 响应式设计 */

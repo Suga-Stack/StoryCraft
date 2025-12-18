@@ -20,7 +20,8 @@ import { http, getUserId } from './http.js'
  * @returns {Promise<{ok: boolean}>}
  */
 export async function saveGame(workId, slot, saveData) {
-  const userId = getUserId()
+  // 将 slot1-slot6 转换为 1-6
+  const slotNum = slot.replace('slot', '')
   
   const requestBody = {
     // ensure workId numeric per API contract
@@ -48,7 +49,8 @@ export async function saveGame(workId, slot, saveData) {
  * @returns {Promise<{data: Object, timestamp: number}|null>}
  */
 export async function loadGame(workId, slot) {
-  const userId = getUserId()
+  // 将 slot1-slot6 转换为 1-6
+  const slotNum = slot.replace('slot', '')
   
   try {
     return await http.get(`/api/users/${userId}/saves/${Number(workId)}/${slot}`)
@@ -68,8 +70,6 @@ export async function loadGame(workId, slot) {
  * @returns {Promise<Array<{slot: string, timestamp: number, excerpt?: string}>>}
  */
 export async function getSavesList(workId) {
-  const userId = getUserId()
-  
   try {
     const result = await http.get(`/api/users/${userId}/saves/${Number(workId)}`)
     return result.saves || []
@@ -91,7 +91,8 @@ export async function getSavesList(workId) {
  * @returns {Promise<{ok: boolean}>}
  */
 export async function deleteSave(workId, slot) {
-  const userId = getUserId()
+  // 将 slot1-slot6 转换为 1-6
+  const slotNum = slot.replace('slot', '')
   
   try {
     const result = await http.delete(`/api/users/${userId}/saves/${Number(workId)}/${slot}`)

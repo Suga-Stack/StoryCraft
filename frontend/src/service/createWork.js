@@ -4,6 +4,7 @@
  */
 
 import { http, getUserId } from './http.js'
+import { POLL_DETAILS_INTERVAL_MS, POLL_DETAILS_TIMEOUT_MS } from '../config/polling.js'
 
 /**
  * 将用户在创建界面输入的数据发送至后端创建作品
@@ -16,7 +17,16 @@ import { http, getUserId } from './http.js'
  * @param {string} [payload.coverUrl] - 封面 URL（可选）
  * @param {Object} [payload.initialAttributes] - 可选的初始属性覆盖
  * @param {Object} [payload.initialStatuses] - 可选的初始状态覆盖
- * @returns {Promise<{backendWork: Object, initialAttributes: Object, initialStatuses: Object}>}
+ * @returns {Promise<Object>} 后端返回的原始对象，示例结构参考 game-api.md：
+ * {
+ *   gameworkId: number,
+ *   title: string,
+ *   coverUrl: string,
+ *   description: string,
+ *   initialAttributes: Object,
+ *   initialStatuses: Object,
+ *   total_chapters: number
+ * }
  */
 export async function createWorkOnBackend(payload = {}) {
   const userId = getUserId()
@@ -24,11 +34,45 @@ export async function createWorkOnBackend(payload = {}) {
   const body = {
     tags: payload.tags || [],
     idea: payload.idea || '',
-    length: payload.length || 'medium'
+    length: payload.length || 'medium',
+    // 如果前端告诉后端 modifiable=true，后端应返回章节大纲（chapterOutlines）而不是直接生成完整章节内容
+    modifiable: payload.modifiable === true
   }
-  // 直接按 game-api.md：返回后端原始响应，字段名保持一致（gameworkId, title, coverUrl, description, initialAttributes, statuses）
-  const res = await http.post('/api/game/create', body)
-  return Object.assign({}, res || {})
+  // POST 创建作品，后端应返回 { gameworkId: number }
+  const res = await http.post('/api/game/create/', body)
+
+  // 新接口约定：POST 返回 { gameworkId }，随后需轮询 GET /api/gameworks/gameworks/{id}/
+  if (!res || !res.gameworkId) {
+    // 如果没有按约定返回 id，抛出错误（不再兼容旧格式）
+    const err = new Error('createWork: unexpected response from /api/game/create, missing gameworkId')
+    err.raw = res
+    throw err
+  }
+
+  const id = res.gameworkId
+  // 轮询间隔与整体超时由配置控制
+  const pollIntervalMs = POLL_DETAILS_INTERVAL_MS
+  const timeoutMs = POLL_DETAILS_TIMEOUT_MS // 默认 10 分钟，可通过环境变量覆盖
+  const start = Date.now()
+
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const details = await http.get(`/api/gameworks/gameworks/${id}/`)
+      // 新接口在 ready 时返回 { status: 'ready', data: {...} }
+      if (details && details.status === 'ready') {
+        return { gameworkId: id, backendWork: details.data }
+      }
+    } catch (err) {
+      // 忽略单次轮询错误，继续重试直到超时
+      console.warn('polling gamework details failed, will retry', err)
+    }
+    await new Promise(r => setTimeout(r, pollIntervalMs))
+  }
+
+  // 超时：抛出错误以由调用方处理（前端可展示超时提示）
+  const timeoutError = new Error('createWork: polling gamework details timed out')
+  timeoutError.gameworkId = id
+  throw timeoutError
 }
 
 export default {

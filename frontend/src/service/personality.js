@@ -1,4 +1,5 @@
 import mock from './personality.mock.js'
+import { http } from './http.js'
 
 /**
  * 请求后端返回“所有候选个性报告”列表。
