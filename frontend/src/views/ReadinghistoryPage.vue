@@ -42,7 +42,7 @@
           <p class="book-desc">{{ book.description }}</p>
           <div class="book-tags">
             <van-tag 
-              v-for="tag in book.processedTags.slice(0, 3)" 
+              v-for="tag in book.processedTags.slice(0, 2)" 
               :key="tag.id"
               size="small"
               :style="tag.color"
