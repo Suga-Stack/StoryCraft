@@ -86,6 +86,23 @@ export function useGameState(dependencies = {}) {
   const showMenu = ref(false)
   const choicesVisible = ref(false)
   let eventSource = null
+  // 防止快速连续点击导致跳过选项或黑屏的防护
+  const clickLock = ref(false)
+  const CLICK_LOCK_MS = 600
+  // 全局动作互斥锁：用于防止长时异步操作并发执行（nextDialogue / chooseOption 等）
+  const actionInProgress = ref(false)
+  const withActionLock = async (fn) => {
+    if (actionInProgress.value) {
+      console.log('[withActionLock] action already in progress, ignoring')
+      return null
+    }
+    actionInProgress.value = true
+    try {
+      return await fn()
+    } finally {
+      try { actionInProgress.value = false } catch (e) {}
+    }
+  }
   // 标记当前是否正在播放后端提供的结局场景（在读者模式下）
   const playingEndingScenes = ref(false)
   // 标记刚刚播放完后端结局（用于避免在播放完后再次去拉取并重复追加结局场景）
@@ -978,7 +995,22 @@ export function useGameState(dependencies = {}) {
 
     // 选择选项
     const chooseOption = async (choice) => {
-        try {
+      // 全局互斥：防止与 nextDialogue 或其它选择并发执行
+      if (actionInProgress.value) {
+        console.log('[chooseOption] action already in progress, ignoring')
+        return
+      }
+        // 防抖：短时间内忽略重复选择点击
+        if (clickLock.value) {
+          console.log('[chooseOption] click debounced')
+          return
+        }
+        clickLock.value = true
+        setTimeout(() => { try { clickLock.value = false } catch (e) {} }, CLICK_LOCK_MS)
+
+        actionInProgress.value = true
+      try {
+      try {
             console.log('[chooseOption] 选择了选项:', choice)
             console.log('[chooseOption] 当前是否在手动编辑模式:', creatorMode?.value)
             console.log('[chooseOption] 原始 attributesDelta:', choice.attributesDelta)
@@ -1411,11 +1443,14 @@ export function useGameState(dependencies = {}) {
                 }
             }, 500)
         } catch (e) {
-            console.error('[chooseOption] 选择选项失败:', e)
+          console.error('[chooseOption] 选择选项失败:', e)
         }
-    }
+        } finally {
+          try { actionInProgress.value = false } catch (e) {}
+        }
+      }
 
-    // 请求横屏
+      // 请求横屏
     const requestLandscape = async () => {
         try {
             if (isNativeApp.value) {
@@ -1974,6 +2009,26 @@ export function useGameState(dependencies = {}) {
   // 如果读档后返回到普通章节，清除已读结局的本地标记（避免结算页展示已读结局）
   try { clearEndingReadMarkIfNeeded() } catch (e) { console.warn('clearEndingReadMarkIfNeeded invocation failed', e) }
   
+  // 防抖：短期内忽略重复点击；快速快进模式跳过防抖
+  if (!fastForwarding.value) {
+    if (clickLock.value) {
+      console.log('[nextDialogue] click debounced')
+      return
+    }
+    clickLock.value = true
+    setTimeout(() => { try { clickLock.value = false } catch (e) {} }, CLICK_LOCK_MS)
+  }
+
+  // 全局互斥：阻止与其它长时操作（如 chooseOption）并发
+  const usingActionLock = !fastForwarding.value
+  if (usingActionLock) {
+    if (actionInProgress.value) {
+      console.log('[nextDialogue] action already in progress, ignoring')
+      return
+    }
+    actionInProgress.value = true
+  }
+  try {
   if (showMenu.value) {
     // 如果菜单显示，点击不做任何事
     console.log('[nextDialogue] 菜单打开，忽略点击')
@@ -2613,6 +2668,11 @@ export function useGameState(dependencies = {}) {
         }
         alert('后续剧情正在生成，请稍候再试')
       }
+    }
+  }
+  } finally {
+    if (typeof usingActionLock !== 'undefined' && usingActionLock) {
+      try { actionInProgress.value = false } catch (e) {}
     }
   }
 }
