@@ -1136,7 +1136,7 @@ const handleTagClick = (tagId) => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 135px;
+  max-width: 120px;
 }
 
 .item-author {
@@ -1148,7 +1148,7 @@ const handleTagClick = (tagId) => {
 .item-meta {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 4px;
 }
 
 .meta-tag {

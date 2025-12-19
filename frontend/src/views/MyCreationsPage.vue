@@ -3,44 +3,51 @@
     <van-nav-bar title="我的创作" left-arrow @click-left="handleBack" />
     
     <div class="book-list">
-      <div 
-        class="book-item" 
-        v-for="book in myCreations" 
-        :key="book.id"
-      >
-        <van-image 
-          :src="book.image_url" 
-          class="book-cover" 
-          fit="cover"
-          @click="navigateToBookDetail(book.id)"
-        />
-        <div class="book-info">
-          <h3 class="book-title"  @click="navigateToBookDetail(book.id)">{{ book.title }}</h3>
-          <p class="book-desc">{{ book.description }}</p>
-          <div class="book-tags">
-            <van-tag 
-              v-for="tag in book.processedTags.slice(0,2)" 
-              :key="tag.id"
-              size="small"
-              :style="tag.color"
-              @click="handleTagClick(tag)"
-            >
-              {{ tag.name }}
-            </van-tag>
-          </div>
+      <template v-if="myCreations.length === 0">
+        <div style="text-align:center;color:#999;padding:48px 0 32px 0;font-size:16px;">
+          暂时没有个人作品，快去创作你的第一个故事吧！
         </div>
-         <van-icon 
-          :name="book.is_published ? 'eye' : 'eye-o'" 
-          class="visibility-icon"
-          @click="handleIconClick(book)"
-        />
-        <van-icon
-          name="delete"
-          class="delete-icon"
-          @click="handleDelete(book)"
-          title="删除作品"
-        />
-      </div>
+      </template>
+      <template v-else>
+        <div 
+          class="book-item" 
+          v-for="book in myCreations" 
+          :key="book.id"
+        >
+          <van-image 
+            :src="book.image_url" 
+            class="book-cover" 
+            fit="cover"
+            @click="navigateToBookDetail(book.id)"
+          />
+          <div class="book-info">
+            <h3 class="book-title"  @click="navigateToBookDetail(book.id)">{{ book.title }}</h3>
+            <p class="book-desc">{{ book.description }}</p>
+            <div class="book-tags">
+              <van-tag 
+                v-for="tag in book.processedTags.slice(0,2)" 
+                :key="tag.id"
+                size="small"
+                :style="tag.color"
+                @click="handleTagClick(tag)"
+              >
+                {{ tag.name }}
+              </van-tag>
+            </div>
+          </div>
+           <van-icon 
+            :name="book.is_published ? 'eye' : 'eye-o'" 
+            class="visibility-icon"
+            @click="handleIconClick(book)"
+          />
+          <van-icon
+            name="delete"
+            class="delete-icon"
+            @click="handleDelete(book)"
+            title="删除作品"
+          />
+        </div>
+      </template>
     </div>
   </div>
 
@@ -444,7 +451,7 @@ const handleTagClick = (tag) => {
 .delete-icon {
   font-size: 20px;
   margin-left: 8px;
-  color: #e74c3c;
+  color: #a73f3f;
   cursor: pointer;
 }
 

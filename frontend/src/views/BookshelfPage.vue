@@ -1017,7 +1017,7 @@ const handleFavorite = async (book) => {
 
 .book-title {
   font-size: 14px;
-  width: 100px;
+  width: 90px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

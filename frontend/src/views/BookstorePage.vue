@@ -514,7 +514,7 @@ const handleTagClick = (tag) => {
   background-color: #fff;
   border-radius: 8px;
   overflow: hidden;
-  height: 150px;
+  height: 160px;
 }
 
 .book-cover {
@@ -533,7 +533,7 @@ const handleTagClick = (tag) => {
 
 .book-title {
   font-size: 14px;
-  width: 160px;
+  width: 150px;
   display: inline-block;
   white-space: nowrap;
   overflow: hidden;

@@ -23,71 +23,75 @@
       >清空全部</van-button>
     </div>
     <div class="book-list">
-      <van-checkbox-group v-model="selectedIds">
-      <div 
-        class="book-item" 
-        v-for="book in readingHistory" 
-        :key="book.id"
-      >
-        <van-checkbox :name="book.id" class="history-checkbox" />
-        <van-image 
-          :src="book.image_url" 
-          class="book-cover" 
-          fit="cover"
-          @click="navigateToBookDetail(book.id)"
-        />
-        <div class="book-info">
-          <h3 class="book-title"  @click="navigateToBookDetail(book.id)">{{ book.title }}</h3>
-          <p class="book-author">作者: {{ book.author }}</p>
-          <p class="book-desc">{{ book.description }}</p>
-          <div class="book-tags">
-            <van-tag 
-              v-for="tag in book.processedTags.slice(0, 2)" 
-              :key="tag.id"
-              size="small"
-              :style="tag.color"
-              @click="handleTagClick(tag)"
-            >
-              {{ tag.name }}
-            </van-tag>
-          </div>
+      <template v-if="readingHistory.length === 0">
+        <div style="text-align:center;color:#999;padding:48px 0 32px 0;font-size:16px;">
+          暂时没有阅读历史，快去发现好故事吧！
         </div>
-        <van-icon name="delete" class="delete-icon" @click="openDeleteDialog(book.id)" title="删除本条" />
-          <!-- 单本删除弹窗 -->
-          <van-dialog 
-            v-model:show="showDeleteDialog" 
-            title="确认删除" 
-            show-cancel-button 
-            @confirm="confirmDelete"
+      </template>
+      <van-checkbox-group v-else v-model="selectedIds">
+        <div 
+          class="book-item" 
+          v-for="book in readingHistory" 
+          :key="book.id"
+        >
+          <van-checkbox :name="book.id" class="history-checkbox" />
+          <van-image 
+            :src="book.image_url" 
+            class="book-cover" 
+            fit="cover"
+            @click="navigateToBookDetail(book.id)"
+          />
+          <div class="book-info">
+            <h3 class="book-title"  @click="navigateToBookDetail(book.id)">{{ book.title }}</h3>
+            <p class="book-author">作者: {{ book.author }}</p>
+            <p class="book-desc">{{ book.description }}</p>
+            <div class="book-tags">
+              <van-tag 
+                v-for="tag in book.processedTags.slice(0, 2)" 
+                :key="tag.id"
+                size="small"
+                :style="tag.color"
+                @click="handleTagClick(tag)"
+              >
+                {{ tag.name }}
+              </van-tag>
+            </div>
+          </div>
+          <van-icon name="delete" class="delete-icon" @click="openDeleteDialog(book.id)" title="删除本条" />
+            <!-- 单本删除弹窗 -->
+            <van-dialog 
+              v-model:show="showDeleteDialog" 
+              title="确认删除" 
+              show-cancel-button 
+              @confirm="confirmDelete"
+              class="custom-dialog"
+              overlay-class="custom-dialog-overlay"
+           >
+              <div class="delete-dialog-message">确定要删除这条阅读历史吗？</div>
+            </van-dialog>
+
+            <van-dialog
+            v-model:show="showBatchDeleteDialog"
+            title="批量删除"
+            show-cancel-button
+            @confirm="confirmBatchDelete"
             class="custom-dialog"
             overlay-class="custom-dialog-overlay"
-         
           >
-            <div class="delete-dialog-message">确定要删除这条阅读历史吗？</div>
+            <div class="delete-dialog-message">确定要删除选中的{{ selectedIds.length }}条记录吗？</div>
           </van-dialog>
 
           <van-dialog
-          v-model:show="showBatchDeleteDialog"
-          title="批量删除"
-          show-cancel-button
-          @confirm="confirmBatchDelete"
-          class="custom-dialog"
-          overlay-class="custom-dialog-overlay"
-        >
-          <div class="delete-dialog-message">确定要删除选中的{{ selectedIds.length }}条记录吗？</div>
-        </van-dialog>
-
-        <van-dialog
-          v-model:show="showClearAllDialog"
-          title="清空全部"
-          show-cancel-button
-          @confirm="confirmClearAll"
-          class="custom-dialog"
-          overlay-class="custom-dialog-overlay"
-        >
-          <div class="delete-dialog-message">确定要清空全部阅读历史吗？</div>
-        </van-dialog>
-      </div>
+            v-model:show="showClearAllDialog"
+            title="清空全部"
+            show-cancel-button
+            @confirm="confirmClearAll"
+            class="custom-dialog"
+            overlay-class="custom-dialog-overlay"
+          >
+            <div class="delete-dialog-message">确定要清空全部阅读历史吗？</div>
+          </van-dialog>
+        </div>
       </van-checkbox-group>
     </div>
   </div>
@@ -230,11 +234,30 @@ const handleTagClick = (tag) => {
 </script>
 
 <style scoped>
+/* 删除弹窗内容美化 */
 .delete-dialog-message {
   text-align: center;
   font-size: 16px;
   color: #333;
   padding: 10px 0 0 0;
+}
+
+/* 美化van-dialog弹窗背景色 */
+::v-deep(.van-dialog) {
+  background: #faf8f3 !important;
+  border-radius: 16px !important;
+}
+
+/* 美化van-dialog确认按钮为粉色 */
+::v-deep(.van-dialog__confirm) {
+  background-color: #faf8f3 !important;
+  color: #b88484 !important;
+  font-weight: 600;
+}
+
+::v-deep(.van-dialog__cancel) {
+  background-color: #faf8f3 !important;
+  color: #868585 !important;
 }
 ::v-deep(.custom-dialog-overlay),
 ::v-deep(.van-overlay) {

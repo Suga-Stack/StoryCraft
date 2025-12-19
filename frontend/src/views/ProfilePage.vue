@@ -675,7 +675,7 @@ const handleTabChange = (tabName) => {
 .book-title {
   font-size: 12px;
   display: inline-block;
-  width: 135px;
+  width: 125px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
