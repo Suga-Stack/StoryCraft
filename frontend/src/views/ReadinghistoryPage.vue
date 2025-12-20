@@ -23,7 +23,10 @@
       >清空全部</van-button>
     </div>
     <div class="book-list">
-      <template v-if="readingHistory.length === 0">
+      <template v-if="isLoading">
+        <div style="text-align:center;color:#999;padding:48px 0 32px 0;font-size:16px;">正在加载...</div>
+      </template>
+      <template v-else-if="readingHistory.length === 0">
         <div style="text-align:center;color:#999;padding:48px 0 32px 0;font-size:16px;">
           暂时没有阅读历史，快去发现好故事吧！
         </div>
@@ -113,6 +116,9 @@ const readingHistory = ref([])
 
 const selectedIds = ref([])
 
+// 加载状态
+const isLoading = ref(true)
+
 // 在组件挂载时获取阅读历史
 onMounted(() => {
   fetchReadingHistory()
@@ -122,24 +128,24 @@ onMounted(() => {
 
 // 获取当前用户阅读历史的作品列表
 const fetchReadingHistory = async () => {
+  isLoading.value = true
   try {
     const response = await getReadingHistory();
-    
     if (!response.data.code || response.data.code !== 200) {
       throw new Error('获取阅读历史失败')
     }
-    
     const books = response.data.data;
-    
     // 为每本书处理标签（转换ID为名称和颜色）
     for (const book of books) {
       book.processedTags = await getTagsByIds(book.tags || []);
     }
-
     readingHistory.value = books;
   } catch (error) {
     showToast(error.message || '获取数据失败，请稍后重试')
     console.error('作品列表请求失败:', error)
+    readingHistory.value = []
+  } finally {
+    isLoading.value = false
   }
 }
 

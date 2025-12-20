@@ -3,7 +3,10 @@
     <van-nav-bar title="我的创作" left-arrow @click-left="handleBack" />
     
     <div class="book-list">
-      <template v-if="myCreations.length === 0">
+      <template v-if="isLoading">
+        <div style="text-align:center;color:#999;padding:48px 0 32px 0;font-size:16px;">正在加载...</div>
+      </template>
+      <template v-else-if="myCreations.length === 0">
         <div style="text-align:center;color:#999;padding:48px 0 32px 0;font-size:16px;">
           暂时没有个人作品，快去创作你的第一个故事吧！
         </div>
@@ -43,9 +46,22 @@
           <van-icon
             name="delete"
             class="delete-icon"
-            @click="handleDelete(book)"
+            @click="openDeleteDialog(book)"
             title="删除作品"
           />
+
+          <!-- 删除作品弹窗 -->
+          <van-dialog 
+            v-model:show="showDeleteDialog" 
+            :show="showDeleteDialog && deleteBookId === book.id"
+            title="确认删除" 
+            show-cancel-button 
+            @confirm="confirmDelete"
+            class="custom-dialog"
+            overlay-class="custom-dialog-overlay"
+          >
+            <div class="delete-dialog-message">确定要删除这部作品吗？此操作不可恢复。</div>
+          </van-dialog>
         </div>
       </template>
     </div>
@@ -162,6 +178,7 @@ const { getTagsByIds } = useTags();
 const router = useRouter()
 const myCreations = ref([])
 
+
 //发布弹窗状态
 const showPublishModel = ref(false)
 //用户协议弹窗
@@ -175,75 +192,46 @@ const requiredCredits = ref('')
 //积分有效
 const isCreditsValid = ref(false)
 
-// 在组件挂载时获取作品列表
-onMounted(() => {
-  fetchMyWorks()
-})
+// 加载状态
+const isLoading = ref(true)
 
-// 获取当前用户创作的作品列表
-const fetchMyWorks = async () => {
-  try {
-    const response = await getMyworks();
-    
-    if (!response.data.code || response.data.code !== 200) {
-      throw new Error('获取作品列表失败')
-    }
-
-    const books = response.data.data;
-    
-    // 为每本书处理标签（转换ID为名称和颜色）
-    for (const book of books) {
-      book.processedTags = await getTagsByIds(book.tags || []);
-    }
-
-    myCreations.value = books;
-  } catch (error) {
-    showToast(error.message || '获取数据失败，请稍后重试')
-    console.error('作品列表请求失败:', error)
-  }
+// 删除弹窗相关
+const showDeleteDialog = ref(false)
+const deleteBookId = ref(null)
+const openDeleteDialog = (book) => {
+  deleteBookId.value = book.id
+  showDeleteDialog.value = true
 }
-
-//处理眼睛Icon的点击事件
-const handleIconClick = (book) => {
-    showPublishModel.value = true;
-    currentBook.value = book;
-}
-
-// 删除作品
-const handleDelete = async (book) => {
-  if (!book || !book.id) return
-  if (!confirm('确认要删除此作品吗？此操作不可恢复。')) return
+const confirmDelete = async () => {
+  if (!deleteBookId.value) return
   try {
     // 仅尝试带尾斜杠的规范 endpoint（Django APPEND_SLASH 默认为 True）
     const endpoints = [
-      `/api/gameworks/gameworks/${book.id}/`,
-      `/gameworks/gameworks/${book.id}/`,
-      `/api/interactions/gameworks/${book.id}/`
+      `/api/gameworks/gameworks/${deleteBookId.value}/`,
+      `/gameworks/gameworks/${deleteBookId.value}/`,
+      `/api/interactions/gameworks/${deleteBookId.value}/`
     ]
 
     let deleted = false
     for (const ep of endpoints) {
       try {
-        // 只要请求未抛出异常就视为成功（不同的 axios 封装对 204 可能返回空 body）
         await http.delete(ep)
         deleted = true
         break
       } catch (err) {
-        // 如果是 405，记录并继续尝试其他变体，同时将 Allow 头打印出来帮助定位
         const status = err?.status || err?.response?.status
         if (status === 405) {
           console.warn(`DELETE ${ep} returned 405 Method Not Allowed. Allow:`, err?.response?.headers && err.response.headers.allow)
           showToast('删除操作被服务器拒绝（405）。请检查后端是否允许 DELETE 或需要额外权限。', 'warning')
           continue
         }
-        // 记录其它错误并继续尝试下一个 endpoint
         console.warn(`DELETE ${ep} failed`, err)
         continue
       }
     }
 
     if (deleted) {
-      myCreations.value = myCreations.value.filter(b => b.id !== book.id)
+      myCreations.value = myCreations.value.filter(b => b.id !== deleteBookId.value)
       showToast('作品已删除', 'success')
     } else {
       showToast('删除失败，请稍后重试', 'error')
@@ -251,7 +239,44 @@ const handleDelete = async (book) => {
   } catch (e) {
     console.error('删除作品失败', e)
     showToast((e?.response?.data?.message) || e?.message || '删除失败，请稍后重试', 'error')
+  } finally {
+    showDeleteDialog.value = false
+    deleteBookId.value = null
   }
+}
+
+// 在组件挂载时获取作品列表
+onMounted(() => {
+  fetchMyWorks()
+})
+
+// 获取当前用户创作的作品列表
+const fetchMyWorks = async () => {
+  isLoading.value = true
+  try {
+    const response = await getMyworks();
+    if (!response.data.code || response.data.code !== 200) {
+      throw new Error('获取作品列表失败')
+    }
+    const books = response.data.data;
+    // 为每本书处理标签（转换ID为名称和颜色）
+    for (const book of books) {
+      book.processedTags = await getTagsByIds(book.tags || []);
+    }
+    myCreations.value = books;
+  } catch (error) {
+    showToast(error.message || '获取数据失败，请稍后重试')
+    console.error('作品列表请求失败:', error)
+    myCreations.value = []
+  } finally {
+    isLoading.value = false
+  }
+}
+
+//处理眼睛Icon的点击事件
+const handleIconClick = (book) => {
+    showPublishModel.value = true;
+    currentBook.value = book;
 }
 
 //取消发布接口
@@ -658,6 +683,41 @@ const handleTagClick = (tag) => {
   transition: all 0.2s ease;
   margin-top: 8px;
   width: 80%;
+}
+
+/* 删除弹窗内容美化 */
+.delete-dialog-message {
+  text-align: center;
+  font-size: 16px;
+  color: #333;
+  padding: 10px 0 0 0;
+}
+
+/* 美化van-dialog弹窗背景色 */
+::v-deep(.van-dialog) {
+  background: #faf8f3 !important;
+  border-radius: 16px !important;
+}
+
+/* 美化van-dialog确认按钮为粉色 */
+::v-deep(.van-dialog__confirm) {
+  background-color: #faf8f3 !important;
+  color: #b88484 !important;
+  font-weight: 600;
+}
+
+::v-deep(.van-dialog__cancel) {
+  background-color: #faf8f3 !important;
+  color: #868585 !important;
+}
+::v-deep(.custom-dialog-overlay),
+::v-deep(.van-overlay) {
+  background: rgba(0,0,0,0.3) !important;
+  backdrop-filter: blur(5px) !important;
+}
+.custom-dialog-overlay {
+  background: rgba(0,0,0,0.3) !important;
+  backdrop-filter: blur(5px) !important;
 }
 
 </style>
