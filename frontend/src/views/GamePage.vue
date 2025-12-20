@@ -1731,10 +1731,11 @@ const initFromCreateResult = async (opts = {}) => {
             // 菜单中的 creatorMode 由用户在页面手动切换
           }
 
-          // 将后端返回的大纲映射为编辑器使用的格式：{ chapterIndex, outline }
+          // 🔑 统一数据来源：将后端返回的大纲映射为编辑器使用的格式：{ chapterIndex, outline }
           // 只从后端获取大纲数据，不使用前端缓存
           try {
             // 从后端重新获取作品详情以获取最新的大纲数据
+            console.log('[initFromCreateResult] 从后端获取最新大纲数据')
             const workDetailsData = await getWorkDetails(work.value.id)
             let rawOutlines = []
             
@@ -1748,7 +1749,7 @@ const initFromCreateResult = async (opts = {}) => {
             }
 
             if (rawOutlines.length > 0) {
-              // 过滤掉结局章节（有 endingIndex 的项），只保留普通章节
+              // 🔑 统一过滤逻辑：过滤掉结局章节（有 endingIndex 的项），只保留普通章节
               const regularChapters = rawOutlines.filter(ch => {
                 return ch && typeof ch.endingIndex === 'undefined'
               })
@@ -1772,7 +1773,7 @@ const initFromCreateResult = async (opts = {}) => {
             // 清空 userPrompt（不再从缓存读取）
             outlineUserPrompt.value = ''
           } catch (mapErr) {
-            console.warn('从后端获取大纲失败:', mapErr)
+            console.warn('[initFromCreateResult] 从后端获取大纲失败:', mapErr)
             outlineEdits.value = []
           }
 
@@ -1783,7 +1784,7 @@ const initFromCreateResult = async (opts = {}) => {
           console.log('[GamePage] 打开大纲编辑器: reason=first-chapter-not-generated (auto), targetChapter=', pendingOutlineTargetChapter.value)
           showOutlineEditor.value = true
           
-          // 🔑 修复：不直接赋值 outlineEditorResolver，而是通过 watch 等待编辑器关闭
+          // 🔑 统一等待机制：使用 Promise + resolver 方式（与后续章节保持一致）
           // 等待用户确认或取消（监听 showOutlineEditor 的变化）
           await new Promise((resolve) => {
             const unwatch = watch(showOutlineEditor, (newVal) => {

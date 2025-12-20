@@ -427,22 +427,25 @@ export function useStoryAPI() {
             // Only auto-open outline editor when chapter is not yet generated (not_generated or unknown)
             const chapterStatus = getChapterStatus(idx)
             if (!chapterStatus || chapterStatus === 'not_generated') {
-            // 尝试从 sessionStorage.createResult 获得原始大纲（若存在）
-            let createRaw = null
-            try { createRaw = JSON.parse(sessionStorage.getItem('createResult') || 'null') } catch (e) { createRaw = null }
-                // 优先读取 createResult.chapterOutlines；若不存在则尝试使用 createResult.backendWork.outlines 或 work.value 中的 outlines
-                let rawOutlines = []
-                if (createRaw && Array.isArray(createRaw.chapterOutlines) && createRaw.chapterOutlines.length) {
-                rawOutlines = createRaw.chapterOutlines
-                } else if (createRaw && createRaw.backendWork && Array.isArray(createRaw.backendWork.outlines) && createRaw.backendWork.outlines.length) {
-                rawOutlines = createRaw.backendWork.outlines
-                } else if (createRaw && createRaw.data && Array.isArray(createRaw.data.outlines) && createRaw.data.outlines.length) {
-                rawOutlines = createRaw.data.outlines
-                } else if (work.value && Array.isArray(work.value.outlines) && work.value.outlines.length) {
-                rawOutlines = work.value.outlines
-                } else {
-                rawOutlines = []
+            // 🔑 统一数据来源：从后端获取最新大纲数据
+            let rawOutlines = []
+            try {
+              console.log('[fetchNextChapter] 从后端获取最新大纲数据')
+              const workDetailsData = await getWorkDetails(work.value.id)
+              if (workDetailsData) {
+                // 从后端返回的数据中提取大纲
+                if (Array.isArray(workDetailsData.outlines) && workDetailsData.outlines.length > 0) {
+                  rawOutlines = workDetailsData.outlines
+                } else if (workDetailsData.data && Array.isArray(workDetailsData.data.outlines) && workDetailsData.data.outlines.length > 0) {
+                  rawOutlines = workDetailsData.data.outlines
                 }
+              }
+              console.log('[fetchNextChapter] 已从后端加载大纲数据，共', rawOutlines.length, '章')
+            } catch (e) {
+              console.warn('[fetchNextChapter] 从后端获取大纲失败:', e)
+              rawOutlines = []
+            }
+            
             // 展示从当前请求章节 idx 到末章的所有大纲供编辑（若后端未返回则合成到 total_chapters）
             // 构建一个基于 chapterIndex 的映射，避免当 rawOutlines 是从某章截取或不包含完整序列时发生后移或提前的问题
             const outlinesMap = {}
@@ -450,6 +453,12 @@ export function useStoryAPI() {
             if (Array.isArray(rawOutlines)) {
                 for (let i = 0; i < rawOutlines.length; i++) {
                 const ch = rawOutlines[i]
+                
+                // 🔑 统一过滤逻辑：过滤掉结局章节（有 endingIndex 字段的）
+                if (ch && typeof ch.endingIndex !== 'undefined') {
+                  continue
+                }
+                
                 let ci = null
                 try {
                     if (ch && (typeof ch.chapterIndex !== 'undefined')) ci = Number(ch.chapterIndex)
@@ -478,8 +487,9 @@ export function useStoryAPI() {
                   }
               }
             }
+            // 清空 userPrompt（不再从缓存读取）
             if (_outlineUserPrompt) {
-              _outlineUserPrompt.value = (createRaw && createRaw.userPrompt) ? createRaw.userPrompt : ''
+              _outlineUserPrompt.value = ''
             }
             } else {
             // chapter already generating/generated/saved => skip auto editor
@@ -487,6 +497,7 @@ export function useStoryAPI() {
             if (_outlineUserPrompt) _outlineUserPrompt.value = ''
             }
         } catch (e) {
+            console.warn('[fetchNextChapter] 准备大纲数据失败:', e)
             if (_outlineEdits) {
               _outlineEdits.value = [{ chapterIndex: idx, outline: `第${idx}章：请在此编辑/补充本章大纲以指导生成。` }]
             }
@@ -513,6 +524,7 @@ export function useStoryAPI() {
           console.log('[useStoryAPI] 打开大纲编辑器: reason=chapter-not-generated (auto), targetChapter=', idx)
           _showOutlineEditor.value = true
         }
+        // 🔑 统一等待机制：使用 Promise + resolver 方式
         const confirmed = await new Promise((resolve) => { 
           if (_outlineEditorResolver) _outlineEditorResolver = resolve 
         })
