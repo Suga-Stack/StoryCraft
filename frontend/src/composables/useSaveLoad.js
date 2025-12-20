@@ -213,7 +213,7 @@ export function useSaveLoad() {
           if (_getChapterStatus && _currentChapterIndex) {
             const st = _getChapterStatus(_currentChapterIndex.value)
             if (st !== 'saved') {
-              if (_showToast) _showToast('未保存，无法存档')
+              if (_showToast) _showToast('未保存，无法存档', 1000)
               console.log('saveGame blocked for creator: chapter status is', st)
               return
             }

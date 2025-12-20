@@ -1,9 +1,11 @@
 ﻿<script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { fetchPersonalityReportVariants } from '../service/personality.js'
 import { getScenes, getWorkInfo } from '../service/story.js'
 import { http } from '../service/http.js'
+import { ScreenOrientation } from '@capacitor/screen-orientation'
+import { StatusBar, Style } from '@capacitor/status-bar'
 
 const router = useRouter()
 const route = useRoute()
@@ -157,6 +159,65 @@ const splitLines = (text = '', chunk = 12) => {
   }
   return lines
 }
+
+// References and touch handling for mobile swipe lock on branching graph
+const branchingGraphRef = ref(null)
+let _touchStartX = 0
+let _touchStartY = 0
+let _isTouchingGraph = false
+let _isPointerDown = false
+const onGraphTouchStart = (ev) => {
+  try {
+    const t = ev.touches && ev.touches[0]
+    if (!t) return
+    _touchStartX = t.clientX
+    _touchStartY = t.clientY
+    _isTouchingGraph = true
+  } catch (e) { /* ignore */ }
+}
+const onGraphTouchMove = (ev) => {
+  try {
+    if (!_isTouchingGraph) return
+    const t = ev.touches && ev.touches[0]
+    if (!t) return
+    const dx = t.clientX - _touchStartX
+    const dy = t.clientY - _touchStartY
+    // 明显水平滑动则阻止事件向上传播，确保父级不会响应为页面切换
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 6) {
+      ev.stopPropagation()
+      // 不调用 preventDefault()，允许容器本身滚动
+    }
+  } catch (e) { /* ignore */ }
+}
+const onGraphTouchEnd = () => { _isTouchingGraph = false }
+
+// 鼠标 / Pointer 事件处理，防止桌面拖动导致父级导航
+let _mouseStartX = 0
+let _mouseStartY = 0
+const onGraphPointerDown = (ev) => {
+  try {
+    _isPointerDown = true
+    _mouseStartX = ev.clientX || (ev.touches && ev.touches[0] && ev.touches[0].clientX) || 0
+    _mouseStartY = ev.clientY || (ev.touches && ev.touches[0] && ev.touches[0].clientY) || 0
+    // stop propagation of the down event so parent handlers don't begin gestures
+    ev.stopPropagation()
+  } catch (e) {}
+}
+const onGraphPointerMove = (ev) => {
+  try {
+    if (!_isPointerDown) return
+    const cx = ev.clientX || (ev.touches && ev.touches[0] && ev.touches[0].clientX) || 0
+    const cy = ev.clientY || (ev.touches && ev.touches[0] && ev.touches[0].clientY) || 0
+    const dx = cx - _mouseStartX
+    const dy = cy - _mouseStartY
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 6) {
+      // 明显水平拖动：阻止默认并停止传播，确保只在图内滚动
+      try { ev.preventDefault && ev.preventDefault() } catch (e) {}
+      ev.stopPropagation()
+    }
+  } catch (e) {}
+}
+const onGraphPointerUp = (ev) => { _isPointerDown = false }
 
 // 去掉装饰性破折号等前后缀，提取实际标题
 const stripDecorative = (s = '') => {
@@ -924,8 +985,29 @@ const startDrag = (event, node) => {
 // 返回游戏作品详情页（使用当前 workId）
 const goBack = () => {
   try {
-    const targetId = gameData.value.work?.id || workId
-    router.push({ path: `/works/${targetId}` })
+    // 优先级：gameData.work.id > history.state.work.id > route.params.id > lastWorkMeta in sessionStorage > workId
+    let targetId = null
+    try { targetId = Number(gameData.value.work && gameData.value.work.id) || null } catch (e) { targetId = null }
+    if (!targetId) {
+      try { targetId = Number(history.state?.work?.id) || null } catch (e) { targetId = targetId }
+    }
+    if (!targetId && route && route.params && route.params.id) {
+      try { targetId = Number(route.params.id) || null } catch (e) { targetId = targetId }
+    }
+    if (!targetId) {
+      try {
+        const lastMeta = JSON.parse(sessionStorage.getItem('lastWorkMeta'))
+        if (lastMeta && lastMeta.id) targetId = Number(lastMeta.id)
+      } catch (e) { /** ignore */ }
+    }
+    if (!targetId) targetId = Number(workId) || null
+
+    if (targetId && Number.isFinite(targetId) && targetId > 0) {
+      router.push({ path: `/works/${targetId}` })
+    } else {
+      console.warn('[Settlement] goBack: cannot resolve work id, fallback to /works')
+      router.push('/works')
+    }
   } catch (e) {
     console.warn('goBack failed, fallback to /works', e)
     router.push('/works')
@@ -971,10 +1053,81 @@ onMounted(async () => {
   await generateBranchingGraph()
   await generatePersonalityReport()
   
+  // 尝试在移动端/原生环境强制横屏（参考 GamePage 的实现）
+  try {
+    if (window && window.Capacitor) {
+      // Capacitor 环境：请求横屏
+      try { await ScreenOrientation.lock({ orientation: 'landscape' }) } catch (e) { try { await ScreenOrientation.lock({ type: 'landscape' }) } catch (e2) { console.warn('[Settlement] ScreenOrientation.lock failed', e, e2) } }
+      // 隐藏状态栏以实现全屏显示（如在原生 App 中可用）
+      try { await StatusBar.hide() } catch (sbErr) { console.warn('[Settlement] StatusBar.hide failed', sbErr) }
+    } else {
+      // 浏览器环境：请求全屏然后尝试锁定横屏
+      const elem = document.documentElement
+      if (elem.requestFullscreen) await elem.requestFullscreen().catch(()=>{})
+      else if (elem.webkitRequestFullscreen) await elem.webkitRequestFullscreen().catch(()=>{})
+      try { if (screen && screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape') } catch (e) { console.warn('[Settlement] screen.orientation.lock failed', e) }
+      // 尝试隐藏浏览器中的状态栏样式（只能影响 PWA/移动 Safari 的显示, 不保证生效）
+    }
+  } catch (e) {
+    console.warn('[Settlement] request landscape failed', e)
+  }
   // 清理sessionStorage中的临时数据
   setTimeout(() => {
     sessionStorage.removeItem('settlementData')
   }, 1000) // 延迟1秒清理，确保页面已经加载完成
+})
+
+// 在挂载后绑定 touch 事件，卸载时移除
+onMounted(() => {
+  try {
+    const el = branchingGraphRef && branchingGraphRef.value ? branchingGraphRef.value : document.querySelector('.branching-graph')
+    if (el && el.addEventListener) {
+      // touch events (mobile)
+      el.addEventListener('touchstart', onGraphTouchStart, { passive: false })
+      el.addEventListener('touchmove', onGraphTouchMove, { passive: false })
+      el.addEventListener('touchend', onGraphTouchEnd, { passive: false })
+      // pointer events (preferred) and mouse events (desktop)
+      el.addEventListener('pointerdown', onGraphPointerDown, { passive: false })
+      el.addEventListener('pointermove', onGraphPointerMove, { passive: false })
+      el.addEventListener('pointerup', onGraphPointerUp, { passive: false })
+      el.addEventListener('mousedown', onGraphPointerDown, { passive: false })
+      el.addEventListener('mousemove', onGraphPointerMove, { passive: false })
+      el.addEventListener('mouseup', onGraphPointerUp, { passive: false })
+    }
+  } catch (e) { console.warn('[Settlement] bind graph touch/pointer handlers failed', e) }
+})
+
+onUnmounted(() => {
+  try {
+    const el = branchingGraphRef && branchingGraphRef.value ? branchingGraphRef.value : document.querySelector('.branching-graph')
+    if (el && el.removeEventListener) {
+      el.removeEventListener('touchstart', onGraphTouchStart)
+      el.removeEventListener('touchmove', onGraphTouchMove)
+      el.removeEventListener('touchend', onGraphTouchEnd)
+      el.removeEventListener('pointerdown', onGraphPointerDown)
+      el.removeEventListener('pointermove', onGraphPointerMove)
+      el.removeEventListener('pointerup', onGraphPointerUp)
+      el.removeEventListener('mousedown', onGraphPointerDown)
+      el.removeEventListener('mousemove', onGraphPointerMove)
+      el.removeEventListener('mouseup', onGraphPointerUp)
+    }
+  } catch (e) { console.warn('[Settlement] remove graph touch/pointer handlers failed', e) }
+})
+
+// 页面卸载时恢复竖屏（如果可能）
+onUnmounted(async () => {
+  try {
+    if (window && window.Capacitor) {
+      try { await ScreenOrientation.lock({ orientation: 'portrait' }) } catch (e) { try { await ScreenOrientation.lock({ type: 'portrait' }) } catch (e2) { console.warn('[Settlement] restore portrait failed', e, e2) } }
+    } else {
+      try { if (screen && screen.orientation && screen.orientation.lock) await screen.orientation.lock('portrait') } catch (e) { console.warn('[Settlement] restore screen.orientation failed', e) }
+      try { if (document.exitFullscreen) await document.exitFullscreen().catch(()=>{}) } catch (e) {}
+    }
+    // 恢复状态栏显示
+    try { await StatusBar.show() } catch (sbShowErr) { console.warn('[Settlement] StatusBar.show failed', sbShowErr) }
+  } catch (e) {
+    console.warn('[Settlement] onUnmounted restore failed', e)
+  }
 })
 </script>
 
@@ -1051,7 +1204,7 @@ onMounted(async () => {
         <div v-if="isBranchingFullscreen" class="fullscreen-header">
           <button class="exit-fullscreen-btn" @click="isBranchingFullscreen = false">×</button>
         </div>
-        <div class="branching-graph" :style="{ 
+        <div ref="branchingGraphRef" class="branching-graph" :style="{ 
             width: isBranchingFullscreen ? 'auto' : graphWidth + 'px',
             height: isBranchingFullscreen ? 'auto' : graphHeight + 'px',
             minWidth: isBranchingFullscreen ? graphWidth + 'px' : 'auto',

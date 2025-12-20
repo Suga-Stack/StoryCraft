@@ -259,7 +259,7 @@ const fetchHotBooks = async () => {
     }
   } catch (err) {
     console.error('排行榜请求失败:', err);
-    showToast('获取热门作品失败，请稍后重试');
+    showToast({ message: '获取热门作品失败，请稍后重试', duration: 1000 });
   }
 }
 
@@ -294,7 +294,7 @@ const fetchRecommendedBooks = async () => {
       // 写入缓存
       localStorage.setItem(RECOMMEND_CACHE_KEY, JSON.stringify({ time: Date.now(), data: books }));
       if (books.length === 0) {
-        showToast('暂无推荐作品');
+        showToast({ message: '暂无推荐作品', duration: 1000 });
       }
     } else if (resData.code === 404) {
       error.value = '您尚未设置喜欢的标签，请先去设置偏好';
@@ -427,7 +427,7 @@ const handleClose = () => {
 // 点击标签跳转到标签页面
 const handleTagClick = (tag) => {
   if (!tag?.id) {
-    showToast('标签信息不完整', 'warning');
+    showToast({ message: '标签信息不完整', duration: 1000 });
     return;
   }
   router.push({

@@ -24,7 +24,8 @@ export function useCreatorMode(dependencies = {}) {
     // 添加缺失的依赖
     currentChapterIndex,
     totalChapters,
-    checkCurrentChapterSaved
+    checkCurrentChapterSaved,
+    getWorkDetails
   } = dependencies
 
   const creatorMode = ref(false)
@@ -135,7 +136,7 @@ export function useCreatorMode(dependencies = {}) {
 
       const allowed = (isCreatorIdentity?.value || modifiableFromCreate?.value)
       if (!allowed) {
-        if (showToast) showToast('无编辑权限。')
+        if (showToast) showToast('无编辑权限。', 1000)
         return
       }
 
@@ -152,7 +153,7 @@ export function useCreatorMode(dependencies = {}) {
             if (_checkCurrentChapterSaved) {
               const isSaved = await _checkCurrentChapterSaved()
               if (!isSaved) {
-                if (showToast) showToast('未保存')
+                if (showToast) showToast('未保存', 1000)
                 return
               }
             }
@@ -226,54 +227,39 @@ export function useCreatorMode(dependencies = {}) {
       const start = Number(currentChapterIndex?.value || params.currentChapterIndex?.value || 1) || 1
       const total = Math.max((Number(totalChapters?.value || params.totalChapters?.value || 0) || 5), 0)
 
-      // 尝试从多处读取后端返回的大纲（优先级：后端对应章节接口 -> session.createResult.chapterOutlines -> session.createResult.backendWork.outlines -> work.value.outlines/data.outlines -> createResult.outlines）
-      let createRaw = null
-      try { createRaw = JSON.parse(sessionStorage.getItem('createResult') || 'null') } catch (e) { createRaw = null }
-
+      // 🔑 只从后端获取大纲数据，不使用前端缓存
       let rawOutlines = []
-      // 优先尝试按章节从后端获取章节数据（不强制等待生成），以便编辑器展示该章实际内容或章级摘要
+      // 从后端获取作品详情以获取最新的大纲数据
       try {
-        const workId = (work && work.value && work.value.id) ? work.value.id : (createRaw && createRaw.backendWork && createRaw.backendWork.id)
-        if (workId) {
-          try {
-            const chap = await getScenes(workId, start, { maxRetries: 1 })
-            const chapterObj = chap && (chap.chapter || chap) || null
-            if (chapterObj) {
-              // 如果后端返回的章节 title 与作品 title 相同，则不要把它当作章节标题使用，
-              // 否则会导致作品 title 被错误覆盖为该章节 title（常见于结局章节返回整体作品信息时）。
-              const workTitle = (_work && _work.value && (_work.value.title || _work.value.name)) || ''
-              let title = chapterObj.title || chapterObj.chapter_title || ''
-              if (title && workTitle && String(title).trim() === String(workTitle).trim()) {
-                title = ''
-              }
-              const body = chapterObj.summary || chapterObj.outline || chapterObj.description || ''
-              if (title || body) {
-                // 将章节摘要放到 rawOutlines 的格式中，chapterIndex 对应 start
-                rawOutlines = [{ chapterIndex: start, title, outline: body }]
-              }
+        const workId = (work && work.value && work.value.id) ? work.value.id : null
+        if (workId && typeof getWorkDetails === 'function') {
+          const workDetailsData = await getWorkDetails(workId)
+          if (workDetailsData) {
+            // 从后端返回的数据中提取大纲
+            if (Array.isArray(workDetailsData.outlines) && workDetailsData.outlines.length > 0) {
+              rawOutlines = workDetailsData.outlines
+            } else if (workDetailsData.data && Array.isArray(workDetailsData.data.outlines) && workDetailsData.data.outlines.length > 0) {
+              rawOutlines = workDetailsData.data.outlines
             }
-          } catch (e) {
-            // 若按章请求失败或返回为空，回退到 session/createResult/work 中的 outlines
           }
+          console.log('[openOutlineEditorManual] 已从后端加载大纲数据，共', rawOutlines.length, '章')
         }
-      } catch (e) {}
-      try {
-        if ((!rawOutlines || rawOutlines.length === 0) && createRaw && Array.isArray(createRaw.chapterOutlines) && createRaw.chapterOutlines.length > 0) rawOutlines = createRaw.chapterOutlines
-        else if (createRaw && createRaw.backendWork && Array.isArray(createRaw.backendWork.outlines) && createRaw.backendWork.outlines.length > 0) rawOutlines = createRaw.backendWork.outlines
-        else if (Array.isArray(createRaw?.outlines) && createRaw.outlines.length > 0) rawOutlines = createRaw.outlines
-        else if (Array.isArray(createRaw?.data?.outlines) && createRaw.data.outlines.length > 0) rawOutlines = createRaw.data.outlines
-        else if (_work && _work.value) {
-          if (Array.isArray(_work.value.chapterOutlines) && _work.value.chapterOutlines.length > 0) rawOutlines = _work.value.chapterOutlines
-          else if (Array.isArray(_work.value.outlines) && _work.value.outlines.length > 0) rawOutlines = _work.value.outlines
-          else if (Array.isArray(_work.value.data?.outlines) && _work.value.data.outlines.length > 0) rawOutlines = _work.value.data.outlines
-        }
-      } catch (e) { rawOutlines = [] }
+      } catch (e) {
+        console.warn('[openOutlineEditorManual] 从后端获取大纲失败:', e)
+        rawOutlines = []
+      }
 
       const outlinesMap = {}
       let maxIdx = 0
       if (Array.isArray(rawOutlines)) {
         for (let i = 0; i < rawOutlines.length; i++) {
           const ch = rawOutlines[i]
+          
+          // 🔑 过滤掉结局章节（有 endingIndex 字段的）
+          if (ch && typeof ch.endingIndex !== 'undefined') {
+            continue
+          }
+          
           let ci = null
           try {
             if (ch && (typeof ch.chapterIndex !== 'undefined')) ci = Number(ch.chapterIndex)
@@ -308,7 +294,8 @@ export function useCreatorMode(dependencies = {}) {
           outlineEdits.value.push({ chapterIndex: j, title: `第${j}章`, outline: `第${j}章：请在此编辑/补充本章大纲以指导生成。` })
         }
       }
-      outlineUserPrompt.value = createRaw?.userPrompt || ''
+      // 清空 userPrompt（不再从缓存读取）
+      outlineUserPrompt.value = ''
       try { originalOutlineSnapshot.value = JSON.parse(JSON.stringify(outlineEdits.value || [])) } catch(e) { originalOutlineSnapshot.value = (outlineEdits.value || []).slice() }
       outlineCurrentPage.value = 0  // 初始化为第一页
       editorInvocation.value = 'manual'
@@ -424,8 +411,9 @@ export function useCreatorMode(dependencies = {}) {
         await generateChapter(workId, targetChapter, { chapterOutlines: payloadOutlines, userPrompt: outlineUserPrompt.value })
         // showToast?.('已提交大纲，开始生成中…')
         // 轮询作品详情，直到目标章节状态为 generated/saved
+        // 🔑 使用更长的超时时间（10分钟）或无限等待（timeout: 0）
         try {
-          await pollWorkStatus?.(workId, targetChapter, { interval: 1500, timeout: 120000 })
+          await pollWorkStatus?.(workId, targetChapter, { interval: 1500, timeout: 0 })
         } catch (pollErr) {
           console.warn('pollWorkStatus timeout or failed', pollErr)
         }
@@ -777,7 +765,7 @@ export function useCreatorMode(dependencies = {}) {
       return 
     }
     if (!allowed) { 
-      if (showToast) showToast('您无权替换图片：非作者或作品未开启编辑')
+      if (showToast) showToast('您无权替换图片：非作者或作品未开启编辑', 1000)
       return 
     }
     
@@ -785,7 +773,7 @@ export function useCreatorMode(dependencies = {}) {
       if (_checkCurrentChapterSaved) {
         const isSaved = await _checkCurrentChapterSaved()
         if (!isSaved) {
-          if (showToast) showToast('当前章节未保存(saved)状态，无法进行手动编辑')
+          if (showToast) showToast('当前章节未保存(saved)状态，无法进行手动编辑', 1000)
           return
         }
       }
@@ -832,14 +820,14 @@ export function useCreatorMode(dependencies = {}) {
               _overrides.value.scenes[sid].backgroundImage = imageUrl
               if (_saveOverrides) _saveOverrides(work.value.id)
               if (_applyOverridesToScenes) _applyOverridesToScenes(_showText)
-              if (showToast) showToast('图片已上传并替换为服务器 URL')
+              if (showToast) showToast('图片已上传并替换为服务器 URL', 1000)
             } else {
               console.warn('upload returned no imageUrl', resp)
-              if (showToast) showToast('图片已本地替换，但上传未返回 URL')
+              if (showToast) showToast('图片已本地替换，但上传未返回 URL', 1000)
             }
           } catch (uploadErr) {
             console.error('upload image failed', uploadErr)
-            if (showToast) showToast('图片上传失败，请稍后重试（已保留本地预览）')
+            if (showToast) showToast('图片上传失败，请稍后重试（已保留本地预览）', 1000)
           }
         } catch (e) { console.warn('image upload flow failed', e) }
 

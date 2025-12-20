@@ -125,7 +125,7 @@ let pollTimer = null
 const submitToBackend = async () => {
   // 检查用户是否已登录
   if (!userStore.isAuthenticated) {
-    showToast('请先登录后再创建作品')
+    showToast({ message: '请先登录后再创建作品', duration: 1000 })
     // 可以跳转到登录页面
     router.push('/login')
     return
@@ -197,15 +197,15 @@ const submitToBackend = async () => {
 const startCreate = async () => {
   // 前端校验并给出提示（保证用户点击时能看到原因）
   if (selectedTags.value.length < 3) {
-    showToast('请至少选择 3 个标签')
+    showToast({ message: '请至少选择 3 个标签', duration: 1000 })
     return
   }
   if (selectedTags.value.length > 6) {
-    showToast('最多只能选择 6 个标签')
+    showToast({ message: '最多只能选择 6 个标签', duration: 1000 })
     return
   }
   if (!lengthType.value) {
-    showToast('请选择大概篇幅')
+    showToast({ message: '请选择大概篇幅', duration: 1000 })
     return
   }
   // 如果已经有完成的创建任务，直接跳转到已生成的作品（避免重复请求）

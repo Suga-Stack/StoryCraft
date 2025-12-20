@@ -446,7 +446,7 @@ const fetchFavoriteLeaderboard = async () => {
     localStorage.setItem(FAVORITE_CACHE_KEY, JSON.stringify({ time: Date.now(), data: collectionRank.value }));
   } catch (error) {
     console.error('获取收藏收藏榜失败', error);
-    showToast('获取收藏榜失败，请稍后重试');
+    showToast({ message: '获取收藏榜失败，请稍后重试', duration: 1000 });
   }
 }
 
@@ -490,7 +490,7 @@ const fetchRatingLeaderboard = async () => {
     }
   } catch (error) {
     console.error('获取评分评分榜失败', error);
-    showToast('获取评分评分榜失败，请稍后重试');
+    showToast({ message: '获取评分评分榜失败，请稍后重试', duration: 1000 });
   }
 }
 
@@ -561,7 +561,7 @@ const fetchHotLeaderboard = async () => {
     
   } catch (error) {
     console.error('获取热度榜失败', error);
-    showToast('获取热度榜失败，请稍后重试');
+    showToast({ message: '获取热度榜失败，请稍后重试', duration: 1000 });
   }
 }
 
@@ -649,7 +649,7 @@ const handleSearch = async (value = searchValue.value) => {
 
   // 验证：所有条件都为空时才阻止搜索
   if (!searchText && !authorText && !tagText) {
-    showToast('请输入搜索内容或选择筛选条件')
+    showToast({ message: '请输入搜索内容或选择筛选条件', duration: 1000 })
     return
   }
   
@@ -691,7 +691,7 @@ const handleSearch = async (value = searchValue.value) => {
     console.log("搜索成功", isSearchCompleted.value)
   } catch (error) {
     console.error('搜索失败', error)
-    showToast('搜索失败，请稍后重试')
+    showToast({ message: '搜索失败，请稍后重试', duration: 1000 })
     isSearchCompleted.value = true
   }
 }
@@ -712,7 +712,7 @@ const deleteHistory = (index) => {
 const clearHistory = () => {
   searchHistory.value = []
   localStorage.removeItem('searchHistory')
-  showToast('已清空搜索历史')
+  showToast({ message: '已清空搜索历史', duration: 1000 })
 }
 
 // 返回上一页
@@ -770,7 +770,7 @@ const toggleTagPopup = () => {
 // 点击标签跳转到标签页面
 const handleTagClick = (tagId) => {
   if (!tagId) {
-    showToast('标签信息不完整', 'warning');
+    showToast({ message: '标签信息不完整', duration: 1000 });
     return;
   }
   router.push({

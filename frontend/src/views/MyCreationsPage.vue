@@ -195,6 +195,7 @@ const isCreditsValid = ref(false)
 // 加载状态
 const isLoading = ref(true)
 
+// 获取当前用户创作的作品列表（实现见下方，含加载状态管理）
 // 删除弹窗相关
 const showDeleteDialog = ref(false)
 const deleteBookId = ref(null)
@@ -222,7 +223,7 @@ const confirmDelete = async () => {
         const status = err?.status || err?.response?.status
         if (status === 405) {
           console.warn(`DELETE ${ep} returned 405 Method Not Allowed. Allow:`, err?.response?.headers && err.response.headers.allow)
-          showToast('删除操作被服务器拒绝（405）。请检查后端是否允许 DELETE 或需要额外权限。', 'warning')
+          showToast({ message: '删除操作被服务器拒绝（405）。请检查后端是否允许 DELETE 或需要额外权限。', duration: 1000 })
           continue
         }
         console.warn(`DELETE ${ep} failed`, err)
@@ -234,7 +235,7 @@ const confirmDelete = async () => {
       myCreations.value = myCreations.value.filter(b => b.id !== deleteBookId.value)
       showToast('作品已删除', 'success')
     } else {
-      showToast('删除失败，请稍后重试', 'error')
+      showToast({ message: '删除失败，请稍后重试', duration: 1000 })
     }
   } catch (e) {
     console.error('删除作品失败', e)
@@ -287,20 +288,20 @@ const handleUnpublish = async (book) => {
     
     if (response.status === 200) {
       book.is_published = false;
-      showToast('作品已取消发布');
+      showToast({ message: '作品已取消发布', duration: 1000 });
       fetchMyWorks(); // 刷新作品列表
     } else {
-      showToast('取消发布失败：' + (response.data.message || '未知错误'));
+      showToast({ message: '取消发布失败：' + (response.data.message || '未知错误'), duration: 1000 });
     }
   } catch (error) {
     console.error('取消发布操作失败:', error);
     // 错误处理
     if (error.response && error.response.status === 403) {
-      showToast('您没有权限取消发布该作品');
+      showToast({ message: '您没有权限取消发布该作品', duration: 1000 });
     } else if (error.response && error.response.status === 404) {
-      showToast('作品未找到');
+      showToast({ message: '作品未找到', duration: 1000 });
     } else {
-      showToast('操作失败，请稍后重试');
+      showToast({ message: '操作失败，请稍后重试', duration: 1000 });
     }
   }
 };
@@ -334,7 +335,7 @@ const validateCredits = () =>{
 // 发布/隐藏功能
 const handlePublish = async (book) => {
   if(!isAgreementChecked.value){
-    showToast('请先阅读作者须知')
+    showToast({ message: '请先阅读作者须知', duration: 1000 })
     return
   }
   try {
@@ -345,10 +346,10 @@ const handlePublish = async (book) => {
       if (response.status === 200) {
         book.isPublished = true;
         showPublishModel.value = false;
-        showToast('作品已发布');
+        showToast({ message: '作品已发布', duration: 1000 });
         fetchMyWorks();
       } else {
-        showToast('发布失败：' + (response.data.message || '未知错误'));
+        showToast({ message: '发布失败：' + (response.data.message || '未知错误'), duration: 1000 });
       }
     }
   } catch (error) {
@@ -359,11 +360,11 @@ const handlePublish = async (book) => {
     
     // 根据错误类型显示不同提示
     if (error.response && error.response.status === 403) {
-      showToast('您没有权限发布该作品');
+      showToast({ message: '您没有权限发布该作品', duration: 1000 });
     } else if (error.response && error.response.status === 404) {
-      showToast('作品未找到');
+      showToast({ message: '作品未找到', duration: 1000 });
     } else {
-      showToast('操作失败，请稍后重试');
+      showToast({ message: '操作失败，请稍后重试', duration: 1000 });
     }
   }
 };
@@ -371,7 +372,7 @@ const handlePublish = async (book) => {
 // 点击标签跳转到标签页面
 const handleTagClick = (tag) => {
   if (!tag?.id) {
-    showToast('标签信息不完整', 'warning');
+    showToast({ message: '标签信息不完整', duration: 1000 });
     return;
   }
   router.push({

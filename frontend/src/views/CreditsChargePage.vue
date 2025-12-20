@@ -382,7 +382,7 @@ const handlePaymentSuccess = async () => {
     }
   } catch (error) {
     console.error('充值接口调用失败:', error);
-    showToast('网络错误，充值失败');
+    showToast({ message: '网络错误，充值失败', duration: 1000 });
   }
 };
 
@@ -391,7 +391,7 @@ const fetchUserPoints = async () => {
   try {
     const userId = getUserIdFromStorage();
     if (!userId) {
-      showToast('请先登录');
+      showToast({ message: '请先登录', duration: 1000 });
       router.push('/login');
       return;
     }
@@ -438,7 +438,7 @@ const fetchCreditsLog = async (page) => {
     }    
   } catch (error) {
     console.error('获取积分流水失败:', error);
-    showToast('加载积分记录失败');
+    showToast({ message: '加载积分记录失败', duration: 1000 });
   } finally {
     loading.value = false;
   }

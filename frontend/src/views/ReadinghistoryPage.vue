@@ -141,7 +141,7 @@ const fetchReadingHistory = async () => {
     }
     readingHistory.value = books;
   } catch (error) {
-    showToast(error.message || '获取数据失败，请稍后重试')
+    showToast({ message: error.message || '获取数据失败，请稍后重试', duration: 1000 })
     console.error('作品列表请求失败:', error)
     readingHistory.value = []
   } finally {
@@ -167,10 +167,10 @@ const confirmDelete = async () => {
   if (!deleteId.value) return
   try {
     await clearReadingHistory(deleteId.value)
-    showToast('删除成功')
+    showToast({ message: '删除成功', duration: 1000 })
     fetchReadingHistory()
   } catch (e) {
-    showToast('删除失败')
+    showToast({ message: '删除失败', duration: 1000 })
   } finally {
     showDeleteDialog.value = false
     deleteId.value = null
@@ -188,11 +188,11 @@ const confirmBatchDelete = async () => {
   if (selectedIds.value.length === 0) return
   try {
     await clearReadingHistory([...selectedIds.value])
-    showToast('批量删除成功')
+    showToast({ message: '批量删除成功', duration: 1000 })
     fetchReadingHistory()
     selectedIds.value = []
   } catch (e) {
-    showToast('批量删除失败')
+    showToast({ message: '批量删除失败', duration: 1000 })
   } finally {
     showBatchDeleteDialog.value = false
   }
@@ -207,11 +207,11 @@ const handleClearAll = () => {
 const confirmClearAll = async () => {
   try {
     await clearReadingHistory()
-    showToast('已清空全部')
+    showToast({ message: '已清空全部', duration: 1000 })
     fetchReadingHistory()
     selectedIds.value = []
   } catch (e) {
-    showToast('清空失败')
+    showToast({ message: '清空失败', duration: 1000 })
   } finally {
     showClearAllDialog.value = false
   }
@@ -228,7 +228,7 @@ const navigateToBookDetail = (bookId) => {
 // 点击标签跳转到标签页面
 const handleTagClick = (tag) => {
   if (!tag?.id) {
-    showToast('标签信息不完整', 'warning');
+    showToast({ message: '标签信息不完整', duration: 1000 });
     return;
   }
   router.push({

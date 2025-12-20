@@ -136,7 +136,8 @@ const creatorModeAPI = useCreatorMode({
   creatorFeatureEnabled,
   // 添加缺失的依赖
   currentChapterIndex,
-  totalChapters
+  totalChapters,
+  getWorkDetails
 })
 
 const {
@@ -196,6 +197,23 @@ const currentDialogueObject = computed(() => {
   } catch (e) { return null }
 })
 
+// 过滤后的大纲列表：只包含普通章节（不包括结局章节）
+const filteredOutlineEdits = computed(() => {
+  try {
+    if (!Array.isArray(outlineEdits.value) || outlineEdits.value.length === 0) return []
+    const total = Number(totalChapters.value) || 0
+    if (total <= 0) return outlineEdits.value
+    // 只返回 chapterIndex <= totalChapters 的章节
+    return outlineEdits.value.filter(item => {
+      const idx = Number(item.chapterIndex) || 0
+      return idx > 0 && idx <= total
+    })
+  } catch (e) {
+    console.warn('filteredOutlineEdits failed', e)
+    return outlineEdits.value || []
+  }
+})
+
 // 是否为旁白
 const currentIsNarration = computed(() => {
   try { return isNarration(currentDialogueObject.value) } catch (e) { return false }
@@ -204,8 +222,8 @@ const currentIsNarration = computed(() => {
 // 尝试删除旁白：若不满足条件则给出提示
 const attemptDeleteNarration = () => {
   try {
-    if (!creatorMode.value) { showToast('尚未进入创作者模式'); return }
-    if (!currentIsNarration.value) { showToast('当前不是旁白，无法删除'); return }
+    if (!creatorMode.value) { showToast('尚未进入创作者模式', 1000); return }
+    if (!currentIsNarration.value) { showToast('当前不是旁白，无法删除', 1000); return }
     deleteNarration()
   } catch (e) { console.warn('attemptDeleteNarration failed', e) }
 }
@@ -251,7 +269,7 @@ const copyAudioLogs = async () => {
     if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(text)
       pushAudioLog('info', 'copied audio logs to clipboard')
-      showToast('调试日志已复制到剪贴板')
+      showToast('调试日志已复制到剪贴板', 1000)
     } else {
       // fallback: open prompt
       window.prompt('复制调试日志（Ctrl+C）', text)
@@ -259,7 +277,7 @@ const copyAudioLogs = async () => {
   } catch (e) {
     console.warn('copyAudioLogs failed', e)
     pushAudioLog('error', `copyAudioLogs failed: ${e && e.message ? e.message : e}`)
-    showToast('复制失败')
+    showToast('复制失败', 1000)
   }
 }
 
@@ -1145,7 +1163,7 @@ const saveCurrentEnding = async () => {
   try {
     try { if (typeof startLoading === 'function') startLoading() } catch (e) {}
     const workId = work && work.value && work.value.id
-    if (!workId) { showToast('无法识别作品 ID，保存失败'); try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}; return }
+    if (!workId) { showToast('无法识别作品 ID，保存失败', 1000); try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}; return }
     const endingIdx = (lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? Number(lastSelectedEndingIndex.value) : 1
     // Helper: 将前端内部的 dialogue 项规范化为后端期望的格式
     const normalizeDialogue = (item) => {
@@ -1213,13 +1231,13 @@ const saveCurrentEnding = async () => {
     const body = { endingIndex: endingIdx, title, scenes: scenesToSave }
     try {
       await storyService.saveEnding(workId, body)
-      showToast('已保存结局内容')
+      showToast('已保存结局内容', 1000)
       // 标记前端缓存为已保存
       try { for (const s of storyScenes.value) { if (s && s._isBackendEnding) s._endingSaved = true } } catch (e) {}
       try { await getWorkDetails(workId) } catch (e) {}
     } catch (e) {
       console.error('saveCurrentEnding failed', e)
-      showToast('保存结局失败', 8000)
+      showToast('保存结局失败', 1000)
       throw e
     }
   } catch (e) {
@@ -1357,7 +1375,7 @@ watch([isLandscapeReady, isLoading, currentChapterIndex, () => playlist.value.le
           // 只在第一次失败时提示，避免频繁通知
           if (!window.__musicAutoPlayFailedNotified) {
             window.__musicAutoPlayFailedNotified = true
-            try { showToast('自动播放被阻止，请在菜单中手动播放', 3000) } catch (e) {}
+            try { showToast('自动播放被阻止，请在菜单中手动播放', 1000) } catch (e) {}
           }
         }
       }
@@ -1713,18 +1731,31 @@ const initFromCreateResult = async (opts = {}) => {
             // 菜单中的 creatorMode 由用户在页面手动切换
           }
 
-          // 将后端可能返回的 chapterOutlines 映射为编辑器使用的格式：{ chapterIndex, outline }
+          // 🔑 统一数据来源：将后端返回的大纲映射为编辑器使用的格式：{ chapterIndex, outline }
+          // 只从后端获取大纲数据，不使用前端缓存
           try {
-            // 支持后端在多种字段位置返回大纲：优先使用 createResult.chapterOutlines，其次尝试 backendWork.outlines / data.outlines / outlines
+            // 从后端重新获取作品详情以获取最新的大纲数据
+            console.log('[initFromCreateResult] 从后端获取最新大纲数据')
+            const workDetailsData = await getWorkDetails(work.value.id)
             let rawOutlines = []
-            if (Array.isArray(obj.chapterOutlines) && obj.chapterOutlines.length > 0) rawOutlines = obj.chapterOutlines
-            else if (obj.backendWork && Array.isArray(obj.backendWork.outlines) && obj.backendWork.outlines.length > 0) rawOutlines = obj.backendWork.outlines
-            else if (Array.isArray(obj.outlines) && obj.outlines.length > 0) rawOutlines = obj.outlines
-            else if (obj.data && Array.isArray(obj.data.outlines) && obj.data.outlines.length > 0) rawOutlines = obj.data.outlines
+            
+            // 从后端返回的数据中提取大纲
+            if (workDetailsData) {
+              if (Array.isArray(workDetailsData.outlines) && workDetailsData.outlines.length > 0) {
+                rawOutlines = workDetailsData.outlines
+              } else if (workDetailsData.data && Array.isArray(workDetailsData.data.outlines) && workDetailsData.data.outlines.length > 0) {
+                rawOutlines = workDetailsData.data.outlines
+              }
+            }
 
             if (rawOutlines.length > 0) {
+              // 🔑 统一过滤逻辑：过滤掉结局章节（有 endingIndex 的项），只保留普通章节
+              const regularChapters = rawOutlines.filter(ch => {
+                return ch && typeof ch.endingIndex === 'undefined'
+              })
+              
               // 合并标题与大纲正文：title + 空行 + outline/summary
-              const mapped = rawOutlines.map((ch, i) => {
+              const mapped = regularChapters.map((ch, i) => {
                 const ci = (ch && (ch.chapterIndex ?? ch.chapter_index)) || (i + 1)
                 const title = (ch && (ch.title ?? ch.chapter_title)) || ''
                 const body = (ch && (ch.outline ?? ch.summary)) || ''
@@ -1732,15 +1763,17 @@ const initFromCreateResult = async (opts = {}) => {
                 return { chapterIndex: Number(ci), outline: combined }
               })
               outlineEdits.value = mapped
+              console.log('[initFromCreateResult] 已从后端加载大纲数据，共', mapped.length, '章（已过滤结局章节）')
             } else {
-              // 不再合成本地 mock：如果后端未返回大纲，则使用空数组，让编辑器呈现空状态由用户或后端生成
+              // 后端未返回大纲，使用空数组
               outlineEdits.value = []
+              console.log('[initFromCreateResult] 后端未返回大纲数据，使用空数组')
             }
 
-            // 若 createResult 中包含 userPrompt 字段，则带入编辑器供用户修改
-            outlineUserPrompt.value = obj.userPrompt || ''
+            // 清空 userPrompt（不再从缓存读取）
+            outlineUserPrompt.value = ''
           } catch (mapErr) {
-            console.warn('map chapterOutlines failed', mapErr)
+            console.warn('[initFromCreateResult] 从后端获取大纲失败:', mapErr)
             outlineEdits.value = []
           }
 
@@ -1751,7 +1784,7 @@ const initFromCreateResult = async (opts = {}) => {
           console.log('[GamePage] 打开大纲编辑器: reason=first-chapter-not-generated (auto), targetChapter=', pendingOutlineTargetChapter.value)
           showOutlineEditor.value = true
           
-          // 🔑 修复：不直接赋值 outlineEditorResolver，而是通过 watch 等待编辑器关闭
+          // 🔑 统一等待机制：使用 Promise + resolver 方式（与后续章节保持一致）
           // 等待用户确认或取消（监听 showOutlineEditor 的变化）
           await new Promise((resolve) => {
             const unwatch = watch(showOutlineEditor, (newVal) => {
@@ -2275,7 +2308,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       if (!performNetworkSave) {
         console.log('persistCurrentChapterEdits: performNetworkSave=false — skip network save for ending')
         try { await stopLoading() } catch (e) {}
-        try { showToast && showToast('结局已在本地生效') } catch (e) {}
+        try { showToast && showToast('结局已在本地生效', 1000) } catch (e) {}
         return
       }
       try {
@@ -2376,10 +2409,10 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           }
           try {
             await storyService.saveEnding(workId, single)
-            showToast('已保存')
+            showToast('已保存', 1000)
           } catch (saveErr) {
             console.error('persistCurrentChapterEdits: saveEnding API failed', saveErr, saveErr?.data || (saveErr?.response && saveErr.response.data))
-            showToast('保存失败: ' + (saveErr?.data || saveErr?.message || '未知错误'), 8000)
+            showToast('保存失败: ' + (saveErr?.data || saveErr?.message || '未知错误'), 1000)
             throw saveErr
           }
         } else {
@@ -2476,9 +2509,9 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           }
 
           if (errors.length === 0) {
-            showToast('已保存')
+            showToast('已保存', 1000)
           } else {
-            showToast('部分结局保存失败', 8000)
+            showToast('部分结局保存失败', 1000)
             throw errors[0].error
           }
         }
@@ -2504,16 +2537,16 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         try {
           if (!performNetworkSave) {
             console.log('persistCurrentChapterEdits: performNetworkSave=false — skip saveChapter network call')
-            showToast('已在本地修改')
+            showToast('已在本地修改', 1000)
           } else {
             console.log('persistCurrentChapterEdits: calling saveChapter API to mark as saved', { workId, chapterIndex })
             await saveChapter(workId, chapterIndex, chapterData)
             console.log('persistCurrentChapterEdits: saveChapter API succeeded')
-            showToast('已保存')
+            showToast('已保存', 1000)
           }
           } catch (saveErr) {
           console.error('persistCurrentChapterEdits: saveChapter API failed', saveErr, saveErr?.data || (saveErr?.response && saveErr.response.data))
-          showToast('保存章节失败: ' + (saveErr?.data || saveErr?.message || '未知错误'), 5000)
+          showToast('保存章节失败: ' + (saveErr?.data || saveErr?.message || '未知错误'), 1000)
           throw saveErr
         }
         
@@ -2571,7 +2604,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           try {
             pendingNextChapter.value = nextChap
           } catch (e) { console.warn('set pendingNextChapter failed', e) }
-          showToast('已保存本章，阅读至本章末尾后将弹出下一章大纲编辑器')
+          showToast('已保存本章，阅读至本章末尾后将弹出下一章大纲编辑器', 1000)
           try { await stopLoading() } catch (e) {}
           return
         }
@@ -2580,7 +2613,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         if (isLastChapter) {
           // 情况2: 末章已保存且已读完 - 进入结算页面
           console.log('末章已保存并读完，准备进入结算')
-          showToast('作品已完结，即将进入结算页面', 3000)
+          showToast('作品已完结，即将进入结算页面', 1000)
           setTimeout(async () => {
             try {
               // 标记将在进入结局判定时显示特殊加载界面
@@ -2673,7 +2706,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       await saveChapter(workId, chapterIndex, chapterData)
       console.log('persistCurrentChapterEdits: saveChapter succeeded')
       
-      showToast('已保存')
+      showToast('已保存', 1000)
       
       // 🔑 关键修复：保存成功后立即获取作品详情以获取最新章节状态
       try {
@@ -2702,7 +2735,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       
     } catch (e) {
       console.error('persistCurrentChapterEdits: saveChapter failed', e?.response?.data || e)
-      showToast('保存失败')
+      showToast('保存失败', 1000)
       throw e
     }
   } catch (e) {
@@ -3635,10 +3668,10 @@ onUnmounted(async () => {
           <!-- 左侧：章节大纲（更大文本区） -->
           <div class="outline-left">
             <div class="outline-chapters-container">
-              <div v-if="outlineEdits[outlineCurrentPage]" class="outline-chapter-item">
-                <div class="chapter-label">📖 第 {{ outlineEdits[outlineCurrentPage].chapterIndex }} 章 大纲</div>
+              <div v-if="filteredOutlineEdits[outlineCurrentPage]" class="outline-chapter-item">
+                <div class="chapter-label">📖 第 {{ filteredOutlineEdits[outlineCurrentPage].chapterIndex }} 章 大纲</div>
                 <textarea 
-                  v-model="outlineEdits[outlineCurrentPage].outline" 
+                  v-model="filteredOutlineEdits[outlineCurrentPage].outline" 
                   rows="10" 
                   class="outline-textarea outline-textarea-large" 
                   placeholder="请输入该章节的大纲内容...">
@@ -3668,11 +3701,11 @@ onUnmounted(async () => {
                 :disabled="outlineCurrentPage === 0">
                 ← 上一章
               </button>
-              <span class="pagination-info">{{ outlineCurrentPage + 1 }} / {{ outlineEdits.length }}</span>
+              <span class="pagination-info">{{ outlineCurrentPage + 1 }} / {{ filteredOutlineEdits.length }}</span>
               <button 
                 class="pagination-btn" 
-                @click="outlineCurrentPage = Math.min(outlineEdits.length - 1, outlineCurrentPage + 1)"
-                :disabled="outlineCurrentPage === outlineEdits.length - 1">
+                @click="outlineCurrentPage = Math.min(filteredOutlineEdits.length - 1, outlineCurrentPage + 1)"
+                :disabled="outlineCurrentPage === filteredOutlineEdits.length - 1">
                 下一章 →
               </button>
             </div>
