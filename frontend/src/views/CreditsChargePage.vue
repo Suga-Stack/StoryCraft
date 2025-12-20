@@ -116,8 +116,9 @@
       
 
       <!--充值弹窗-->
-      <div class="model-overlay" v-if="showChargeModal" @click="showChargeModal=false">
-        <div class="charge-model" @click.stop>
+      <div class="model-overlay" v-show="showChargeModal" @click="showChargeModal=false">
+        <transition name="scale-pop">
+          <div class="charge-model" v-if="showChargeModal" @click.stop :key="showChargeModal ? 'open' : 'close'">
           <!--弹窗导航栏-->
           <div class="charge-nav">
             <span class="charge-text">充值信息</span>
@@ -192,12 +193,14 @@
 
             <span class="alipay-txt" >支付宝支付</span>
           </div> 
-        </div>
-      </div> 
+          </div>
+        </transition>
+      </div>
 
       <!--充值成功弹窗-->
-      <div class="model-overlay" v-if="showChargeSuccessModal" @click="showChargeSuccessModal=false">
-        <div class="charge-success-model" @click.stop>
+      <div class="model-overlay" v-show="showChargeSuccessModal" @click="showChargeSuccessModal=false">
+        <transition name="scale-pop">
+          <div class="charge-success-model" v-if="showChargeSuccessModal" @click.stop :key="showChargeSuccessModal ? 'open' : 'close'">
           <!--弹窗充值信息卡片-->
           <div class="charge-card">
             <!-- 心形图标 -->
@@ -237,7 +240,8 @@
 
           <!--支付成功确认按钮-->
           <button class="confirm-btn" @click="showChargeSuccessModal = false">确认</button>
-        </div>
+          </div>
+        </transition>
       </div>
     </main>
   </div>
@@ -945,5 +949,17 @@ onMounted(async () => {
   border: none;
   border-radius: 16px;
   height: 35px;
+}
+/* 弹窗缩放动画 */
+.scale-pop-enter-active, .scale-pop-leave-active {
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.18s;
+}
+.scale-pop-enter-from, .scale-pop-leave-to {
+  transform: scale(0.7);
+  opacity: 0;
+}
+.scale-pop-enter-to, .scale-pop-leave-from {
+  transform: scale(1);
+  opacity: 1;
 }
 </style>

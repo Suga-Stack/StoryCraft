@@ -547,10 +547,9 @@ const normalizeComments = (list) => {
       text: item.content || item.text || '',
       time: item.created_at ? new Date(item.created_at).toLocaleString() : (item.time || ''),
       timestamp: item.created_at ? Date.parse(item.created_at) : (item.timestamp || Date.now()),
-      // 统一将 likes 强制为数字，避免字符串导致的显示/计算异常
       likes: Number(item.like_count ?? item.likes ?? item.like_counted ?? 0) || 0,
-      // 兼容多种后端字段名并强制为布尔值，避免 "true"/1 等假值造成类绑定不生效
       isLiked: !!(item.is_liked ?? item.isLiked ?? item.liked ?? item.user_liked ?? item.liked_by_user ?? false),
+      profile_picture: item.profile_picture || (item.user && item.user.profile_picture) || '',
       replies: []
     }
     if (Array.isArray(item.replies) && item.replies.length) {
@@ -563,13 +562,13 @@ const normalizeComments = (list) => {
 
 // 获取评论头像，优先级：comment.profile_picture > comment.user.profile_picture > getAvatar(comment.user.username)
 const getCommentAvatar = (comment) => {
-  // 1. 后端直接返回的 profile_picture 字段
+  // 1. 直接 profile_picture 字段
   if (comment && comment.profile_picture) {
-    return comment.profile_picture;
+    return normalizeAvatar(comment.profile_picture);
   }
   // 2. 嵌套 user 对象的 profile_picture
   if (comment && comment.user && comment.user.profile_picture) {
-    return comment.user.profile_picture;
+    return normalizeAvatar(comment.user.profile_picture);
   }
   // 3. 用用户名生成头像
   if (comment && comment.user && comment.user.username && typeof getAvatar === 'function') {
@@ -742,14 +741,16 @@ const submitRating = async () => {
       console.warn('刷新作品详情失败，无法更新评分统计', e)
     }
 
-    // 本地也保持一个评分记录用于立即显示
+    // 本地也保持一个评分记录用于立即显示，带上当前用户头像
+    const userProfilePicture = normalizeAvatar(userInfo.value?.profile_picture);
     ratings.value.unshift({
       id: Date.now(),
       author: currentUsername.value || 'current_user',
       stars: selectedStars.value,
       score10: score10,
       time: '刚刚',
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      profile_picture: userProfilePicture
     })
 
     // 标记为已评分，禁止再次提交
@@ -1067,9 +1068,16 @@ const onReportComment = async (comment) => {
 }
 
 // 开始回复
+const commentInputBox = ref(null)
 const startReply = (commentId, author) => {
   replyingTo.value = commentId
   newComment.value = `@${author} `
+  // 自动滚动到评论输入框
+  setTimeout(() => {
+    if (commentInputBox.value && typeof commentInputBox.value.scrollIntoView === 'function') {
+      commentInputBox.value.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, 0)
 }
 
 // 取消回复
@@ -1552,7 +1560,7 @@ const handleTagClick = (tag) => {
         </div>
         
         <!-- 评论输入或评分输入 -->
-        <div v-if="!showingRatings" class="comment-input-container">
+        <div v-if="!showingRatings" class="comment-input-container" ref="commentInputBox">
           <div v-if="replyingTo" class="replying-to">
             <span>回复评论中...</span>
             <button class="cancel-reply-btn" @click="cancelReply">取消</button>
@@ -2762,6 +2770,14 @@ const handleTagClick = (tag) => {
   font-weight: 600;
   font-size: 1.1rem;
   flex-shrink: 0;
+  border: 2px solid #d4a5a5;
+}
+.comment-avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
 }
 
 .comment-content {
@@ -2871,6 +2887,7 @@ const handleTagClick = (tag) => {
   height: 32px;
   font-size: 0.9rem;
   background: linear-gradient(135deg, #d4a5a5 0%, #c89090 100%);
+  border-radius: 50%;
 }
 
 /* 展开/收起回复按钮 */
