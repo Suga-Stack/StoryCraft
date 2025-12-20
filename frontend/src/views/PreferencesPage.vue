@@ -246,14 +246,14 @@ const handleSubmit = async () => {
 
     if (response.status === 200) {
       userStore.setPreferences(response.data.preferences);
-      showToast('偏好设置保存成功');
+      showToast({ message: '偏好设置保存成功', duration: 1000 });
       router.push('/');
     } else {
-      showToast(response.message || '保存失败，请重试');
+      showToast({ message: response.message || '保存失败，请重试', duration: 1000 });
     }
   } catch (error) {
     console.error('保存偏好设置失败:', error);
-    showToast(error.response?.data?.message || '网络错误，请稍后重试');
+    showToast({ message: error.response?.data?.message || '网络错误，请稍后重试', duration: 1000 });
   } finally {
     isSubmitting.value = false;
   }

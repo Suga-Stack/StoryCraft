@@ -228,7 +228,7 @@ const fetchUserInfo = async (userId) => {
     return response.data;
   } catch (error) {
     const errorMsg = `获取用户信息失败: ${error.message}`;
-    showToast(errorMsg);
+    showToast({ message: errorMsg, duration: 1000 });
     throw error;
   } 
 }
@@ -261,7 +261,7 @@ const fetchReadingHistory = async () => {
     }
   } catch (error) {
     console.error('获取阅读历史失败:', error);
-    showToast(error.message || '加载阅读历史出错');
+    showToast({ message: error.message || '加载阅读历史出错', duration: 1000 });
   }
 }
 
@@ -277,7 +277,7 @@ const fetchMyCreations = async () => {
     }
   } catch (error) {
     console.error('获取创作作品失败:', error);
-    showToast(error.message || '加载创作作品出错');
+    showToast({ message: error.message || '加载创作作品出错', duration: 1000 });
   }
 }
 
@@ -345,7 +345,7 @@ const fetchMyReports = async () => {
     myReports.value = results.slice(0, 2)
   } catch (error) {
     console.error('获取举报列表失败', error)
-    showToast(error.message || '加载举报列表出错')
+    showToast({ message: error.message || '加载举报列表出错', duration: 1000 })
   }
 }
 
@@ -419,11 +419,11 @@ const handleFileChange = (e) => {
   const isImage = file.type.startsWith('image/');
   const isLt5M = file.size / 1024 / 1024 < 5; // 限制5MB以内
   if (!isImage) {
-    showToast('请选择图片格式文件（如jpg、png）');
+    showToast({ message: '请选择图片格式文件（如jpg、png）', duration: 1000 });
     return;
   }
   if (!isLt5M) {
-    showToast('图片大小不能超过5MB');
+    showToast({ message: '图片大小不能超过 5MB', duration: 1000 });
     return;
   }
 
@@ -451,12 +451,12 @@ const handleFileChange = (e) => {
       // 同步更新头像缓存
       localStorage.setItem(AVATAR_CACHE_KEY, JSON.stringify({ time: Date.now(), avatarUrl: userResponse.data.profile_picture }));
       previewUrl.value = ''; // 清空预览
-      showToast('头像更换成功');
+      showToast({ message: '头像更换成功', duration: 1000 });
     })
     .catch((err) => {
       // 捕获所有可能的错误（上传失败/更新失败）
       const errorMsg = err.response?.data?.message || err.message || '头像更新失败';
-      showToast(errorMsg);
+      showToast({ message: errorMsg, duration: 1000 });
       previewUrl.value = ''; // 清空预览
     });
 }
@@ -465,7 +465,7 @@ const handleFileChange = (e) => {
 const handleUsernameChange = async () => {
   const trimmedName = newUsername.value.trim();
   if (!trimmedName) {
-    showToast('用户名不能为空');
+    showToast({ message: '用户名不能为空', duration: 1000 });
     return;
   }
 
@@ -483,11 +483,11 @@ const handleUsernameChange = async () => {
     storedUser.username = response.data.username;
     localStorage.setItem('userInfo', JSON.stringify(storedUser));
     
-    showToast('用户名修改成功');
+    showToast({ message: '用户名修改成功', duration: 1000 });
     showUsernameDialog.value = false;
     newUsername.value = '';
   } catch (err) {
-    showToast('用户名更新失败：' + (err.response?.data?.message || err.message));
+    showToast({ message: '用户名更新失败：' + (err.response?.data?.message || err.message), duration: 1000 });
   }
 }
 
@@ -542,13 +542,13 @@ const handleLogout = async () => {
     
     // 跳转到登录页
     router.push('/login');
-    showToast('已成功退出登录');
+    showToast({ message: '已成功退出登录', duration: 1000 });
   } catch (error) {
     console.error('退出登录失败', error);
     // 即使接口调用失败也清除本地状态并跳转，保证前端状态一致性
     localStorage.removeItem('userInfo');
     router.push('/login');
-    showToast('退出登录失败，请重试');
+    showToast({ message: '退出登录失败，请重试', duration: 1000 });
   }
 }
 

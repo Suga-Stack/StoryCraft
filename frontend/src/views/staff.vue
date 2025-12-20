@@ -94,14 +94,14 @@ const markHandled = async (r) => {
     const ok = res && (res.status === 200 || (res.data && (res.data.code === 200 || res.data.success === true || res.data.is_resolved === true)))
     if (ok) {
       r.status = '已处理'
-      showToast('已标记为已处理')
+      showToast({ message: '已标记为已处理', duration: 1000 })
     } else {
       console.warn('markHandled unexpected response', res)
-      showToast('标记失败，请稍后重试')
+      showToast({ message: '标记失败，请稍后重试', duration: 1000 })
     }
   } catch (e) {
     console.error('markHandled failed', e)
-    showToast('标记失败，请稍后重试')
+    showToast({ message: '标记失败，请稍后重试', duration: 1000 })
   } finally {
     r._handling = false
   }
@@ -130,7 +130,7 @@ const viewDetail = (r) => {
       router.push({ path: `/works/${gwId}` })
     }
   } else {
-    showToast(`查看举报 ${r.id}`)
+    showToast({ message: `查看举报 ${r.id}`, duration: 1000 })
   }
 }
 
@@ -138,7 +138,7 @@ const deleteReport = async (r) => {
   if (!r) return
   // 前端校验：未处理的举报不允许删除
   if (r.status !== '已处理') {
-    showToast('未处理的举报不可删除，请先标为已处理')
+    showToast({ message: '未处理的举报不可删除，请先标为已处理', duration: 1000 })
     return
   }
   if (!confirm('确认删除该举报记录？此操作不可恢复。')) return
@@ -165,14 +165,14 @@ const deleteReport = async (r) => {
       // 从列表中移除
       const idx = reports.value.findIndex(x => x.id === r.id)
       if (idx !== -1) reports.value.splice(idx, 1)
-      showToast('删除成功')
+      showToast({ message: '删除成功', duration: 1000 })
     } else {
       console.warn('deleteReport unexpected response', res)
-      showToast('删除失败，请稍后重试')
+      showToast({ message: '删除失败，请稍后重试', duration: 1000 })
     }
   } catch (e) {
     console.error('deleteReport failed', e)
-    showToast('删除失败，请稍后重试')
+    showToast({ message: '删除失败，请稍后重试', duration: 1000 })
   } finally {
     r._deleting = false
   }
@@ -251,7 +251,7 @@ const fetchAllReports = async () => {
     reports.value = all
   } catch (err) {
     console.error('加载举报列表失败', err)
-    showToast('加载举报列表失败')
+    showToast({ message: '加载举报列表失败', duration: 1000 })
   }
 }
 

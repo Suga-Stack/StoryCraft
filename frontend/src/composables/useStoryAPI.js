@@ -233,11 +233,11 @@ export function useStoryAPI() {
     }
   }
   
-  const pollWorkStatus = async (workId, targetChapter, opts = { interval: 1500, timeout: 120000 }) => {
+  const pollWorkStatus = async (workId, targetChapter, opts = { interval: 1500, timeout: 600000 }) => {
     const start = Date.now()
     const interval = (opts && opts.interval) ? opts.interval : 1500
     // If timeout is provided and > 0 use it; if timeout === 0 or < 0 treat as infinite (no timeout)
-    const timeout = (opts && typeof opts.timeout === 'number') ? opts.timeout : 120000
+    const timeout = (opts && typeof opts.timeout === 'number') ? opts.timeout : 600000  // 默认10分钟（600秒）
     while (true) {
       try {
         const data = await getWorkDetails(workId)
@@ -410,7 +410,7 @@ export function useStoryAPI() {
             
             if (prevChapterStatus !== 'saved') {
             console.warn(`[fetchNextChapter] 上一章 ${idx - 1} 状态为 ${prevChapterStatus}，阻止加载第 ${idx} 章`)
-            if (_showToast) _showToast(`第 ${idx - 1} 章尚未保存`, 8000)
+            if (_showToast) _showToast(`第 ${idx - 1} 章尚未保存`, 1000)
             // 不抛出异常，只是返回 null，让调用方知道加载被阻止
             return null
             }
@@ -563,13 +563,20 @@ export function useStoryAPI() {
             throw new Error('后端返回空数据')
         }
         
-        // 检查是否有场景数据
-        const hasScenes = (data.chapter && Array.isArray(data.chapter.scenes) && data.chapter.scenes.length > 0) ||
-                            (Array.isArray(data.scenes) && data.scenes.length > 0)
-        
-        if (!hasScenes) {
-            console.error('[fetchNextChapter] singleRequest 返回数据中没有场景:', data)
-            throw new Error('后端返回数据中没有场景内容')
+        // 🔑 关键修复：先检查状态，如果是 generating/pending，不抛出错误，让代码继续执行到后面的轮询逻辑
+        const status = data.status || (data.chapter && data.chapter.status)
+        if (status === 'generating' || status === 'pending' || data.generating === true) {
+            console.log('[fetchNextChapter] singleRequest 返回生成中状态，将进入轮询逻辑:', status)
+            // 不抛出错误，让 data 保持当前值，继续执行到后面的轮询分支
+        } else {
+            // 只有当状态不是 generating/pending 时，才检查是否有场景数据
+            const hasScenes = (data.chapter && Array.isArray(data.chapter.scenes) && data.chapter.scenes.length > 0) ||
+                              (Array.isArray(data.scenes) && data.scenes.length > 0)
+            
+            if (!hasScenes) {
+                console.error('[fetchNextChapter] singleRequest 返回数据中没有场景:', data)
+                throw new Error('后端返回数据中没有场景内容')
+            }
         }
         } catch (e) {
         console.error('[fetchNextChapter] singleRequest http.get failed', e)
@@ -615,18 +622,42 @@ export function useStoryAPI() {
             data = (resp && typeof resp === 'object' && 'data' in resp) ? resp.data : resp
             console.log('[fetchNextChapter] poll后 singleRequest response:', data)
             
-            // 🔑 关键修复：验证轮询后获取的数据是否有效，避免获取到空数据或仍在生成的数据
+            // 🔑 关键修复：严格验证轮询后获取的数据
+            // 必须同时满足：1) 状态为 'ready'  2) 有有效的 scenes 数据
+            const status = data.status || (data.chapter && data.chapter.status)
             const hasValidScenes = (data.chapter && Array.isArray(data.chapter.scenes) && data.chapter.scenes.length > 0) ||
                                    (Array.isArray(data.scenes) && data.scenes.length > 0)
+            const isReady = (status === 'ready')
             
-            if (!hasValidScenes) {
-              console.warn('[fetchNextChapter] 轮询完成但获取的数据仍无场景，等待额外时间后重试')
-              // 额外等待2秒让后端完成写入
+            // 如果状态不是 ready 或没有场景数据，继续等待
+            if (!isReady || !hasValidScenes) {
+              console.warn('[fetchNextChapter] 轮询完成但数据不完整 - 状态:', status, '有场景:', hasValidScenes)
+              
+              // 如果仍在生成中，抛出错误让外层保持加载状态
+              if (status === 'generating' || status === 'pending') {
+                throw new Error(`章节仍在生成中，状态: ${status}`)
+              }
+              
+              // 否则等待额外时间后重试
+              console.log('[fetchNextChapter] 等待2秒后重试获取章节数据')
               await new Promise(r => setTimeout(r, 2000))
               const retryResp = await http.get(`/api/game/chapter/${workId}/${idx}/`)
               data = (retryResp && typeof retryResp === 'object' && 'data' in retryResp) ? retryResp.data : retryResp
               console.log('[fetchNextChapter] 延迟重试后的 response:', data)
+              
+              // 再次验证重试后的数据
+              const retryStatus = data.status || (data.chapter && data.chapter.status)
+              const retryHasScenes = (data.chapter && Array.isArray(data.chapter.scenes) && data.chapter.scenes.length > 0) ||
+                                     (Array.isArray(data.scenes) && data.scenes.length > 0)
+              
+              if (retryStatus !== 'ready' || !retryHasScenes) {
+                console.error('[fetchNextChapter] 重试后数据仍不完整 - 状态:', retryStatus, '有场景:', retryHasScenes)
+                throw new Error(`章节数据不完整，状态: ${retryStatus}`)
+              }
             }
+            
+            console.log('[fetchNextChapter] ✓ 数据验证通过 - 状态:', status, '场景数:', 
+              data.chapter?.scenes?.length || data.scenes?.length)
           } catch (e) {
             console.warn('[fetchNextChapter] poll后请求章节失败，回退使用 getScenes()', e)
             data = await getScenes(workId, idx, {

@@ -584,7 +584,7 @@ const confirmDeleteFolder = async () => {
       loadFolders();
       saveData();
       folderToDelete.value = null;
-      showToast('收藏夹已删除');
+      showToast({ message: '收藏夹已删除', duration: 1000 });
     } catch (error) {
       console.error('删除收藏夹失败', error);
       showToast(error.response?.data?.message || '删除收藏夹失败');
@@ -652,14 +652,14 @@ const confirmAddToFolder = async () => {
     saveData();
     showAddToFolderDialog.value = false;
     selectedFolderId.value = '';
-    showToast('添加成功');
+    showToast({ message: '添加成功', duration: 1000 });
   } catch (error) {
     // 接口失败时回滚本地状态
     if (currentBook.value) {
       currentBook.value.folderId = null; // 回滚到之前的状态（未分类）
     }
     console.error('添加到收藏夹失败', error);
-    showToast('添加失败: ' + (error.response?.data?.message || '未知错误'));
+    showToast({ message: '添加失败: ' + (error.response?.data?.message || '未知错误'), duration: 1000 });
   } finally {
     // 最后再重置currentBook，避免异步过程中被提前清空
     resetFolderDialog();
@@ -675,10 +675,10 @@ const confirmRemoveFromFolder = async () => {
       currentBook.value.folderId = null; // 清空所属收藏夹标识
       saveData();
       showRemoveFromFolderDialog.value = false;
-      showToast('已移出收藏夹');
+      showToast({ message: '已移出收藏夹', duration: 1000 });
     } catch (error) {
       console.error('从收藏夹移除失败', error);
-      showToast('移除失败: ' + (error.response?.data?.message || '未知错误'));
+      showToast({ message: '移除失败: ' + (error.response?.data?.message || '未知错误'), duration: 1000 });
     }
   }
 };
@@ -701,10 +701,10 @@ const removeSelectedFromFolder = async () => {
     saveData();
     selectedBooks.value = [];
     isBatchMode.value = false;
-    showToast('已批量移出');
+    showToast({ message: '已批量移出', duration: 1000 });
   } catch (error) {
     console.error('批量移出失败', error);
-    showToast('批量移出失败: ' + (error.response?.data?.message || '未知错误'));
+    showToast({ message: '批量移出失败: ' + (error.response?.data?.message || '未知错误'), duration: 1000 });
   }
 };
 
@@ -782,12 +782,12 @@ const handleFavorite = async (book) => {
         books.value.splice(index, 1);
       }
       
-      showToast('已取消收藏');
+      showToast({ message: '已取消收藏', duration: 1000 });
     } else {
       // 添加收藏逻辑保持不变
       await addFavorite(book.gameworkId);
       book.isFavorite = true;
-      showToast('收藏成功');
+      showToast({ message: '收藏成功', duration: 1000 });
     }
     saveData(); // 保存最新状态到本地存储
   } catch (error) {

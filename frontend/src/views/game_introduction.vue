@@ -43,9 +43,9 @@ const goBack = () => {
 const emit = defineEmits(['delete-comment', 'report-comment'])
 
 // 使用 Vant 的 showToast 并统一样式（与其他页面保持一致）
-const showToast = (message, type = 'info', duration = 3000) => {
+const showToast = (message, type = 'info', duration = 1000) => {
   try {
-    vantToast({ message: String(message || ''), type: type || undefined, duration: Number(duration) || 3000, position: 'top', forbidClick: true, className: 'sc-toast-gray' })
+    vantToast({ message: String(message || ''), type: type || undefined, duration: Number(duration) || 1000, position: 'top', forbidClick: true, className: 'sc-toast-gray' })
   } catch (e) {
     try { alert(String(message || '')) } catch (e) { /* ignore */ }
   }
@@ -114,6 +114,35 @@ const work = ref({
 
 // 如果首次没有传入 backendWork（直接打开 /works 或刷新），尝试在挂载时去后端拉取最新详情并规范化映射
 onMounted(async () => {
+  // 清空之前的缓存数据，确保每次进入都是全新状态
+  work.value = {
+    id: null,
+    title: '',
+    coverUrl: '',
+    authorId: '',
+    tags: [],
+    description: '',
+    isFavorite: false
+  }
+  favoritesCount.value = 0
+  publishedAt.value = new Date().toISOString()
+  totalChapters.value = null
+  updatedAt.value = null
+  averageScore.value = 0
+  ratingCount.value = 0
+  readCount.value = 0
+  backendWordCount.value = null
+  unlockPointsNeeded.value = 100
+  userGivenPoints.value = 0
+  rawCommentsByTime.value = null
+  rawCommentsByHot.value = null
+  comments.value = []
+  ratings.value = []
+  userHasRated.value = false
+  selectedStars.value = 0
+  currentUsername.value = null
+  isRemoved.value = false
+  
   try {
     // 每次进入作品介绍页都向后端拉取最新详情，避免展示本地占位内容
     // 优先使用路由参数 / query 中的 id，其次使用 sessionStorage.createResult 中的 backendWork.id，最后回退到当前 work.value.id
@@ -294,7 +323,7 @@ onMounted(async () => {
     })
     // 在开发环境显示错误提示（帮助调试真机问题）
     if (import.meta.env.DEV) {
-      showToast(`[调试信息] 获取作品详情失败\nID: ${candidateId}\n错误: ${e.message}\n请检查网络连接和后端服务器`, 'error', 7000)
+      showToast(`[调试信息] 获取作品详情失败\nID: ${candidateId}\n错误: ${e.message}\n请检查网络连接和后端服务器`, 'error', 1000)
     }
   }
 })
