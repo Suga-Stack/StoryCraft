@@ -195,28 +195,7 @@ const isCreditsValid = ref(false)
 // 加载状态
 const isLoading = ref(true)
 
-// 获取当前用户创作的作品列表
-const fetchMyWorks = async () => {
-  try {
-    const response = await getMyworks();
-    
-    if (!response.data.code || response.data.code !== 200) {
-      throw new Error('获取作品列表失败')
-    }
-
-    const books = response.data.data;
-    
-    // 为每本书处理标签（转换ID为名称和颜色）
-    for (const book of books) {
-      book.processedTags = await getTagsByIds(book.tags || []);
-    }
-
-    myCreations.value = books;
-  } catch (error) {
-    showToast({ message: error.message || '获取数据失败，请稍后重试', duration: 1000 })
-    console.error('作品列表请求失败:', error)
-  }
-}
+// 获取当前用户创作的作品列表（实现见下方，含加载状态管理）
 // 删除弹窗相关
 const showDeleteDialog = ref(false)
 const deleteBookId = ref(null)
