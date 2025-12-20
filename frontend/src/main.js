@@ -18,52 +18,83 @@ app.use(router)
 app.mount('#app')
 
 
-// Android 平台添加右滑返回的简单触摸手势
+
+// Android 平台优化滑动返回：仅允许边缘滑动触发，自动适配横竖屏
 if (Capacitor.getPlatform() === 'android') {
   let startX = 0
   let startY = 0
   let tracking = false
   let moved = false
+  let isEdge = false
 
-  const thresholdX = 60 // 触发返回的最小水平距离
-  const thresholdY = 40 // 垂直容忍度，避免竖向滑动误触
+  // 边缘判定宽度(px)
+  const EDGE_WIDTH = 32
+  // 滑动触发距离
+  const threshold = 60
+  // 垂直/水平容忍度
+  const tolerance = 40
+
+  function isPortrait() {
+    return window.innerHeight >= window.innerWidth
+  }
 
   const onTouchStart = (e) => {
     const t = e.touches && e.touches[0]
     if (!t) return
     startX = t.clientX
     startY = t.clientY
-    tracking = true
     moved = false
+    tracking = false
+    isEdge = false
+
+    if (isPortrait()) {
+      // 竖屏：左右边缘
+      if (startX <= EDGE_WIDTH || startX >= window.innerWidth - EDGE_WIDTH) {
+        isEdge = true
+        tracking = true
+      }
+    } else {
+      // 横屏：上下边缘
+      if (startY <= EDGE_WIDTH || startY >= window.innerHeight - EDGE_WIDTH) {
+        isEdge = true
+        tracking = true
+      }
+    }
   }
 
   const onTouchMove = (e) => {
-    if (!tracking) return
+    if (!tracking || !isEdge) return
     const t = e.touches && e.touches[0]
     if (!t) return
-    const dx = t.clientX - startX
-    const dy = Math.abs(t.clientY - startY)
-    // 记录是否达到返回阈值
-    if (dx > thresholdX && dy < thresholdY) {
-      moved = true
+    if (isPortrait()) {
+      // 竖屏：左右滑
+      const dx = t.clientX - startX
+      const dy = Math.abs(t.clientY - startY)
+      if (Math.abs(dx) > threshold && dy < tolerance) {
+        moved = true
+      }
+    } else {
+      // 横屏：上下滑
+      const dy = t.clientY - startY
+      const dx = Math.abs(t.clientX - startX)
+      if (Math.abs(dy) > threshold && dx < tolerance) {
+        moved = true
+      }
     }
   }
 
   const onTouchEnd = () => {
-    if (!tracking) return
+    if (!tracking || !isEdge) return
     tracking = false
     if (moved) {
-      // 避免在根页面误触发
       const route = router.currentRoute.value
       if (route && route.meta && route.meta.disableSwipeBack) {
         return
       }
-      // 如果有历史栈，执行返回
       router.back()
     }
   }
 
-  // 监听整个文档，保持简单
   document.addEventListener('touchstart', onTouchStart, { passive: true })
   document.addEventListener('touchmove', onTouchMove, { passive: true })
   document.addEventListener('touchend', onTouchEnd, { passive: true })
