@@ -97,12 +97,6 @@ class UserViewSet(viewsets.ModelViewSet):
         if instance != request.user and not request.user.is_staff:
             return Response({"detail": "您没有删除该用户的权限。"}, status=status.HTTP_403_FORBIDDEN)        
         return super().destroy(request, *args, **kwargs)
-    
-    def create(self, request, *args, **kwargs):
-        """
-        禁用 POST 请求，禁止通过 UserViewSet 创建用户
-        """
-        return Response({"detail": "用户注册只能通过注册接口进行！"}, status=status.HTTP_403_FORBIDDEN)
 
 class SendEmailCodeView(APIView):
     """发送邮箱验证码"""
