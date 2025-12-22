@@ -32,12 +32,8 @@ try { userInfo.value = JSON.parse(localStorage.getItem('userInfo') || '{}') } ca
 const isStaff = computed(() => !!(userInfo.value.is_staff || userInfo.value.isStaff || userInfo.value.staff))
 
 const goBack = () => {
-  // 只依赖路由历史回退
-  if (router.options?.history?.state?.back) {
-    router.back()
-  } else {
-    router.push('/')
-  }
+  // 固定返回到 Bookstorepage 界面
+  router.push('/')
 }
 // 允许向父组件或上层逻辑发出删除/举报事件
 const emit = defineEmits(['delete-comment', 'report-comment'])
