@@ -987,29 +987,58 @@ const goBack = () => {
   try {
     // 优先级：gameData.work.id > history.state.work.id > route.params.id > lastWorkMeta in sessionStorage > workId
     let targetId = null
-    try { targetId = Number(gameData.value.work && gameData.value.work.id) || null } catch (e) { targetId = null }
-    if (!targetId) {
-      try { targetId = Number(history.state?.work?.id) || null } catch (e) { targetId = targetId }
+    
+    // 1. 从 gameData.value.work.id 获取
+    if (gameData.value?.work?.id) {
+      targetId = Number(gameData.value.work.id)
+      console.log('[Settlement] goBack: using gameData.work.id =', targetId)
     }
-    if (!targetId && route && route.params && route.params.id) {
-      try { targetId = Number(route.params.id) || null } catch (e) { targetId = targetId }
+    
+    // 2. 从 history.state.work.id 获取
+    if (!targetId || !Number.isFinite(targetId) || targetId <= 0) {
+      if (history.state?.work?.id) {
+        targetId = Number(history.state.work.id)
+        console.log('[Settlement] goBack: using history.state.work.id =', targetId)
+      }
     }
-    if (!targetId) {
+    
+    // 3. 从 route.params.id 获取
+    if (!targetId || !Number.isFinite(targetId) || targetId <= 0) {
+      if (route?.params?.id) {
+        targetId = Number(route.params.id)
+        console.log('[Settlement] goBack: using route.params.id =', targetId)
+      }
+    }
+    
+    // 4. 从 sessionStorage 的 lastWorkMeta 获取
+    if (!targetId || !Number.isFinite(targetId) || targetId <= 0) {
       try {
         const lastMeta = JSON.parse(sessionStorage.getItem('lastWorkMeta'))
-        if (lastMeta && lastMeta.id) targetId = Number(lastMeta.id)
-      } catch (e) { /** ignore */ }
+        if (lastMeta?.id) {
+          targetId = Number(lastMeta.id)
+          console.log('[Settlement] goBack: using lastWorkMeta.id =', targetId)
+        }
+      } catch (e) {
+        console.warn('[Settlement] Failed to parse lastWorkMeta:', e)
+      }
     }
-    if (!targetId) targetId = Number(workId) || null
+    
+    // 5. 使用模块级 workId 变量
+    if (!targetId || !Number.isFinite(targetId) || targetId <= 0) {
+      targetId = Number(workId)
+      console.log('[Settlement] goBack: using module workId =', targetId)
+    }
 
+    // 最终验证并跳转
     if (targetId && Number.isFinite(targetId) && targetId > 0) {
+      console.log('[Settlement] goBack: navigating to /works/' + targetId)
       router.push({ path: `/works/${targetId}` })
     } else {
-      console.warn('[Settlement] goBack: cannot resolve work id, fallback to /works')
+      console.warn('[Settlement] goBack: cannot resolve valid work id, fallback to /works')
       router.push('/works')
     }
   } catch (e) {
-    console.warn('goBack failed, fallback to /works', e)
+    console.warn('[Settlement] goBack failed, fallback to /works', e)
     router.push('/works')
   }
 }

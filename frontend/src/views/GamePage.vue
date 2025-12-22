@@ -400,11 +400,41 @@ const audioPlayer = {
       throw e
     }
   },
+  pause(trackId) {
+    try {
+      const s = this.sounds[trackId]
+      if (s && s.pause) {
+        s.pause()
+        pushAudioLog('info', `Howler paused ${trackId}`)
+      }
+    } catch (e) { 
+      console.warn('audioPlayer.pause failed', e)
+      pushAudioLog('error', `Howler pause failed: ${e && e.message ? e.message : e}`)
+    }
+  },
+  resume(trackId) {
+    try {
+      const s = this.sounds[trackId]
+      if (s && s.play) {
+        s.play()
+        pushAudioLog('info', `Howler resumed ${trackId}`)
+      }
+    } catch (e) { 
+      console.warn('audioPlayer.resume failed', e)
+      pushAudioLog('error', `Howler resume failed: ${e && e.message ? e.message : e}`)
+    }
+  },
   stop(trackId) {
     try {
       const s = this.sounds[trackId]
       if (s) { try { s.stop(); s.unload() } catch (e) {} ; delete this.sounds[trackId] }
     } catch (e) { console.warn('audioPlayer.stop failed', e) }
+  },
+  isPlaying(trackId) {
+    try {
+      const s = this.sounds[trackId]
+      return s && s.playing && s.playing()
+    } catch (e) { return false }
   }
 }
 
@@ -727,12 +757,19 @@ const pauseMusic = (force = false) => {
       console.log('[GamePage][audio] pause suppressed during resume attempt')
       return
     }
+    // 暂停HTML Audio元素
     if (audioEl.value) {
       audioEl.value.pause()
-      isMusicPlaying.value = false
-      console.log('[GamePage][audio] paused')
-      updateAudioDebug()
+      console.log('[GamePage][audio] HTML audio paused')
     }
+    // 暂停Howler播放器
+    try {
+      audioPlayer.pause('main')
+    } catch (e) {}
+    
+    isMusicPlaying.value = false
+    updateAudioDebug()
+    console.log('[GamePage][audio] paused (both HTML and Howler)')
   } catch (e) { console.warn('pauseMusic failed', e) }
 }
 
@@ -798,13 +835,47 @@ onUnmounted(() => {
 const toggleMusic = async () => {
   try {
     if (isMusicPlaying.value) {
-      pauseMusic()
+      // 强制暂停，忽略 suppressPauseDuringResume 标志
+      pauseMusic(true)
     } else {
-      // 尝试继续播放当前曲目
-      await playTrack()
+      // 检查是否使用Howler播放器
+      const isUsingHowler = audioPlayer.isPlaying('main') !== undefined && audioPlayer.sounds && audioPlayer.sounds['main']
+      
+      if (isUsingHowler) {
+        // 使用Howler恢复播放
+        try {
+          audioPlayer.resume('main')
+          isMusicPlaying.value = true
+          updateAudioDebug()
+          console.log('[GamePage][audio] Howler resumed from pause')
+        } catch (howlerErr) {
+          console.warn('[GamePage][audio] Howler resume failed, reloading:', howlerErr)
+          await playTrack()
+        }
+      } else if (audioEl.value && audioEl.value.src && !audioEl.value.ended) {
+        // 使用HTML Audio恢复播放
+        suppressPauseDuringResume.value = true
+        try {
+          await audioEl.value.play()
+          isMusicPlaying.value = true
+          updateAudioDebug()
+          console.log('[GamePage][audio] HTML audio resumed from pause at', audioEl.value.currentTime)
+        } catch (playErr) {
+          console.warn('[GamePage][audio] HTML audio resume failed, reloading track:', playErr)
+          // 如果继续播放失败，重新加载当前曲目
+          await playTrack()
+        } finally {
+          // 确保清除抑制标志
+          setTimeout(() => { suppressPauseDuringResume.value = false }, 150)
+        }
+      } else {
+        // 没有加载的音频或已播放完毕，重新加载当前曲目
+        await playTrack()
+      }
     }
   } catch (e) {
     console.warn('toggleMusic failed', e)
+    suppressPauseDuringResume.value = false
   }
 }
 
