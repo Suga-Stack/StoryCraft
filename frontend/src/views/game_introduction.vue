@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { useRoute, onBeforeRouteLeave } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { http } from '../service/http.js'
 import { addFavorite, deleteFavorite, getComments, postComments, likeComment, unlikeComment, reportComment } from '../api/user.js'
@@ -24,17 +24,6 @@ onMounted(() => {
     const stored = sessionStorage.getItem('introEntryPath')
     if (!entryPath.value && stored) entryPath.value = stored
   } catch (e) { /* ignore */ }
-})
-
-// 拦截所有返回操作（包括手势返回），固定跳转到首页
-onBeforeRouteLeave((to, from, next) => {
-  // 如果是通过 goBack 函数主动跳转，直接放行
-  if (to.path === '/') {
-    next()
-  } else {
-    // 拦截其他所有返回操作，强制跳转到首页
-    next('/')
-  }
 })
 
 // 当前用户信息（用于权限判断）
