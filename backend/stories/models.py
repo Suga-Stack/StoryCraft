@@ -8,11 +8,9 @@ class Story(models.Model):
     """
     gamework = models.OneToOneField(Gamework, on_delete=models.CASCADE, related_name='story', help_text="关联的游戏作品")
     total_chapters = models.PositiveIntegerField(default=3, help_text="计划总章节数")
-    initial_attributes = models.JSONField(default=dict, help_text="故事初始主角属性值")
-    initial_statuses = models.JSONField(default=dict,blank=True,null=True, help_text="主角初始状态")
+    initial_attributes = models.JSONField(default=dict,blank=True,null=True, help_text="故事初始主角属性值")
 
     core_seed = models.TextField(default="",blank=True,null=True, help_text="用于生成故事的核心剧情种子")
-    attribute_system = models.TextField(default="",blank=True,null=True, help_text="完整属性系统")
     architecture = models.TextField(default="",blank=True,null=True, help_text="叙事架构")
     chapter_directory = models.TextField(default="",blank=True,null=True, help_text="章节目录")
     global_summary = models.TextField(default="",blank=True,null=True, help_text="全局摘要")
@@ -31,7 +29,7 @@ class Story(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Story for {self.gamework.title}"
+        return self.gamework.title
     
     @property
     def generated_chapters_count(self):

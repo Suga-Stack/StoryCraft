@@ -1,7 +1,7 @@
 import random
 import logging
 import threading
-import time
+from concurrent.futures import ThreadPoolExecutor
 from django.db import transaction
 from typing import List, Dict, Any, Optional
 from django.db import close_old_connections
@@ -15,7 +15,25 @@ from .game_generator.chapter import generate_chapter_content, generate_ending_co
 from .game_generator.images import generate_cover_image, generate_scene_images
 from .game_generator.report import generate_report_content
 from .models import GameReport
+
 logger = logging.getLogger('django')
+
+# 全局线程池，限制并发任务数
+GAME_EXECUTOR = ThreadPoolExecutor(max_workers=20)
+
+def _run_in_background(target, *args, **kwargs):
+    """将任务提交到线程池执行，并处理数据库连接清理"""
+    def wrapper():
+        # 确保线程开始时清理旧连接
+        close_old_connections()
+        try:
+            target(*args, **kwargs)
+        except Exception as e:
+            logger.error(f"后台任务执行出错: {e}", exc_info=True)
+        finally:
+            close_old_connections()
+    
+    GAME_EXECUTOR.submit(wrapper)
 
 def _select_background_music(tags: List[str]) -> List[Music]:
     """根据标签匹配最合适的背景音乐列表（例如取前3首）"""
@@ -64,33 +82,33 @@ def _generate_chapter(gamework_id: int, chapter_index: int, user_prompt: str = "
     chapters = story.chapters.prefetch_related('scenes').order_by('chapter_index')
     prev_raw = chapters.filter(chapter_index=chapter_index - 1).first().raw_content if chapter_index > 1 else None
 
-    # 1. 生成章节内容
-    raw_chapter_content, updated_global_summary, _ = generate_chapter_content(
+    # 生成章节内容
+    raw_chapter_content, updated_global_summary = generate_chapter_content(
         chapter_index=chapter_index,
         total_chapters=story.total_chapters, 
         chapter_directory=story.chapter_directory,
         core_seed=story.core_seed,
-        attribute_system=story.attribute_system,
         architecture=story.architecture,
         previous_chapter_content=prev_raw,
         global_summary=story.global_summary,
         user_prompt=user_prompt
     )
     
-    # 2. 处理图片和解析
+    # 处理图片和解析
     ref_images = [story.gamework.image_url] if story.gamework.image_url else None
-    scene_ranges, scene_urls = generate_scene_images(raw_chapter_content, ref_images=ref_images)
+    scene_ranges, scene_urls = generate_scene_images(raw_chapter_content, ref_images)
     chapter_dict = parse_raw_chapter(raw_chapter_content, scene_ranges)
     
-    chapter_title = chapter_dict["title"]
+    # 从大纲中获取标题
+    chapter_title = f"第{chapter_index}章"
     if story.outlines:
         for outline in story.outlines:
             if outline.get("chapterIndex") == chapter_index:
-                chapter_title = outline.get("title", chapter_title)
+                chapter_title = outline.get("title") or chapter_title
                 break
     chapter_dict["title"] = chapter_title
 
-    # 3. 数据库原子更新
+    # 数据库更新
     with transaction.atomic():
         Story.objects.filter(pk=story.pk).update(global_summary=updated_global_summary)
         story.refresh_from_db()
@@ -122,7 +140,7 @@ def _generate_chapter(gamework_id: int, chapter_index: int, user_prompt: str = "
         if chapter_index == story.total_chapters:
             _initialize_endings(story)
 
-    # 4. 仅在非创作者模式下自动生成所有结局
+    # 仅在非创作者模式下自动生成所有结局
     if chapter_index == story.total_chapters and not story.ai_callable:      
         _generate_endings_async(story.id)
 
@@ -170,10 +188,8 @@ def _generate_ending_task(story_id: int, ending_index: int, user_prompt: str = "
         
         logger.info(f"开始生成故事 {story_id} 结局 {ending_index}")
 
-        # 获取上下文
+        # 获取上文
         chapter_index = story.total_chapters
-        
-        # 最后一章（前半部分）
         try:
             last_chapter = story.chapters.get(chapter_index=chapter_index)
             last_chapter_content = last_chapter.raw_content
@@ -181,24 +197,11 @@ def _generate_ending_task(story_id: int, ending_index: int, user_prompt: str = "
             last_chapter_content = ""
             logger.warning(f"生成结局时未找到第 {chapter_index} 章内容")
 
-        # 倒数第二章
-        previous_chapter_content = ""
-        if chapter_index > 1:
-            try:
-                prev_chapter = story.chapters.get(chapter_index=chapter_index - 1)
-                previous_chapter_content = prev_chapter.raw_content
-            except StoryChapter.DoesNotExist:
-                pass
-
         # 生成文本
         raw_content = generate_ending_content(
-            ending_title=ending.title,
             ending_condition=str(ending.condition), 
             ending_summary=ending.summary,
-            chapter_index=chapter_index,
-            attribute_system=story.attribute_system,
             architecture=story.architecture,
-            previous_chapter_content=previous_chapter_content,
             last_chapter_content=last_chapter_content,
             global_summary=story.global_summary,
             user_prompt=user_prompt
@@ -210,11 +213,11 @@ def _generate_ending_task(story_id: int, ending_index: int, user_prompt: str = "
         # 解析
         parsed_ending = parse_raw_chapter(raw_content, scene_ranges)
 
-        # 原子保存：确保 raw_content 和 scenes 同时可见
+        # 保存：确保 raw_content 和 scenes 同时可见
         with transaction.atomic():
             ending.raw_content = raw_content
             ending.parsed_content = parsed_ending
-            ending.status = StoryEnding.EndingStatus.GENERATED # 标记为已生成
+            ending.status = StoryEnding.EndingStatus.GENERATED 
             ending.save()
 
             ending.scenes.all().delete()
@@ -239,7 +242,6 @@ def _generate_ending_task(story_id: int, ending_index: int, user_prompt: str = "
 def _generate_endings_async(story_id: int):
     """后台批量生成所有结局详情"""
     def worker():
-        close_old_connections()
         try:
             story = Story.objects.get(pk=story_id)
             endings = StoryEnding.objects.filter(story=story)
@@ -249,14 +251,13 @@ def _generate_endings_async(story_id: int):
                 # 先标记为生成中
                 ending.status = StoryEnding.EndingStatus.GENERATING
                 ending.save()
-                t = threading.Thread(target=_generate_ending_task, args=(story_id, ending.ending_index))
-                t.start()
+                # 将每个结局的生成任务提交到线程池，避免在 worker 中阻塞或创建新线程
+                _run_in_background(_generate_ending_task, story_id, ending.ending_index)
             
         except Exception as e:
             logger.error(f"批量生成结局任务分发失败: {e}", exc_info=True)
 
-    thread = threading.Thread(target=worker, daemon=True)
-    thread.start()
+    _run_in_background(worker)
 
 def _generate_and_save_report(story: Story, ending_obj: StoryEnding):
     """生成并保存结局对应的个性报告"""
@@ -428,14 +429,12 @@ def _generate_all_chapters_async(gamework_id: int):
             except:
                 pass
 
-    thread = threading.Thread(target=worker, daemon=True)
-    thread.start()
+    _run_in_background(worker)
 
 def _start_gamework_details_generation(gamework_id: int, tags: list[str], idea: str, total_chapters: int):
     """后台生成作品详情"""
     
     def worker():
-        close_old_connections()
         try:
             # 生成创意种子
             seeds = generate_core_seeds(tags, idea)
@@ -485,8 +484,7 @@ def _start_gamework_details_generation(gamework_id: int, tags: list[str], idea: 
         except Exception as e:
             logger.error(f"作品详情生成失败: {e}", exc_info=True)
 
-    thread = threading.Thread(target=worker, daemon=True)
-    thread.start()
+    _run_in_background(worker)
 
 def _update_gamework_after_generation(
     gamework_id: int,
@@ -509,7 +507,6 @@ def _update_gamework_after_generation(
                 story.initial_attributes = architecture_details["initial_attributes"]
                 story.outlines = architecture_details["outlines"]
                 story.endings_summary = architecture_details["endings_summary"]
-                story.attribute_system = architecture_details["attribute_system_text"]
                 story.architecture = architecture_details["architecture_text"]
                 story.chapter_directory = architecture_details["chapter_directory_text"]
             
@@ -609,8 +606,7 @@ def start_single_chapter_generation(gamework: Gamework, chapter_index: int, outl
             story_instance.current_generating_chapter = 0
             story_instance.save()
 
-    thread = threading.Thread(target=worker, daemon=True)
-    thread.start()
+    _run_in_background(worker)
 
 def get_chapter_status(gamework: Gamework, chapter_index: int) -> dict:
     """查询章节生成状态或返回已生成内容。"""
@@ -727,5 +723,4 @@ def start_single_ending_generation(gamework: Gamework, ending_index: int, title:
             story_instance.is_generating = False
             story_instance.save()
 
-    thread = threading.Thread(target=worker, daemon=True)
-    thread.start()
+    _run_in_background(worker)

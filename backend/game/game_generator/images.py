@@ -1,12 +1,12 @@
 import re
 from .openai_client import invoke, generate_single_image,generate_multi_images,prompt
-from .prompts import build_cover_image_prompt_prompt,build_scene_image_prompt_prompt
+from .prompts import cover_image_system_prompt,scene_image_system_prompt
 
 
 def generate_cover_image(core_seed: str, size: str ="1920x1080") :
     """调用AI生成封面，返回可访问的URL
     """
-    user_prompt = invoke(prompt("", build_cover_image_prompt_prompt(core_seed)))
+    user_prompt = invoke(prompt(cover_image_system_prompt, f"核心设定：\n{core_seed}"))
     image_url = generate_single_image(user_prompt, size)
     return image_url
 
@@ -33,10 +33,10 @@ def _extract_scenes_prompt(raw_scenes_prompt: str):
     return ranges, prompts
 
 
-def generate_scene_images(chapter_content: str, ref_images,size: str = "1920x1080"):
+def generate_scene_images(chapter_content: str, ref_images:list, size: str = "1920x1080"):
     """使用AI生成一组连贯的背景图片,返回场景分布范围列表和图片URL列表"""
 
-    raw_scenes_prompt = invoke(prompt("",build_scene_image_prompt_prompt(chapter_content)))
+    raw_scenes_prompt = invoke(prompt(scene_image_system_prompt,chapter_content))
     ranges, prompts = _extract_scenes_prompt(raw_scenes_prompt)
 
     images_count = len(ranges)

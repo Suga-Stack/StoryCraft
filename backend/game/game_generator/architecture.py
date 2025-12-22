@@ -23,17 +23,27 @@ def _parse_creative_directions(text: str) -> list[str]:
         
     return directions
 
+def _extract_section(text: str, header_keyword: str) -> str:
+    """提取指定标题下的文本块"""
+    # 匹配 (##)? X、[header_keyword] ... 下一个 (##)? X、
+    # 兼容 ## 一、创意信息 和 一、创意信息
+    
+    header_pattern = r"(?:^|\n)\s*(?:##\s*)?[一二三四五六七八九十]、\s*" + re.escape(header_keyword)
+    next_header_pattern = r"(?:^|\n)\s*(?:##\s*)?[一二三四五六七八九十]、"
+    
+    pattern = re.compile(header_pattern + r"(.*?)(?=" + next_header_pattern + r"|$)", re.DOTALL)
+    match = pattern.search(text)
+    return match.group(1).strip() if match else ""
+
 def _parse_title_description(text: str) -> tuple[str, str]:
     """从架构中提取最终标题和简介"""
-    # 寻找 ## 一、创意信息 区域
-    section_match = re.search(r"## 一、创意信息(.*?)(?=## 二|##|$)", text, re.DOTALL)
-    if not section_match:
-        return "未命名作品", "暂无简介"
+    content = _extract_section(text, "创意信息")
+    if not content:
+        # 如果提取失败，尝试全文匹配
+        content = text
     
-    content = section_match.group(1)
-    
-    title_match = re.search(r"创意标题[:：]\s*(.+)", content)
-    desc_match = re.search(r"创意简介[:：]\s*(.+)", content, re.DOTALL)
+    title_match = re.search(r"\**创意标题\**[:：]\s*(.+)", content)
+    desc_match = re.search(r"\**创意简介\**[:：]\s*(.+)", content, re.DOTALL)
     
     title = title_match.group(1).strip() if title_match else "未命名作品"
     description = desc_match.group(1).strip() if desc_match else "暂无简介"
@@ -42,14 +52,6 @@ def _parse_title_description(text: str) -> tuple[str, str]:
     title = re.sub(r"['\"《》]", "", title).strip()
     
     return title, description
-
-def _extract_section(text: str, header_keyword: str) -> str:
-    """提取指定标题下的文本块"""
-    # 匹配 ## X、[header_keyword] ... 下一个 ##
-    # 增加 \s* 允许标题后有空格，扩展数字匹配范围
-    pattern = re.compile(r"##\s*[一二三四五六七八九十]、\s*" + re.escape(header_keyword) + r"(.*?)(?=##\s*[一二三四五六七八九十]、|$)", re.DOTALL)
-    match = pattern.search(text)
-    return match.group(1).strip() if match else ""
 
 def _parse_attributes(text: str) -> dict[str, int]:
     """解析属性系统"""
@@ -60,13 +62,14 @@ def _parse_attributes(text: str) -> dict[str, int]:
         # 尝试全文搜索
         attr_text = text
 
-    # 匹配 属性名称：xxx ... 初始值：xx
-    block_pattern = re.compile(r"属性名称[:：]\s*(.+?)\n(.*?)(?=属性名称[:：]|$)", re.DOTALL)
+    # 匹配 属性名称：xxx ... 初始值：xx，兼容 **属性名称** 以及列表符号 - 或 #
+    block_pattern = re.compile(r"(?:^|\n)\s*(?:[-*#]\s*)?\**属性名称\**[:：]\s*([^\n]+)(.*?)(?=(?:^|\n)\s*(?:[-*#]\s*)?\**属性名称\**[:：]|$)", re.DOTALL)
     blocks = block_pattern.findall(attr_text)
     
     for name, block in blocks:
         name = re.sub(r"[\*\[\]]", "", name).strip()
-        val_match = re.search(r"初始值[:：]\s*(\d+)", block)
+        # 兼容 **初始值** 以及列表符号
+        val_match = re.search(r"(?:[-*#]\s*)?\**初始值\**[:：]\s*(\d+)", block)
         if val_match:
             try:
                 attrs[name] = int(val_match.group(1))
@@ -77,8 +80,14 @@ def _parse_attributes(text: str) -> dict[str, int]:
 def _parse_outlines(text: str) -> list[dict]:
     """解析章节大纲"""
     outlines = []
-    # 匹配 第X章 - [标题]
-    chapter_pattern = re.compile(r"(?:##\s*)?第(\d+)章\s*-\s*(.+?)\n(.*?)(?=(?:##\s*)?第\d+章|##\s*[一二三四五六七]、|$)", re.DOTALL)
+    # 匹配 第X章 - [标题]，兼容 **第X章**
+    # 增加对下一章节或大标题( (##)? [一二三四五六]、)的预查
+    # 兼容 ## 第X章 和 第X章
+    
+    chapter_start = r"(?:^|\n)\s*(?:##\s*)?(?:[\*]*\s*)?第(\d+)章\s*-\s*(.+?)\n"
+    lookahead = r"(?=(?:^|\n)\s*(?:##\s*)?(?:[\*]*\s*)?第\d+章|(?:^|\n)\s*(?:##\s*)?[一二三四五六七八九十]、|$)"
+    
+    chapter_pattern = re.compile(chapter_start + r"(.*?)" + lookahead, re.DOTALL)
     matches = chapter_pattern.findall(text)
     
     for idx_str, title, content in matches:
@@ -87,17 +96,17 @@ def _parse_outlines(text: str) -> list[dict]:
         
         outline = "暂无大纲"
         
-        # 优先匹配长篇格式的 "章节大纲"
-        long_match = re.search(r"章节大纲[:：]\s*(.+)", content, re.DOTALL)
+        # 优先匹配长篇格式的 "章节大纲"，兼容 **章节大纲**
+        long_match = re.search(r"\**章节大纲\**[:：]\s*(.+)", content, re.DOTALL)
         if long_match:
             outline = long_match.group(1).strip()
-            # 长篇格式通常章节大纲在最后，但为了安全，截断到下一个大标题
+            # 长篇格式通常章节大纲在最后，但为了安全，截断到下一个大标题或列表项
             cutoff = re.search(r"\n\s*(?:##|[一二三四五六]、)", outline)
             if cutoff:
                 outline = outline[:cutoff.start()].strip()
         else:
-            # 匹配短篇格式的 "核心剧情"
-            short_match = re.search(r"核心剧情[:：]\s*(.+)", content, re.DOTALL)
+            # 匹配短篇格式的 "核心剧情"，兼容 **核心剧情** 以及列表项 - 核心剧情
+            short_match = re.search(r"(?:-\s*)?\**核心剧情\**[:：]\s*(.+)", content, re.DOTALL)
             if short_match:
                 outline = short_match.group(1).strip()
                 # 查找下一个以 "- " 开头的行，或者大标题
@@ -120,14 +129,17 @@ def _parse_endings(text: str) -> list[dict]:
     if not ending_text:
         ending_text = text
 
-    ending_pattern = re.compile(r"结局(\d+)[:：]\s*(.+?)\n(.*?)(?=结局\d+[:：]|$)", re.DOTALL)
+    # 兼容 **结局1**
+    ending_pattern = re.compile(r"\**结局(\d+)\**[:：]\s*(.+?)\n(.*?)(?=\**结局\d+\**[:：]|$)", re.DOTALL)
     matches = ending_pattern.findall(ending_text)
     
     for idx_str, title, content in matches:
         title = re.sub(r"[\*\[\]]", "", title).strip()
         
-        cond_match = re.search(r"触发条件[:：]\s*(.+)", content)
-        summary_match = re.search(r"核心剧情[:：]\s*(.+)", content, re.DOTALL)
+        # 兼容 **触发条件**
+        cond_match = re.search(r"\**触发条件\**[:：]\s*(.+)", content)
+        # 兼容 **核心剧情**
+        summary_match = re.search(r"\**核心剧情\**[:：]\s*(.+)", content, re.DOTALL)
         
         condition = cond_match.group(1).strip() if cond_match else "无"
         summary = summary_match.group(1).strip() if summary_match else ""
@@ -194,7 +206,6 @@ def generate_architecture(core_seed: str, total_chapters: int) -> dict:
     title, description = _parse_title_description(arch_response)
     initial_attributes = _parse_attributes(arch_response)
     endings = _parse_endings(arch_response)
-    attr_system_text = _extract_section(arch_response, "完整属性系统")
 
     return {
         "title": title,
@@ -202,7 +213,6 @@ def generate_architecture(core_seed: str, total_chapters: int) -> dict:
         "initial_attributes": initial_attributes,
         "outlines": outlines,
         "endings_summary": endings,
-        "attribute_system_text": attr_system_text,
         "architecture_text": arch_response,
         "chapter_directory_text": chapter_directory_text
     }

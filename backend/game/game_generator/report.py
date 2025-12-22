@@ -1,6 +1,6 @@
 import re
 from .openai_client import invoke,prompt
-from .prompts import build_report_prompt
+from .prompts import report_system_prompt
 
 def _parse_report(text: str) -> dict:
     title_match = re.search(r"\[称号\][：:]\s*(.+)", text)
@@ -21,6 +21,13 @@ def _parse_report(text: str) -> dict:
     }
 
 def generate_report_content(global_summary: str, ending_summary: str, ending_title: str) -> dict:
-    r_prompt = build_report_prompt(global_summary, ending_summary, ending_title)
-    response = invoke(prompt("",r_prompt))
+    user_prompt = f"""
+# 全局剧情摘要
+{global_summary}
+
+# 达成结局
+标题：{ending_title}
+概述：{ending_summary}
+"""
+    response = invoke(prompt(report_system_prompt,user_prompt))
     return _parse_report(response)

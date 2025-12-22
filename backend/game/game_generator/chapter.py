@@ -3,7 +3,7 @@ from .openai_client import invoke, prompt
 from .prompts import(
     chapter_system_prompt,
     ending_system_prompt,
-    update_summary_prompt
+    update_summary_system_prompt
 )
 
 def _extract_chapter_block(text: str, index: int) -> str:
@@ -20,7 +20,6 @@ def generate_chapter_content(
     total_chapters: int,
     chapter_directory: str,
     core_seed: str,
-    attribute_system: str, 
     architecture: str,
     previous_chapter_content: str = "",
     global_summary: str = "",
@@ -28,7 +27,7 @@ def generate_chapter_content(
 ):
     """生成章节文本 + 更新摘要"""
     
-    # 1. 准备输入信息
+    # 准备输入信息
     current_chap_info = _extract_chapter_block(chapter_directory, chapter_index)
     
     if chapter_index < total_chapters:
@@ -41,7 +40,7 @@ def generate_chapter_content(
         # 取上一章最后一段或最后500字
         prev_end = previous_chapter_content[-500:]
 
-    # 2. 构建 User Prompt
+    # 构建 User Prompt
     input_text = f"""
 1. 基础创意设定：
 {core_seed}
@@ -65,24 +64,24 @@ def generate_chapter_content(
 {user_prompt}
 """
 
-    # 3. 调用 AI
+    # 调用 AI
     chapter_content = invoke(prompt(chapter_system_prompt, input_text))
+    update_summary_user_prompt = f"""
+前文全局摘要：
+{global_summary if global_summary else "无（这是第一章）"}
+
+新章节文本：
+{chapter_content}
+"""
+    # 更新摘要
+    updated_summary = invoke(prompt(update_summary_system_prompt,update_summary_user_prompt))
     
-    # 4. 更新摘要
-    # 摘要更新不需要太复杂的prompt，直接传内容即可
-    updated_summary = invoke(prompt("",update_summary_prompt(global_summary,chapter_content)))
-    
-    # 新流程中，结局摘要在架构阶段已生成，章节生成阶段不再生成结局摘要
-    return chapter_content, updated_summary, []
+    return chapter_content, updated_summary
 
 def generate_ending_content(
-    ending_title: str,
     ending_condition: str,
     ending_summary: str,
-    chapter_index: int, 
-    attribute_system: str,
     architecture: str,
-    previous_chapter_content: str, 
     last_chapter_content: str,     
     global_summary: str = "",
     user_prompt: str = ""
@@ -109,7 +108,7 @@ def generate_ending_content(
 {ending_summary}
 
 6. 补充说明：
-{user_prompt}
+{user_prompt if user_prompt else "无"}
 """
     
     ending_content = invoke(prompt(ending_system_prompt, input_text))
@@ -164,6 +163,8 @@ def parse_ending_condition(text: str, attr_ranges: dict) -> dict:
         if not m:
             continue
         attr = m.group(1).strip()
+        # 清理属性名称
+        attr = re.sub(r"[\*\[\]]", "", attr).strip()
         level = m.group(2)
         
         if attr not in attr_ranges:
