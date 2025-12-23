@@ -5,39 +5,39 @@ from rest_framework.test import APITestCase
 from rest_framework import status
 from django.contrib.auth import get_user_model
 from gameworks.models import Gamework
-from stories.models import Story, StoryChapter, StoryScene
-from ..models import GameSave
+from stories.models import Story, StoryChapter, StoryScene, StoryEnding
+from ..models import GameSave, GameReport
 from django.core.files.uploadedfile import SimpleUploadedFile
 
 User = get_user_model()
 
 class GameViewsTestCase(APITestCase):
     """
-    Test suite for the game views.
+    测试 game 相关的接口
     """
 
     def setUp(self):
-        """
-        Set up the test environment.
-        """
-        self.user = User.objects.create_user(username='testuser', password='testpassword')
-        self.other_user = User.objects.create_user(username='otheruser', password='testpassword')
+        self.user = User.objects.create_user(username='testuser', email='testuser@example.com', password='testpassword')
+        self.other_user = User.objects.create_user(username='otheruser', email='otheruser@example.com', password='testpassword')
         self.client.login(username='testuser', password='testpassword')
 
         self.gamework = Gamework.objects.create(
             author=self.user,
             title="Test Gamework",
-            tags=["tag1", "tag2"],
-            idea="An idea",
-            length="short",
-            modifiable=True
         )
-        self.story = Story.objects.create(gamework=self.gamework)
+        
+        self.story = Story.objects.create(
+            gamework=self.gamework,
+            total_chapters=3,
+            ai_callable=True,
+            initial_generation_complete=True
+        )
+        
         self.chapter = StoryChapter.objects.create(
             story=self.story,
             chapter_index=1,
             title="Chapter 1",
-            status=StoryChapter.ChapterStatus.READY
+            status=StoryChapter.ChapterStatus.GENERATED
         )
         self.scene = StoryScene.objects.create(
             chapter=self.chapter,
@@ -55,7 +55,7 @@ class GameViewsTestCase(APITestCase):
         mock_save.return_value = 'user_upload/testuuid.png'
         
         image = SimpleUploadedFile("test_image.png", b"file_content", content_type="image/png")
-        url = reverse('upload_image')
+        url = reverse('user-upload-image')
         response = self.client.post(url, {'file': image}, format='multipart')
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -67,7 +67,7 @@ class GameViewsTestCase(APITestCase):
         """
         Test image upload with no file provided.
         """
-        url = reverse('upload_image')
+        url = reverse('user-upload-image')
         response = self.client.post(url, {}, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -77,9 +77,9 @@ class GameViewsTestCase(APITestCase):
         Test successful game creation.
         """
         mock_create_gamework.return_value = {'gameworkId': self.gamework.id}
-        url = reverse('game_create')
+        url = reverse('game-create')
         data = {
-            "tags": ["fantasy", "adventure"],
+            "tags": ["fantasy", "adventure", "magic"],
             "idea": "A grand adventure",
             "length": "medium",
             "modifiable": True
@@ -94,8 +94,8 @@ class GameViewsTestCase(APITestCase):
         """
         Test game creation with invalid data.
         """
-        url = reverse('game_create')
-        data = {"tags": ["fantasy"]}  # Missing 'length'
+        url = reverse('game-create')
+        data = {"tags": ["fantasy"]}  # Missing 'length' and tags count < 3
         response = self.client.post(url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -105,7 +105,7 @@ class GameViewsTestCase(APITestCase):
         Test successfully getting chapter status.
         """
         mock_get_chapter_status.return_value = {'status': 'ready', 'content': {}}
-        url = reverse('game_chapter_detail', kwargs={'gameworkId': self.gamework.id, 'chapterIndex': 1})
+        url = reverse('game-chapter', kwargs={'gameworkId': self.gamework.id, 'chapterIndex': 1})
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -116,7 +116,7 @@ class GameViewsTestCase(APITestCase):
         """
         Test getting chapter status for a non-existent gamework.
         """
-        url = reverse('game_chapter_detail', kwargs={'gameworkId': 999, 'chapterIndex': 1})
+        url = reverse('game-chapter', kwargs={'gameworkId': 999, 'chapterIndex': 1})
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
@@ -124,7 +124,7 @@ class GameViewsTestCase(APITestCase):
         """
         Test manually updating a chapter successfully.
         """
-        url = reverse('game_chapter_detail', kwargs={'gameworkId': self.gamework.id, 'chapterIndex': 1})
+        url = reverse('game-chapter', kwargs={'gameworkId': self.gamework.id, 'chapterIndex': 1})
         data = {
             "chapterIndex": 1,
             "title": "Updated Chapter Title",
@@ -132,7 +132,7 @@ class GameViewsTestCase(APITestCase):
                 {
                     "id": 1,
                     "backgroundImage": "http://new.image/url.jpg",
-                    "dialogues": [{"character": "Narrator", "text": "A new beginning."}]
+                    "dialogues": [{"narration": "A new beginning."}]
                 }
             ]
         }
@@ -141,15 +141,15 @@ class GameViewsTestCase(APITestCase):
         self.chapter.refresh_from_db()
         self.assertEqual(self.chapter.title, "Updated Chapter Title")
         self.assertEqual(self.chapter.scenes.count(), 1)
-        self.assertEqual(self.chapter.scenes.first().dialogues[0]['text'], "A new beginning.")
+        self.assertEqual(self.chapter.scenes.first().dialogues[0]['narration'], "A new beginning.")
 
     def test_update_chapter_manual_forbidden(self):
         """
         Test that a user cannot update a chapter they do not own.
         """
         self.client.login(username='otheruser', password='testpassword')
-        url = reverse('game_chapter_detail', kwargs={'gameworkId': self.gamework.id, 'chapterIndex': 1})
-        data = {"chapterIndex": 1, "title": "Forbidden Update"}
+        url = reverse('game-chapter', kwargs={'gameworkId': self.gamework.id, 'chapterIndex': 1})
+        data = {"chapterIndex": 1, "title": "Forbidden Update", "scenes": []}
         response = self.client.put(url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -158,9 +158,9 @@ class GameViewsTestCase(APITestCase):
         """
         Test successfully starting single chapter generation.
         """
-        url = reverse('chapter_generate', kwargs={'gameworkId': self.gamework.id, 'chapterIndex': 2})
+        url = reverse('game-chapter-generate', kwargs={'gameworkId': self.gamework.id, 'chapterIndex': 2})
         data = {
-            "chapterOutlines": ["Outline 1", "Outline 2"],
+            "chapterOutlines": [{"chapterIndex": 2, "title": "T2", "outline": "O2"}],
             "userPrompt": "Make it dramatic."
         }
         response = self.client.post(url, data, format='json')
@@ -173,8 +173,8 @@ class GameViewsTestCase(APITestCase):
         Test that a user cannot trigger generation for a gamework they don't own.
         """
         self.client.login(username='otheruser', password='testpassword')
-        url = reverse('chapter_generate', kwargs={'gameworkId': self.gamework.id, 'chapterIndex': 2})
-        data = {}
+        url = reverse('game-chapter-generate', kwargs={'gameworkId': self.gamework.id, 'chapterIndex': 2})
+        data = {"chapterOutlines": []}
         response = self.client.post(url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -182,7 +182,7 @@ class GameViewsTestCase(APITestCase):
         """
         Test creating a new game save.
         """
-        url = reverse('game_save_detail', kwargs={'gameworkId': self.gamework.id, 'slot': 1})
+        url = reverse('game-save-detail', kwargs={'gameworkId': self.gamework.id, 'slot': 1})
         data = {
             "title": "My Save",
             "timestamp": 123456789,
@@ -206,9 +206,10 @@ class GameViewsTestCase(APITestCase):
             slot=1,
             title="Test Save",
             timestamp=123,
-            state={"chapterIndex": 1, "sceneId": 1}
+            state={"chapterIndex": 1, "sceneId": 1},
+            cover_url="http://example.com/cover.jpg"
         )
-        url = reverse('game_save_detail', kwargs={'gameworkId': self.gamework.id, 'slot': 1})
+        url = reverse('game-save-detail', kwargs={'gameworkId': self.gamework.id, 'slot': 1})
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['title'], save.title)
@@ -217,7 +218,7 @@ class GameViewsTestCase(APITestCase):
         """
         Test retrieving a non-existent game save.
         """
-        url = reverse('game_save_detail', kwargs={'gameworkId': self.gamework.id, 'slot': 99})
+        url = reverse('game-save-detail', kwargs={'gameworkId': self.gamework.id, 'slot': 99})
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
@@ -225,8 +226,8 @@ class GameViewsTestCase(APITestCase):
         """
         Test deleting a game save.
         """
-        GameSave.objects.create(user=self.user, gamework=self.gamework, slot=1)
-        url = reverse('game_save_detail', kwargs={'gameworkId': self.gamework.id, 'slot': 1})
+        GameSave.objects.create(user=self.user, gamework=self.gamework, slot=1, state={}, timestamp=1, cover_url="")
+        url = reverse('game-save-detail', kwargs={'gameworkId': self.gamework.id, 'slot': 1})
         response = self.client.delete(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(GameSave.objects.filter(user=self.user, gamework=self.gamework, slot=1).exists())
@@ -237,31 +238,77 @@ class GameViewsTestCase(APITestCase):
         """
         GameSave.objects.create(
             user=self.user, gamework=self.gamework, slot=1, title="Save 1",
-            state={"chapterIndex": 1, "sceneId": 1}, cover_url="url1"
+            state={"chapterIndex": 1, "sceneId": 1}, cover_url="url1", timestamp=1
         )
         GameSave.objects.create(
             user=self.user, gamework=self.gamework, slot=2, title="Save 2",
-            state={"chapterIndex": 2, "sceneId": 1}, cover_url="url2"
+            state={"chapterIndex": 2, "sceneId": 1}, cover_url="url2", timestamp=2
         )
-        url = reverse('game_save_list', kwargs={'gameworkId': self.gamework.id})
+        url = reverse('game-saves', kwargs={'gameworkId': self.gamework.id})
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['saves']), 2)
         self.assertEqual(response.data['saves'][0]['slot'], 1)
         self.assertEqual(response.data['saves'][1]['slot'], 2)
 
-    @patch('game.services.build_settlement_variants')
-    def test_settlement_report_view(self, mock_build_variants):
-        """
-        Test the settlement report generation view.
-        """
-        mock_build_variants.return_value = {"variants": [{"title": "Hero", "description": "You were a hero."}]}
-        url = reverse('settlement_report', kwargs={'workId': self.gamework.id})
+    @patch('game.services.get_story_endings')
+    def test_game_ending_list_view(self, mock_get_endings):
+        """Test listing story endings"""
+        mock_get_endings.return_value = {"status": "ready", "endings": []}
+        url = reverse('story-ending', kwargs={'gameworkId': self.gamework.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_get_endings.assert_called_once()
+
+    @patch('game.services.get_single_story_ending')
+    def test_game_ending_detail_view(self, mock_get_single):
+        """Test getting single ending detail"""
+        mock_get_single.return_value = {"status": "ready", "ending": {}}
+        url = reverse('story-ending-detail', kwargs={'gameworkId': self.gamework.id, 'endingIndex': 1})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_get_single.assert_called_once()
+
+    def test_game_ending_manual_update(self):
+        """Test manually updating an ending"""
+        # Create an ending first
+        StoryEnding.objects.create(story=self.story, ending_index=1, title="Old Title")
+        
+        url = reverse('story-ending-detail', kwargs={'gameworkId': self.gamework.id, 'endingIndex': 1})
         data = {
-            "attributes": {"strength": 10},
-            "statuses": {"brave": True}
+            "endingIndex": 1,
+            "title": "New Ending Title",
+            "scenes": []
+        }
+        response = self.client.put(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        ending = StoryEnding.objects.get(story=self.story, ending_index=1)
+        self.assertEqual(ending.title, "New Ending Title")
+        self.assertEqual(ending.status, StoryEnding.EndingStatus.SAVED)
+
+    @patch('game.services.start_single_ending_generation')
+    def test_ending_generate_view(self, mock_start_gen):
+        """Test starting ending generation"""
+        # Need an ending object to exist for validation in service (though mocked here, view checks permissions)
+        StoryEnding.objects.create(story=self.story, ending_index=1)
+        
+        url = reverse('game-ending-generate', kwargs={'gameworkId': self.gamework.id, 'endingIndex': 1})
+        data = {
+            "title": "Ending Title",
+            "outline": "Ending Outline",
+            "userPrompt": "Prompt"
         }
         response = self.client.post(url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("variants", response.data)
-        mock_build_variants.assert_called_once_with(data["attributes"], data["statuses"])
+        mock_start_gen.assert_called_once()
+
+    @patch('game.services.get_ending_report')
+    def test_game_report_view(self, mock_get_report):
+        """Test getting game report"""
+        mock_get_report.return_value = {"status": "ready", "details": {}}
+        url = reverse('settlement-report', kwargs={'gameworkId': self.gamework.id, 'endingIndex': 1})
+        data = {"attributes": {"courage": 10}}
+        response = self.client.post(url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_get_report.assert_called_once()

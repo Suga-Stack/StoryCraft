@@ -11,8 +11,11 @@ def generate_cover_image(core_seed: str, size: str ="1920x1080") :
     return image_url
 
 def _extract_scenes_prompt(raw_scenes_prompt: str):
-    # 使用正则分割每个画面块，分隔符为 "## 画面X："
-    parts = re.split(r'## 画面\d+[:：]', raw_scenes_prompt)
+    # 使用正则分割每个画面块，兼容多种格式
+    # 格式1: ## 画面1：
+    # 格式2: **画面1：**
+    # 格式3: 画面1：
+    parts = re.split(r'(?:^|\n)\s*(?:##|\*\*|)\s*画面\d+[:：](?:\*\*)?', raw_scenes_prompt)
     
     ranges = []
     prompts = []
@@ -21,13 +24,16 @@ def _extract_scenes_prompt(raw_scenes_prompt: str):
         if not part.strip():
             continue
             
-        # 提取范围
-        range_match = re.search(r'### 范围：\s*\[?(\d+)\]?', part)
+        # 提取范围，兼容多种格式
+        # 格式1: ### 范围：[70]
+        # 格式2: **范围**：70
+        # 格式3: 范围：70
+        range_match = re.search(r'(?:###|\*\*|)\s*范围(?:\*\*|)\s*[:：]\s*\[?(\d+)\]?', part)
         if range_match:
             ranges.append(int(range_match.group(1)))
             
             # 移除范围行，保留剩下的作为prompt
-            clean_part = re.sub(r'### 范围：.*', '', part).strip()
+            clean_part = re.sub(r'(?:###|\*\*|)\s*范围.*', '', part).strip()
             prompts.append(clean_part)
     
     return ranges, prompts

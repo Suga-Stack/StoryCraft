@@ -10,7 +10,7 @@ class TestUtils(TestCase):
         
         text2 = "策略值+5，记忆完整度-10"
         result2 = utils._parse_attr_deltas(text2)
-        self.assertEqual(result2, {"策略值": 5, "记忆完整度": -4})
+        self.assertEqual(result2, {"策略值": 5, "记忆完整度": -10})
 
         text3 = "无属性变化"
         result3 = utils._parse_attr_deltas(text3)
