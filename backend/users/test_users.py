@@ -5,10 +5,8 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.urls import reverse
 from gameworks.models import Gamework
-from interactions.models import ReadRecord
-from game.models import GameSave
-from users.models import UserSignIn, SignInLog
-from django.utils import timezone
+from interactions.models import ReadRecord, Comment
+from users.models import UserSignIn, SignInLog, GameworkReport, CreditLog, CommentReport
 
 User = get_user_model()
 
@@ -54,14 +52,79 @@ class UserViewSetTestCase(APITestCase):
     """
     Test suite for UserViewSet.
     """
-
     def setUp(self):
         self.admin_user = User.objects.create_superuser(username='admin', password='adminpassword', email="admin@example.com")
         self.user = User.objects.create_user(username='testuser', password='testpassword', email="test@example.com")
         self.other_user = User.objects.create_user(username='otheruser', password='otherpassword', email="othertest@example.com")
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
+        self.user_list_url = reverse('user-administration')
         self.url = reverse('user-administration-detail', kwargs={'id': self.user.id})
+
+    def test_retrieve_user_as_admin(self):
+        """
+        Test that an admin can retrieve any user's details.
+        """
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['username'], self.user.username)
+
+    def test_retrieve_user_as_normal_user(self):
+        """
+        Test that a normal user can only retrieve their own details.
+        """
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['username'], self.user.username)
+
+        other_user_url = reverse('user-administration-detail', kwargs={'id': self.other_user.id})
+        response = self.client.get(other_user_url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_delete_self_success(self):
+        """
+        Test that a user can delete their own account.
+        """
+        response = self.client.delete(self.url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(User.objects.filter(id=self.user.id).exists())
+
+    def test_delete_other_user_forbidden(self):
+        """
+        Test that a normal user cannot delete another user's account.
+        """
+        other_user_url = reverse('user-administration-detail', kwargs={'id': self.other_user.id})
+        response = self.client.delete(other_user_url)
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_delete_user_as_admin(self):
+        """
+        Test that an admin can delete any user's account.
+        """
+        self.client.force_authenticate(user=self.admin_user)
+        other_user_url = reverse('user-administration-detail', kwargs={'id': self.other_user.id})
+        response = self.client.delete(other_user_url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(User.objects.filter(id=self.other_user.id).exists())
+        
+    def test_list_users_as_admin(self):
+        """
+        Test that an admin can list all users.
+        """
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.get(self.user_list_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), User.objects.count())
+
+    def test_list_users_as_normal_user(self):
+        """
+        Test that a normal user can only see their own data.
+        """
+        response = self.client.get(self.user_list_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]['username'], self.user.username)
 
     def test_partial_update_self_success(self):
         """
@@ -306,3 +369,351 @@ class UserSignInViewTestCase(APITestCase):
 
         response = self.client.post(self.url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+class RechargeViewSetTestCase(APITestCase):
+    """
+    Test suite for the RechargeViewSet.
+    """
+
+    def setUp(self):
+        """
+        Set up the test environment.
+        """
+        self.user = User.objects.create_user(username='testuser', password='testpassword', user_credits=100)
+        self.client.force_authenticate(user=self.user)
+        self.url = reverse('user-recharge')
+
+    def test_recharge_success(self):
+        """
+        Test successful recharge of credits.
+        """
+        data = {"credits": 50}
+        response = self.client.post(self.url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['code'], 200)
+        self.assertEqual(response.data['message'], "充值成功")
+        self.assertEqual(response.data['new_credits'], 150)  # 100 + 50
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.user_credits, 150)
+
+    def test_recharge_invalid_credits_type(self):
+        """
+        Test recharge with invalid credits type (non-integer).
+        """
+        data = {"credits": "invalid"}
+        response = self.client.post(self.url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['code'], 400)
+        self.assertEqual(response.data['message'], "credits 必须为整数")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.user_credits, 100)
+
+    def test_recharge_negative_credits(self):
+        """
+        Test recharge with negative credits.
+        """
+        data = {"credits": -10}
+        response = self.client.post(self.url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['code'], 400)
+        self.assertEqual(response.data['message'], "充值积分必须大于 0")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.user_credits, 100)
+
+    def test_recharge_zero_credits(self):
+        """
+        Test recharge with zero credits.
+        """
+        data = {"credits": 0}
+        response = self.client.post(self.url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['code'], 400)
+        self.assertEqual(response.data['message'], "充值积分必须大于 0")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.user_credits, 100)
+
+    def test_recharge_unauthenticated(self):
+        """
+        Test recharge without authentication.
+        """
+        self.client.force_authenticate(user=None)
+        data = {"credits": 50}
+        response = self.client.post(self.url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertIn('detail', response.data)
+        self.assertEqual(response.data['detail'], 'Authentication credentials were not provided.')
+
+class RewardViewSetTests(APITestCase):
+    """
+    Test suite for RewardViewSet.
+    """
+
+    def setUp(self):
+        """
+        Set up the test environment.
+        """
+        self.user = User.objects.create_user(username='testuser', password='testpassword', email='test@example.com', user_credits=100)
+        self.author = User.objects.create_user(username='authoruser', password='authorpassword', email='author@example.com', user_credits=50)
+        self.gamework = Gamework.objects.create(
+            author=self.author,
+            title="Test Gamework"
+        )
+        self.url = reverse('user-reward')
+        self.client.force_authenticate(user=self.user)
+
+    def test_reward_success(self):
+        """
+        Test successfully rewarding a gamework author.
+        """
+        data = {
+            "gamework_id": self.gamework.id,
+            "amount": 20
+        }
+        response = self.client.post(self.url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['code'], 200)
+        self.assertEqual(response.data['message'], "打赏成功")
+        self.assertEqual(response.data['amount'], 20)
+        self.assertEqual(response.data['author'], self.author.username)
+
+        self.user.refresh_from_db()
+        self.author.refresh_from_db()
+        self.assertEqual(self.user.user_credits, 80)  # 100 - 20
+        self.assertEqual(self.author.user_credits, 70)  # 50 + 20
+
+    def test_reward_insufficient_credits(self):
+        """
+        Test rewarding a gamework author with insufficient credits.
+        """
+        data = {
+            "gamework_id": self.gamework.id,
+            "amount": 200
+        }
+        response = self.client.post(self.url, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['code'], 400)
+        self.assertEqual(response.data['message'], "积分不足，无法打赏")
+
+        self.user.refresh_from_db()
+        self.author.refresh_from_db()
+
+class GameworkReportViewSetTests(APITestCase):
+    """
+    Test suite for GameworkReportViewSet.
+    """
+
+    def setUp(self):
+        """
+        Set up the test environment.
+        """
+        self.user = User.objects.create_user(username='testuser', password='testpassword', email='test@example.com')
+        self.admin_user = User.objects.create_superuser(username='admin', password='adminpassword', email='other@example.com')
+        self.gamework = Gamework.objects.create(
+            author=self.user,
+            title="Test Gamework",
+            is_published=True
+        )
+        self.report = GameworkReport.objects.create(
+            gamework=self.gamework,
+            reporter=self.user,
+            tag="Inappropriate content"
+        )
+        self.url_list = reverse('gamework-report')
+        self.url_detail = reverse('gamework-report-detail', kwargs={'pk': self.report.id})
+        self.client.force_authenticate(user=self.user)
+
+    def test_list_reports_as_user(self):
+        """
+        Test that a normal user can only see their own reports.
+        """
+        response = self.client.get(self.url_list)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["tag"], self.report.tag)
+
+    def test_list_reports_as_admin(self):
+        """
+        Test that an admin can see all reports.
+        """
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.get(self.url_list)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(response.data), 1)
+
+    def test_create_report_success(self):
+        """
+        Test successfully creating a report.
+        """
+        data = {
+            "gamework": self.gamework.id,
+            "tag": "Spam content"
+        }
+        response = self.client.post(self.url_list, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['message'], "作品举报成功")
+        self.assertEqual(response.data['data']['tag'], "Spam content")
+
+    def test_create_report_invalid_gamework(self):
+        """
+        Test creating a report for a non-existent gamework.
+        """
+        data = {
+            "gamework": 999,
+            "tag": "Invalid gamework"
+        }
+        response = self.client.post(self.url_list, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_retrieve_report_as_user(self):
+        """
+        Test retrieving a report as the reporter.
+        """
+        response = self.client.get(self.url_detail)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['tag'], self.report.tag)
+
+    def test_retrieve_report_as_admin(self):
+        """
+        Test retrieving a report as an admin.
+        """
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.get(self.url_detail)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['tag'], self.report.tag)
+
+class CreditLogViewSetTests(APITestCase):
+    """
+    Test suite for CreditLogViewSet.
+    """
+
+    def setUp(self):
+        """
+        Set up the test environment.
+        """
+        self.user = User.objects.create_user(username='testuser', password='testpassword', email='test@ex.com', user_credits=100)
+        self.other_user = User.objects.create_user(username='otheruser', password='testpassword', email='other@ex.com', user_credits=50)
+        self.client.force_authenticate(user=self.user)
+
+        # Create credit logs for the user
+        self.credit_log1 = CreditLog.objects.create(
+            user=self.user,
+            change_amount=50,
+            type="recharge",
+            remark="User recharge",
+            before_balance=50,
+            after_balance=100
+        )
+
+        self.url = reverse('user-creditlog')        
+
+    def test_list_credit_logs_success(self):
+        """
+        Test that a user can retrieve their own credit logs.
+        """
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+class CommentReportViewSetTests(APITestCase):
+    """
+    Test suite for CommentReportViewSet.
+    """
+
+    def setUp(self):
+        """
+        Set up the test environment.
+        """
+        self.user = User.objects.create_user(username='testuser', password='testpassword', email='test@example.com')
+        self.admin_user = User.objects.create_superuser(username='admin', password='adminpassword', email='admin@example.com')
+        self.gamework = Gamework.objects.create(
+            author=self.user,
+            title="Test Gamework",
+            is_published=True
+        )
+        self.comment = Comment.objects.create(
+            user=self.user,
+            gamework=self.gamework,
+            content="This is a test comment."
+        )
+        self.comment_report = CommentReport.objects.create(
+            comment=self.comment,
+            reporter=self.user,
+            tag="Spam"
+        )
+        self.url_list = reverse('comment-report')
+        self.url_detail = reverse('comment-report-detail', kwargs={'pk': self.comment_report.id})
+        self.client.force_authenticate(user=self.user)
+
+    def test_list_comment_reports_as_user(self):
+        """
+        Test that a normal user can only see their own comment reports.
+        """
+        response = self.client.get(self.url_list)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["tag"], self.comment_report.tag)
+
+    def test_list_comment_reports_as_admin(self):
+        """
+        Test that an admin can see all comment reports.
+        """
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.get(self.url_list)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(response.data["results"]), 1)
+
+    def test_create_comment_report_success(self):
+        """
+        Test successfully creating a comment report.
+        """
+        data = {
+            "comment": 1,
+            "tag": "Inappropriate"
+        }
+        response = self.client.post(self.url_list, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['message'], "评论举报成功")
+        self.assertEqual(response.data['data']['tag'], "Inappropriate")
+
+    def test_create_comment_report_invalid(self):
+        """
+        Test creating a comment report with invalid data.
+        """
+        data = {
+            "tag": "Inappropriate"
+        }
+        response = self.client.post(self.url_list, data, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_retrieve_comment_report_as_user(self):
+        """
+        Test retrieving a comment report as the reporter.
+        """
+        response = self.client.get(self.url_detail)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['tag'], self.comment_report.tag)
+
+    def test_retrieve_comment_report_as_admin(self):
+        """
+        Test retrieving a comment report as an admin.
+        """
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.get(self.url_detail)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['tag'], self.comment_report.tag)
+
+    def test_destroy_comment_report_as_admin(self):
+        """
+        Test deleting a comment report as an admin.
+        """
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.delete(self.url_detail)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(CommentReport.objects.filter(id=self.comment_report.id).exists())
+
+    def test_destroy_comment_report_as_user(self):
+        """
+        Test deleting a comment report as a normal user.
+        """
+        response = self.client.delete(self.url_detail)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(CommentReport.objects.filter(id=self.comment_report.id).exists())
