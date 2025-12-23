@@ -10,16 +10,17 @@ services:
       --timeout 120
       --keep-alive 5
     volumes:
-      - ./media:/app/media
+      - media_perf_data:/app/media
+      - static_perf_data:/app/staticfiles
     env_file:
       - .env
     environment:
       - DATABASE=mysql
       - DB_HOST=db_perf
       - DB_PORT=3306
-      - MYSQL_DATABASE=storycraft_perf
-      - MYSQL_USER=perf_user
-      - MYSQL_PASSWORD=perf_password
+      - DB_NAME=storycraft_perf
+      - DB_USER=perf_user
+      - DB_PASSWORD=perf_password
       - REDIS_URL=redis://redis_perf:6379/1
       - DEBUG=False
       - SITE_DOMAIN=http://82.157.231.8:8001
@@ -35,7 +36,8 @@ services:
     image: nginx:latest
     volumes:
       - ./nginx/perf.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./media:/app/media:ro
+      - media_perf_data:/app/media:ro
+      - static_perf_data:/app/staticfiles:ro
     ports:
       - "8001:80"
     depends_on:
@@ -83,6 +85,8 @@ services:
 volumes:
   mysql_perf_data:
   redis_perf_data:
+  media_perf_data:
+  static_perf_data:
 
 networks:
   perf_net:
