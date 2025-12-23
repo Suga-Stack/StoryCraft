@@ -278,7 +278,7 @@ const handleRegister = async () => {
         localStorage.setItem('userInfo', JSON.stringify(user));
       }
 
-      // 根据需求跳转到偏好设置页面
+      alert('注册成功，正在跳转到登录页');
       router.push('/login');
     } else {
       // 处理正常响应中的错误信息
