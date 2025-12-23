@@ -138,7 +138,7 @@ class GameChapterView(views.APIView):
                 gamework = get_object_or_404(Gamework, pk=gameworkId)
             except Exception as e:
                 return Response({"error":"指定的作品不存在"}, status=status.HTTP_404_NOT_FOUND)
-            print("tring to get chapter status for gameworkId:", gameworkId, "chapterIndex:", chapterIndex)
+
             result = services.get_chapter_status(gamework, chapterIndex)
             return Response(result, status=status.HTTP_200_OK)
         except Exception as e:

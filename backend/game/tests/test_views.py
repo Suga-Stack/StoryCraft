@@ -1,7 +1,7 @@
 import uuid
 from unittest.mock import patch, MagicMock
 from django.urls import reverse
-from rest_framework.test import APITestCase
+from rest_framework.test import APITestCase,APIClient
 from rest_framework import status
 from django.contrib.auth import get_user_model
 from gameworks.models import Gamework
@@ -19,20 +19,18 @@ class GameViewsTestCase(APITestCase):
     def setUp(self):
         self.user = User.objects.create_user(username='testuser', email='testuser@example.com', password='testpassword')
         self.other_user = User.objects.create_user(username='otheruser', email='otheruser@example.com', password='testpassword')
-        self.client.login(username='testuser', password='testpassword')
-
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
         self.gamework = Gamework.objects.create(
             author=self.user,
             title="Test Gamework",
         )
-        
         self.story = Story.objects.create(
             gamework=self.gamework,
             total_chapters=3,
             ai_callable=True,
             initial_generation_complete=True
         )
-        
         self.chapter = StoryChapter.objects.create(
             story=self.story,
             chapter_index=1,
@@ -42,7 +40,7 @@ class GameViewsTestCase(APITestCase):
         self.scene = StoryScene.objects.create(
             chapter=self.chapter,
             scene_index=1,
-            background_image_url="http://example.com/image.png"
+            background_image_url="https://example.com/image.png"
         )
 
     @patch('game.views.default_storage.save')
@@ -79,7 +77,7 @@ class GameViewsTestCase(APITestCase):
         mock_create_gamework.return_value = {'gameworkId': self.gamework.id}
         url = reverse('game-create')
         data = {
-            "tags": ["fantasy", "adventure", "magic"],
+            "tags": ["奇幻", "玄幻", "仙侠"],
             "idea": "A grand adventure",
             "length": "medium",
             "modifiable": True
@@ -95,7 +93,7 @@ class GameViewsTestCase(APITestCase):
         Test game creation with invalid data.
         """
         url = reverse('game-create')
-        data = {"tags": ["fantasy"]}  # Missing 'length' and tags count < 3
+        data = {"tags": ["fantasy"]}  # 缺失其他必需字段
         response = self.client.post(url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -147,11 +145,13 @@ class GameViewsTestCase(APITestCase):
         """
         Test that a user cannot update a chapter they do not own.
         """
-        self.client.login(username='otheruser', password='testpassword')
+        self.client.force_authenticate(user=self.other_user)
         url = reverse('game-chapter', kwargs={'gameworkId': self.gamework.id, 'chapterIndex': 1})
         data = {"chapterIndex": 1, "title": "Forbidden Update", "scenes": []}
         response = self.client.put(url, data, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        
+        self.client.force_authenticate(user=self.user)
 
     @patch('game.services.start_single_chapter_generation')
     def test_chapter_generate_view_success(self, mock_start_generation):
@@ -172,7 +172,6 @@ class GameViewsTestCase(APITestCase):
         """
         Test that a user cannot trigger generation for a gamework they don't own.
         """
-        self.client.login(username='otheruser', password='testpassword')
         url = reverse('game-chapter-generate', kwargs={'gameworkId': self.gamework.id, 'chapterIndex': 2})
         data = {"chapterOutlines": []}
         response = self.client.post(url, data, format='json')
@@ -189,7 +188,7 @@ class GameViewsTestCase(APITestCase):
             "state": {
                 "chapterIndex": 1,
                 "sceneId": 1,
-                "dialogueIndex": 0
+                "dialogueIndex": 1
             }
         }
         response = self.client.put(url, data, format='json')
@@ -226,7 +225,7 @@ class GameViewsTestCase(APITestCase):
         """
         Test deleting a game save.
         """
-        GameSave.objects.create(user=self.user, gamework=self.gamework, slot=1, state={}, timestamp=1, cover_url="")
+        GameSave.objects.create(user=self.user, gamework=self.gamework, slot=1, state={}, timestamp=1, cover_url="http://example.com/cover.jpg")
         url = reverse('game-save-detail', kwargs={'gameworkId': self.gamework.id, 'slot': 1})
         response = self.client.delete(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)

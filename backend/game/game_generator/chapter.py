@@ -118,7 +118,7 @@ def calculate_attributes(parsed_chapters: list, initial_attributes: dict) -> dic
     """
     遍历所有章节，计算每个属性在游戏结束时的可能取值范围 (min, max)。
     """
-    ranges = {k: [v, v] for k, v in initial_attributes.items()}
+    ranges = {k: [v, v] for k, v in (initial_attributes or {}).items()}
     
     for chapter in parsed_chapters:
         for scene in chapter.get("scenes", []):
@@ -127,25 +127,26 @@ def calculate_attributes(parsed_chapters: list, initial_attributes: dict) -> dic
                 if not choices:
                     continue
                 
-                impacts = {} 
+                # 识别当前选择点影响的所有属性
+                affected_attrs = set()
                 for choice in choices:
                     deltas = choice.get("attributesDelta", {})
-                    for attr, val in deltas.items():
-                        if attr not in impacts:
-                            impacts[attr] = []
-                        impacts[attr].append(val)
+                    if deltas:
+                        affected_attrs.update(deltas.keys())
                 
-                all_attrs = set(ranges.keys()) | set(impacts.keys())
-                for attr in all_attrs:
+                # 仅更新受影响的属性
+                for attr in affected_attrs:
                     if attr not in ranges:
                         ranges[attr] = [0, 0]
                     
                     current_deltas = []
                     for choice in choices:
                         d = choice.get("attributesDelta", {})
+                        # 获取该选项对属性的影响，无影响则为0
                         current_deltas.append(d.get(attr, 0))
                     
                     if current_deltas:
+                        # 最小值加上当前可能的最小增量，最大值加上最大增量
                         ranges[attr][0] += min(current_deltas)
                         ranges[attr][1] += max(current_deltas)
                     
@@ -154,35 +155,50 @@ def calculate_attributes(parsed_chapters: list, initial_attributes: dict) -> dic
 def parse_ending_condition(text: str, attr_ranges: dict) -> dict:
     """
     将自然语言条件解析为数值条件
+    支持格式："勇气较高，智慧较低" 
     """
     conditions = {}
-    parts = re.split(r'[，, ]+', text)
+    # 排除常见标点，捕获属性名和程度词
+    pattern = re.compile(r'([^\s,，:：]+)\s*(较高|中等|较低)')
     
-    for part in parts:
-        m = re.search(r'(.+)(较高|中等|较低)', part)
-        if not m:
-            continue
-        attr = m.group(1).strip()
-        # 清理属性名称
-        attr = re.sub(r"[\*\[\]]", "", attr).strip()
-        level = m.group(2)
+    for match in pattern.finditer(text):
+        attr_raw = match.group(1).strip()
+        level = match.group(2)
         
-        if attr not in attr_ranges:
+        # 清理属性名称（移除可能的markdown符号如 **勇气**）
+        clean_text = re.sub(r"[\*\[\]]", "", attr_raw).strip()
+        
+        # 在清理后的文本中寻找最长匹配的属性名
+        best_attr = None
+        max_len = 0
+        
+        for attr in attr_ranges:
+            if attr in clean_text:
+                if len(attr) > max_len:
+                    best_attr = attr
+                    max_len = len(attr)
+        
+        if not best_attr:
             continue
             
-        min_v, max_v = attr_ranges[attr]
+        min_v, max_v = attr_ranges[best_attr]
         span = max_v - min_v
-        if span == 0:
+        
+        # 处理单一值或无变化的情况
+        if span <= 0:
             span = 1
         
         if level == "较高":
-            threshold = int(min_v + span * 0.60)
-            conditions[attr] = f">={threshold}"
+            # 前 50% 区间以上
+            threshold = int(min_v + span * 0.50)
+            conditions[best_attr] = f">={threshold}"
         elif level == "较低":
+            # 后 40% 区间以下
             threshold = int(min_v + span * 0.40)
-            conditions[attr] = f"<={threshold}"
+            conditions[best_attr] = f"<={threshold}"
         elif level == "中等":
-            low = int(min_v + span * 0.33)
-            conditions[attr] = f">={low}"
+            # >= 30%
+            low = int(min_v + span * 0.30)
+            conditions[best_attr] = f">={low}"
             
     return conditions
