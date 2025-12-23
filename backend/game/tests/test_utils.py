@@ -4,12 +4,17 @@ from game import utils
 class TestUtils(TestCase):
     def test_parse_attr_deltas(self):
         """测试属性变化解析"""
-        text = "观察力+5， 信任值-3, 智力+1"
-        result = utils._parse_attr_deltas(text)
+        text1 = "观察力+5， 信任值-3, 智力+1"
+        result = utils._parse_attr_deltas(text1)
         self.assertEqual(result, {"观察力": 5, "信任值": -3, "智力": 1})
         
-        text_empty = "无属性变化"
-        self.assertEqual(utils._parse_attr_deltas(text_empty), {})
+        text2 = "策略值+5，记忆完整度-10"
+        result2 = utils._parse_attr_deltas(text2)
+        self.assertEqual(result2, {"策略值": 5, "记忆完整度": -4})
+
+        text3 = "无属性变化"
+        result3 = utils._parse_attr_deltas(text3)
+        self.assertEqual(result3, {})
 
     def test_split_sentences_quotes(self):
         """测试分句：包含引号的情况"""
