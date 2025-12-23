@@ -238,10 +238,18 @@ def _split_by_ranges_safely(body: str, ranges: list[int]) -> list[str]:
     prev_end = 0
     for pct in ranges:
         approx_end = int(total * (pct / 100.0))
-        if approx_end >= total:
-            approx_end = total
         
-        cut = _find_safe_cut(body, approx_end, groups, prev_end)
+        # 如果目标点已经是结尾（或超过），直接切到末尾，不再寻找安全点
+        # 避免 _find_safe_cut 回退导致末尾残留一小段生成第4个scene
+        if approx_end >= total:
+            cut = total
+        else:
+            cut = _find_safe_cut(body, approx_end, groups, prev_end)
+        
+        # 确保切分点不倒退
+        if cut < prev_end:
+            cut = prev_end
+
         segments.append(body[prev_end:cut])
         prev_end = cut
         if prev_end >= total:
