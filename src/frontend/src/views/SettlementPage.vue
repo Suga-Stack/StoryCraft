@@ -1320,7 +1320,7 @@ onUnmounted(async () => {
         class="tab-btn"
         :class="{ active: currentView === 'branching' }"
         @click="
-          currentView = 'branching'
+          currentView = 'branching';
           isBranchingFullscreen = true
         "
       >

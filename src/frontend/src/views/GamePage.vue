@@ -4428,7 +4428,7 @@ onUnmounted(async () => {
             <button
               class="menu-item"
               @click="
-                showMenu = false
+                showMenu = false;
                 openSaveModal()
               "
               :disabled="creatorMode"
@@ -4446,7 +4446,7 @@ onUnmounted(async () => {
             <button
               class="menu-item"
               @click="
-                showMenu = false
+                showMenu = false;
                 openLoadModal()
               "
               :disabled="creatorMode"
@@ -4464,7 +4464,7 @@ onUnmounted(async () => {
             <button
               class="menu-item"
               @click="
-                showMenu = false
+                showMenu = false;
                 openAttributes()
               "
             >
@@ -4477,7 +4477,7 @@ onUnmounted(async () => {
             <button
               class="menu-item"
               @click="
-                showMenu = false
+                showMenu = false;
                 showSettingsModal = true
               "
             >
@@ -4496,8 +4496,8 @@ onUnmounted(async () => {
             <button
               class="menu-item"
               @click="
-                toggleCreatorMode()
-                showMenu = false
+                toggleCreatorMode();
+                showMenu = false;
               "
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">

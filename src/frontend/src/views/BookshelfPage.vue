@@ -491,7 +491,7 @@
         <button @click="showRemoveFromFolderDialog = false" class="cancel-btn">取消</button>
         <button
           @click="
-            confirmRemoveFromFolder()
+            confirmRemoveFromFolder();
             showRemoveFromFolderDialog = false
           "
           class="confirm-btn"
@@ -541,7 +541,7 @@
       <div class="dialog-actions">
         <button
           @click="
-            showAddToFolderDialog = false
+            showAddToFolderDialog = false;
             resetFolderDialog()
           "
           class="cancel-btn"
@@ -550,7 +550,7 @@
         </button>
         <button
           @click="
-            confirmAddToFolder()
+            confirmAddToFolder();
             resetFolderDialog()
           "
           class="confirm-btn"
@@ -571,7 +571,7 @@
         <button @click="showDeleteFolderDialog = false" class="cancel-btn">取消</button>
         <button
           @click="
-            confirmDeleteFolder()
+            confirmDeleteFolder();
             showDeleteFolderDialog = false
           "
           class="confirm-btn"
