@@ -259,12 +259,10 @@ const handleRegister = async () => {
       email_code: formData.value.email_code
     });
 
-    // 兼容后端返回结构：后端可能返回 { code: 200, message: '注册成功', data: { tokens, user } }
     const resData = response?.data || {};
     const code = resData.code || response.status;
 
     if (code === 200 || code === 201) {
-      // 注册成功：尝试从响应中提取 tokens 与 user
       const tokens = (resData.data && (resData.data.tokens || resData.data.tokens)) || resData.tokens || {};
       const user = (resData.data && resData.data.user) || resData.user || null;
 
@@ -290,18 +288,17 @@ const handleRegister = async () => {
   catch (error) {
     console.error('注册错误详情:', {
       status: error.response?.status,
-      data: error.response?.data, // 打印后端返回的错误信息（可能包含具体原因）
-      config: error.config // 打印请求配置（参数、URL等）
+      data: error.response?.data, // 打印后端返回的错误信息
+      config: error.config // 打印请求配置
     });
     
     console.error('注册请求失败:', error);
     if (error.response) {
-      // 1. 提取嵌套的错误信息（核心修改）
+      // 1. 提取嵌套的错误信息
       const errorData = error.response.data;
-      // 后端错误信息可能在 errorData.message.message 中，且是数组
       const rawMessages = errorData.message?.message || [];
 
-      // 2. 将数组转换为字符串（解决类型警告）
+      // 2. 将数组转换为字符串
       let errorMsg = '';
       if (Array.isArray(rawMessages)) {
         errorMsg = rawMessages.join('; '); // 用分号拼接数组元素
@@ -314,7 +311,7 @@ const handleRegister = async () => {
       // 3. 根据状态码提示
       switch (error.response.status) {
         case 400:
-          alert(errorMsg); // 现在会正确显示"用户名已存在"
+          alert(errorMsg); 
           break;
         case 409:
           alert('用户名已存在，请更换用户名');

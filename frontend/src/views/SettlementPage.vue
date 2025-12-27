@@ -118,10 +118,6 @@ const gameData = ref({
 
 console.log('[Settlement] 使用的 workId:', workId, '完整 work 信息:', gameData.value.work)
 
-// 如果没有传递真实的属性数据，才使用默认值（用于调试）
-// NOTE: Removed local mock defaults so settlement page uses backend-provided data for testing.
-// If backend does not provide finalAttributes/finalStatuses, leave them empty and
-// surface a visible warning in the UI (handled in template) or in the console.
 if (Object.keys(gameData.value.finalAttributes).length === 0) {
   console.warn('SettlementPage: finalAttributes not provided by backend; leaving empty for backend testing')
 }
@@ -160,7 +156,6 @@ const splitLines = (text = '', chunk = 12) => {
   return lines
 }
 
-// References and touch handling for mobile swipe lock on branching graph
 const branchingGraphRef = ref(null)
 let _touchStartX = 0
 let _touchStartY = 0
@@ -199,7 +194,6 @@ const onGraphPointerDown = (ev) => {
     _isPointerDown = true
     _mouseStartX = ev.clientX || (ev.touches && ev.touches[0] && ev.touches[0].clientX) || 0
     _mouseStartY = ev.clientY || (ev.touches && ev.touches[0] && ev.touches[0].clientY) || 0
-    // stop propagation of the down event so parent handlers don't begin gestures
     ev.stopPropagation()
   } catch (e) {}
 }
@@ -332,7 +326,7 @@ const personalityReport = ref({
   scores: {}
 })
 
-// 预设个性报告模板（基于最终属性）
+// 预设个性报告模板
 const personalityTemplates = [
   {
     condition: (attrs) => attrs['心计'] >= 50 && attrs['圣宠'] >= 30,
@@ -546,13 +540,13 @@ const generateBranchingGraph = async () => {
     const fallbackIdx = historyIndex + 1
     const displayIdx = chapterIdx != null ? chapterIdx : fallbackIdx
     
-    // 🔑 关键修复：从缓存中获取该章节的完整数据
+    // 从缓存中获取该章节的完整数据
     const cacheKey = `${currentWorkId}_${displayIdx}`
     const cachedChapterData = chapterDataCache.value[cacheKey]
     
     console.log(`[Settlement] 处理章节 ${displayIdx}，缓存数据:`, cachedChapterData)
     
-    // 🔑 关键修复：优先使用缓存的章节数据中的选项列表
+    // 优先使用缓存的章节数据中的选项列表
     let choicesForThisChapter = []
     
     // 从缓存的章节数据中提取所有选项
@@ -645,7 +639,7 @@ const generateBranchingGraph = async () => {
       isSelected: true
     })
 
-    // 🔑 关键修复：为这个章节的所有选项创建节点（使用正确的选项列表）
+    // 为这个章节的所有选项创建节点
     const choiceSpacing = 240
     const startX = 400 - (choicesForThisChapter.length - 1) * choiceSpacing / 2
     
@@ -1111,11 +1105,9 @@ onMounted(() => {
   try {
     const el = branchingGraphRef && branchingGraphRef.value ? branchingGraphRef.value : document.querySelector('.branching-graph')
     if (el && el.addEventListener) {
-      // touch events (mobile)
       el.addEventListener('touchstart', onGraphTouchStart, { passive: false })
       el.addEventListener('touchmove', onGraphTouchMove, { passive: false })
       el.addEventListener('touchend', onGraphTouchEnd, { passive: false })
-      // pointer events (preferred) and mouse events (desktop)
       el.addEventListener('pointerdown', onGraphPointerDown, { passive: false })
       el.addEventListener('pointermove', onGraphPointerMove, { passive: false })
       el.addEventListener('pointerup', onGraphPointerUp, { passive: false })
@@ -1143,7 +1135,7 @@ onUnmounted(() => {
   } catch (e) { console.warn('[Settlement] remove graph touch/pointer handlers failed', e) }
 })
 
-// 页面卸载时恢复竖屏（如果可能）
+// 页面卸载时恢复竖屏
 onUnmounted(async () => {
   try {
     if (window && window.Capacitor) {
@@ -1566,8 +1558,6 @@ onUnmounted(async () => {
   margin: 0;
   font-size: 0.9rem;
 }
-
-/* 已移除：结算总览中的最终属性视觉块，改为通过“属性”按钮查看 */
 
 /* 分支探索图 */
 .branching-content {

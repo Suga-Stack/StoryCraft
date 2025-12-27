@@ -30,10 +30,9 @@ export function useGameState(dependencies = {}) {
     checkCurrentChapterSaved,
     restoreChoiceFlagsFromHistory,
     lastSelectedEndingIndex,
-    // 添加缺失的依赖
     creatorMode,
     allowAdvance,
-    editingDialogue,  // 🔑 关键修复：添加编辑状态
+    editingDialogue,  
     creatorFeatureEnabled,
     isCreatorIdentity,
     modifiableFromCreate,
@@ -50,7 +49,7 @@ export function useGameState(dependencies = {}) {
     AUTO_SAVE_SLOT,
     autoSaveToSlot,
     previewSnapshot,
-    waitingForClickToShowChoices  // 🔑 新增：等待用户点击显示选项的标记
+    waitingForClickToShowChoices  
   } = dependencies
 
   // 统一通知：优先使用注入的 showToast；否则回退到 Vant 的 showToast（顶部灰色提示）
@@ -131,7 +130,7 @@ export function useGameState(dependencies = {}) {
         choice: choice
       }
 
-      // 如果没有 outline 内容，优先从前端已缓存的位置读取（不再主动向后端 GET）
+      // 如果没有 outline 内容，优先从前端已缓存的位置读取
       try {
         const workId = work && work.value && work.value.id
         if (idx != null && (!endingEditorForm.value.outline || String(endingEditorForm.value.outline).trim() === '')) {
@@ -232,7 +231,6 @@ export function useGameState(dependencies = {}) {
       let statusPollPhase = true // true: 轮询状态阶段，false: 获取内容阶段
 
       const stopPoll = () => {
-        // no-op for compatibility; replaced by timed retry logic below
       }
 
       // 新逻辑：先等待 3 分钟再直接 GET 结局详情，若未就绪则每隔 1 分钟重试
@@ -454,7 +452,6 @@ export function useGameState(dependencies = {}) {
         params: { _t: Date.now() },
         headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
       })
-      // 🔑 关键修复：utils/http.js 返回的是完整的 response 对象，需要访问 resp.data
       const payload = resp.data || resp
       // 记录结局状态（兼容多种后端字段）
       try {
@@ -502,26 +499,6 @@ export function useGameState(dependencies = {}) {
         try { if (typeof stopLoading === 'function') stopLoading() } catch (e) { console.warn('stopLoading failed after append endings', e) }
         return true
       }
-
-      // // 如果返回的是 endings 列表（每项包含 scenes 或 title），则创建一个总结性场景
-      // if (Array.isArray(payload?.endings) && payload.endings.length > 0) {
-      //   const summaries = payload.endings.map((ed, i) => `结局 ${i + 1}: ${ed.title || ed.name || ''}`).join('\n')
-      //   const summaryScene = {
-      //     sceneId: `endings-summary-${Date.now()}`,
-      //     backgroundImage: work.value.coverUrl || '',
-      //     dialogues: [payload.prompt || '以下为可能的结局：', summaries],
-      //     choices: [],
-      //     isChapterEnding: false
-      //   }
-      //   try {
-      //     pushSceneFromServer(summaryScene)
-      //     const pushed = storyScenes.value[storyScenes.value.length - 1]
-      //     if (pushed) pushed._isBackendEnding = true
-      //     endingsAppended.value = true
-      //     console.log('fetchAndAppendEndings: appended endings summary scene')
-      //     return true
-      //   } catch (e) { console.warn('fetchAndAppendEndings: push summary failed', e) }
-      // }
 
       return false
     } catch (e) {
@@ -590,7 +567,6 @@ export function useGameState(dependencies = {}) {
         } catch (err) {
           console.log('退出横屏失败:', err)
         }
-        // 🔑 关键：直接 go(-1) 返回上一个页面（introduction）
         if (router && typeof router.go === 'function') {
           router.go(-1)
         } else {
@@ -614,8 +590,6 @@ export function useGameState(dependencies = {}) {
           }
         } catch (e) { console.warn('handleGameEnd overlay check failed', e) }
         
-        // 🔑 关键修复：对于创作者身份，在任何操作之前先进行章节保存状态检查
-        // 这样可以避免在未保存状态下生成结局选项场景
         if (creatorFeatureEnabled.value) {
             try {
             console.log('开始获取作品详情以检查章节状态...')
@@ -625,7 +599,6 @@ export function useGameState(dependencies = {}) {
             const currentStatus = getChapterStatus(currentChapterIndex.value)
             console.log('handleGameEnd 检查当前章节:', currentChapterIndex.value, '状态:', currentStatus)
             
-            // 🔑 关键修复：如果当前章节未保存，立即阻止所有后续操作（包括获取结局详情）
             if (currentStatus !== 'saved') {
                 console.warn('handleGameEnd 阻止 - 当前章节未保存')
                 showToast('当前章节（第' + currentChapterIndex.value + '章）尚未保存，请先确认并保存本章内容后再进入结算页面。', 1000)
@@ -660,9 +633,6 @@ export function useGameState(dependencies = {}) {
             }
         }
         
-        // 在进入生成结算前，先尝试在「阅读者」模式下从后端获取结局场景并播放
-        // 🔑 创作者模式：只有在章节状态为 saved 后才会执行到这里
-        // 如果当前正在等待创作者触发的指定结局生成，则保持加载状态，不展示占位或结局选项
         try {
           if (creatorMode && creatorMode.value && pendingGeneratedEnding.value && pendingGeneratedEnding.value.workId === work.value.id) {
             console.log('handleGameEnd: awaiting pending generated ending, keep loading until it arrives')
@@ -681,7 +651,6 @@ export function useGameState(dependencies = {}) {
                 params: { _t: Date.now() },
                 headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
               })
-              // 🔑 关键修复：utils/http.js 返回的是完整的 response 对象，需要访问 resp.data
               const payload = resp.data || resp
               // 缓存结局列表到 sessionStorage，供单个结局查询/轮询时参考其 status
               try {
@@ -690,8 +659,6 @@ export function useGameState(dependencies = {}) {
                 }
               } catch (e) { /* ignore */ }
 
-              // 如果后端明确返回了多个 endings（每个带 title/condition/scenes），
-              // 我们需要先将这些结局作为“可选择的结局选项”呈现给用户，用户点击后会触发对应结局场景的播放。
               if (Array.isArray(payload?.endings) && payload.endings.length > 0) {
                 const endings = payload.endings
                 let startIdx = storyScenes.value.length
@@ -745,8 +712,6 @@ export function useGameState(dependencies = {}) {
                   // 触发点在第一句对话后立即展示选项
                   isChapterEnding: false
                 }
-
-                // 🔑 创作者模式下，结局选项覆盖末章场景而非追加
                 startIdx = storyScenes.value.length
                 if (creatorMode && creatorMode.value) {
                   // 清空当前所有场景（末章缓存），用结局选项场景替换
@@ -1078,7 +1043,6 @@ export function useGameState(dependencies = {}) {
             console.log('[chooseOption] 原始 statusesDelta:', choice.statusesDelta)
             console.log('[chooseOption] subsequentDialogues:', choice.subsequentDialogues)
             
-            // 🔑 关键修复：交叉检查并修正 delta
             const { attributesDelta, statusesDelta } = normalizeDeltas(
                 choice.attributesDelta || {},
                 choice.statusesDelta || {}
@@ -1161,7 +1125,6 @@ export function useGameState(dependencies = {}) {
                             params: { _t: Date.now() },
                             headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
                           })
-                          // 🔑 关键修复：utils/http.js 返回的是完整的 response 对象，需要访问 resp.data
                           const payload = resp.data || resp
                           const endingStatus = payload && payload.ending && payload.ending.status
                           try { appendedEndingSaved.value = (endingStatus === 'saved') || appendedEndingSaved.value } catch (e) {}
@@ -1233,7 +1196,6 @@ export function useGameState(dependencies = {}) {
                       const endingIndex = Number(choice._endingIndex)
                       console.log('[chooseOption] Reader: 将通过 endingIndex 向后端请求结局场景, endingIndex=', endingIndex)
                       const resp = await http.get(`/api/game/storyending/${work.value.id}/${endingIndex}`)
-                      // 🔑 关键修复：utils/http.js 返回的是完整的 response 对象，需要访问 resp.data
                       const payload = resp.data || resp
                       // 记录该结局是否已保存
                       try { appendedEndingSaved.value = (payload?.status === 'saved') || (payload?.ending?.status === 'saved') || appendedEndingSaved.value } catch (e) {}
@@ -1270,7 +1232,6 @@ export function useGameState(dependencies = {}) {
                     scenesToPush = Array.isArray(choice._endingScenes) ? choice._endingScenes : []
                   }
 
-                  // 新规则：用所选结局覆盖「前一章」的缓存（如果能找到前一章），否则回退为追加行为
                   const replaceChapter = (currentChapterIndex && Number(currentChapterIndex.value)) ? Number(currentChapterIndex.value) : null
                   if (replaceChapter != null) {
                     const firstIndex = storyScenes.value.findIndex(s => Number(s.chapterIndex) === replaceChapter)
@@ -1369,7 +1330,6 @@ export function useGameState(dependencies = {}) {
                 }
               }
                 
-                // 🔑 关键修复：如果选项有 subsequentDialogues，插入到当前场景的对话列表中
                 // 保持 subsequentDialogues 的原始格式，不转换为 narration
                 if (Array.isArray(choice.subsequentDialogues) && choice.subsequentDialogues.length > 0) {
                     console.log('[chooseOption] 插入 subsequentDialogues:', choice.subsequentDialogues)
@@ -1378,11 +1338,6 @@ export function useGameState(dependencies = {}) {
                     // 在触发点之后插入 subsequentDialogues
                     const insertIndex = triggerIndex + 1
                     
-                    // 🔑 关键修复：规范化 subsequentDialogues，保持其原始格式
-                    // subsequentDialogues 中的每一项都按原样插入，不做格式转换
-                    // - 如果是字符串，保持为字符串（会被 getDialogueItem 转换为 { text: string }）
-                    // - 如果是对象（包含 text/narration/speaker/backgroundImage 等），保持完整结构
-                    // 🔑 关键修复：添加标记以便在保存时识别这些对话来自哪个选项
                     const normalizedSubsequent = choice.subsequentDialogues.map((item, idx) => {
                         let normalized
                         // 如果是字符串，转换为对象以便添加标记
@@ -1418,9 +1373,7 @@ export function useGameState(dependencies = {}) {
                 }
             }
             
-            // 🔑 关键：只有在非手动编辑模式下才记录选择历史
             if (!creatorMode?.value) {
-                // 🔑 关键修复：记录选择历史时，保存所有可选项以供分支图使用
                 // 从当前场景获取所有选项
                 const allChoices = scene?.choices || []
                 
@@ -1434,7 +1387,6 @@ export function useGameState(dependencies = {}) {
                     choiceTriggerIndex: scene?.choiceTriggerIndex || currentDialogueIndex.value,
                     chapterIndex: currentChapterIndex?.value || 1,
                     timestamp: Date.now(),
-                    // 🔑 保存所有可选项，用于生成分支探索图
                     allChoices: allChoices.map(c => ({
                         id: c.id || c.choiceId,
                         choiceId: c.id || c.choiceId,
@@ -1454,12 +1406,11 @@ export function useGameState(dependencies = {}) {
             // 隐藏选项
             choicesVisible.value = false
             
-            // 🔑 清除等待点击显示选项的标记
+            // 清除等待点击显示选项的标记
             if (waitingForClickToShowChoices) {
                 waitingForClickToShowChoices.value = false
             }
             
-            // 🔑 关键：只有在非手动编辑模式下才应用属性和状态变化
             if (!creatorMode?.value) {
                 // 应用属性和状态变化（使用修正后的 delta）
                 if (attributesDelta && Object.keys(attributesDelta).length > 0) {
@@ -1479,7 +1430,6 @@ export function useGameState(dependencies = {}) {
                 console.log('[chooseOption] ⚠️ 手动编辑模式下不应用属性和状态变化')
             }
             
-            // 🔑 修复：安全地访问 autoPlayEnabled 和 startAutoPlayTimer
             try {
                 if (autoPlayEnabled && autoPlayEnabled.value && startAutoPlayTimer) {
                     startAutoPlayTimer()
@@ -1488,7 +1438,6 @@ export function useGameState(dependencies = {}) {
                 console.warn('[chooseOption] 启动自动播放失败:', e)
             }
             
-            // 🔑 关键修复：前进到下一句对话（选项触发点的下一句，可能是 subsequentDialogues 的第一句）
             showText.value = false
             setTimeout(() => {
                 // 如果选项有 subsequentDialogues，前进到下一句会显示这些对话
@@ -1830,7 +1779,6 @@ export function useGameState(dependencies = {}) {
             params: { _t: Date.now() },
             headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
           })
-          // 🔑 关键修复：utils/http.js 返回的是完整的 response 对象，需要访问 resp.data
           const payload = resp.data || resp
           // 仅当后端明确返回 `endings` 列表时，才把结局作为剧情追加并播放；否则视为无结局（不追加）
           if (Array.isArray(payload?.endings) && payload.endings.length > 0) {
@@ -1879,7 +1827,6 @@ export function useGameState(dependencies = {}) {
               isChapterEnding: false
             }
 
-            // 🔑 创作者模式下，结局选项覆盖末章场景而非追加
             startIdx = storyScenes.value.length
             if (creatorMode && creatorMode.value) {
               // 清空当前所有场景（末章缓存），用结局选项场景替换
@@ -2040,7 +1987,6 @@ export function useGameState(dependencies = {}) {
         const resp = await fetchNextChapter(work.value.id, nextChapter, opts)
         console.log('[requestNextIfNeeded] fetchNextChapter返回:', resp)
         
-        // 🔑 关键修复：严格验证返回的章节数据是否确实已生成完成
         // 必须同时满足：1) 状态为 'ready' 或 'generated'  2) 有有效的 scenes 数据
         if (resp) {
           const status = resp.status || (resp.chapter && resp.chapter.status)
@@ -2083,8 +2029,6 @@ export function useGameState(dependencies = {}) {
         } catch (e) {
         console.error('[requestNextIfNeeded] 加载下一章失败:', e)
         } finally {
-        // 🔑 关键修复：只有在确认章节成功加载时才停止加载动画并跳到100%
-        // 否则保持在99%的等待状态，让用户知道仍在生成中
         if (chapterLoadSuccess) {
           try { await simulateLoadTo100(800) } catch (e) { /* ignore */ }
           try { await stopLoading() } catch (e) { /* ignore */ }
@@ -2136,13 +2080,11 @@ export function useGameState(dependencies = {}) {
     return
   }
 
-  // 🔑 关键修复：如果正在编辑对话，完全阻止任何对话切换
   if (editingDialogue?.value) {
     console.log('[nextDialogue] 正在编辑对话，阻止切换到下一句')
     return
   }
 
-  // 🔑 新增：如果等待用户点击显示选项，此时用户点击了，就显示选项
     if (waitingForClickToShowChoices && waitingForClickToShowChoices.value) {
     console.log('[nextDialogue] 检测到等待点击显示选项标记，现在显示选项')
     waitingForClickToShowChoices.value = false
@@ -2151,14 +2093,12 @@ export function useGameState(dependencies = {}) {
     return
   }
 
-  // 🔑 关键修复：如果当前显示选项，必须选择后才能继续，阻止任何前进
   if (choicesVisible.value) {
     console.log('[nextDialogue] 选项正在显示，必须先选择选项才能继续')
     // 可以添加一个视觉提示，告诉用户需要选择
     return
   }
 
-  // 🔑 关键修复：检查当前是否应该显示选项但还没有显示（比如刚到达触发点）
   const scene = currentScene.value
   if (scene && Array.isArray(scene.choices) && scene.choices.length > 0) {
     // 检查是否到达选项触发点
@@ -2166,7 +2106,6 @@ export function useGameState(dependencies = {}) {
         currentDialogueIndex.value === scene.choiceTriggerIndex &&
         !scene.choiceConsumed) {
       console.log('[nextDialogue] 到达选项触发点，设置等待用户再次点击的标记')
-      // 🔑 修改：不再立即显示选项，而是设置等待标记
       if (waitingForClickToShowChoices) {
         waitingForClickToShowChoices.value = true
       }
@@ -2174,15 +2113,11 @@ export function useGameState(dependencies = {}) {
       return
     }
   }
-
-  // 在从存档/读档恢复后，我们可能抑制了自动展示选项（suppressAutoShowChoices）
-  // 🔑 修复：只有当选项未被消费且当前正好在触发点时才显示选项
   try {
     if (suppressAutoShowChoices.value && scene) {
       // 清除抑制标记，让 watch 来决定是否显示选项
       suppressAutoShowChoices.value = false
       
-      // 🔑 智能检查选择历史：只有当用户已经通过选项触发点时才拒绝
       const sceneId = String(scene.id || scene.sceneId)
       const historyRecord = choiceHistory.value.find(h => String(h.sceneId) === sceneId)
       
@@ -2192,7 +2127,6 @@ export function useGameState(dependencies = {}) {
           ? scene.choiceTriggerIndex 
           : (typeof historyRecord.choiceTriggerIndex === 'number' ? historyRecord.choiceTriggerIndex : null)
         
-        // 🔑 关键判断：只有当当前对话位置大于触发点时，才拒绝显示
         if (triggerIndex !== null && currentDialogueIndex.value > triggerIndex) {
           console.log('[nextDialogue] ⛔ 智能拒绝：用户已通过选项触发点 - 场景ID:', sceneId, '当前位置:', currentDialogueIndex.value, '触发点:', triggerIndex)
           // 确保标记为已消费
@@ -2217,12 +2151,7 @@ export function useGameState(dependencies = {}) {
         }
       }
       
-      // 只有在以下情况下才显示选项：
-      // 1. 场景有有效的选项配置
-      // 2. 选项未被消费过
-      // 3. 当前对话索引正好等于触发索引（而不是大于等于）
-      // 4. 选择历史中没有该场景的记录（上面已检查）
-      // 🔑 修改：不再立即显示选项，而是设置等待标记
+  
       if (scene && Array.isArray(scene.choices) && typeof scene.choiceTriggerIndex === 'number' && 
           currentDialogueIndex.value === scene.choiceTriggerIndex && 
           !scene.choiceConsumed &&
@@ -2283,7 +2212,6 @@ export function useGameState(dependencies = {}) {
     return
   }
   
-  // 🔑 关键修复：在推进对话前，再次检查是否有未处理的选项
   if (Array.isArray(scene.choices) && scene.choices.length > 0 && !scene.choiceConsumed) {
     if (typeof scene.choiceTriggerIndex === 'number' && 
         currentDialogueIndex.value >= scene.choiceTriggerIndex) {
@@ -2416,8 +2344,6 @@ export function useGameState(dependencies = {}) {
               return
             }
             
-            // 🔑 关键修复：检查是否为最后一章时，使用刚读完的章节号（chapterIndexToCheck）而非递增后的值
-            // chapterIndexToCheck 是读完的章节，只有当它等于总章数时才是真正的末章
             const isLastChapter = totalChapters.value && Number(chapterIndexToCheck) === Number(totalChapters.value)
             console.log('[nextDialogue] 章节已保存，检查是否为末章 - 已完成章节:', chapterIndexToCheck, '总章数:', totalChapters.value, '是否末章:', isLastChapter)
             
@@ -2441,7 +2367,6 @@ export function useGameState(dependencies = {}) {
                 const nextChapterData = await fetchNextChapter(work.value.id, currentChapterIndex.value, { replace: true, suppressAutoEditor: false })
                 await stopLoading()
                 
-                // 🔑 成功加载下一章后，确保不会触发 storyEndSignaled
                 if (nextChapterData && !nextChapterData.end) {
                   currentSceneIndex.value = 0
                   currentDialogueIndex.value = 0
@@ -2547,7 +2472,6 @@ export function useGameState(dependencies = {}) {
         } catch (e) { console.warn('playingEndingScenes check failed', e) }
       }
 
-      // 🔑 关键修复：只在场景末尾检查 storyEndSignaled，避免在章节内部每次点击都触发
       const scene = currentScene.value
       const atSceneEnd = scene && Array.isArray(scene.dialogues) && currentDialogueIndex.value >= scene.dialogues.length - 1
       

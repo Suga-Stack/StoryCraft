@@ -311,7 +311,7 @@ const fetchRecommendedBooks = async () => {
   }
 }
 
-// 页面加载时获取数据（实际项目中替换为接口请求）
+// 页面加载时获取数据
 onMounted(async() => {
   fetchHotBooks();
   fetchRecommendedBooks();
@@ -432,7 +432,7 @@ const handleTagClick = (tag) => {
   }
   router.push({
     path: `/tag/${tag.id}`, // 跳转到标签页面，路径包含标签ID
-    query: { name: tag.name } // 可选：传递标签名称用于页面标题显示
+    query: { name: tag.name } 
   });
 };
 </script>
@@ -441,10 +441,10 @@ const handleTagClick = (tag) => {
 .bookstore-page {
   min-height: 100vh;
   background-color: #faf8f3;
-  padding-bottom: 50px; /* 预留底部导航栏空间 */
+  padding-bottom: 50px; 
 }
 
-/* 轮播样式 */
+
 .hot-books-carousel {
   width: 100%;
   height: 200px;
@@ -619,11 +619,11 @@ const handleTagClick = (tag) => {
 
 .nav {
   padding: 0 20px 8px 10px;
-  position: relative; /* 相对定位容器 */
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: center; /* 标题居中 */
-  height: 30px; /* 固定高度确保对齐 */
+  justify-content: center;
+  height: 30px; 
 }
 
 .check-in-txt {
@@ -634,11 +634,11 @@ const handleTagClick = (tag) => {
 .close-btn {
   font-size: 22px;
   color: #d4a5a5;
-  position: absolute; /* 绝对定位到右侧 */
-  right: 10px; /* 靠右对齐 */
-  top:30%; /* 垂直居中 */
-  transform: translateY(-50%); /* 精确垂直居中 */
-  cursor: pointer; /* 增加点击反馈 */
+  position: absolute;
+  right: 10px;
+  top:30%; 
+  transform: translateY(-50%);
+  cursor: pointer;
 }
 
 .calendar {
@@ -754,7 +754,7 @@ const handleTagClick = (tag) => {
   margin: 10px 8px;
   display: block;
   text-align: center;
-  min-height: 40px; /* 防止按钮跳动 */
+  min-height: 40px;
 }
 
 </style>

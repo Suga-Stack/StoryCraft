@@ -6,14 +6,13 @@ import { http } from '../service/http.js'
 import { addFavorite, deleteFavorite, getComments, postComments, likeComment, unlikeComment, reportComment } from '../api/user.js'
 import { sanitize } from '../utils/sensitiveFilter'
 import { showToast as vantToast } from 'vant'
-import { useTags } from '../composables/useTags'; // 导入标签工具函数
+import { useTags } from '../composables/useTags'; 
 import ReplyItem from '@/components/ReplyItem.vue'
 
 // 初始化标签工具
 const { getTagsByIds } = useTags();
 
 const router = useRouter()
-// 记录从哪个页面进入当前介绍页，用于特殊返回逻辑
 const entryPath = ref(null)
 onMounted(() => {
   try {
@@ -23,10 +22,10 @@ onMounted(() => {
     // 如果从 GamePage 返回到本页，保留之前设置的入口路径
     const stored = sessionStorage.getItem('introEntryPath')
     if (!entryPath.value && stored) entryPath.value = stored
-  } catch (e) { /* ignore */ }
+  } catch (e) { }
 })
 
-// 当前用户信息（用于权限判断）
+// 当前用户信息
 const userInfo = ref({})
 try { userInfo.value = JSON.parse(localStorage.getItem('userInfo') || '{}') } catch (e) { userInfo.value = {} }
 const isStaff = computed(() => !!(userInfo.value.is_staff || userInfo.value.isStaff || userInfo.value.staff))
@@ -38,7 +37,6 @@ const goBack = () => {
 // 允许向父组件或上层逻辑发出删除/举报事件
 const emit = defineEmits(['delete-comment', 'report-comment'])
 
-// 使用 Vant 的 showToast 并统一样式（与其他页面保持一致）
 const showToast = (message, type = 'info', duration = 1000) => {
   try {
     vantToast({ message: String(message || ''), type: type || undefined, duration: Number(duration) || 1000, position: 'top', forbidClick: true, className: 'sc-toast-gray' })
@@ -317,7 +315,6 @@ onMounted(async () => {
       candidateId,
       baseURL: http.baseURL || 'unknown'
     })
-    // 在开发环境显示错误提示（帮助调试真机问题）
     if (import.meta.env.DEV) {
       showToast(`[调试信息] 获取作品详情失败\nID: ${candidateId}\n错误: ${e.message}\n请检查网络连接和后端服务器`, 'error', 1000)
     }
@@ -328,7 +325,7 @@ onMounted(async () => {
 const toggleFavorite = () => {
   work.value.isFavorite = !work.value.isFavorite
 }
-// 收藏数（示例初始值或来自后端）
+// 收藏数
 const favoritesCount = ref(backendWorkRaw?.favoritesCount || 0)
 
 // 修改切换收藏以维护收藏计数
@@ -336,7 +333,7 @@ const toggleFavoriteWithCount = async () => {
   try {
     // 如果当前是未收藏状态，调用收藏接口
     if (!work.value.isFavorite) {
-      await addFavorite(work.value.id); // 这里的收藏夹可以根据实际需求修改或让用户选择
+      await addFavorite(work.value.id); 
       work.value.isFavorite = true;
       favoritesCount.value += 1;
     } else {
@@ -351,16 +348,16 @@ const toggleFavoriteWithCount = async () => {
   }
 }
 
-// 发表时间（来自后端或默认当前时间）
+// 发表时间
 const publishedAt = ref(backendWorkRaw?.publishedAt || backendWorkRaw?.publishedDate || new Date().toISOString())
 
-// 章节数（来自后端，字段名可能为 total_chapters 或 totalChapters）
+// 章节数
 const totalChapters = ref(backendWorkRaw?.totalChapters || backendWorkRaw?.total_chapters || null)
 
-// 最后更新时间（来自后端 updated_at）
+// 最后更新时间
 const updatedAt = ref(backendWorkRaw?.updatedAt || backendWorkRaw?.updated_at || null)
 
-// 评分数据（从后端获取）
+// 评分数据
 const averageScore = ref(backendWorkRaw?.averageScore || 0)
 const ratingCount = ref(backendWorkRaw?.ratingCount || 0)
 const readCount = ref(backendWorkRaw?.readCount || 0)
@@ -392,7 +389,6 @@ const selectPreset = (p) => {
   selectedPreset.value = p
   if (p === '自定义') {
     pointsAmount.value = ''
-    // focus will be handled by user interaction
   } else {
     pointsAmount.value = p
   }
@@ -406,11 +402,8 @@ const confirmSendPoints = async () => {
   }
   try {
     sendingPoints.value = true
-    // 后端：POST /api/users/reward/  { "gamework_id": <id>, "amount": <amount> }
     const res = await http.post('/api/users/reward/', { gamework_id: work.value.id, amount })
-    // 后端返回示例：{ code:200, message:'打赏成功', amount: 20, author: '作者用户名' }
     if (res && res.data && typeof res.data.amount !== 'undefined') {
-      // 将用户已送出积分更新为后端返回的总数（若后端返回累计值）
       userGivenPoints.value = res.data.amount
     } else {
       userGivenPoints.value += amount
@@ -466,7 +459,6 @@ const isDescriptionExpanded = ref(false)
 const newComment = ref('')
 const replyingTo = ref(null) // 正在回复的评论ID
 const sortBy = ref('latest') // 排序方式: 'latest' 或 'likes'
-// comments will be populated from backend. rawCommentsByTime/rawCommentsByHot keep original payloads.
 const comments = ref([])
 const rawCommentsByTime = ref(null)
 const rawCommentsByHot = ref(null)
@@ -604,7 +596,7 @@ const toggleDescription = () => {
   isDescriptionExpanded.value = !isDescriptionExpanded.value
 }
 
-// 递归回复组件改为独立 SFC，见 src/components/ReplyItem.vue
+
 
 // 计算属性：排序后的评论
 const sortedComments = computed(() => {
@@ -674,7 +666,6 @@ const onPullEnd = () => {
   pullTriggered.value = false
 }
 
-// 不再使用 IntersectionObserver 自动加载，用户需手动拉动或点按钮加载
 
 const averageRating = computed(() => {
   if (!ratings.value.length) return 0
@@ -717,7 +708,6 @@ const submitRating = async () => {
   }
   const score10 = selectedStars.value * 2
   try {
-    // post rating to backend
     const res = await http.post('/api/interactions/ratings/', { id: work.value.id, score: score10 })
     // 如果后端返回 average_score，直接使用
     if (res && (res.average_score || res.data?.average_score)) {
@@ -752,7 +742,6 @@ const submitRating = async () => {
     // 标记为已评分，禁止再次提交
     userHasRated.value = true
 
-    // reset
     selectedStars.value = 0
     ratingPage.value = 1
   } catch (e) {
@@ -761,7 +750,7 @@ const submitRating = async () => {
   }
 }
 
-// 平均分（10分制），优先使用后端返回的 averageScore，否则根据已有 ratings 中的 score10（若不存在则用 stars*2）
+// 平均分（10分制）
 const averageRating10 = computed(() => {
   // 优先使用后端返回的评分
   if (averageScore.value > 0) {
@@ -787,7 +776,7 @@ const nextRatingPage = () => {
   if (ratingPage.value < maxPage) ratingPage.value++
 }
 
-// 筛选下拉（替换原来的两个平铺按钮）
+// 筛选下拉
 const showFilterDropdown = ref(false)
 const toggleFilter = () => { showFilterDropdown.value = !showFilterDropdown.value }
 const selectFilter = async (opt) => {
@@ -798,7 +787,6 @@ const selectFilter = async (opt) => {
       if (rawCommentsByHot.value) {
         comments.value = normalizeComments(rawCommentsByHot.value)
       } else {
-        // fallback to fetching from comments endpoint
         await fetchCommentsFromAPI(1)
       }
     } else {
@@ -825,7 +813,7 @@ const fetchCommentsFromAPI = async (page = 1) => {
   }
 }
 
-// `submitComment` is implemented above to call backend and refresh comments
+
 // 点赞评论（乐观更新，失败回滚）
 const toggleLike = async (comment) => {
   if (!comment || !comment.id) return
@@ -1011,7 +999,7 @@ const updateRawCommentsLike = (commentId, likes, isLiked, listCandidates = [rawC
   } catch (e) { /* ignore */ }
 }
 
-// 删除评论（本地先优化 UX，随后调用后端并触发事件）
+// 删除评论
 const onDeleteComment = async (comment) => {
   if (!comment || !comment.id) return
   if (!confirm('确认要删除这条评论吗？此操作不可撤销。')) return
@@ -1020,12 +1008,9 @@ const onDeleteComment = async (comment) => {
     let deleted = false
     // 尝试调用后端删除接口（兼容常见路径），仅在成功时从本地删除
     try {
-      // 使用相对路径让 http 实例处理 baseURL 与拦截器返回值
       await http.delete(`/api/interactions/comments/${comment.id}/`, { params: { id: comment.id } })
-      // axios 请求未抛出异常，则视为成功（http 实例可能返回 data 而非原始 response）
       deleted = true
     } catch (e) {
-      // 如果后端不接受 DELETE，尝试常见的 POST 删除端点（使用指定域名），并在 body 中包含 id
       try {
         await http.post(`/api/interactions/comments/${comment.id}/delete/`, { id: comment.id })
         deleted = true
@@ -1208,7 +1193,7 @@ const confirmWorkReport = async () => {
 }
 
 // 取消发布作品（仅管理员可见）
-// 使用 POST /api/gameworks/unpublish/{id}/ （兼容若干可能的变体）
+// 使用 POST /api/gameworks/unpublish/{id}/ 
 const deletingWork = ref(false)
 const unpublishWork = async () => {
   if (!work.value || !work.value.id) return
@@ -1269,7 +1254,6 @@ const confirmReport = async () => {
       try {
         await reportComment(commentId, tag, remark)
       } catch (e) {
-        // fallback to common endpoints if the dedicated one fails
         try { await http.post('/api/interactions/reports/', { comment: commentId, tag, remark }) } catch (e2) { /* ignore */ }
       }
       showToast('举报已提交，我们会尽快处理', 'success')
@@ -1346,7 +1330,7 @@ const handleTagClick = (tag) => {
   }
   router.push({
     path: `/tag/${tag.id}`, // 跳转到标签页面，路径包含标签ID
-    query: { name: tag.name } // 可选：传递标签名称用于页面标题显示
+    query: { name: tag.name } 
   });
 };
 </script>
@@ -2858,11 +2842,11 @@ const handleTagClick = (tag) => {
   padding-left: 1rem;
   border-left: 2px solid #f0f0f0;
 }
-/* 深层级回复不再继续缩进：与第二层保持同一缩进 */
+
 .replies-list .replies-list {
   border-left: none;
-  padding-left: 0; /* 不再额外缩进 */
-  margin-left: 0; /* 去除额外左边距 */
+  padding-left: 0; 
+  margin-left: 0; 
 }
 
 .reply-item {
@@ -2874,7 +2858,7 @@ const handleTagClick = (tag) => {
   border-radius: 8px;
 }
 
-/* 更深层级的回复保持同样的布局，不额外改变颜色 */
+
 .reply-item .comment-actions { flex-wrap: nowrap; }
 .reply-item .action-btn { min-height: 28px; }
 

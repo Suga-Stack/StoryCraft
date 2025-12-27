@@ -253,7 +253,6 @@ const getUserIdFromStorage = () => {
 const fetchReadingHistory = async () => {
   try {
     const response = await getRecentReadingHistory();
-    // 假设接口返回格式为 { data: [...] }
     if (response.data.code === 200) {
       readingHistory.value = response.data.data;
     } else {
@@ -269,7 +268,6 @@ const fetchReadingHistory = async () => {
 const fetchMyCreations = async () => {
   try {
     const response = await getRecentMyworks();
-    // 假设接口返回格式为 { data: [...] }
     if (response.data.code === 200) {
       myCreations.value = response.data.data;
     } else {
@@ -291,8 +289,6 @@ const fetchMyReports = async () => {
       return
     }
 
-    // 使用列表端点：评论列表使用通用端点，
-    // 作品举报列表改为使用新的端点：GET /api/users/report/gamework/
     const urls = [
       `/api/users/reports/comments/`,
       `/api/users/report/gamework/`
@@ -427,7 +423,7 @@ const handleFileChange = (e) => {
     return;
   }
 
-  // 2. 生成预览图（可选，提升用户体验）
+  // 2. 生成预览图
   const reader = new FileReader();
   reader.onload = (e) => {
     previewUrl.value = e.target.result; // 显示本地预览
@@ -439,7 +435,7 @@ const handleFileChange = (e) => {
     .then((imageUrl) => {
       // 上传成功后，用返回的URL更新用户信息
       return updateUserInfo(userInfo.value.id, {
-        profile_picture: imageUrl // 后端要求的字段名，和swagger一致
+        profile_picture: imageUrl 
       });
     })
     .then((userResponse) => {
@@ -470,7 +466,6 @@ const handleUsernameChange = async () => {
   }
 
   try {
-    // 只传递需要修改的username字段
     const response = await updateUserInfo(
       userInfo.value.id,
       { username: trimmedName } 
@@ -511,13 +506,13 @@ const navigateToMyCreations = () => {
   router.push('/MyCreations')
 }
 
-// 导航到举报详情页（如果有）
+// 导航到举报详情页
 const navigateToReportDetail = (reportId) => {
   if (!reportId) return
   router.push(`/reports/${reportId}`)
 }
 
-// 导航到 staff 举报管理页面（查看全部）
+// 导航到 staff 举报管理页面
 const navigateToStaff = () => {
   router.push('/staff')
 }
@@ -545,7 +540,6 @@ const handleLogout = async () => {
     showToast({ message: '已成功退出登录', duration: 1000 });
   } catch (error) {
     console.error('退出登录失败', error);
-    // 即使接口调用失败也清除本地状态并跳转，保证前端状态一致性
     localStorage.removeItem('userInfo');
     router.push('/login');
     showToast({ message: '退出登录失败，请重试', duration: 1000 });

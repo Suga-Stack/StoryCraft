@@ -1,6 +1,5 @@
 /**
  * 创建作品并返回作品元数据与首章/初始属性
- * 接口设计参考 story.js 风格，统一使用项目内 http helper
  */
 
 import { http, getUserId } from './http.js'

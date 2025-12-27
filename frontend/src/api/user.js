@@ -77,9 +77,8 @@ export const getMyworks = () => {
   return http.get('/api/users/myworks/'); 
 }
 
-// 获取当前用户的举报列表（后端可能位于 interactions/reports 或 gamelogs）
+// 获取当前用户的举报列表
 export const getMyReports = () => {
-  // 默认尝试常见的 reports endpoint，后端可按需调整
   return http.get('/api/interactions/reports/');
 }
 
@@ -122,7 +121,7 @@ export const deleteFolders = (id) => {
 
 // 获取收藏夹中的作品列表
 export const searchFavorites = (search, page, folder) => {
-  return http.get('/api/interactions/favorites/',{search, page, folder});//folder筛选所属收藏夹ID（send empty value或为 null 显示未分组，不传显示全部）
+  return http.get('/api/interactions/favorites/',{search, page, folder});
 }
 
 // 把作品添加到收藏

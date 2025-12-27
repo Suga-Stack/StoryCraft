@@ -49,10 +49,7 @@ export function useStoryAPI() {
     const item = scene.dialogues?.[idx]
     if (item == null) return null
     if (typeof item === 'string') return { text: item }
-    // 🔑 关键修复：保持对话对象的完整结构
-    // - 如果有 text 字段，使用 text
-    // - 如果有 narration 字段但没有 text，使用 narration
-    // - 同时保留 backgroundImage、speaker 等其他字段
+ 
     if (typeof item === 'object') {
       const text = item.text ?? item.narration ?? ''
       const result = { text }
@@ -109,7 +106,6 @@ export function useStoryAPI() {
       if (!workId) workId = work.value.id
       const url = `/api/gameworks/gameworks/${encodeURIComponent(workId)}/`
       const resp = await http.get(url)
-      // 🔑 关键修复：utils/http.js 返回的是完整的 response 对象，需要访问 resp.data
       const body = resp.data || resp
       
       const mergeServerStatuses = (serverList) => {
@@ -278,7 +274,6 @@ export function useStoryAPI() {
           if (d.backgroundImage) item.backgroundImage = d.backgroundImage
           if (d.speaker) item.speaker = d.speaker
           
-          // 🔑 关键修复：提取选项并记录正确的触发索引
           if (!hasExtractedChoices && Array.isArray(d.playerChoices) && d.playerChoices.length > 0) {
             // 触发索引应该是当前对话在 dialogues 数组中的位置
             const choiceDialogueIndex = dialogues.length
@@ -318,7 +313,6 @@ export function useStoryAPI() {
         backgroundImage,
         dialogues: dialogues,
         isChapterEnding: raw.isChapterEnding ?? raw.chapterEnd ?? false,
-        // 🔑 关键修复：初始化选项消费标记
         choiceConsumed: false,
         chosenChoiceId: null
       }
@@ -427,7 +421,6 @@ export function useStoryAPI() {
             // Only auto-open outline editor when chapter is not yet generated (not_generated or unknown)
             const chapterStatus = getChapterStatus(idx)
             if (!chapterStatus || chapterStatus === 'not_generated') {
-            // 🔑 统一数据来源：从后端获取最新大纲数据
             let rawOutlines = []
             try {
               console.log('[fetchNextChapter] 从后端获取最新大纲数据')
@@ -454,7 +447,6 @@ export function useStoryAPI() {
                 for (let i = 0; i < rawOutlines.length; i++) {
                 const ch = rawOutlines[i]
                 
-                // 🔑 统一过滤逻辑：过滤掉结局章节（有 endingIndex 字段的）
                 if (ch && typeof ch.endingIndex !== 'undefined') {
                   continue
                 }
@@ -524,12 +516,10 @@ export function useStoryAPI() {
           console.log('[useStoryAPI] 打开大纲编辑器: reason=chapter-not-generated (auto), targetChapter=', idx)
           _showOutlineEditor.value = true
         }
-        // 🔑 统一等待机制：使用 Promise + resolver 方式
         const confirmed = await new Promise((resolve) => { 
           if (_outlineEditorResolver) _outlineEditorResolver = resolve 
         })
-        // 注意：确认按钮会调用 confirmOutlineEdits，在那里已经处理了 generateChapter、轮询和 fetchNextChapter
-        // 所以这里不需要再做任何操作，直接返回，避免重复调用
+       
         if (confirmed) {
             // confirmOutlineEdits 已经处理了所有逻辑（包括显示加载界面、生成章节、轮询、加载内容）
             return null
@@ -575,7 +565,6 @@ export function useStoryAPI() {
             throw new Error('后端返回空数据')
         }
         
-        // 🔑 关键修复：先检查状态，如果是 generating/pending，不抛出错误，让代码继续执行到后面的轮询逻辑
         const status = data.status || (data.chapter && data.chapter.status)
         if (status === 'generating' || status === 'pending' || data.generating === true) {
             console.log('[fetchNextChapter] singleRequest 返回生成中状态，将进入轮询逻辑:', status)
@@ -634,8 +623,6 @@ export function useStoryAPI() {
             data = (resp && typeof resp === 'object' && 'data' in resp) ? resp.data : resp
             console.log('[fetchNextChapter] poll后 singleRequest response:', data)
             
-            // 🔑 关键修复：严格验证轮询后获取的数据
-            // 必须同时满足：1) 状态为 'ready'  2) 有有效的 scenes 数据
             const status = data.status || (data.chapter && data.chapter.status)
             const hasValidScenes = (data.chapter && Array.isArray(data.chapter.scenes) && data.chapter.scenes.length > 0) ||
                                    (Array.isArray(data.scenes) && data.scenes.length > 0)
@@ -927,7 +914,6 @@ export function useStoryAPI() {
                 // 保存历史记录中的 choiceTriggerIndex 到场景对象，用于后续判断
                 if (typeof h.choiceTriggerIndex === 'number') {
                   scene.historyChoiceTriggerIndex = h.choiceTriggerIndex
-                  // 🔑 修复：如果场景没有 choiceTriggerIndex，使用历史记录中的值
                   if (typeof scene.choiceTriggerIndex !== 'number') {
                     scene.choiceTriggerIndex = h.choiceTriggerIndex
                     console.log(`[restoreChoiceFlagsFromHistory] 场景 ${foundIdx} 没有 choiceTriggerIndex，使用历史记录值: ${h.choiceTriggerIndex}`)
@@ -967,7 +953,6 @@ export function useStoryAPI() {
           
           // 如果能确定触发索引，根据当前对话位置决定选项状态
           if (triggerIndex !== null && typeof currentDialogueIndex.value === 'number') {
-            // 🔑 关键修复：根据读档位置和选择历史决定选项状态
             if (currentDialogueIndex.value < triggerIndex) {
               // 读档位置在触发点之前，清除选项标记（用户还未到达选项）
               if (historyRecord) {
@@ -982,7 +967,6 @@ export function useStoryAPI() {
             } else if (currentDialogueIndex.value === triggerIndex) {
               // 读档位置正好在触发点
               if (historyRecord) {
-                // 🔑 关键修复：确保 choiceConsumed = true（用户已经选过了）
                 try {
                   cur.choiceConsumed = true
                   cur.chosenChoiceId = historyRecord.choiceId
@@ -999,7 +983,6 @@ export function useStoryAPI() {
             } else {
               // 读档位置在触发点之后
               if (historyRecord) {
-                // 🔑 关键修复：确保 choiceConsumed = true（选项已被选过）
                 try {
                   cur.choiceConsumed = true
                   cur.chosenChoiceId = historyRecord.choiceId

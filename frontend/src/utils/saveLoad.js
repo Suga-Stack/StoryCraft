@@ -1,5 +1,3 @@
-// GamePage 存档/读档相关逻辑的复用工具
-
 import { getCurrentUserId, deepClone } from './auth.js'
 import { http } from '../service/http.js'
 
@@ -114,8 +112,6 @@ export const saveGameData = async (gameData, slot = 'default') => {
     }
   })
 
-  // 构建符合 API 文档的 payload
-  // 如果调用方已传入完整的 state（例如包含 endingindex），优先使用该 state
   const stateFromCaller = (gameData && typeof gameData.state === 'object') ? gameData.state : null
   const payload = {
     title: `存档 ${new Date().toLocaleString()}`,
@@ -235,7 +231,6 @@ export const refreshSlotInfosUtil = async (workId, slots = ['slot1', 'slot2', 's
           // 缩略图字段 - 兼容后端的 cover_url 和前端的 thumbnail
           thumbnail: d.thumbnail || d.cover_url || null,
           thumbnailData: d.thumbnailData || null,
-          // 不再包含 sceneTitle（因存档不再携带 storyScenes）
           sceneTitle: null
         }
       } else {

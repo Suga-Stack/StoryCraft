@@ -1,4 +1,3 @@
-/* Extracted styles from GamePage.vue */
 .game-page {
   width: 100vw;
   height: 100vh;
@@ -96,8 +95,8 @@
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
-  opacity: 0.65; /* 更清晰 */
-  filter: blur(6px); /* 稍减弱模糊，封面更易识别 */
+  opacity: 0.65; 
+  filter: blur(6px); 
   z-index: 1;
 }
 
@@ -291,7 +290,7 @@
 }
 
 /* =========================
-   游戏内容（橙光风格）
+   游戏内容
    ========================= */
 .game-content {
   position: relative;
@@ -368,7 +367,7 @@
   bottom: 0;
   left: 0;
   right: 0;
-  height: 36vh; /* 提高占比：固定高度为视口高度的36% */
+  height: 36vh; 
   /* 黑底白字风格（保留从底部向上渐隐到透明的过渡） */
   background: linear-gradient(to top,
     rgba(0, 0, 0, 0.56) 0%,
@@ -382,17 +381,14 @@
   z-index: 4;
   display: flex;
   align-items: center;
-  justify-content: flex-start; /* 改为左对齐 */
-  /* 去除边框，保留柔和阴影分层感 */
+  justify-content: flex-start; 
   border-top: none;
   /* 上两个角为圆包样式 */
   border-top-left-radius: 18px;
   border-top-right-radius: 18px;
   cursor: pointer;
-  overflow: hidden; /* 保持内容裁剪，渐变仍在盒内实现 */
-  /* 去除阴影，避免顶部产生视觉边缘 */
+  overflow: hidden; 
   box-shadow: none;
-  /* 提前合成层，减少重绘闪烁 */
   will-change: opacity, transform;
   transform: translateZ(0);
   backface-visibility: hidden;
@@ -567,9 +563,9 @@
   /* 略微加宽以提高可读性和交互区域 */
   width: min(90vw, 520px);
   box-shadow: 0 6px 20px rgba(0,0,0,0.15);
-  backdrop-filter: none; /* 不需要模糊 */
+  backdrop-filter: none;
   max-height: 90vh;
-  overflow: hidden; /* 不出现滚动条 */
+  overflow: hidden; 
 }
 
 /* 菜单内部网格布局，便于并列功能 */
@@ -704,7 +700,7 @@
   .attr-two-col { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
 }
 
-/* 新增：存/读档弹窗，尺寸比手机界面小一圈 */
+
 .save-load-modal {
   width: min(94vw, 900px);
   max-height: 80vh;
@@ -1218,7 +1214,6 @@
   }
 }
 
-/* 改为左右布局：左侧为大纲、右侧为指令与操作（增大文本占比，压缩空白和按钮） */
 .outline-editor-panel {
   max-width: min(1100px, 96vw) !important;
   width: 96vw;
@@ -1324,7 +1319,7 @@
 .outline-editor-actions .edit-btn { padding: 0.48rem 0.9rem; font-size: 0.95rem; border-radius: 6px; }
 .outline-editor-actions.right-actions .edit-btn { width: auto; display: inline-flex; align-items: center; justify-content: center; }
 
-/* 在窄屏下回退为垂直布局，但仍优先扩大文本框 */
+
 @media (max-width: 720px) {
   .outline-editor-body { flex-direction: column; min-height: auto; }
   .outline-left, .outline-right { flex: none; width: 100%; }
@@ -1389,12 +1384,12 @@
 /* 横屏适配 */
 @media screen and (orientation: landscape) {
   .dialogue-text {
-    font-size: 1.1rem; /* 从 1.4rem 进一步减小到 1.1rem */
+    font-size: 1.1rem; 
   }
   
   .text-box {
-    padding: 1.5rem 3rem; /* 减少左右内边距 */
-    height: 36vh; /* 确保横屏时与默认高度一致 */
+    padding: 1.5rem 3rem; 
+    height: 36vh; 
     /* 横屏下与默认一致：黑底向上渐隐为全透明（无模糊与阴影，避免顶部分界） */
     background: linear-gradient(to top,
       rgba(0, 0, 0, 0.56) 0%,

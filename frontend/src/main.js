@@ -19,7 +19,7 @@ app.mount('#app')
 
 
 
-// Android 平台优化滑动返回：仅允许边缘滑动触发，自动适配横竖屏
+// 设置状态栏样式
 if (Capacitor.getPlatform() === 'android') {
   let startX = 0
   let startY = 0

@@ -142,7 +142,6 @@ const deleteReport = async (r) => {
     return
   }
   if (!confirm('确认删除该举报记录？此操作不可恢复。')) return
-  // avoid double delete
   if (r._deleting) return
   r._deleting = true
   try {
@@ -155,7 +154,6 @@ const deleteReport = async (r) => {
       try {
         res = await http.delete(`/api/users/reports/gameworks/${r.id}/`)
       } catch (e) {
-        // fallback to generic reports delete
         try { res = await http.delete(`/api/users/reports/${r.id}/`) } catch (e2) { res = null }
       }
     }
@@ -188,7 +186,6 @@ const fetchAllReports = async () => {
       return
     }
 
-    // 使用列表端点：评论列表使用通用端点，作品举报改为使用新的端点：GET /api/users/report/gamework/
     const urls = [
       `/api/users/reports/comments/`,
       `/api/users/report/gamework/`

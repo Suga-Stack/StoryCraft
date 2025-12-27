@@ -134,7 +134,6 @@ const creatorModeAPI = useCreatorMode({
   modifiableFromCreate,
   checkCurrentChapterSaved,
   creatorFeatureEnabled,
-  // 添加缺失的依赖
   currentChapterIndex,
   totalChapters,
   getWorkDetails
@@ -186,7 +185,7 @@ const {
   setDependencies: setCreatorModeDependencies
 } = creatorModeAPI
 
-// 当前对话对象（可能是字符串或对象）
+// 当前对话对象
 const currentDialogueObject = computed(() => {
   try {
     const scene = storyScenes.value[currentSceneIndex.value]
@@ -271,7 +270,6 @@ const copyAudioLogs = async () => {
       pushAudioLog('info', 'copied audio logs to clipboard')
       showToast('调试日志已复制到剪贴板', 1000)
     } else {
-      // fallback: open prompt
       window.prompt('复制调试日志（Ctrl+C）', text)
     }
   } catch (e) {
@@ -285,10 +283,6 @@ const clearAudioLogs = () => {
   try { audioLogs.value = [] ; pushAudioLog('info', 'cleared audio logs') } catch (e) { console.warn('clearAudioLogs failed', e) }
 }
 
-// 调试面板与自动诊断已移除（保留后台日志函数以便未来扩展）
-
-// NOTE: visible error overlay removed; keep console logging only
-// (Previously audioErrorMessage/audioErrorLogs/pushAudioLog were used for an overlay.)
 
 const updateAudioDebug = () => {
   try {
@@ -308,7 +302,6 @@ const updateAudioDebug = () => {
   } catch (e) { console.warn('updateAudioDebug failed', e) }
 }
 
-// 已移除 blob 回退与 object URL 的实现，前端将直接使用远程 URL 播放（浏览器与手机一致）
 
 // 将 ArrayBuffer 转为 Base64（用于 Capacitor Filesystem 写入）
 const arrayBufferToBase64 = (buffer) => {
@@ -357,8 +350,7 @@ const audioPlayer = {
       return await new Promise((resolve, reject) => {
         const finalUrl = url
         pushAudioLog('info', `Howler.play start ${finalUrl}`)
-        const sound = new (HowlCtor || (typeof window !== 'undefined' && window.Audio ? function(cfg){ /* fallback constructor */
-          // very small fallback that tries to play using HTMLAudioElement
+        const sound = new (HowlCtor || (typeof window !== 'undefined' && window.Audio ? function(cfg){ 
           const a = new Audio(cfg.src && cfg.src[0])
           a.preload = true
           a.volume = cfg.volume || 0.8
@@ -438,7 +430,7 @@ const audioPlayer = {
   }
 }
 
-// 浏览器端使用本地 dev 地址；手机/原生应用使用部署后的后端地址
+// 浏览器端使用本地 dev 地址；
 const LOCAL_DEV_BASE = 'http://192.168.88.1:5173'
 const DEPLOY_BASE = import.meta.env.VITE_API_BASE_URL || 'https://storycraft.work.gd'
 // 判断是否移动设备（手机浏览器或原生）
@@ -615,7 +607,6 @@ const loadTrack = async (idx) => {
     try { audioEl.value.volume = 0.8; audioEl.value.muted = false } catch (e) {}
     audioEl.value.load()
     audioEl.value.onended = () => { playNextTrack() }
-    // 更详细的事件监听，便于调试
     audioEl.value.onplay = () => {
       try {
         console.log('[GamePage][audio] onplay, src=', audioEl.value.src)
@@ -680,7 +671,6 @@ const playTrack = async (idx) => {
       } catch (howErr) {
         console.warn('[GamePage][audio] Howler playback failed, falling back to native audio:', howErr)
         pushAudioLog('error', `Howler failed: ${howErr && howErr.message ? howErr.message : howErr}`)
-        // 继续走原生 <audio> 回退逻辑
       }
     }
     // 标记抑制，以避免其它事件在我们尝试播放期间调用 pause()
@@ -698,11 +688,9 @@ const playTrack = async (idx) => {
       console.error('[GamePage][audio] playTrack failed:', playErr)
       pushAudioLog('error', `playTrack failed: ${playErr && playErr.message ? playErr.message : playErr}`)
       // 不使用 blob 回退，直接尝试静音播放以绕过自动播放策略
-      // muted fallback
       try {
         audioEl.value.muted = true
         await audioEl.value.play()
-        // muted fallback succeeded — 记录并尝试随后取消静音
         isMusicPlaying.value = true
         updateAudioDebug()
         console.log('[GamePage][audio] playTrack succeeded with muted fallback, src=', audioEl.value.src)
@@ -724,7 +712,6 @@ const playTrack = async (idx) => {
         throw playErr
       }
     }
-    // small delay to allow any stray events to settle, then clear suppress
     setTimeout(() => { suppressPauseDuringResume.value = false }, 150)
   } catch (e) {
     suppressPauseDuringResume.value = false
@@ -902,7 +889,7 @@ onMounted(() => {
   } catch (e) { console.warn('DEV audio injection failed', e) }
 })
 
-// 加载并应用本地保存的音乐（如果有）
+// 加载并应用本地保存的音乐
 onMounted(() => {
   try {
     loadLocalTracksFromStorage()
@@ -934,7 +921,7 @@ try {
       try {
         if (!Array.isArray(playlist.value) || playlist.value.length === 0) return
         
-        // 🔑 关键：章节变化时停止当前音乐
+        // 章节变化时停止当前音乐
         if (val !== oldVal) {
           console.log('[GamePage][audio] chapter changed from', oldVal, 'to', val, '- stopping current music')
           stopMusic()
@@ -1037,7 +1024,7 @@ try {
         window.addEventListener('focus', handleFocus)
         document.addEventListener('click', tryResumeOnUserInteraction)
 
-        // 尝试使用 Capacitor App 插件（若存在）来监听原生前后台切换
+        // 尝试使用 Capacitor App 插件来监听原生前后台切换
         let capacitorAppListener = null
         try {
           if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
@@ -1093,17 +1080,15 @@ try {
 // 是否正在进入结局判定的特殊加载（在跳转到结算/结局前显示）
 const isEndingLoading = ref(false)
 
-// 🔑 新增：标记是否等待用户点击以显示选项
 // 当用户阅读到带有选项的narration时，不立即显示选项，而是等待用户再点击一次
 const waitingForClickToShowChoices = ref(false)
 
-// 定义 fetchReport 函数（需要在 useGameState 之前定义）
+// 定义 fetchReport 函数
 // 最后一章结束后,向后端请求个性化报告：POST /api/settlement/report/:workId/
 const fetchReport = async (workId) => {
   try {
     console.log('[GamePage] fetchReport 被调用 - workId:', workId)
     
-    // 🔑 关键重构：使用 story.js 服务层的网络请求，传递当前达成的结局索引（endingIndex）
     const chosenEndingIdx = (typeof lastSelectedEndingIndex !== 'undefined' && lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? Number(lastSelectedEndingIndex.value) : 1
     const data = await storyService.fetchSettlementReport(workId, {
       attributes: attributes.value || {},
@@ -1116,7 +1101,6 @@ const fetchReport = async (workId) => {
       return null
     }
     
-    // 🔑 关键修复：确保后端返回的数据包含 work 信息
     if (!data.work) {
       console.warn('[GamePage] fetchReport 返回的数据缺少 work 信息，添加当前 work')
       data.work = work.value
@@ -1137,7 +1121,6 @@ const fetchReport = async (workId) => {
 }
 
 
-// 现在创建 gameState - 传递所有需要的依赖
 const gameStateAPI = useGameState({
   router,
   route,
@@ -1164,11 +1147,10 @@ const gameStateAPI = useGameState({
   getWorkDetails,
   checkCurrentChapterSaved,
   restoreChoiceFlagsFromHistory,
-  // 添加缺失的依赖
   creatorMode,
   lastSelectedEndingIndex,
   allowAdvance,
-  editingDialogue,  // 🔑 关键修复：添加编辑状态依赖
+  editingDialogue, 
   creatorFeatureEnabled,
   isCreatorIdentity,
   modifiableFromCreate,
@@ -1181,10 +1163,9 @@ const gameStateAPI = useGameState({
   AUTO_SAVE_SLOT,
   autoSaveToSlot,
   previewSnapshot,
-  waitingForClickToShowChoices  // 🔑 新增：传递等待点击显示选项的标记
+  waitingForClickToShowChoices 
 })
 
-// 解构 gameState 返回的方法和状态
 const gameStateResult = gameStateAPI
 
 const {
@@ -1220,7 +1201,7 @@ const {
   submitEndingEditor,
   cancelEndingEditor
 } = gameStateResult
-// 如果当前场景是后端返回的结局场景且尚未被保存，我们在创作者模式下需要显示特殊的编辑/保存按钮
+
 const isPlayingBackendGeneratedEnding = computed(() => {
   try {
     const cs = currentScene.value
@@ -1229,7 +1210,7 @@ const isPlayingBackendGeneratedEnding = computed(() => {
   } catch (e) { return false }
 })
 
-// 保存当前正在播放的后端结局（将其 scenes PUT 到 /api/game/storyending/{workId}/{endingIndex}/）
+// 保存当前正在播放的后端结局
 const saveCurrentEnding = async () => {
   try {
     try { if (typeof startLoading === 'function') startLoading() } catch (e) {}
@@ -1258,7 +1239,6 @@ const saveCurrentEnding = async () => {
       } catch (e) { return { narration: '', playerChoices: null } }
     }
 
-    // 🔑 过滤掉"结局选项"场景的辅助函数
     const isEndingSelectionScene = (scene) => {
       try {
         // 检查场景是否包含多个结局选择（通常是"请选择一个结局"的场景）
@@ -1386,7 +1366,7 @@ const onPointerCancel = (e) => {
   } catch (err) { console.warn('onPointerCancel failed', err) }
 }
 
-// 计算任意弹窗是否打开 - 在 showMenu 解构之后定义
+
 const anyOverlayOpen = computed(() =>
   showMenu.value ||
   showSaveModal.value ||
@@ -1397,7 +1377,7 @@ const anyOverlayOpen = computed(() =>
   (endingEditorVisible && endingEditorVisible.value)
 )
 
-// 初始化自动播放功能 - 在 gameState 之后创建，使用 getter 获取 nextDialogue
+// 初始化自动播放功能 
 const autoPlayAPI = useAutoPlay({
   getNextDialogue: () => nextDialogue,
   isLandscapeReady,
@@ -1420,9 +1400,7 @@ const {
   loadAutoPlayPrefs
 } = autoPlayAPI
 
-// 🔑 关键修复：统一的音乐播放控制
-// - 加载状态停止音乐
-// - 离开加载状态自动播放当前章节对应音乐（含读档进入的章节）
+
 watch([isLandscapeReady, isLoading, currentChapterIndex, () => playlist.value.length], async ([land, loading, chapIdx, playlistLen]) => {
   try {
     // 进入加载状态时立即停止音乐
@@ -1458,7 +1436,7 @@ watch([isLandscapeReady, isLoading, currentChapterIndex, () => playlist.value.le
 let didLoadInitialMock = false
 let creatorEditorHandled = false
 
-// 新增初始化函数
+// 初始化函数
 const initializeGame = async () => {
   // 检查用户是否已登录
   const userStore = useUserStore()
@@ -1488,7 +1466,7 @@ const initializeGame = async () => {
     
     let initOk = false
     try {
-      // 测试模式：强制在进入游戏前弹出创作者大纲编辑器（若尚未处理）
+      // 测试模式：强制在进入游戏前弹出创作者大纲编辑器
       if (FORCE_CREATOR_FOR_TEST && !creatorEditorHandled) {
         try {
           // 构造一个临时的 createResult 对象（从路由 或 session 的 lastWorkMeta 获取基础信息）
@@ -1658,10 +1636,8 @@ const initializeGame = async () => {
     console.log('[initializeGame] 当前索引 - scene:', currentSceneIndex.value, 'dialogue:', currentDialogueIndex.value)
     console.log('[initializeGame] 当前场景内容:', storyScenes.value[currentSceneIndex.value])
     
-    // 🔑 关键修复：确保先完成进度动画，再关闭加载界面
     await simulateLoadTo100(800)
-    
-    // 🔑 关键修复：确保所有状态正确设置
+
     isLoading.value = false
     showText.value = true
     
@@ -1692,7 +1668,6 @@ const effectiveCoverUrl = computed(() => {
     const defaultImg = 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=1600&h=900&fit=crop'
     if (!raw) return defaultImg
     if (/^https?:\/\//i.test(raw)) return raw
-    // 如果是相对路径（例如 /media/xxx），为开发环境补齐后端地址
     return 'https://storycraft.work.gd' + (raw.startsWith('/') ? raw : ('/' + raw))
   } catch (e) {
     return 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=1600&h=900&fit=crop'
@@ -1709,15 +1684,11 @@ const initFromCreateResult = async (opts = {}) => {
       work.value.id = obj.backendWork.id || work.value.id
       work.value.title = obj.backendWork.title || work.value.title
       work.value.coverUrl = obj.backendWork.coverUrl || work.value.coverUrl
-      // 后端可能返回 ai_callable 字段，标识是否允许调用 AI 生成
       if (typeof obj.backendWork.ai_callable !== 'undefined') {
         work.value.ai_callable = obj.backendWork.ai_callable
       }
     }
-    // 从 createResult 或 history.state 获取初始属性和状态
-    // 兼容两种写法：createResult 可能直接包含 initialAttributes/initialStatuses，
-    // 也可能只包含 backendWork（其中包含 initialAttributes/statuses 字段）
-  // attributes/statuses: 支持多种命名与嵌套位置（camelCase / snake_case / backendWork.data）
+  
   if (obj.initialAttributes) {
     attributes.value = obj.initialAttributes
     console.log('[initFromCreateResult] 初始化 attributes (从 initialAttributes):', attributes.value)
@@ -1762,7 +1733,7 @@ const initFromCreateResult = async (opts = {}) => {
     console.log('[initFromCreateResult] 未找到初始状态，使用空对象')
   }
 
-    // total_chapters（若提供）
+    // total_chapters
     if (obj.total_chapters) totalChapters.value = obj.total_chapters
     else if (obj.backendWork && (obj.backendWork.total_chapters || obj.backendWork.total_chapters === 0)) totalChapters.value = obj.backendWork.total_chapters || null
     
@@ -1784,7 +1755,6 @@ const initFromCreateResult = async (opts = {}) => {
     // 从后端获取首章内容（chapterIndex = 1，后端为 1-based）
     try {
       const workId = work.value.id
-      // 如果当前 createResult 同时表示为创作者模式且后端允许 AI 调用，先让用户编辑大纲再触发生成（即使后端尚未返回大纲）
       // 但只在第一章状态为 not_generated 时才弹出编辑器
       if (creatorFeatureEnabled.value && !(opts && opts.suppressAutoEditor)) {
         // 检查第一章的状态
@@ -1802,7 +1772,6 @@ const initFromCreateResult = async (opts = {}) => {
             // 菜单中的 creatorMode 由用户在页面手动切换
           }
 
-          // 🔑 统一数据来源：将后端返回的大纲映射为编辑器使用的格式：{ chapterIndex, outline }
           // 只从后端获取大纲数据，不使用前端缓存
           try {
             // 从后端重新获取作品详情以获取最新的大纲数据
@@ -1820,7 +1789,7 @@ const initFromCreateResult = async (opts = {}) => {
             }
 
             if (rawOutlines.length > 0) {
-              // 🔑 统一过滤逻辑：过滤掉结局章节（有 endingIndex 的项），只保留普通章节
+              // 过滤掉结局章节（有 endingIndex 的项），只保留普通章节
               const regularChapters = rawOutlines.filter(ch => {
                 return ch && typeof ch.endingIndex === 'undefined'
               })
@@ -1855,7 +1824,7 @@ const initFromCreateResult = async (opts = {}) => {
           console.log('[GamePage] 打开大纲编辑器: reason=first-chapter-not-generated (auto), targetChapter=', pendingOutlineTargetChapter.value)
           showOutlineEditor.value = true
           
-          // 🔑 统一等待机制：使用 Promise + resolver 方式（与后续章节保持一致）
+          // 使用 Promise + resolver 方式（与后续章节保持一致）
           // 等待用户确认或取消（监听 showOutlineEditor 的变化）
           await new Promise((resolve) => {
             const unwatch = watch(showOutlineEditor, (newVal) => {
@@ -1952,14 +1921,10 @@ onMounted(async () => {
   
   // 加载自动播放偏好（watch 会自动处理启动定时器）
   loadAutoPlayPrefs()
-  // 🔧 注释掉手动启动，因为 watch 监听器会在 autoPlayEnabled 变化时自动启动
-  // if (autoPlayEnabled.value) startAutoPlayTimer()
   
   // 检查是否从结算页面跳回来并携带了加载数据
   if (history.state?.loadedData) {
     const loadedData = history.state.loadedData
-    // 恢复游戏状态（注意：loadedData 可能不包含完整的 storyScenes）
-    // 优先尝试根据 sceneId 定位到已加载的 storyScenes，否则回退到首个场景
       try {
       if (loadedData.sceneId != null && Array.isArray(storyScenes.value)) {
         // 使用字符串比较以兼容 number/string id 的差异
@@ -2050,29 +2015,17 @@ onUnmounted(() => {
   // 关闭 SSE
   try { if (eventSource) eventSource.close() } catch (e) {}
   stopAutoPlayTimer()
-  // 🔑 关键修复：卸载时停止并清理音乐
+  // 卸载时停止并清理音乐
   try { stopMusic() } catch (e) {}
   try { if (audioEl.value) audioEl.value.src = '' } catch (e) {}
 })
 
-// 打开菜单时会自动暂停,关闭菜单后会自动恢复(由 useAutoPlay 内部的 watch 处理)
-// 不需要额外的 watch
 
-// 注意：其它弹窗的监听需放在相关 ref 定义之后（见下文）
 
-// 以下变量已从 useStoryAPI 导入: 
-// currentScene, currentDialogue, currentBackground, currentSpeaker, isFetchingNext
-
-// --------- 用户可编辑 / 图片替换支持（前端优先，本地持久化） ---------
 // 存储 key：storycraft_overrides_{userId}_{workId}
 const overridesKey = (userId, workId) => `storycraft_overrides_${userId}_${workId}`
 const userId = getCurrentUserId()
 
-// 将当前章节（currentChapterIndex）中前端当前 scenes 的修改持久化到后端（PUT /api/game/chapter/{id}/{chapterIndex}/）
-// opts:
-//  - auto: boolean (默认 true) 表示调用是否为自动保存（卸载/切换/退出创作者模式），自动保存不应把已生成但未确认的章节标记为 saved
-//  - allowSaveGenerated: boolean 手动确认时应传 true，以允许将 generated -> saved
-//  - chapterIndex: number 可选，指定要保存的章节
 const persistCurrentChapterEdits = async (opts = {}) => {
   try {
     if (!(modifiableFromCreate.value || isCreatorIdentity.value)) {
@@ -2084,7 +2037,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
     
     const auto = (typeof opts.auto === 'undefined') ? true : !!opts.auto
     const allowSaveGenerated = !!opts.allowSaveGenerated
-    // 控制是否对后端执行网络保存（PUT）。默认 true（兼容旧逻辑）。
+    // 控制是否对后端执行网络保存（PUT）
     // 在自动触发的持久化（退出创作模式、unmount、toggle creator 自动持久化）时传入 performNetworkSave:false
     const performNetworkSave = (typeof opts.performNetworkSave === 'boolean') ? opts.performNetworkSave : true
     const chapterIndex = Number(opts.chapterIndex || currentChapterIndex.value) || 1
@@ -2096,7 +2049,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         console.log('persistCurrentChapterEdits: skipping auto-save for generated chapter', { chapterIndex })
         return
       }
-    } catch (e) { /* ignore errors from getChapterStatus */ }
+    } catch (e) {  }
 
     // 简化逻辑：storyScenes 现在只包含当前章节，直接使用全部内容
     if (!storyScenes.value || storyScenes.value.length === 0) {
@@ -2104,8 +2057,6 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       return
     }
 
-    // 🔑 关键修复：首先应用 overrides 中的编辑到 storyScenes
-    // 这样后续的 normalizeDialogue 才能正确处理编辑后的内容
     const scenesWithOverrides = storyScenes.value.map(scene => {
       const sceneId = String(scene._uid ?? scene.sceneId ?? scene.id ?? '')
       const ov = overrides.value?.scenes?.[sceneId]
@@ -2129,7 +2080,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
             // 立即对覆盖文本进行 sanitize，保证保存后前端立刻显示替换后的内容
             const overrideTextSan = (typeof overrideText === 'string') ? sanitize(overrideText) : overrideText
             
-            // 🔑 关键修复：检查这个对话是否来自 subsequentDialogues
+            // 检查是否为来自选项的 subsequentDialogue
             if (typeof orig === 'object' && orig._fromChoiceId != null && orig._fromChoiceIndex != null) {
               // 找到对应的选项，更新其 subsequentDialogues
               const choiceId = orig._fromChoiceId
@@ -2174,8 +2125,6 @@ const persistCurrentChapterEdits = async (opts = {}) => {
     // 构建对话数据的规范化函数
     const normalizeDialogue = (d, scene, dIdx) => {
       try {
-        // 🔑 关键修复：如果对话标记为来自 subsequentDialogues，则跳过它
-        // 因为它已经被更新到对应选项的 subsequentDialogues 中了
         if (typeof d === 'object' && d._fromChoiceId != null && d._fromChoiceIndex != null) {
           // 返回 null 表示这个对话不应该作为独立的 narration 输出
           return null
@@ -2229,7 +2178,6 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       if (!Number.isInteger(sid) || sid <= 0) sid = idx + 1
       const bg = (s.backgroundImage || s.background_image || s.background || '')
       const rawDialogues = Array.isArray(s.dialogues) ? s.dialogues : []
-      // 🔑 关键修复：过滤掉 null 值（来自 subsequentDialogues 的对话）
       let dialogues = rawDialogues
         .map((d, dIdx) => normalizeDialogue(d, s, dIdx))
         .filter(d => d !== null)
@@ -2251,15 +2199,12 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       return { id: Number(sid), backgroundImage: bg || '', dialogues }
     })
 
-    // 🔑 硬检查：场景ID去重，每个ID只保留最后一次出现
-    // 使用 Map 来追踪每个 ID 最后出现的场景，自动覆盖之前的重复项
     const deduplicatedScenesMap = new Map()
     for (const scene of scenesPayload) {
       deduplicatedScenesMap.set(scene.id, scene)
     }
     const deduplicatedScenes = Array.from(deduplicatedScenesMap.values())
     
-    // 🔑 记录去重结果
     if (scenesPayload.length !== deduplicatedScenes.length) {
       const removedCount = scenesPayload.length - deduplicatedScenes.length
       console.warn(`[persistCurrentChapterEdits] 场景ID去重：移除了 ${removedCount} 个重复场景`)
@@ -2275,7 +2220,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       console.log('[persistCurrentChapterEdits] 场景ID检查通过：无重复')
     }
     
-    // 🔑 对于结局场景，额外过滤掉"结局选项"场景
+    // 对于结局场景，额外过滤掉"结局选项"场景
     const isEndingSelectionScene = (scene) => {
       try {
         if (!Array.isArray(scene.dialogues) || scene.dialogues.length === 0) return false
@@ -2347,8 +2292,6 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       return `第${Number(chapterIndex)}章`
     }
 
-    // 在将章节数据发送到后端之前，移除用于展示“请选择一个结局”选择的场景。
-    // 这些场景只是 UI 用于让玩家选择结局，不应作为章节内容保存到后端。
     const isEndingChoicePrompt = (scene) => {
       try {
         if (!scene || !Array.isArray(scene.dialogues)) return false
@@ -2368,7 +2311,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
     const chapterData = {
       chapterIndex: Number(chapterIndex),
       title: getFallbackTitle(),
-      scenes: postedScenes  // 🔑 使用过滤掉结局选择场景后的列表
+      scenes: postedScenes  
     }
 
     // 检测是否为结局场景：只有当场景数据本身被标记为结局时才认为是结局，
@@ -2385,7 +2328,6 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       try {
         // 尝试获取后端已存在的结局列表，以便定位 endingId 与 title（兼容没有 id 的实现）
         let endingId = null
-        // 🔑 修改：优先从 sessionStorage 或 currentScene._endingTitle 获取结局 title，而不是使用章节的 outline
         let endingTitle = (sessionStorage.getItem(`selectedEndingTitle_${workId}`) || (currentScene.value && currentScene.value._endingTitle) || '')
         try {
           const resp = await storyService.getWorkInfo(workId)
@@ -2447,11 +2389,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           return s.length > 255 ? s.slice(0, 255) : s
         }
 
-        // 确定当前要保存的 endingIndex（以 1 为基数）
-        // 优先策略：如果当前编辑来自于一个已读/加载的存档并且该存档包含 `endingindex`，
-        // 则使用该 `endingindex` 来定位要覆盖的逻辑结局（确保我们覆盖的是用户实际修改的结局）。
-        // 否则再回退到 UI 中选中的 lastSelectedEndingIndex，或最终回退到 1。
-        // 注意：不要把后端 DB 的 `id` 当作逻辑上的 endingIndex 使用。
+    
         let currentEndingIndex = 1
         try {
           if (lastSaveInfo && lastSaveInfo.value && lastSaveInfo.value.state) {
@@ -2474,9 +2412,9 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         if (!existingEndings || existingEndings.length === 0) {
           const single = {
             endingIndex: currentEndingIndex,
-            // 🔑 修改：结局 title 始终使用自己的 title，不使用章节 outline
+         
             title: safeTitle(endingTitle || `结局 ${currentEndingIndex}`),
-            scenes: finalScenesPayload  // 🔑 使用去重后的场景列表
+            scenes: finalScenesPayload  
           }
           try {
             await storyService.saveEnding(workId, single)
@@ -2489,41 +2427,33 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         } else {
           // 遍历所有 existingEndings，构造与 GET 时相同的 payload 并 PUT
           const errors = []
-          // Build a map of existing endings by their logical endingIndex (if provided).
-          // We will try to match and replace by that logical index. If an existing ending
-          // does not expose a logical endingIndex (only has DB id), we will fallback to
-          // preserving its scenes but will not treat that DB id as the logical index.
           const existingByIndex = {}
           const fallbackList = []
           for (let i = 0; i < existingEndings.length; i++) {
             const e = existingEndings[i]
-            // Prefer an explicit `endingIndex` field; if not present, try `endingId`.
             const logicalIdx = (e.endingIndex != null) ? Number(e.endingIndex) : (e.endingId != null ? Number(e.endingId) : null)
             if (logicalIdx != null && !isNaN(logicalIdx)) {
               existingByIndex[logicalIdx] = e
             } else {
-              // Unknown-index endings are kept in fallback order
               fallbackList.push(e)
             }
           }
 
-          // Prepare payloads: for all logical indices found, preserve order by ascending index
           const indices = Object.keys(existingByIndex).map(x => Number(x)).sort((a,b)=>a-b)
           const payloads = []
 
-          // helper: try to resolve backend-provided title for a logical ending index
           const getBackendTitle = (idx) => {
             try {
               if (!existingEndings || existingEndings.length === 0) return null
-              // check explicit mapping first
+              
               const byIdx = existingByIndex[idx]
               if (byIdx && (byIdx.title || byIdx.name)) return byIdx.title || byIdx.name
-              // fallback: search full list for matching logical fields
+              
               for (const ee of existingEndings) {
                 const logical = (ee.endingIndex != null) ? Number(ee.endingIndex) : (ee.endingId != null ? Number(ee.endingId) : null)
                 if (logical === idx) return ee.title || ee.name || null
               }
-              // last resort: if idx maps to array position
+             
               const pos = idx - 1
               if (pos >=0 && pos < existingEndings.length) {
                 const cand = existingEndings[pos]
@@ -2532,42 +2462,34 @@ const persistCurrentChapterEdits = async (opts = {}) => {
             } catch (e) { /* ignore */ }
             return null
           }
-          // Add logical-indexed endings first
+         
           for (const idx of indices) {
             const e = existingByIndex[idx]
             const backendTitle = getBackendTitle(idx)
             payloads.push({
               endingIndex: idx,
-              // 🔑 修改：当前结局使用自己的 title，其他结局使用后端 title，不使用章节 outline
               title: safeTitle( backendTitle || (idx === currentEndingIndex ? (endingTitle || `结局 ${idx}`) : (e.title || e.name || `结局 ${idx}`)) ),
               scenes: (idx === currentEndingIndex) ? finalScenesPayload : (Array.isArray(e.scenes) ? e.scenes : [])  // 🔑 使用去重后的场景列表
             })
           }
-          // Append fallback (unknown-index) endings preserving their original scenes
           for (let j = 0; j < fallbackList.length; j++) {
             const e = fallbackList[j]
-            // For unknown-index entries, do not attempt to reassign the logical index.
             payloads.push({
-              // We do not set a logical endingIndex here if backend didn't expose one;
-              // keep whatever fields backend expects by passing through its scenes and title.
               endingIndex: e.endingIndex != null ? Number(e.endingIndex) : (e.endingId != null ? Number(e.endingId) : (j + 1)),
               title: safeTitle(e.title || e.name || `结局 ${j + 1}`),
               scenes: Array.isArray(e.scenes) ? e.scenes : []
             })
           }
 
-          // If there is no existing ending matching currentEndingIndex, append it
           if (!indices.includes(currentEndingIndex)) {
             const backendTitleForCurrent = getBackendTitle(currentEndingIndex)
             payloads.push({
               endingIndex: currentEndingIndex,
-              // 🔑 修改：结局 title 始终使用自己的 title，不使用章节 outline
               title: safeTitle( backendTitleForCurrent || endingTitle || `结局 ${currentEndingIndex}` ),
-              scenes: finalScenesPayload  // 🔑 使用去重后的场景列表
+              scenes: finalScenesPayload  
             })
           }
 
-          // Send payloads in order
           while (payloads.length > 0) {
             const p = payloads.shift()
             try {
@@ -2621,7 +2543,6 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           throw saveErr
         }
         
-        // 🔑 关键修复：保存成功后立即获取作品详情以获取最新章节状态
         try {
           console.log('persistCurrentChapterEdits: 立即获取作品详情以刷新状态')
           await getWorkDetails(workId)
@@ -2634,7 +2555,6 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         // 2) 清除已生成但未保存标记
         try { lastLoadedGeneratedChapter.value = null } catch (e) {}
 
-        // 🔑 关键修复：基于更新后的状态判断后续操作
         // 3) 检查是否已读到当前章的末尾
         const isAtChapterEnd = (currentSceneIndex.value >= (storyScenes.value.length - 1)) &&
                                (currentDialogueIndex.value >= ((storyScenes.value[currentSceneIndex.value]?.dialogues?.length || 1) - 1))
@@ -2645,7 +2565,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         const isLastChapter = totalChapters.value && Number(chapterIndex) === Number(totalChapters.value)
         console.log('保存后检查是否为末章 - 当前章:', chapterIndex, '总章数:', totalChapters.value, '是否末章:', isLastChapter)
 
-        // 🔑 新功能：如果是末章保存成功，检测并删除结局选项场景
+      
         if (isLastChapter && performNetworkSave) {
           try {
             const beforeCount = storyScenes.value.length
@@ -2779,7 +2699,6 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       
       showToast('已保存', 1000)
       
-      // 🔑 关键修复：保存成功后立即获取作品详情以获取最新章节状态
       try {
         console.log('persistCurrentChapterEdits: 立即获取作品详情以刷新状态')
         await getWorkDetails(workId)
@@ -2837,12 +2756,9 @@ onUnmounted(() => {
 watch(creatorMode, (val) => {
   if (val) {
     try {
-      // 🔑 进入手动编辑模式：保存完整的状态快照
       console.log('进入手动编辑模式 - 保存状态快照')
       creatorEntry.sceneIndex = currentSceneIndex.value
       creatorEntry.dialogueIndex = currentDialogueIndex.value
-      
-      // 🔑 关键：保存选择历史的快照，退出时恢复
       try {
         creatorEntry.choiceHistorySnapshot = deepClone(choiceHistory.value || [])
         console.log('保存选择历史快照，长度:', creatorEntry.choiceHistorySnapshot.length)
@@ -2850,7 +2766,6 @@ watch(creatorMode, (val) => {
         creatorEntry.choiceHistorySnapshot = JSON.parse(JSON.stringify(choiceHistory.value || []))
       }
       
-      // 🔑 保存场景的 choiceConsumed 状态快照
       try {
         creatorEntry.scenesChoiceStateSnapshot = {}
         storyScenes.value.forEach((scene, idx) => {
@@ -2866,7 +2781,6 @@ watch(creatorMode, (val) => {
         console.warn('保存场景选项状态快照失败:', e)
       }
       
-      // 🔑 保存属性和状态的快照
       try {
         creatorEntry.attributesSnapshot = deepClone(attributes.value || {})
         creatorEntry.statusesSnapshot = deepClone(statuses.value || {})
@@ -2891,9 +2805,6 @@ watch(creatorMode, (val) => {
       try {
         (async () => {
           try {
-            // When exiting menu creatorMode (manual editing from menu), persist current chapter edits.
-            // If the current scene is a backend-generated ending, we should perform a network save
-            // so the edited ending is sent to the backend via PUT /api/game/storyending/{workId}/{endingIndex}/.
             const curScene = currentScene?.value || (Array.isArray(storyScenes.value) ? storyScenes.value[currentSceneIndex.value] : null)
             let shouldPerformNetworkSave = false
             try {
@@ -2907,10 +2818,9 @@ watch(creatorMode, (val) => {
         })()
       } catch (e) { console.warn('trigger persist on exit creatorMode failed', e) }
       
-      // 🔑 退出手动编辑模式：恢复进入时的位置和状态
+      // 退出手动编辑模式：恢复进入时的位置和状态
       console.log('退出手动编辑模式 - 恢复状态快照')
       
-      // 🔑 关键：恢复选择历史，撤销手动编辑模式中的所有选择
       if (creatorEntry.choiceHistorySnapshot) {
         try {
           choiceHistory.value = deepClone(creatorEntry.choiceHistorySnapshot)
@@ -2923,8 +2833,7 @@ watch(creatorMode, (val) => {
         }
         creatorEntry.choiceHistorySnapshot = null
       }
-      
-      // 🔑 恢复场景的 choiceConsumed 状态
+   
       if (creatorEntry.scenesChoiceStateSnapshot) {
         try {
           Object.keys(creatorEntry.scenesChoiceStateSnapshot).forEach(idx => {
@@ -2942,7 +2851,6 @@ watch(creatorMode, (val) => {
         creatorEntry.scenesChoiceStateSnapshot = null
       }
       
-      // 🔑 恢复属性和状态
       if (creatorEntry.attributesSnapshot) {
         try {
           attributes.value = deepClone(creatorEntry.attributesSnapshot)
@@ -3014,22 +2922,18 @@ watch(creatorMode, (val) => {
   }
 })
 
-// Ensure first sentence shows when we have scenes and are ready (entering landscape & not loading).
+
 watch([isLandscapeReady, isLoading, () => storyScenes.value.length], (values) => {
   try {
     const [land, loading, len] = values
     if (land && !loading && Array.isArray(storyScenes.value) && storyScenes.value.length > 0) {
-      // clamp scene index
       if (typeof currentSceneIndex.value !== 'number' || currentSceneIndex.value >= storyScenes.value.length) currentSceneIndex.value = 0
       const s = storyScenes.value[currentSceneIndex.value]
       if (!s || !Array.isArray(s.dialogues) || s.dialogues.length === 0) {
-        // nothing to show
         showText.value = false
         return
       }
-      // clamp dialogue index
       if (typeof currentDialogueIndex.value !== 'number' || currentDialogueIndex.value >= s.dialogues.length) currentDialogueIndex.value = 0
-      // show first dialogue immediately
       showText.value = true
     }
   } catch (e) { console.warn('auto-show first dialogue watch failed', e) }
@@ -3059,12 +2963,11 @@ setSaveLoadDependencies({
   effectiveCoverUrl
   ,
   lastSelectedEndingIndex,
-  // 传入结局播放标记，方便读档时设置
   playingEndingScenes,
   endingsAppended
 })
 
-// 设置 useCreatorMode 的依赖（在 autoPlayAPI 创建之后）
+
 setCreatorModeDependencies({
   stopAutoPlayTimer,
   startAutoPlayTimer,
@@ -3078,7 +2981,6 @@ setCreatorModeDependencies({
   nextDialogue
 })
 
-// 设置 useStoryAPI 的依赖（在所有 composables 创建之后）
 storyAPI.setDependencies({
   creatorFeatureEnabled,
   showToast,
@@ -3090,21 +2992,12 @@ storyAPI.setDependencies({
   pendingOutlineTargetChapter,
   outlineEditorResolver,
   loadingProgress,
-  // 传入属性/状态引用，供结局条件匹配使用
   attributes,
   statuses
 })
 
-// 自动播放的启动/停止已由 useAutoPlay 内部自动处理,不需要额外的 watch
-// useAutoPlay 会监听所有关键状态(showText, anyOverlayOpen, choicesVisible 等)的变化
 
-// 控制选项展示（在某句阅读结束后出现）
-
-// 当从存档/读档恢复到某句带有 playerChoices 的话时，避免立即自动展示选项。
-
-// 当场景或对话索引变动，检查是否应该显示选项
 watch([currentSceneIndex, currentDialogueIndex], () => {
-  // 如果刚刚处理过一次选项，短时间内不要重新显示选项（防止选项被重复展示）
   try {
     const timeSinceLastChoice = Date.now() - (lastChoiceTimestamp.value || 0)
     if (timeSinceLastChoice < 600) {
@@ -3120,7 +3013,7 @@ watch([currentSceneIndex, currentDialogueIndex], () => {
     return
   }
   
-  // 🔑 关键修复：如果该场景的选项已被消费过（用户已经选择过），不要再次显示
+
   if (scene.choiceConsumed) {
     console.log('[watch] 场景选项已消费,不显示选项 - 场景:', currentSceneIndex.value, 
       '对话:', currentDialogueIndex.value, 
@@ -3132,7 +3025,7 @@ watch([currentSceneIndex, currentDialogueIndex], () => {
     return
   }
   
-  // 🔑 智能检查：检查选择历史，但要考虑当前阅读位置
+  
   // 只有当用户已经通过了选项触发点（选过或跳过）时，才拒绝显示选项
   try {
     const sceneId = String(scene.id || scene.sceneId)
@@ -3143,9 +3036,6 @@ watch([currentSceneIndex, currentDialogueIndex], () => {
         ? scene.choiceTriggerIndex 
         : (typeof historyRecord.choiceTriggerIndex === 'number' ? historyRecord.choiceTriggerIndex : null)
       
-      // 🔑 关键判断：只有当当前对话位置大于触发点时，才说明用户已经"通过"了选项
-      // 如果当前位置等于触发点，说明用户正好在这里，可能是从前面阅读过来的，应该显示选项
-      // 如果当前位置小于触发点，说明用户还没到，肯定要显示选项
       if (triggerIndex !== null && currentDialogueIndex.value > triggerIndex) {
         console.log('[watch] ⛔ 智能拒绝：用户已通过选项触发点，不再显示 - 场景ID:', sceneId, 
           '当前位置:', currentDialogueIndex.value,
@@ -3169,7 +3059,7 @@ watch([currentSceneIndex, currentDialogueIndex], () => {
         console.log('[watch] 🤔 在触发点检测到历史记录，但用户可能从前面阅读过来 - 场景ID:', sceneId, 
           '当前位置:', currentDialogueIndex.value,
           '触发点:', triggerIndex)
-        // 这里不做拦截，让后续逻辑决定是否显示（可能是用户从前面正常阅读过来的）
+        // 这里不做拦截，让后续逻辑决定是否显示
       } else {
         console.log('[watch] ✅ 允许：用户还未到达触发点，允许显示选项 - 场景ID:', sceneId, 
           '当前位置:', currentDialogueIndex.value,
@@ -3186,9 +3076,6 @@ watch([currentSceneIndex, currentDialogueIndex], () => {
     console.warn('[watch] 检查选择历史时出错:', e)
   }
   
-  // 🔑 关键修复：检查是否有有效的选项配置
-  // 注意：即使场景没有 choices 配置，如果它被标记为 choiceConsumed=true，
-  // 上面的检查已经阻止了选项显示，所以这里只需要检查是否有可显示的选项
   const hasValidChoices = Array.isArray(scene.choices) && 
                           scene.choices.length > 0 && 
                           typeof scene.choiceTriggerIndex === 'number'
@@ -3199,13 +3086,11 @@ watch([currentSceneIndex, currentDialogueIndex], () => {
     return
   }
   
-  // 🔑 关键修复：当对话索引等于触发索引时显示选项（停留在触发句）
   const shouldShowChoices = currentDialogueIndex.value === scene.choiceTriggerIndex && 
                             showText.value && 
                             !suppressAutoShowChoices.value
   
   if (shouldShowChoices) {
-    // 🔑 修改：不立即显示选项，而是设置标记，等待用户点击
     console.log('[watch] 到达选项触发点 - 场景:', currentSceneIndex.value, 
       '对话:', currentDialogueIndex.value, 
       '触发索引:', scene.choiceTriggerIndex,
@@ -3226,7 +3111,6 @@ watch([currentSceneIndex, currentDialogueIndex], () => {
     // 只在不是触发点时隐藏选项
     if (currentDialogueIndex.value !== scene.choiceTriggerIndex) {
       choicesVisible.value = false
-      // 🔑 清除等待标记（当离开触发点时）
       waitingForClickToShowChoices.value = false
     }
     console.log('[watch] 选项未触发 - suppressAuto:', suppressAutoShowChoices.value, 
@@ -3234,8 +3118,7 @@ watch([currentSceneIndex, currentDialogueIndex], () => {
       'triggerIdx:', scene.choiceTriggerIndex, 
       'showText:', showText.value)
   }
-}, { immediate: false }) // 🔑 不立即执行，避免初始化时误触发
-
+}, { immediate: false })
 // 选项的显示/隐藏已由 useAutoPlay 内部自动处理,不需要额外的 watch
 
 // 页面卸载时解锁屏幕方向
@@ -3276,7 +3159,6 @@ onUnmounted(async () => {
 
 <template>
   <div class="game-page" @click="onGlobalClick">
-    <!-- 调试开关已移除 -->
     <!-- 横屏准备界面 -->
     <div v-if="!isLandscapeReady" class="landscape-prompt">
       <div class="prompt-content">
@@ -3357,9 +3239,9 @@ onUnmounted(async () => {
 
     <!-- 音频调试面板已移除 -->
     
-    <!-- 游戏内容（橙光风格） -->
+    <!-- 游戏内容 -->
     <div v-show="isLandscapeReady && !isLoading" class="game-content">
-      <!-- 中心加载指示：获取后续剧情时显示（非阻塞） -->
+      <!-- 中心加载指示：获取后续剧情时显示 -->
       <div v-if="isFetchingNext" class="center-loading" aria-live="polite" aria-label="后续剧情生成中">
         <div class="center-spinner"></div>
       </div>
@@ -3370,7 +3252,7 @@ onUnmounted(async () => {
       <!-- 遮罩层（让文字更清晰） -->
       <div class="overlay-layer"></div>
       
-      <!-- 点击区域（点击进入下一句） - 🔑 修复：编辑状态下阻止点击事件 -->
+      <!-- 点击区域（点击进入下一句） -->
        <div class="click-area"
          @pointerdown="onPointerDown"
          @pointerup="onPointerUp"
@@ -3399,14 +3281,14 @@ onUnmounted(async () => {
         </div>
       </div>
       
-      <!-- 文字栏 - 🔑 修复：点击对话框时停止冒泡，避免触发全局点击导致双重跳转 -->
+      <!-- 文字栏  -->
       <div class="text-box" :class="{ editing: editingDialogue, 'creator-mode': creatorMode }" @click.stop="editingDialogue ? null : nextDialogue()">
         <!-- 说话人标签（可选） -->
         <div v-if="currentSpeaker" class="speaker-badge">{{ currentSpeaker }}</div>
         <transition name="text-fade">
           <!-- 非编辑态显示当前对话 -->
           <p v-if="!editingDialogue && showText" class="dialogue-text">{{ currentDialogue }}</p>
-          <!-- 编辑态：contenteditable，编辑内容保存在 editableText - 🔑 修复：阻止点击事件冒泡 -->
+          <!-- 编辑态：contenteditable，编辑内容保存在 editableText -->
     <div v-else-if="editingDialogue" ref="editableDiv" class="dialogue-text" contenteditable="true"
       @click.stop
       @input="onEditableInput"
@@ -3422,7 +3304,7 @@ onUnmounted(async () => {
             <button class="edit-btn" title="编辑文本" @click.stop="startEdit()">编辑</button>
             <button class="edit-btn" title="替换当前背景" @click.stop="triggerImagePicker">替换图片</button>
             <button class="edit-btn" title="播放下一句" @click.stop="playNextAfterEdit">播放下一句</button>
-            <!-- 🔧 新增旁白功能按钮 -->
+            <!-- 旁白功能按钮 -->
             <button class="edit-btn" title="在当前后插入旁白" @click.stop="addNarration()">新增旁白</button>
             <button class="edit-btn" :class="{ disabled: !currentIsNarration }" :title="currentIsNarration ? '删除当前旁白' : '当前不是旁白'" @click.stop="attemptDeleteNarration">删除旁白</button>
           </template>
@@ -3592,7 +3474,7 @@ onUnmounted(async () => {
               <button class="music-btn" @click="playNextTrack">下一首</button>
               <button class="music-btn" @click="triggerMusicFilePicker">添加本地音乐</button>
             </div>
-              <!-- debug display removed -->
+         
             <div class="modal-row meta-small" style="margin-top:0.5rem">
               当前：{{ playlist.length ? (currentTrackIndex + 1) : 0 }} / {{ playlist.length }}
             </div>
@@ -3685,13 +3567,7 @@ onUnmounted(async () => {
       </div>
     </div>
 
-  <!-- 临时提示（存档/读档/notice） -->
-  <!-- 存档/读档提示由 Vant showToast 处理，无需本地容器 -->
-  <!-- 创作者专用：手动打开大纲编辑器按钮（浮动） -->
-  <!--
-    修复说明：只在创作者身份（isCreatorIdentity）下显示编辑大纲按钮，
-    阅读者身份不应该看到此按钮。
-  -->
+ 
 
   <button 
     v-if="work.modifiable && work.ai_callable && getChapterStatus(currentChapterIndex) !== 'saved'"
@@ -3809,7 +3685,7 @@ onUnmounted(async () => {
       </div>
 
       <div class="outline-editor-body">
-        <!-- 左侧：结局大纲（更大文本区） -->
+        <!-- 左侧：结局大纲 -->
         <div class="outline-left">
           <div class="outline-chapters-container">
             <div class="outline-chapter-item">

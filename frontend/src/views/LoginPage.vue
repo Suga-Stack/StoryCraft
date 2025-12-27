@@ -87,7 +87,6 @@ const handleLogin = async () => {
         return;
         }
 
-        // 5. 令牌检查更严谨，增加类型判断
         if (typeof data !== 'object' || !data.access) {
         showFailToast('登录失败，未获取到有效的访问令牌');
         return;
@@ -155,7 +154,7 @@ const goToRegister = () => {
 }
 
 .login-header h1 {
-    /* 使用全局 display 字体变量，后备到系统字体以提高兼容性 */
+    /* 使用全局 display 字体变量 */
   font-family: var(--font-display);
   
   font-size: 3rem;

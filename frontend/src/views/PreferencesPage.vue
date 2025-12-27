@@ -70,7 +70,7 @@
                 color: selectedTags.includes(tag.id) ? '#ffffff' : '#444444',
                 borderColor: selectedTags.includes(tag.id) ? '#e5b7b7' : '#b88484',
                 borderWidth: '1px',  // 边框宽度
-                borderStyle: 'solid' // 边框样式（solid/dashed/dotted等）
+                borderStyle: 'solid' // 边框样式
               }"
             >
               {{ tag.name }}
@@ -131,10 +131,10 @@ const errors = ref({
   tags: ''
 });
 
-// 标签相关状态（仅使用本地标签，不向后端请求）
+// 标签相关状态
 const allTags = ref([...defaultTags]);
-const isLoadingTags = ref(false); // 不再触发加载，仅用于模板条件
-const tagsError = ref(''); // 不再设置错误，仅用于模板条件
+const isLoadingTags = ref(false); 
+const tagsError = ref(''); 
 
 // 标签分类相关状态
 const categories = ref([
@@ -161,7 +161,6 @@ const switchCategory = (index) => {
   window.scrollTo(0, 0); // 切换时滚动到顶部
 };
 
-// 已移除后端标签获取逻辑，直接使用 defaultTags
 
 // 初始化：获取已保存的偏好和标签列表
 onMounted(async () => {

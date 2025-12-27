@@ -195,7 +195,6 @@ const isCreditsValid = ref(false)
 // 加载状态
 const isLoading = ref(true)
 
-// 获取当前用户创作的作品列表（实现见下方，含加载状态管理）
 // 删除弹窗相关
 const showDeleteDialog = ref(false)
 const deleteBookId = ref(null)
@@ -206,7 +205,6 @@ const openDeleteDialog = (book) => {
 const confirmDelete = async () => {
   if (!deleteBookId.value) return
   try {
-    // 仅尝试带尾斜杠的规范 endpoint（Django APPEND_SLASH 默认为 True）
     const endpoints = [
       `/api/gameworks/gameworks/${deleteBookId.value}/`,
       `/gameworks/gameworks/${deleteBookId.value}/`,
@@ -283,7 +281,7 @@ const handleIconClick = (book) => {
 //取消发布接口
 const handleUnpublish = async (book) => {
   try {
-    // 调用取消发布接口，假设接口为unpublishWorks
+    // 调用取消发布接口
     const response = await unpublishWorks(book.id);
     
     if (response.status === 200) {
@@ -355,7 +353,7 @@ const handlePublish = async (book) => {
   } catch (error) {
     // 处理接口调用失败的情况
     console.error('发布操作失败:', error);
-    // 恢复状态（因为接口调用失败，前端状态不应该改变）
+    // 恢复状态
     book.isPublished = !book.isPublished;
     
     // 根据错误类型显示不同提示
@@ -377,7 +375,7 @@ const handleTagClick = (tag) => {
   }
   router.push({
     path: `/tag/${tag.id}`, // 跳转到标签页面，路径包含标签ID
-    query: { name: tag.name } // 可选：传递标签名称用于页面标题显示
+    query: { name: tag.name } 
   });
 };
 </script>

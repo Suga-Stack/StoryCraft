@@ -50,7 +50,6 @@ export default defineConfig(({ mode }) => {
       target: 'es2015',
       rollupOptions: {
         output: {
-          // 优化代码分割
           manualChunks: {
             'vue-vendor': ['vue', 'vue-router', 'pinia'],
             'vant': ['vant']

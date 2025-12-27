@@ -21,7 +21,6 @@ export function useCreatorMode(dependencies = {}) {
     showToast,
     isCreatorIdentity,
     modifiableFromCreate,
-    // 添加缺失的依赖
     currentChapterIndex,
     totalChapters,
     checkCurrentChapterSaved,
@@ -31,7 +30,7 @@ export function useCreatorMode(dependencies = {}) {
   const creatorMode = ref(false)
   const showOutlineEditor = ref(false)
   const outlineEdits = ref([])
-  const outlineCurrentPage = ref(0)  // 新增：当前显示的章节页码
+  const outlineCurrentPage = ref(0)  
   const outlineUserPrompt = ref('')
   const originalOutlineSnapshot = ref([])
   const editingDialogue = ref(false)
@@ -91,7 +90,7 @@ export function useCreatorMode(dependencies = {}) {
             const idx = Number(k)
             if (!isNaN(idx) && storyScenes.value[sIdx].dialogues && idx < storyScenes.value[sIdx].dialogues.length) {
               const orig = storyScenes.value[sIdx].dialogues[idx]
-              // 🔑 关键修复：无论原始对话是字符串还是对象，都用覆盖的文本直接替换
+              // 无论原始对话是字符串还是对象，都用覆盖的文本直接替换
               // 如果是字符串，直接替换
               if (typeof orig === 'string') {
                 storyScenes.value[sIdx].dialogues[idx] = ov.dialogues[k]
@@ -125,7 +124,7 @@ export function useCreatorMode(dependencies = {}) {
   
   const toggleCreatorMode = async (params = {}) => {
     try {
-      // 🔑 修复：优先使用 params，如果没有则从依赖中获取
+      // 优先使用 params，如果没有则从依赖中获取
       const _work = params.work || work
       const _checkCurrentChapterSaved = params.checkCurrentChapterSaved || checkCurrentChapterSaved
       const _creatorFeatureEnabled = params.creatorFeatureEnabled || dependencies.creatorFeatureEnabled
@@ -141,7 +140,7 @@ export function useCreatorMode(dependencies = {}) {
       }
 
       if (!creatorMode.value) {
-        // 🔑 新增：如果 modifiable=true 且 ai_callable=false，无论章节状态如何都允许进入手动编辑模式
+        // 如果 modifiable=true 且 ai_callable=false，无论章节状态如何都允许进入手动编辑模式
         const isManualEditOnly = modifiableFromCreate?.value && _work?.value?.ai_callable === false
         
         if (isManualEditOnly) {
@@ -159,7 +158,7 @@ export function useCreatorMode(dependencies = {}) {
             }
           }
         }
-        // 新增：仅在创作者身份下，若当前场景是后端生成的结局且尚未被保存，则不允许通过菜单进入手动编辑模式
+        // 仅在创作者身份下，若当前场景是后端生成的结局且尚未被保存，则不允许通过菜单进入手动编辑模式
         try {
           // 如果是创作者身份或者来自 create 页面且可修改（modifiableFromCreate），
           // 都应当被视为需要额外的已保存检查，避免未保存的后端结局被菜单直接进入手动编辑。
@@ -192,8 +191,6 @@ export function useCreatorMode(dependencies = {}) {
     } catch (e) { console.warn('toggleCreatorMode failed', e) }
   }
   
-  // 修改：不再从调用方传入各个 ref，避免模板自动解包导致传入原始值（string/array）而出现 "Cannot create property 'value' on string ''"。
-  // 直接使用闭包中的 outlineEdits/outlineUserPrompt 等 refs。
   const openOutlineEditorManual = async (params = {}) => {
     try {
       // 允许所有身份（包括阅读者）打开手动大纲编辑
@@ -223,11 +220,11 @@ export function useCreatorMode(dependencies = {}) {
         }
       } catch (e) { /* ignore */ }
 
-      // 🔑 关键修复：使用依赖中的 currentChapterIndex 和 totalChapters
+      // 使用依赖中的 currentChapterIndex 和 totalChapters
       const start = Number(currentChapterIndex?.value || params.currentChapterIndex?.value || 1) || 1
       const total = Math.max((Number(totalChapters?.value || params.totalChapters?.value || 0) || 5), 0)
 
-      // 🔑 只从后端获取大纲数据，不使用前端缓存
+      // 只从后端获取大纲数据，不使用前端缓存
       let rawOutlines = []
       // 从后端获取作品详情以获取最新的大纲数据
       try {
@@ -255,7 +252,7 @@ export function useCreatorMode(dependencies = {}) {
         for (let i = 0; i < rawOutlines.length; i++) {
           const ch = rawOutlines[i]
           
-          // 🔑 过滤掉结局章节（有 endingIndex 字段的）
+          // 过滤掉结局章节（有 endingIndex 字段的）
           if (ch && typeof ch.endingIndex !== 'undefined') {
             continue
           }
@@ -411,7 +408,6 @@ export function useCreatorMode(dependencies = {}) {
         await generateChapter(workId, targetChapter, { chapterOutlines: payloadOutlines, userPrompt: outlineUserPrompt.value })
         // showToast?.('已提交大纲，开始生成中…')
         // 轮询作品详情，直到目标章节状态为 generated/saved
-        // 🔑 使用更长的超时时间（10分钟）或无限等待（timeout: 0）
         try {
           await pollWorkStatus?.(workId, targetChapter, { interval: 1500, timeout: 0 })
         } catch (pollErr) {
@@ -454,7 +450,7 @@ export function useCreatorMode(dependencies = {}) {
   }
   
   const startEdit = async (params = {}) => {
-    // 🔑 修复：优先使用 params，如果没有则从依赖中获取
+    // 优先使用 params
     const _work = params.work || work
     const _checkCurrentChapterSaved = params.checkCurrentChapterSaved || checkCurrentChapterSaved
     const _showMenu = params.showMenu || dependencies.showMenu
@@ -515,14 +511,14 @@ export function useCreatorMode(dependencies = {}) {
   }
   
   const cancelEdit = (params = {}) => {
-    // 🔑 修复：优先使用 params，如果没有则从依赖中获取
+    // 优先使用 params，如果没有则从依赖中获取
     const _currentDialogue = params.currentDialogue || params || dependencies.currentDialogue
     editableText.value = (_currentDialogue?.value || _currentDialogue || '')
     editingDialogue.value = false
   }
   
   const finishEdit = (params = {}) => {
-    // 🔑 修复：优先使用 params，如果没有则从依赖中获取
+    // 优先使用 params
     const _currentScene = params.currentScene || dependencies.currentScene
     const _currentSceneIndex = params.currentSceneIndex || currentSceneIndex
     const _currentDialogueIndex = params.currentDialogueIndex || currentDialogueIndex
@@ -540,31 +536,11 @@ export function useCreatorMode(dependencies = {}) {
       if (!scene) return
       
       const sid = (scene._uid || scene.sceneId || scene.id || `idx_${_currentSceneIndex.value}`)
-      
-      // 🔑 关键修复：移除同步到选项后续对话的代码，这会导致重复
-      // 这段代码会错误地将编辑后的文本同时写入原始场景和overrides，导致重复显示
-      // try {
-      //   const sceneIdx = _currentSceneIndex.value
-      //   const curScene = _storyScenes.value[sceneIdx]
-      //   const curItem = curScene && Array.isArray(curScene.dialogues) ? curScene.dialogues[_currentDialogueIndex.value] : null
-      //   if (curItem && typeof curItem === 'object' && curItem._fromChoiceId != null) {
-      //     try {
-      //       const cid = curItem._fromChoiceId
-      //       const cidx = Number(curItem._fromChoiceIndex)
-      //       const ch = curScene.choices && curScene.choices.find(cc => String(cc.id) === String(cid))
-      //       if (ch) {
-      //         ch.subsequentDialogues = ch.subsequentDialogues || []
-      //         ch.subsequentDialogues[cidx] = editableText.value
-      //       }
-      //     } catch (e) { console.warn('sync back to choice.subsequentDialogues failed', e) }
-      //   }
-      // } catch (e) { console.warn('finishEdit sync check failed', e) }
 
       _overrides.value.scenes = _overrides.value.scenes || {}
       _overrides.value.scenes[sid] = _overrides.value.scenes[sid] || { dialogues: {} }
       _overrides.value.scenes[sid].dialogues = _overrides.value.scenes[sid].dialogues || {}
       
-      // 🔑 关键修复：直接存储编辑后的文本，不保留原始结构
       // 确保只存储纯文本，避免对象嵌套导致的重复
       _overrides.value.scenes[sid].dialogues[_currentDialogueIndex.value] = editableText.value
       
@@ -601,7 +577,7 @@ export function useCreatorMode(dependencies = {}) {
     } catch (e) { return false }
   }
 
-  // 新增：插入一条旁白
+  // 插入一条旁白
   const addNarration = async (params = {}) => {
     const _work = params.work || work
     const _checkCurrentChapterSaved = params.checkCurrentChapterSaved || checkCurrentChapterSaved
@@ -619,7 +595,7 @@ export function useCreatorMode(dependencies = {}) {
         showToast?.('请先进入创作者模式')
         return
       }
-      // 已保存章节校验（若需要）
+      // 已保存章节校验
       if (_work?.value?.ai_callable !== false) {
         if (_checkCurrentChapterSaved) {
           const isSaved = await _checkCurrentChapterSaved()
@@ -641,7 +617,7 @@ export function useCreatorMode(dependencies = {}) {
   const narrationObj = { text: newText, type: 'narration', __narration: true, speaker: null }
       scene.dialogues.splice(insertIndex, 0, narrationObj)
 
-      // 更新 overrides：对话索引后移
+      // 对话索引后移
       const sid = (scene._uid || scene.sceneId || scene.id || `idx_${_currentSceneIndex.value}`)
       _overrides.value.scenes = _overrides.value.scenes || {}
       _overrides.value.scenes[sid] = _overrides.value.scenes[sid] || { dialogues: {} }
@@ -669,7 +645,7 @@ export function useCreatorMode(dependencies = {}) {
     }
   }
 
-  // 新增：删除当前旁白
+  // 删除当前旁白
   const deleteNarration = (params = {}) => {
     const _currentScene = params.currentScene || dependencies.currentScene
     const _currentSceneIndex = params.currentSceneIndex || currentSceneIndex
@@ -754,7 +730,7 @@ export function useCreatorMode(dependencies = {}) {
   }
   
   const triggerImagePicker = async (params = {}) => {
-    // 🔑 修复：优先使用 params，如果没有则从依赖中获取
+    // 优先使用 params
     const _work = params.work || work
     const _checkCurrentChapterSaved = params.checkCurrentChapterSaved || checkCurrentChapterSaved
     const _showMenu = params.showMenu || dependencies.showMenu
@@ -783,7 +759,7 @@ export function useCreatorMode(dependencies = {}) {
   }
   
   const onImageSelected = async (ev, params = {}) => {
-    // 🔑 修复：优先使用 params，如果没有则从依赖中获取
+    // 优先使用 params
     const _currentScene = params.currentScene || dependencies.currentScene
     const _currentSceneIndex = params.currentSceneIndex || currentSceneIndex
     const _overrides = params.overrides || overrides
@@ -844,7 +820,7 @@ export function useCreatorMode(dependencies = {}) {
   }
   
   const playNextAfterEdit = (params = {}) => {
-    // 🔑 修复：优先使用 params，如果没有则从依赖中获取
+    // 优先使用 params
     const _allowAdvance = params.allowAdvance || allowAdvance
     const _showMenu = params.showMenu || dependencies.showMenu
     const _nextDialogue = params.nextDialogue || dependencies.nextDialogue
@@ -870,7 +846,6 @@ export function useCreatorMode(dependencies = {}) {
       if (val) {
         try {
           creatorEntry.sceneIndex = currentSceneIndex.value
-          // 修改：记录进入时的对话索引，而不是强制设为0
           creatorEntry.dialogueIndex = currentDialogueIndex.value
           allowAdvance.value = false
           try { stopAutoPlayTimer() } catch (e) {}
@@ -887,7 +862,6 @@ export function useCreatorMode(dependencies = {}) {
           
           if (creatorEntry.sceneIndex != null) {
             currentSceneIndex.value = creatorEntry.sceneIndex
-            // 修改：恢复到进入时记录的对话索引
             currentDialogueIndex.value = creatorEntry.dialogueIndex != null ? creatorEntry.dialogueIndex : 0
             showText.value = true
           }
@@ -926,7 +900,6 @@ export function useCreatorMode(dependencies = {}) {
     })
   }
   
-  // 提供方法来更新依赖（类似 useSaveLoad 和 useStoryAPI）
   const setDependencies = (deps) => {
     if (deps.stopAutoPlayTimer) dependencies.stopAutoPlayTimer = deps.stopAutoPlayTimer
     if (deps.startAutoPlayTimer) dependencies.startAutoPlayTimer = deps.startAutoPlayTimer
@@ -944,7 +917,7 @@ export function useCreatorMode(dependencies = {}) {
     creatorMode,
     showOutlineEditor,
     outlineEdits,
-    outlineCurrentPage,  // 新增：导出分页状态
+    outlineCurrentPage,  
     outlineUserPrompt,
     originalOutlineSnapshot,
     editingDialogue,

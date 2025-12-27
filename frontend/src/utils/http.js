@@ -132,7 +132,6 @@ function redirectToLogin() {
   localStorage.removeItem('token');
   localStorage.removeItem('refreshToken');
   // 动态导入 router 避免循环依赖
-  // 注意: 这里可能需要根据实际路由配置调整
   if (window.location) {
     // 使用路由跳转以兼容 Hash 模式（避免在编译为 Capacitor/HashRouter 时产生 /login 和 /login#/ 间来回切换）
     try {

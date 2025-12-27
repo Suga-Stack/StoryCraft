@@ -12,49 +12,48 @@ export const useUserStore = defineStore('user', () => {
     JSON.parse(localStorage.getItem('userPreferences')) || null
   )
 
-  // ========== 初始化逻辑（来自组合式API文件）==========
+  // ========== 初始化逻辑 ==========
   if (token.value) {
     isLoggedIn.value = true
   }
 
-  // ========== 计算属性（来自组合式API文件）==========
+  // ========== 计算属性 ==========
   const userInfo = computed(() => user.value)
   const isAuthenticated = computed(() => isLoggedIn.value && !!token.value)
 
-  // ========== 方法定义（合并两个文件的方法，去重优化）==========
-  // 1. 登录方法（来自组合式API，保留token持久化）
+  // ========== 方法定义==========
+  // 1. 登录方法
   const login = (userData, authToken) => {
     user.value = userData
     token.value = authToken
     isLoggedIn.value = true
     localStorage.setItem('token', authToken)
 
-    // 新增：如果后端返回用户偏好，同步到本地（兼容选项式API的后端获取逻辑）
     if (userData.preferences) {
       setPreferences(userData.preferences)
     }
   }
 
-  // 2. 退出登录方法（合并两个文件的逻辑：清空用户+token+偏好）
+  // 2. 退出登录方法
   const logout = () => {
     user.value = null
     token.value = ''
     isLoggedIn.value = false
-    preferences.value = null // 清空偏好（可根据需求保留，注释即可）
+    preferences.value = null // 清空偏好
     localStorage.removeItem('token')
     localStorage.removeItem('userPreferences') // 清除偏好持久化
-    refreshToken.value = '' // 新增：清空刷新令牌
-    localStorage.removeItem('refreshToken') // 新增：清除刷新令牌持久化
+    refreshToken.value = ''
+    localStorage.removeItem('refreshToken') 
   }
 
-  // 3. 更新用户信息（来自组合式API，保留合并逻辑）
+  // 3. 更新用户信息
   const updateUser = (userData) => {
     user.value = { ...user.value, ...userData }
   }
 
-  // 4. 设置用户偏好（来自选项式API，优化合并逻辑+持久化）
+  // 4. 设置用户偏好
   const setPreferences = (prefs) => {
-    // 合并新旧偏好（避免覆盖未修改字段）
+    // 合并新旧偏好
     preferences.value = { ...preferences.value, ...prefs }
     // 持久化到localStorage，防止刷新丢失
     localStorage.setItem('userPreferences', JSON.stringify(preferences.value))
@@ -66,7 +65,7 @@ export const useUserStore = defineStore('user', () => {
     if (!status) {
       token.value = ''
       localStorage.removeItem('token')
-      refreshToken.value = '' // 新增：同步清空刷新令牌
+      refreshToken.value = '' 
       localStorage.removeItem('refreshToken')
     }
   }
@@ -106,10 +105,10 @@ export const useUserStore = defineStore('user', () => {
 
   const fetchUserInfo = async (userId) => {
     try {
-      // 调用用户信息API（确保导入对应的api方法）
+      // 调用用户信息API
       const response = await getUserInfo(userId);
 
-      // 检查业务状态码（与页面逻辑保持一致）
+      // 检查业务状态码
       if (response.data.code && response.data.code !== 200) {
         throw new Error(`业务错误: ${response.data.message || '获取用户信息失败'}`);
       }
@@ -129,7 +128,7 @@ export const useUserStore = defineStore('user', () => {
     }
   };
 
-  // ========== 暴露状态和方法（供组件使用）==========
+  // ========== 暴露状态和方法 ==========
   return {
     user,
     isLoggedIn,
@@ -147,11 +146,11 @@ export const useUserStore = defineStore('user', () => {
   }
 })
 
-// 2. 故事/作品状态 Store（直接保留选项式API文件的逻辑，无需修改）
+// 故事/作品状态 Store
 export const useStoryStore = defineStore('story', {
   state: () => ({
     currentStory: null, // 当前阅读的故事
-    bookshelf: [] // 书架数据（从后端获取）
+    bookshelf: [] // 书架数据
   }),
   actions: {
     setCurrentStory(story) {
@@ -163,5 +162,5 @@ export const useStoryStore = defineStore('story', {
   }
 })
 
-// 3. 导出 Pinia 实例（供 main.js 注册）
+// 导出 Pinia 实例
 export const store = createPinia()

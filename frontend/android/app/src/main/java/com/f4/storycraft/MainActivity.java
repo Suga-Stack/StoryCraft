@@ -42,7 +42,7 @@ public class MainActivity extends BridgeActivity {
                 .build();
     }
 
-    // 新增：当页面获取焦点时隐藏导航栏（关键修改）
+    // 当页面获取焦点时隐藏导航栏
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
@@ -65,8 +65,8 @@ public class MainActivity extends BridgeActivity {
             // Android 10及以下版本
             window.getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_HIDE_NAVIGATION    // 隐藏导航栏
-                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY // 沉浸式粘性模式（用户交互后自动隐藏）
-                | View.SYSTEM_UI_FLAG_FULLSCREEN       // 可选：同时隐藏状态栏（如果需要）
+                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY 
+                | View.SYSTEM_UI_FLAG_FULLSCREEN       
             );
         }
     }

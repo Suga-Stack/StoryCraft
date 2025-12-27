@@ -12,7 +12,7 @@ import { defaultTags } from '../config/tags';
 const USE_MOCK_CREATE = false
 // 本地可替换的函数引用
 let createWorkOnBackend = createWorkService.createWorkOnBackend
-// 临时开关：若为 true，则点击「一键生成」不会发送任何后端请求，直接在前端模拟生成流程（用于本地动画/交互测试）
+// 临时开关：若为 true，则点击「一键生成」不会发送任何后端请求，直接在前端模拟生成流程
 const SKIP_BACKEND_CREATE = false
 
 const router = useRouter()
@@ -32,7 +32,7 @@ const categories = ref([
 const currentCategory = ref(0); // 当前选中的分类索引，默认选中"类型"
 
 const selectedTags = ref([])
-// 将选中的 tag 对象规范化为字符串数组（后端需要字符串数组）
+// 将选中的 tag 对象规范化为字符串数组
 const normalizeTags = (tags) => {
   if (!Array.isArray(tags)) return []
   return tags.map(t => {
@@ -41,8 +41,8 @@ const normalizeTags = (tags) => {
     return String(t)
   }).filter(Boolean)
 }
-const idea = ref('') // 用户构思（可选）
-const lengthType = ref('') // 必选：大概篇幅
+const idea = ref('') // 用户构思
+const lengthType = ref('') // 大概篇幅
 
 const lengthOptions = [
   { value: 'short', label: '短篇（约3-5章）' },
@@ -141,11 +141,9 @@ const submitToBackend = async () => {
   try {
     const res = await createWorkOnBackend(payload)
 
-    // 新接口约定：createWorkOnBackend 在完成后应该返回 { gameworkId, backendWork }
     if (res && res.backendWork) {
       backendWork.value = res.backendWork
     } else if (res && res.gameworkId) {
-      // 若实现上出现差异但仍返回 id，则尝试直接拉取详情（兼容性降级）
       try {
         const { http } = await import('../service/http.js')
         const details = await http.get(`/api/gameworks/gameworks/${res.gameworkId}/`)
@@ -174,18 +172,15 @@ const submitToBackend = async () => {
         selectedTags: selectedTags.value,
         fromCreate: true,
         backendWork: backendWork.value || null,
-        // 若后端返回大纲（backendWork.outlines 或 res.chapterOutlines），则使用它；否则不写入 chapterOutlines
         chapterOutlines: (backendWork.value && backendWork.value.outlines) || res?.chapterOutlines || null,
         modifiable: payload.modifiable || false
       }
 
-      // 严格遵循后端：不再合成本地 mock 大纲，createResult.chapterOutlines 只来自后端
       // 保证保存的 selectedTags 也是字符串数组，便于其他页面读取并发送给后端
       createResult.selectedTags = normalizeTags(createResult.selectedTags || [])
       sessionStorage.setItem('createResult', JSON.stringify(createResult))
       return createResult
     } catch (e) {
-      /* ignore storage errors */
       return { backendWork: backendWork.value || null }
     }
   } catch (e) {
@@ -195,7 +190,7 @@ const submitToBackend = async () => {
 }
 
 const startCreate = async () => {
-  // 前端校验并给出提示（保证用户点击时能看到原因）
+  // 前端校验并给出提示
   if (selectedTags.value.length < 3) {
     showToast({ message: '请至少选择 3 个标签', duration: 1000 })
     return
@@ -208,9 +203,9 @@ const startCreate = async () => {
     showToast({ message: '请选择大概篇幅', duration: 1000 })
     return
   }
-  // 如果已经有完成的创建任务，直接跳转到已生成的作品（避免重复请求）
-  // 始终尝试发起新的生成请求（即使之前存在已完成的 creationJob），
-  // 避免点击时自动跳转到之前生成的作品。我们要保证点击「一键生成」即刻向后端发起生成。
+  // 如果已经有完成的创建任务，直接跳转到已生成的作品
+  // 始终尝试发起新的生成请求
+  // 避免点击时自动跳转到之前生成的作品。
   // 记录本次用户请求，便于后端读取或下页使用
   try {
     sessionStorage.setItem('createRequest', JSON.stringify({
@@ -220,9 +215,7 @@ const startCreate = async () => {
     }))
   } catch {}
 
-  // 不在这里提前写入本地 pending job（避免在返回时触发本地模拟并误结束加载）。
-
-  // 如果启用跳过后端模式，则在前端模拟一个生成流程（不调用任何后端接口）
+  // 如果启用跳过后端模式，则在前端模拟一个生成流程
   if (SKIP_BACKEND_CREATE) {
     // 在 sessionStorage 中记录 creationJob，方便跨页面恢复
     const job = {
@@ -246,8 +239,7 @@ const startCreate = async () => {
       console.warn('加载 createWork.mock.js 失败，继续使用真实 service：', e)
     }
   }
-
-  // 显示创建加载流程，直到后端完全生成首章并返回；在 submitToBackend 完成并写入 createResult 后再跳转
+  // 在 sessionStorage 中记录 creationJob，方便跨页面恢复
   isLoading.value = true
   progress.value = 0
   // 启动一个进度计时器，在等待后端返回时平滑推进到 75~85% 区间
@@ -271,7 +263,6 @@ const startCreate = async () => {
   try {
     startFakeProgress()
     const result = await submitToBackend()
-    // submitToBackend 成功后，把 creationJob 标记为 done 并写回（兼容恢复逻辑）
     try {
       const finished = JSON.parse(sessionStorage.getItem(CREATION_JOB_KEY) || '{}')
       finished.status = 'done'
@@ -310,12 +301,10 @@ const startCreate = async () => {
     // 保持 isLoading=true，这样创建页一直显示加载覆盖层，符合需求
     return
   } finally {
-    // 成功路径会跳转页面并在路由变化中卸载本组件；失败路径会在上面 return 保持 isLoading。
-    // 这里不再在 finally 中清理 isLoading，以保证在失败时保持加载覆盖层。
   }
 }
 
-// 恢复/检查 sessionStorage 中的 creationJob（用于挂载与激活时）
+// 恢复/检查 sessionStorage 中的 creationJob
 const restoreCreationJob = () => {
   try {
     const existing = JSON.parse(sessionStorage.getItem(CREATION_JOB_KEY) || 'null')
@@ -338,7 +327,6 @@ const restoreCreationJob = () => {
               const cr = JSON.parse(crRaw)
               if (cr && cr.backendWork) {
                 backendWork.value = cr.backendWork
-                // mark creationJob as done
                 try {
                   const finished = JSON.parse(sessionStorage.getItem(CREATION_JOB_KEY) || '{}')
                   finished.status = 'done'
@@ -349,10 +337,8 @@ const restoreCreationJob = () => {
                 } catch (e) {}
                 clearInterval(pollTimer)
                 pollTimer = null
-                // stop loading and navigate
                 isLoading.value = false
                 progress.value = 100
-                // short delay for UX; 若用户仍在当前页面则跳转到作品详情，否则不跳转
                 setTimeout(() => {
                   try {
                     const workId = (cr && cr.backendWork && (cr.backendWork.id || cr.backendWork.gameworkId)) || (backendWork && backendWork.value && (backendWork.value.id || backendWork.value.gameworkId)) || null
@@ -362,9 +348,9 @@ const restoreCreationJob = () => {
                   } catch (e) {}
                 }, 250)
               }
-            } catch (e) { /* ignore parse errors */ }
+            } catch (e) {}
           }, 2000)
-        } catch (e) { /* ignore */ }
+        } catch (e) {}
       }
     }
   } catch (e) {}
@@ -423,7 +409,6 @@ const startResumeSimulation = (job) => {
         finished.backendWork = fakeBackendWork
         finished.finishedAt = Date.now()
         sessionStorage.setItem(CREATION_JOB_KEY, JSON.stringify(finished))
-        // Also write createResult for compatibility
         const createResult = {
           selectedTags: selectedTags.value,
           fromCreate: true,

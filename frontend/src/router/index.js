@@ -108,13 +108,13 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createWebHashHistory(), // 使用 Hash 模式（Capacitor 必需）
+  history: createWebHashHistory(), 
   routes
 })
 
 // 全局前置守卫
 router.beforeEach((to, from, next) => {
-  // 需要登录的页面白名单（书城页可视需求决定是否加入）
+  // 需要登录的页面白名单
   const needLoginPages = ['/bookshelf', '/create', '/profile', '/mycreations', '/readinghistory', '/charge', '/preferences', '/settlement', '/game/:id?', '/works/:id', '/search', '/home', '/', '/staff', '/tag/:id'];
   
   if (needLoginPages.includes(to.path) && !isLogin()) {

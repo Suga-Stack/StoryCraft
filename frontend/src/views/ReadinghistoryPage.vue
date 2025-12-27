@@ -233,7 +233,7 @@ const handleTagClick = (tag) => {
   }
   router.push({
     path: `/tag/${tag.id}`, // 跳转到标签页面，路径包含标签ID
-    query: { name: tag.name } // 可选：传递标签名称用于页面标题显示
+    query: { name: tag.name } 
   });
 };
 

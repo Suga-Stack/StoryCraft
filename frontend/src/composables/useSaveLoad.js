@@ -464,7 +464,6 @@ export function useSaveLoad() {
       const savedData = result.data
       let remote = savedData.state || savedData
       
-      // 🔑 关键修改：读档后必须向后端请求相应章节或结局的剧情内容
       const savedChapterIndex = typeof remote.chapterIndex === 'number' ? remote.chapterIndex : null
       const savedEndingIndex = typeof remote.endingindex === 'number' ? remote.endingindex : (remote.endingIndex != null ? Number(remote.endingIndex) : null)
 
@@ -692,7 +691,6 @@ export function useSaveLoad() {
       }
       
       // 根据选择历史恢复场景的已选标记
-      // 🔑 修复：确保在恢复标记前所有索引都已正确设置
       try { 
         if (_restoreChoiceFlagsFromHistory) {
           _restoreChoiceFlagsFromHistory()
@@ -718,7 +716,6 @@ export function useSaveLoad() {
       }
   
       // 恢复显示状态
-      // 🔑 修复：读档后先不显示选项，让 watch 根据当前状态判断是否应该显示
       try { if (_suppressAutoShowChoices) _suppressAutoShowChoices.value = false } catch (e) {}
       if (_showText) _showText.value = true
       if (_choicesVisible) _choicesVisible.value = false

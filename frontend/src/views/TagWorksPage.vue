@@ -20,7 +20,7 @@
       >
         {{ category.name }}
       </button>
-      <!-- 下拉箭头，控制标签区展开/收起，与按钮行为一致 -->
+      <!-- 下拉箭头 -->
       <button
         class="toggle-arrow"
         :class="{ open: isTagsOpen }"
@@ -137,7 +137,7 @@ const filteredTags = computed(() => {
 // 从路由参数初始化标签
 onMounted(() => {
   const paramId = route.params.id; // 来自 /tag/:id
-  const queryId = route.query.tagId; // 兼容旧的 query 方式
+  const queryId = route.query.tagId; 
   const tagId = paramId || queryId;
   const tagName = route.query.tagName || '';
   if (tagId) {
@@ -210,7 +210,6 @@ const fetchWorks = async () => {
       '', // 空作者筛选
       currentTagId.value // 标签ID
     );
-    // 新接口格式：{ code, message, data: [ ... ] }
     works.value = response.data.data || [];
   } catch (error) {
     console.error('获取作品失败:', error);
@@ -262,7 +261,6 @@ const handleBack = () => {
   padding-bottom: 20px;
 }
 
-/* 分类标签样式（复用CreateWork的设计） */
 .category-tabs {
   display: flex;
   flex-wrap: nowrap;
@@ -274,13 +272,13 @@ const handleBack = () => {
 }
 
 .category-tab {
-  padding: 0.36rem 0.8rem; /* 适当缩小按钮高度 */
+  padding: 0.36rem 0.8rem; 
   border-radius: 10px;
   border: 1px solid transparent;
   background: #efefef;
   cursor: pointer;
   color: #6b6b6b;
-  font-size: 0.9rem; /* 略微缩小字号以便与箭头对齐 */
+  font-size: 0.9rem;
   min-width: 60px;
   text-align: center;
   transition: all 0.18s ease;
@@ -306,7 +304,7 @@ const handleBack = () => {
   background: #efefef;
   color: #6b6b6b;
   cursor: pointer;
-  align-self: flex-start; /* 保持与首行按钮同一水平线 */
+  align-self: flex-start;
   flex-shrink: 0; 
  }
 
@@ -429,17 +427,14 @@ const handleBack = () => {
   );
 }
 
-/* 单独的渐变遮罩层，只负责图片的透明度渐变 */
+
 .gradient-mask {
   position: absolute;
-  inset: 0; /* 覆盖整个封面 */
-  /* 从上到下：顶部完全透明（图片清晰），底部完全变暗（透明度降低） */
-  /* 如果只需要淡出效果，遮罩层可以移除或保持透明 */
+  inset: 0; 
   background: transparent;
-  z-index: 1; /* 保持层级，但不再影响视觉 */
+  z-index: 1; 
 }
 
-/* 文字内容层，放在遮罩上方 */
 .text-content {
   position: absolute;
   inset: 0;
@@ -447,20 +442,18 @@ const handleBack = () => {
   color: #ffffff;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end; /* 文字靠下 */
-  z-index: 2; /* 文字在遮罩上方，确保可见 */
-  /* 在文字区域底部增加轻微的暗化，提高对比度 */
+  justify-content: flex-end; 
+  z-index: 2; 
   background: linear-gradient(to top, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.25) 35%, rgba(0,0,0,0) 70%);
 }
 
-/* 标题和描述样式优化 */
 .work-title {
   font-size: 1.4rem;
   font-weight: 800;
   letter-spacing: 0.2px;
   margin: 0 0 0.6rem 0;
   color: #ffffff;
-  text-shadow: 0 3px 8px rgba(0,0,0,0.65); /* 增强文字清晰度 */
+  text-shadow: 0 3px 8px rgba(0,0,0,0.65);
 }
 
 .work-description {
@@ -484,12 +477,12 @@ const handleBack = () => {
 }
 
 .author {
-  color: #ffdd77; /* 调亮作者颜色，增强对比 */
+  color: #ffdd77; 
 }
 
 .price {
   font-weight: 500;
-  color: #ffd700; /* 价格用金色突出 */
+  color: #ffd700; 
 }
 
 .pagination {

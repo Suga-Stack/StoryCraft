@@ -452,7 +452,7 @@ const loadFavoriteBooks = async () => {
       author: book.gamework_detail.author,  // 作者
       cover: book.gamework_detail.cover || '默认封面图地址',  // 封面（处理null情况）
       folderId: book.folder !== null ? book.folder : null,
-      isFavorite: true  // 收藏状态（默认true，因为是从收藏列表获取的）
+      isFavorite: true  // 收藏状态
     }));
     
     saveData();
@@ -538,9 +538,8 @@ const handleCreateFolder = async () => {
   }
   
   try {
-    // 获取接口返回的新收藏夹完整数据（包含name）
     const response = await createFolders(folderName.value);
-    const newFolder = response.data; // 接口返回的{id, name, ...}对象
+    const newFolder = response.data; 
     
     // 直接添加到本地列表，实时显示名称
     folders.value.push(newFolder);
@@ -670,7 +669,6 @@ const confirmAddToFolder = async () => {
 const confirmRemoveFromFolder = async () => {
   if (currentBook.value) {
     try {
-      // 移出到根目录本质是移动到"无收藏夹"状态，folderId传空或null
       await moveFavorite(currentBook.value.id, null);
       currentBook.value.folderId = null; // 清空所属收藏夹标识
       saveData();

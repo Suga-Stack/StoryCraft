@@ -322,8 +322,8 @@ const TAGS_CACHE_TTL = 5 * 60 * 1000;
 const allTags = ref([])
 const tagDisplayText = ref('') 
 const tagFilter = ref('')
-const selectedTagIds = ref([])  // 新增这一行
-const selectedTagNames = ref([])  // 已存在的行
+const selectedTagIds = ref([])  
+const selectedTagNames = ref([])  
 
 // 标签加载函数
 const fetchTags = () => {
@@ -449,8 +449,6 @@ const fetchFavoriteLeaderboard = async () => {
     showToast({ message: '获取收藏榜失败，请稍后重试', duration: 1000 });
   }
 }
-
-// 修改fetchRatingLeaderboard函数，适配新接口格式
 
 const RATING_CACHE_KEY = 'ratingRankCache';
 const RATING_CACHE_TTL = 5 * 60 * 1000;
@@ -653,7 +651,7 @@ const handleSearch = async (value = searchValue.value) => {
     return
   }
   
-  // 保存搜索历史（如果有搜索关键词）
+  // 保存搜索历史
   if (value.trim()) {
     saveHistory(value)
   }
@@ -1183,20 +1181,20 @@ const handleTagClick = (tagId) => {
   display: flex;
   align-items: center;
   background-color: #fff;
-  border-radius: 12px; /* 与阅读历史一致 */
+  border-radius: 12px;
   padding: 12px;
 }
 
 .result-cover {
-  width: 150px;   /* 与阅读历史一致 */
-  height: 100px;  /* 与阅读历史一致 */
+  width: 150px;  
+  height: 100px;  
   border-radius: 4px;
   flex-shrink: 0;
   overflow: hidden;
 }
 
 .result-info {
-  margin-left: 12px; /* 与阅读历史一致 */
+  margin-left: 12px;
   flex-grow: 1;
 }
 
@@ -1208,7 +1206,7 @@ const handleTagClick = (tagId) => {
 }
 
 .result-title {
-  font-size: 15px; /* 与阅读历史一致 */
+  font-size: 15px;
   font-weight: 500;
   margin: 0 0 4px 0;
   white-space: nowrap;
@@ -1217,20 +1215,20 @@ const handleTagClick = (tagId) => {
 }
 
 .result-author {
-  font-size: 12px; /* 与阅读历史一致 */
+  font-size: 12px; 
   color: #666;
   margin: 0 0 6px 0;
 }
 
 .result-tags {
   display: flex;
-  gap: 4px; /* 与阅读历史一致 */
+  gap: 4px; 
   flex-wrap: wrap;
 }
 
 .result-desc {
-  font-size: 12px;  /* 与阅读历史一致 */
-  color: #888;      /* 与阅读历史一致 */
+  font-size: 12px; 
+  color: #888;      
   margin: 0 0 10px 0;
   display: -webkit-box;
   line-clamp: 2;
