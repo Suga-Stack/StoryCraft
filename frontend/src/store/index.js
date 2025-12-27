@@ -8,9 +8,7 @@ export const useUserStore = defineStore('user', () => {
   const isLoggedIn = ref(false)
   const token = ref(localStorage.getItem('token') || '')
   const refreshToken = ref(localStorage.getItem('refreshToken') || '')
-  const preferences = ref(
-    JSON.parse(localStorage.getItem('userPreferences')) || null
-  )
+  const preferences = ref(JSON.parse(localStorage.getItem('userPreferences')) || null)
 
   // ========== 初始化逻辑 ==========
   if (token.value) {
@@ -43,7 +41,7 @@ export const useUserStore = defineStore('user', () => {
     localStorage.removeItem('token')
     localStorage.removeItem('userPreferences') // 清除偏好持久化
     refreshToken.value = ''
-    localStorage.removeItem('refreshToken') 
+    localStorage.removeItem('refreshToken')
   }
 
   // 3. 更新用户信息
@@ -59,18 +57,18 @@ export const useUserStore = defineStore('user', () => {
     localStorage.setItem('userPreferences', JSON.stringify(preferences.value))
   }
 
-   const setAuthenticated = (status) => {
+  const setAuthenticated = (status) => {
     isLoggedIn.value = status
     // 如果设置为未认证，同步清空token
     if (!status) {
       token.value = ''
       localStorage.removeItem('token')
-      refreshToken.value = '' 
+      refreshToken.value = ''
       localStorage.removeItem('refreshToken')
     }
   }
 
-    const handleLoginSuccess = (userData, tokens) => {
+  const handleLoginSuccess = (userData, tokens) => {
     try {
       // 处理用户信息存储
       if (userData && typeof userData === 'object' && !Array.isArray(userData)) {
@@ -90,7 +88,7 @@ export const useUserStore = defineStore('user', () => {
     // 处理令牌存储
     token.value = tokens.access
     localStorage.setItem('token', tokens.access)
-    
+
     // 处理刷新令牌
     if (tokens.refresh) {
       refreshToken.value = tokens.refresh
@@ -106,27 +104,27 @@ export const useUserStore = defineStore('user', () => {
   const fetchUserInfo = async (userId) => {
     try {
       // 调用用户信息API
-      const response = await getUserInfo(userId);
+      const response = await getUserInfo(userId)
 
       // 检查业务状态码
       if (response.data.code && response.data.code !== 200) {
-        throw new Error(`业务错误: ${response.data.message || '获取用户信息失败'}`);
+        throw new Error(`业务错误: ${response.data.message || '获取用户信息失败'}`)
       }
 
       // 更新Pinia中的用户信息
-      user.value = response.data;
-      
+      user.value = response.data
+
       // 同步更新localStorage缓存
-      localStorage.setItem('userInfo', JSON.stringify(response.data));
-      
-      return response.data;
+      localStorage.setItem('userInfo', JSON.stringify(response.data))
+
+      return response.data
     } catch (error) {
-      const errorMsg = `获取用户信息失败: ${error.message}`;
-      console.error(errorMsg);
+      const errorMsg = `获取用户信息失败: ${error.message}`
+      console.error(errorMsg)
       // 可以根据需要添加错误提示逻辑
-      throw error; // 抛出错误让调用方处理
+      throw error // 抛出错误让调用方处理
     }
-  };
+  }
 
   // ========== 暴露状态和方法 ==========
   return {

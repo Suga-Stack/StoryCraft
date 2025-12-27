@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '../store'
 import { showToast } from 'vant'
 import * as createWorkService from '../service/createWork.js'
-import { defaultTags } from '../config/tags';
+import { defaultTags } from '../config/tags'
 
 // 在本地测试时可开启 create mock（当后端不可用时）
 // 关闭 mock 以便直接调用后端进行集成测试
@@ -24,22 +24,24 @@ const tagGroups = ref([...defaultTags])
 
 // 标签分类相关状态
 const categories = ref([
-  { name: '类型', range: [1, 16] },    // 类型标签：1-16
-  { name: '风格', range: [17, 49] },   // 风格标签：17-49
+  { name: '类型', range: [1, 16] }, // 类型标签：1-16
+  { name: '风格', range: [17, 49] }, // 风格标签：17-49
   { name: '世界观', range: [50, 64] }, // 世界观标签：50-64
-  { name: '题材', range: [65, 89] }    // 题材标签：65-89
-]);
-const currentCategory = ref(0); // 当前选中的分类索引，默认选中"类型"
+  { name: '题材', range: [65, 89] } // 题材标签：65-89
+])
+const currentCategory = ref(0) // 当前选中的分类索引，默认选中"类型"
 
 const selectedTags = ref([])
 // 将选中的 tag 对象规范化为字符串数组
 const normalizeTags = (tags) => {
   if (!Array.isArray(tags)) return []
-  return tags.map(t => {
-    if (typeof t === 'string') return t
-    if (t && typeof t === 'object') return t.name || String(t.id || '')
-    return String(t)
-  }).filter(Boolean)
+  return tags
+    .map((t) => {
+      if (typeof t === 'string') return t
+      if (t && typeof t === 'object') return t.name || String(t.id || '')
+      return String(t)
+    })
+    .filter(Boolean)
 }
 const idea = ref('') // 用户构思
 const lengthType = ref('') // 大概篇幅
@@ -55,40 +57,57 @@ const identity = ref('reader') // 'reader' | 'creator'
 
 // 折叠状态：默认折叠以节省空间（用户可展开）
 const collapsed = ref([])
-onMounted( async () => {
+onMounted(async () => {
   // 尝试锁定竖屏（Capacitor plugin / 浏览器 API）
   try {
     // Capacitor 插件优先
     ScreenOrientation.lock({ type: 'portrait' }).catch(() => {})
   } catch (e) {
     try {
-      if (screen && screen.orientation && screen.orientation.lock) screen.orientation.lock('portrait').catch(() => {})
+      if (screen && screen.orientation && screen.orientation.lock)
+        screen.orientation.lock('portrait').catch(() => {})
     } catch (e) {}
   }
 })
 
 // 筛选当前分类的标签
 const filteredTags = computed(() => {
-  const { range } = categories.value[currentCategory.value];
-  const [min, max] = range;
+  const { range } = categories.value[currentCategory.value]
+  const [min, max] = range
   // 筛选出id在[min, max]范围内的标签
-  return tagGroups.value.filter(tag => tag.id >= min && tag.id <= max);
-});
+  return tagGroups.value.filter((tag) => tag.id >= min && tag.id <= max)
+})
 
 // 切换分类
 const switchCategory = (index) => {
-  currentCategory.value = index;
-  window.scrollTo(0, 0); // 切换时滚动到顶部
-};
-
+  currentCategory.value = index
+  window.scrollTo(0, 0) // 切换时滚动到顶部
+}
 
 onBeforeUnmount(() => {
-  try { ScreenOrientation.unlock && ScreenOrientation.unlock().catch(() => {}) } catch (e) {}
-  try { if (screen && screen.orientation && screen.orientation.unlock) screen.orientation.unlock().catch(() => {}) } catch (e) {}
-  try { if (resumeTimer) { clearInterval(resumeTimer); resumeTimer = null } } catch (e) {}
-  try { if (pollTimer) { clearInterval(pollTimer); pollTimer = null } } catch (e) {}
+  try {
+    ScreenOrientation.unlock && ScreenOrientation.unlock().catch(() => {})
+  } catch (e) {}
+  try {
+    if (screen && screen.orientation && screen.orientation.unlock)
+      screen.orientation.unlock().catch(() => {})
+  } catch (e) {}
+  try {
+    if (resumeTimer) {
+      clearInterval(resumeTimer)
+      resumeTimer = null
+    }
+  } catch (e) {}
+  try {
+    if (pollTimer) {
+      clearInterval(pollTimer)
+      pollTimer = null
+    }
+  } catch (e) {}
   // 标记为非激活（用户离开/卸载时）
-  try { isActivePage && (isActivePage.value = false) } catch(e) {}
+  try {
+    isActivePage.value && (isActivePage.value = false)
+  } catch (e) {}
 })
 
 const toggleGroup = (idx) => {
@@ -130,7 +149,7 @@ const submitToBackend = async () => {
     router.push('/login')
     return
   }
-  
+
   const payload = {
     tags: normalizeTags(selectedTags.value),
     idea: idea.value?.trim() || '',
@@ -159,11 +178,14 @@ const submitToBackend = async () => {
     // 缓存封面/标题/标签，供加载页与介绍页使用
     if (backendWork.value) {
       try {
-        sessionStorage.setItem('lastWorkMeta', JSON.stringify({
-          title: backendWork.value.title || 'AI 生成作品',
-          coverUrl: backendWork.value.coverUrl || '',
-          tags: normalizeTags(selectedTags.value)
-        }))
+        sessionStorage.setItem(
+          'lastWorkMeta',
+          JSON.stringify({
+            title: backendWork.value.title || 'AI 生成作品',
+            coverUrl: backendWork.value.coverUrl || '',
+            tags: normalizeTags(selectedTags.value)
+          })
+        )
       } catch {}
     }
     // 将后端返回的关键生成结果保存到 createResult，便于作品介绍页和游戏页使用
@@ -172,7 +194,8 @@ const submitToBackend = async () => {
         selectedTags: selectedTags.value,
         fromCreate: true,
         backendWork: backendWork.value || null,
-        chapterOutlines: (backendWork.value && backendWork.value.outlines) || res?.chapterOutlines || null,
+        chapterOutlines:
+          (backendWork.value && backendWork.value.outlines) || res?.chapterOutlines || null,
         modifiable: payload.modifiable || false
       }
 
@@ -208,11 +231,14 @@ const startCreate = async () => {
   // 避免点击时自动跳转到之前生成的作品。
   // 记录本次用户请求，便于后端读取或下页使用
   try {
-    sessionStorage.setItem('createRequest', JSON.stringify({
-      tags: normalizeTags(selectedTags.value),
-      idea: idea.value?.trim() || '',
-      length: lengthType.value
-    }))
+    sessionStorage.setItem(
+      'createRequest',
+      JSON.stringify({
+        tags: normalizeTags(selectedTags.value),
+        idea: idea.value?.trim() || '',
+        length: lengthType.value
+      })
+    )
   } catch {}
 
   // 如果启用跳过后端模式，则在前端模拟一个生成流程
@@ -225,7 +251,9 @@ const startCreate = async () => {
       createdAt: Date.now(),
       backendWork: null
     }
-    try { sessionStorage.setItem(CREATION_JOB_KEY, JSON.stringify(job)) } catch (e) {}
+    try {
+      sessionStorage.setItem(CREATION_JOB_KEY, JSON.stringify(job))
+    } catch (e) {}
     startResumeSimulation(job)
     return
   }
@@ -270,21 +298,30 @@ const startCreate = async () => {
       finished.backendWork = backendWork.value || null
       finished.finishedAt = Date.now()
       sessionStorage.setItem(CREATION_JOB_KEY, JSON.stringify(finished))
-    } catch (e) { console.warn('update finished creationJob failed', e) }
+    } catch (e) {
+      console.warn('update finished creationJob failed', e)
+    }
     // 服务返回后，把进度推进到 100%
     stopFakeProgress()
     progress.value = 100
     // 给用户一个短暂的完成感（200-400ms）
-    await new Promise(r => setTimeout(r, 300))
+    await new Promise((r) => setTimeout(r, 300))
     // 若用户仍在当前 CreateWork 页面，则自动跳转到新生成的作品详情
     try {
-      const workId = (backendWork && (backendWork.value && (backendWork.value.id || backendWork.value.gameworkId))) || (result && result.gameworkId) || null
-      if (isActivePage && isActivePage.value && workId) {
+      const workId =
+        (backendWork.value &&
+          backendWork.value &&
+          (backendWork.value.id || backendWork.value.gameworkId)) ||
+        (result && result.gameworkId) ||
+        null
+      if (isActivePage.value && isActivePage.value && workId) {
         router.push(`/works/${workId}`)
       } else {
         // 用户已离开页面，不自动跳转；生成结果已写入 sessionStorage，用户可手动查看
       }
-    } catch (e) { /* ignore navigation errors */ }
+    } catch (e) {
+      /* ignore navigation errors */
+    }
   } catch (e) {
     // 发生错误：停止假的进度条，但保持页面处于 loading 状态，
     // 不再自动跳转到作品页。用户可以稍后重试或刷新页面以继续生成。
@@ -295,9 +332,11 @@ const startCreate = async () => {
       const cur = JSON.parse(sessionStorage.getItem(CREATION_JOB_KEY) || '{}')
       cur.status = cur.status || 'pending'
       cur.progress = progress.value || 0
-      cur.error = (e && e.message) ? e.message : String(e)
+      cur.error = e && e.message ? e.message : String(e)
       sessionStorage.setItem(CREATION_JOB_KEY, JSON.stringify(cur))
-    } catch (ee) { console.warn('update creationJob on failure failed', ee) }
+    } catch (ee) {
+      console.warn('update creationJob on failure failed', ee)
+    }
     // 保持 isLoading=true，这样创建页一直显示加载覆盖层，符合需求
     return
   } finally {
@@ -341,8 +380,13 @@ const restoreCreationJob = () => {
                 progress.value = 100
                 setTimeout(() => {
                   try {
-                    const workId = (cr && cr.backendWork && (cr.backendWork.id || cr.backendWork.gameworkId)) || (backendWork && backendWork.value && (backendWork.value.id || backendWork.value.gameworkId)) || null
-                    if (isActivePage && isActivePage.value && workId) {
+                    const workId =
+                      (cr && cr.backendWork && (cr.backendWork.id || cr.backendWork.gameworkId)) ||
+                      (backendWork.value &&
+                        backendWork.value &&
+                        (backendWork.value.id || backendWork.value.gameworkId)) ||
+                      null
+                    if (isActivePage.value && isActivePage.value && workId) {
                       router.push(`/works/${workId}`)
                     }
                   } catch (e) {}
@@ -357,22 +401,40 @@ const restoreCreationJob = () => {
 }
 
 // 在挂载与激活时尝试恢复，以兼容 keep-alive 场景
-onMounted(() => { isActivePage.value = true; try { restoreCreationJob() } catch (e) {} })
-onActivated(() => { isActivePage.value = true; try { restoreCreationJob() } catch (e) {} })
-onDeactivated(() => { isActivePage.value = false })
+onMounted(() => {
+  isActivePage.value = true
+  try {
+    restoreCreationJob()
+  } catch (e) {}
+})
+onActivated(() => {
+  isActivePage.value = true
+  try {
+    restoreCreationJob()
+  } catch (e) {}
+})
+onDeactivated(() => {
+  isActivePage.value = false
+})
 
 // 底部导航
-const activeTab = ref('create');
+const activeTab = ref('create')
 
 // GIF 加载状态：若项目中存在 `frontend/public/images/create_loading.gif`，会优先展示该动图
 const loadingGifLoaded = ref(false)
-const onGifLoad = () => { loadingGifLoaded.value = true }
-const onGifError = () => { loadingGifLoaded.value = false }
+const onGifLoad = () => {
+  loadingGifLoaded.value = true
+}
+const onGifError = () => {
+  loadingGifLoaded.value = false
+}
 
 // 恢复/模拟创建任务的逻辑
 const startResumeSimulation = (job) => {
   // 写入本地状态
-  try { sessionStorage.setItem(CREATION_JOB_KEY, JSON.stringify(job)) } catch (e) {}
+  try {
+    sessionStorage.setItem(CREATION_JOB_KEY, JSON.stringify(job))
+  } catch (e) {}
   isLoading.value = true
   progress.value = job.progress || 0
   // 清理旧定时器
@@ -416,20 +478,24 @@ const startResumeSimulation = (job) => {
           chapterOutlines: null,
           modifiable: identity.value === 'creator'
         }
-          try { sessionStorage.setItem('createResult', JSON.stringify(createResult)) } catch (e) {}
-        } catch (e) { console.warn('write finished job failed', e) }
-        // 给用户短暂完成感后：若用户仍在当前 CreateWork 页面则跳转到作品详情，否则保持不跳转
-        setTimeout(() => {
-          try {
-            if (isActivePage && isActivePage.value) {
-              router.push(`/works/${fakeBackendWork.id}`)
-              return
-            }
-          } catch (e) {}
-          // 若未跳转，则清理加载状态
-          isLoading.value = false
-          progress.value = 0
-        }, 300)
+        try {
+          sessionStorage.setItem('createResult', JSON.stringify(createResult))
+        } catch (e) {}
+      } catch (e) {
+        console.warn('write finished job failed', e)
+      }
+      // 给用户短暂完成感后：若用户仍在当前 CreateWork 页面则跳转到作品详情，否则保持不跳转
+      setTimeout(() => {
+        try {
+          if (isActivePage.value && isActivePage.value) {
+            router.push(`/works/${fakeBackendWork.id}`)
+            return
+          }
+        } catch (e) {}
+        // 若未跳转，则清理加载状态
+        isLoading.value = false
+        progress.value = 0
+      }, 300)
     }
   }, 250)
 }
@@ -445,21 +511,21 @@ try {
 
 // 处理底部导航切换
 const handleTabChange = (name) => {
-  switch(name) {
+  switch (name) {
     case 'bookstore':
-      router.push('/');
-      break;
+      router.push('/')
+      break
     case 'create':
       // 已经在创建页面，不需要跳转
-      break;
+      break
     case 'bookshelf':
-      router.push('/bookshelf');
-      break;
+      router.push('/bookshelf')
+      break
     case 'profile':
-      router.push('/profile');
-      break;
+      router.push('/profile')
+      break
   }
-};
+}
 </script>
 
 <template>
@@ -471,12 +537,13 @@ const handleTabChange = (name) => {
 
     <div class="section">
       <div class="section-title">选择身份</div>
-      <div style="display:flex; gap:1rem; margin:0.5rem 0 1rem;">
-        <label style="display:flex; align-items:center; gap:0.5rem;">
+      <div style="display: flex; gap: 1rem; margin: 0.5rem 0 1rem">
+        <label style="display: flex; align-items: center; gap: 0.5rem">
           <input type="radio" name="identity" value="reader" v-model="identity" /> 阅读者（默认）
         </label>
-        <label style="display:flex; align-items:center; gap:0.5rem;">
-          <input type="radio" name="identity" value="creator" v-model="identity" /> 创作者（获得章节大纲，可编辑并发起生成）
+        <label style="display: flex; align-items: center; gap: 0.5rem">
+          <input type="radio" name="identity" value="creator" v-model="identity" />
+          创作者（获得章节大纲，可编辑并发起生成）
         </label>
       </div>
 
@@ -500,7 +567,10 @@ const handleTabChange = (name) => {
           v-for="tag in filteredTags"
           :key="tag.id"
           class="tag-btn small"
-          :class="{ selected: selectedTags.includes(tag), disabled: !selectedTags.includes(tag) && selectedTags.length >= 6 }"
+          :class="{
+            selected: selectedTags.includes(tag),
+            disabled: !selectedTags.includes(tag) && selectedTags.length >= 6
+          }"
           @click="toggleTag(tag)"
         >
           <span class="check" v-if="selectedTags.includes(tag)">✓</span>{{ tag.name }}
@@ -526,34 +596,44 @@ const handleTabChange = (name) => {
       <div class="section-title">你的构思</div>
       <div class="idea-wrap">
         <div class="idea-frame">
-          <textarea class="idea-input" v-model="idea" rows="4" placeholder="概述你的灵感或者想看的作者文风吧~"></textarea>
+          <textarea
+            class="idea-input"
+            v-model="idea"
+            rows="4"
+            placeholder="概述你的灵感或者想看的作者文风吧~"
+          ></textarea>
         </div>
       </div>
       <div class="idea-actions">
         <!-- 当校验未通过时仍允许点击以弹出提示；仅在 isLoading 时真正禁用按钮 -->
-        <button class="create-btn create-btn-small" :class="{ 'is-disabled': !canCreate || isLoading }" :disabled="isLoading" @click="startCreate">一键生成</button>
+        <button
+          class="create-btn create-btn-small"
+          :class="{ 'is-disabled': !canCreate || isLoading }"
+          :disabled="isLoading"
+          @click="startCreate"
+        >
+          一键生成
+        </button>
       </div>
     </div>
 
     <!-- 加载覆盖层 -->
     <div v-if="isLoading" class="loading-overlay">
       <div class="loading-card">
-          <div class="loading-title">正在生成你的专属作品...</div>
+        <div class="loading-title">正在生成你的专属作品...</div>
 
-          <!-- 优先展示项目静态资源 /images/create_loading.gif -->
-          <img
-            src="/images/create_loading.gif"
-            alt="loading"
-            class="loading-gif"
-            @load="onGifLoad"
-            @error="onGifError"
-          />
+        <!-- 优先展示项目静态资源 /images/create_loading.gif -->
+        <img
+          src="/images/create_loading.gif"
+          alt="loading"
+          class="loading-gif"
+          @load="onGifLoad"
+          @error="onGifError"
+        />
 
-          <!-- 不显示进度条，优先展示 GIF（若 GIF 不存在或加载失败则只显示标题） -->
-        </div>
+        <!-- 不显示进度条，优先展示 GIF（若 GIF 不存在或加载失败则只显示标题） -->
+      </div>
     </div>
-
-    
 
     <!-- 底部导航栏 -->
     <van-tabbar v-model="activeTab" @change="handleTabChange" safe-area-inset-bottom>
@@ -566,56 +646,224 @@ const handleTabChange = (name) => {
 </template>
 
 <style scoped>
-.create-page { min-height: 100vh; background: #faf8f3; padding: 2rem 1.4rem 80px; }
-.header { max-width: 960px; margin: -36px auto 1rem; }
-.header { max-width: 960px; margin: 0 auto 1rem; }
-.header h1 { color:#2c1810; margin:0 0 0.25rem; }
-.hint { color:#8B7355; margin:0; }
+.create-page {
+  min-height: 100vh;
+  background: #faf8f3;
+  padding: 2rem 1.4rem 80px;
+}
+.header {
+  max-width: 960px;
+  margin: -36px auto 1rem;
+}
+.header {
+  max-width: 960px;
+  margin: 0 auto 1rem;
+}
+.header h1 {
+  color: #2c1810;
+  margin: 0 0 0.25rem;
+}
+.hint {
+  color: #8b7355;
+  margin: 0;
+}
 
-.section { max-width: 960px; margin: 1rem auto; background:#fff; border:1px solid rgba(212,165,165,0.35); border-radius:12px; padding:1rem; }
-.section-title { color:#d4a5a5; font-weight:700; margin-bottom:0.5rem; }
+.section {
+  max-width: 960px;
+  margin: 1rem auto;
+  background: #fff;
+  border: 1px solid rgba(212, 165, 165, 0.35);
+  border-radius: 12px;
+  padding: 1rem;
+}
+.section-title {
+  color: #d4a5a5;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
 
-.tags-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap:0.5rem; }
-.tag-groups { display:flex; flex-direction:column; gap:0.75rem; }
-.tag-group { background: transparent; border-radius:8px; }
-.group-header { display:flex; justify-content:space-between; align-items:center; padding:0.45rem 0.6rem; cursor:pointer; border-bottom:1px dashed rgba(212,165,165,0.12); }
-.group-header .chev { color:#8B7355; }
-.collapse-enter-active, .collapse-leave-active { transition: all 0.25s ease; }
-.collapse-enter-from, .collapse-leave-to { max-height: 0; opacity: 0; transform: translateY(-6px); }
-.collapse-enter-to, .collapse-leave-from { max-height: 1200px; opacity: 1; transform: translateY(0); }
-.tag-btn { padding:0.6rem 0.8rem; border-radius:999px; border:1px solid rgba(212,165,165,0.35); background:#fff; color:#2c1810; cursor:pointer; transition: all .2s ease; }
-.tag-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.08); }
-.tag-btn.selected { background: #d4a5a5; color: #fff; border-color:#d4a574; }
-.tag-btn.disabled { opacity: 0.5; cursor: not-allowed; }
-.check { margin-right: 0.25rem; color:#8B7355; }
-.counter { margin-top:0.5rem; color:#8B7355; font-size:0.9rem; }
-.counter.invalid { color:#b85c5c; }
+.tags-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 0.5rem;
+}
+.tag-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.tag-group {
+  background: transparent;
+  border-radius: 8px;
+}
+.group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.45rem 0.6rem;
+  cursor: pointer;
+  border-bottom: 1px dashed rgba(212, 165, 165, 0.12);
+}
+.group-header .chev {
+  color: #8b7355;
+}
+.collapse-enter-active,
+.collapse-leave-active {
+  transition: all 0.25s ease;
+}
+.collapse-enter-from,
+.collapse-leave-to {
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-6px);
+}
+.collapse-enter-to,
+.collapse-leave-from {
+  max-height: 1200px;
+  opacity: 1;
+  transform: translateY(0);
+}
+.tag-btn {
+  padding: 0.6rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid rgba(212, 165, 165, 0.35);
+  background: #fff;
+  color: #2c1810;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.tag-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+}
+.tag-btn.selected {
+  background: #d4a5a5;
+  color: #fff;
+  border-color: #d4a574;
+}
+.tag-btn.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.check {
+  margin-right: 0.25rem;
+  color: #8b7355;
+}
+.counter {
+  margin-top: 0.5rem;
+  color: #8b7355;
+  font-size: 0.9rem;
+}
+.counter.invalid {
+  color: #b85c5c;
+}
 
-.length-options { display:flex; flex-wrap:wrap; gap:0.75rem; }
-.length-item { display:flex; align-items:center; gap:0.4rem; color:#2c1810; }
+.length-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+.length-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #2c1810;
+}
 
-.idea-input { width:100%; border-radius:8px; border:1px solid rgba(212,165,165,0.35); padding:0.6rem 0.75rem; font-size:0.95rem; outline:none; }
-.idea-input:focus { border-color:#d4a5a5; box-shadow: 0 0 0 3px rgba(212,165,165,0.2); }
+.idea-input {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid rgba(212, 165, 165, 0.35);
+  padding: 0.6rem 0.75rem;
+  font-size: 0.95rem;
+  outline: none;
+}
+.idea-input:focus {
+  border-color: #d4a5a5;
+  box-shadow: 0 0 0 3px rgba(212, 165, 165, 0.2);
+}
 
 /* 横向分类标签（四个按钮） */
-.category-tabs { display:flex; flex-wrap:wrap; gap:0.5rem; justify-content:flex-start; margin:0.5rem 0 1rem; }
-.category-tab { padding:0.48rem 0.9rem; border-radius:10px; border:1px solid transparent; background:#efefef; cursor:pointer; color:#6b6b6b; font-size:0.96rem; min-width:80px; text-align:center; box-shadow: none; transition: all .18s ease; }
-.category-tab.active { background: #fff; color:#2c1810; border-color: rgba(212,165,165,0.18); font-weight:700; box-shadow: none; }
+.category-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-start;
+  margin: 0.5rem 0 1rem;
+}
+.category-tab {
+  padding: 0.48rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: #efefef;
+  cursor: pointer;
+  color: #6b6b6b;
+  font-size: 0.96rem;
+  min-width: 80px;
+  text-align: center;
+  box-shadow: none;
+  transition: all 0.18s ease;
+}
+.category-tab.active {
+  background: #fff;
+  color: #2c1810;
+  border-color: rgba(212, 165, 165, 0.18);
+  font-weight: 700;
+  box-shadow: none;
+}
 
 /* 分页控件 */
-.tag-pagination { display:flex; gap:0.4rem; align-items:center; justify-content:flex-start; margin-top:0.75rem; }
-.tags-grid.all-tags { margin-top: 0.6rem; }
-.page-btn, .page-num { padding:0.28rem 0.6rem; border-radius:6px; border:1px solid rgba(0,0,0,0.06); background:#fff; cursor:pointer; }
-.page-num.active { background:#d4a5a5; color:#fff; border-color:transparent; }
-.page-btn:disabled { opacity:0.5; cursor:not-allowed; }
+.tag-pagination {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  justify-content: flex-start;
+  margin-top: 0.75rem;
+}
+.tags-grid.all-tags {
+  margin-top: 0.6rem;
+}
+.page-btn,
+.page-num {
+  padding: 0.28rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: #fff;
+  cursor: pointer;
+}
+.page-num.active {
+  background: #d4a5a5;
+  color: #fff;
+  border-color: transparent;
+}
+.page-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 /* 区分大类按钮与小标签样式 */
-.tag-btn.small { padding:0.45rem 0.6rem; font-size:0.92rem; border-radius:10px; }
-.tag-btn { transition: all .18s ease; }
+.tag-btn.small {
+  padding: 0.45rem 0.6rem;
+  font-size: 0.92rem;
+  border-radius: 10px;
+}
+.tag-btn {
+  transition: all 0.18s ease;
+}
 
 /* 多层边框装饰：使用外层包裹和多重阴影/伪元素产生叠层效果 */
-.idea-wrap { display:flex; justify-content:center; }
-.idea-frame { position: relative; width:100%; max-width:960px; border-radius:12px; padding:10px; background: linear-gradient(180deg, #fff, #fff); }
+.idea-wrap {
+  display: flex;
+  justify-content: center;
+}
+.idea-frame {
+  position: relative;
+  width: 100%;
+  max-width: 960px;
+  border-radius: 12px;
+  padding: 10px;
+  background: linear-gradient(180deg, #fff, #fff);
+}
 .idea-frame::before,
 .idea-frame::after {
   content: '';
@@ -626,13 +874,17 @@ const handleTabChange = (name) => {
 }
 .idea-frame::before {
   /* 外层淡色边框 */
-  box-shadow: 0 6px 18px rgba(0,0,0,0.06), 0 0 0 4px rgba(212,165,165,0.08);
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.06),
+    0 0 0 4px rgba(212, 165, 165, 0.08);
   transform: translateY(4px);
   z-index: 0;
 }
 .idea-frame::after {
   /* 第二层边框/描边 */
-  box-shadow: 0 0 0 2px rgba(212,165,165,0.14) inset, 0 0 0 8px rgba(245,230,211,0.25);
+  box-shadow:
+    0 0 0 2px rgba(212, 165, 165, 0.14) inset,
+    0 0 0 8px rgba(245, 230, 211, 0.25);
   z-index: 1;
 }
 .idea-frame .idea-input {
@@ -644,31 +896,88 @@ const handleTabChange = (name) => {
 }
 
 @media (max-width: 720px) {
-  .idea-frame { padding: 8px; }
-  .idea-input { padding: 10px 12px; }
-  .header { margin: -18px auto 1rem; }
+  .idea-frame {
+    padding: 8px;
+  }
+  .idea-input {
+    padding: 10px 12px;
+  }
+  .header {
+    margin: -18px auto 1rem;
+  }
 }
 
 /* idea-section: 包含 textarea 与右下的小按钮 */
-.idea-section { position: relative; }
-.idea-wrap { position: relative; }
-.idea-actions { display:flex; justify-content:flex-end; margin-top: 0.5rem; }
-.create-btn-small { position: static; padding: 0.48rem 1rem; font-size: 0.92rem; border-radius: 8px; width: auto; min-width: 120px; max-width: 520px; text-align: center; }
-  .create-btn-small:disabled { filter: grayscale(8%); }
-  /* 当校验未通过时仅作为视觉禁用，仍允许点击以弹出提示 */
-  .create-btn-small.is-disabled { filter: grayscale(8%); opacity: 0.9; }
+.idea-section {
+  position: relative;
+}
+.idea-wrap {
+  position: relative;
+}
+.idea-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.5rem;
+}
+.create-btn-small {
+  position: static;
+  padding: 0.48rem 1rem;
+  font-size: 0.92rem;
+  border-radius: 8px;
+  width: auto;
+  min-width: 120px;
+  max-width: 520px;
+  text-align: center;
+}
+.create-btn-small:disabled {
+  filter: grayscale(8%);
+}
+/* 当校验未通过时仅作为视觉禁用，仍允许点击以弹出提示 */
+.create-btn-small.is-disabled {
+  filter: grayscale(8%);
+  opacity: 0.9;
+}
 
-.actions { max-width:960px; margin: 1rem auto; display:flex; justify-content:flex-end; }
-.actions-inline { max-width:960px; margin: 1rem auto; display:flex; justify-content:center; }
-.create-btn { padding:0.5rem 1.2rem; border-radius:10px; border:1px solid rgba(212,165,165,0.5); background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%); color:#fff; font-weight:700; cursor:pointer; box-shadow:0 6px 18px rgba(0,0,0,0.12); }
-.create-btn-full { width: 100%; max-width: 480px; padding: 0.44rem 0.9rem; font-size: 0.98rem; border-radius: 10px; }
-.create-btn:disabled { opacity: 1; cursor:not-allowed; filter: grayscale(8%); }
+.actions {
+  max-width: 960px;
+  margin: 1rem auto;
+  display: flex;
+  justify-content: flex-end;
+}
+.actions-inline {
+  max-width: 960px;
+  margin: 1rem auto;
+  display: flex;
+  justify-content: center;
+}
+.create-btn {
+  padding: 0.5rem 1.2rem;
+  border-radius: 10px;
+  border: 1px solid rgba(212, 165, 165, 0.5);
+  background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+}
+.create-btn-full {
+  width: 100%;
+  max-width: 480px;
+  padding: 0.44rem 0.9rem;
+  font-size: 0.98rem;
+  border-radius: 10px;
+}
+.create-btn:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+  filter: grayscale(8%);
+}
 
 /* 全屏加载覆盖层 */
 .loading-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.6);
+  background: rgba(0, 0, 0, 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -692,14 +1001,36 @@ const handleTabChange = (name) => {
   justify-content: center;
 }
 
-.loading-title { color:#2c1810; font-weight:700; margin-bottom:1rem; font-size:1.25rem; text-align:center; }
-.progress-bg { width:100%; height:12px; background: rgba(0,0,0,0.08); border-radius: 999px; overflow:hidden; }
-.progress-fill { height:100%; width:0%; background: linear-gradient(90deg, #d4a5a5, #f5e6d3); transition: width 0.2s ease; }
-.progress-text { margin-top:0.5rem; color:#8B7355; font-weight:700; text-align:right; }
+.loading-title {
+  color: #2c1810;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  font-size: 1.25rem;
+  text-align: center;
+}
+.progress-bg {
+  width: 100%;
+  height: 12px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #d4a5a5, #f5e6d3);
+  transition: width 0.2s ease;
+}
+.progress-text {
+  margin-top: 0.5rem;
+  color: #8b7355;
+  font-weight: 700;
+  text-align: right;
+}
 
 /* 加载动图样式 */
 .loading-gif {
-  display:block;
+  display: block;
   margin: 1rem auto;
   width: 160px;
   height: auto;
@@ -707,13 +1038,25 @@ const handleTabChange = (name) => {
 }
 
 @media (max-width: 720px) {
-  .tags-grid { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); }
-  .create-btn-full { width: 100%; font-size: 1rem; padding: 0.8rem 1rem; }
+  .tags-grid {
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  }
+  .create-btn-full {
+    width: 100%;
+    font-size: 1rem;
+    padding: 0.8rem 1rem;
+  }
   /* 小屏幕上让按钮恢复为普通流布局，避免遮挡文本 */
-  .create-btn-small { display: block; width: 100%; margin-top: 0.75rem; }
+  .create-btn-small {
+    display: block;
+    width: 100%;
+    margin-top: 0.75rem;
+  }
 }
 /* 取消为固定底部按钮预留的底部空间 */
-.create-page { padding-bottom: 16px; }
+.create-page {
+  padding-bottom: 16px;
+}
 /* 保持原有样式结尾 */
 
 /* 底部导航栏 */
@@ -730,7 +1073,7 @@ const handleTabChange = (name) => {
   background-color: transparent !important;
 }
 
-::v-deep .van-tabbar-item:not(.van-tabbar-item--active){
+::v-deep .van-tabbar-item:not(.van-tabbar-item--active) {
   color: #999 !important;
 }
 

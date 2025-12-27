@@ -1,34 +1,32 @@
 <template>
   <div class="creations-page">
     <van-nav-bar title="我的创作" left-arrow @click-left="handleBack" />
-    
+
     <div class="book-list">
       <template v-if="isLoading">
-        <div style="text-align:center;color:#999;padding:48px 0 32px 0;font-size:16px;">正在加载...</div>
+        <div style="text-align: center; color: #999; padding: 48px 0 32px 0; font-size: 16px">
+          正在加载...
+        </div>
       </template>
       <template v-else-if="myCreations.length === 0">
-        <div style="text-align:center;color:#999;padding:48px 0 32px 0;font-size:16px;">
+        <div style="text-align: center; color: #999; padding: 48px 0 32px 0; font-size: 16px">
           暂时没有个人作品，快去创作你的第一个故事吧！
         </div>
       </template>
       <template v-else>
-        <div 
-          class="book-item" 
-          v-for="book in myCreations" 
-          :key="book.id"
-        >
-          <van-image 
-            :src="book.image_url" 
-            class="book-cover" 
+        <div class="book-item" v-for="book in myCreations" :key="book.id">
+          <van-image
+            :src="book.image_url"
+            class="book-cover"
             fit="cover"
             @click="navigateToBookDetail(book.id)"
           />
           <div class="book-info">
-            <h3 class="book-title"  @click="navigateToBookDetail(book.id)">{{ book.title }}</h3>
+            <h3 class="book-title" @click="navigateToBookDetail(book.id)">{{ book.title }}</h3>
             <p class="book-desc">{{ book.description }}</p>
             <div class="book-tags">
-              <van-tag 
-                v-for="tag in book.processedTags.slice(0,2)" 
+              <van-tag
+                v-for="tag in book.processedTags.slice(0, 2)"
                 :key="tag.id"
                 size="small"
                 :style="tag.color"
@@ -38,8 +36,8 @@
               </van-tag>
             </div>
           </div>
-           <van-icon 
-            :name="book.is_published ? 'eye' : 'eye-o'" 
+          <van-icon
+            :name="book.is_published ? 'eye' : 'eye-o'"
             class="visibility-icon"
             @click="handleIconClick(book)"
           />
@@ -51,11 +49,11 @@
           />
 
           <!-- 删除作品弹窗 -->
-          <van-dialog 
-            v-model:show="showDeleteDialog" 
+          <van-dialog
+            v-model:show="showDeleteDialog"
             :show="showDeleteDialog && deleteBookId === book.id"
-            title="确认删除" 
-            show-cancel-button 
+            title="确认删除"
+            show-cancel-button
             @confirm="confirmDelete"
             class="custom-dialog"
             overlay-class="custom-dialog-overlay"
@@ -68,31 +66,28 @@
   </div>
 
   <!--发布弹窗-->
-  <div class="model-overlay" v-if="showPublishModel" @click="showPublishModel=false">
+  <div class="model-overlay" v-if="showPublishModel" @click="showPublishModel = false">
     <div class="publish-model" @click.stop>
       <div class="nav">
-        <span class="back-arrow" @click="showPublishModel=false">×</span>
+        <span class="back-arrow" @click="showPublishModel = false">×</span>
       </div>
 
       <!--信息卡片-->
       <div class="item-card">
         <!--作品封面-->
-        <van-image 
-          :src="currentBook.image_url" 
-          class="book-cover" 
-          fit="cover"
-        />
+        <van-image :src="currentBook.image_url" class="book-cover" fit="cover" />
         <!--作品信息-->
         <div class="book-info">
           <!--作品名-->
           <div class="book-title">{{ currentBook.title }}</div>
           <!--积分输入框-->
-          <input type="number" 
-            id="requiredCredits"  
-            v-model="requiredCredits" 
+          <input
+            type="number"
+            id="requiredCredits"
+            v-model="requiredCredits"
             required
             min="0"
-            max="50" 
+            max="50"
             class="form-input"
             placeholder="设置解锁积分"
             @input="validateCredits"
@@ -103,63 +98,84 @@
       </div>
 
       <!--发布按钮-->
-      <button class="publish-btn" 
+      <button
+        class="publish-btn"
         @click="handlePublish(currentBook)"
         :class="{ active: currentBook.isPublished }"
         :disabled="!isAgreementChecked || !isCreditsValid"
-        >确认发布
+      >
+        确认发布
       </button>
 
       <!--取消发布按钮-->
-      <button class="unpublish-btn" 
+      <button
+        class="unpublish-btn"
         @click="handleUnpublish(currentBook)"
         :disabled="!currentBook.is_published"
-        >取消发布
+      >
+        取消发布
       </button>
-      
+
       <div class="checkbox-agreement-container">
         <!--协议圆圈-->
         <van-checkbox name="1" v-model="isAgreementChecked"></van-checkbox>
         <!--作者须知-->
-        <span class="agreement" @click="showAgreementModel=true">作者须知</span>
-      </div>  
+        <span class="agreement" @click="showAgreementModel = true">作者须知</span>
+      </div>
     </div>
   </div>
 
-
   <!--用户协议弹窗-->
-  <div class="model-overlay" v-if="showAgreementModel" @click="showAgreementModel=false">
+  <div class="model-overlay" v-if="showAgreementModel" @click="showAgreementModel = false">
     <div class="agreement-model" @click.stop>
       <div class="nav">
         <h2 class="agreement-title">故事匠用户协议</h2>
-        <span class="back-arrow" @click="showAgreementModel=false">×</span>
+        <span class="back-arrow" @click="showAgreementModel = false">×</span>
       </div>
 
       <div class="agreement-container">
-        <p class="agreement-welcome">欢迎使用故事匠平台（以下简称“本平台”）！点击“同意”按钮，即表示你已充分阅读、理解并接受本协议全部条款，愿意遵守本平台的相关规定和约束。若你不同意本协议，请勿使用本平台服务。</p>
+        <p class="agreement-welcome">
+          欢迎使用故事匠平台（以下简称“本平台”）！点击“同意”按钮，即表示你已充分阅读、理解并接受本协议全部条款，愿意遵守本平台的相关规定和约束。若你不同意本协议，请勿使用本平台服务。
+        </p>
 
         <h3 class="agreement-section">一、核心约定</h3>
         <ul class="agreement-list">
-            <li>你在本平台发布的所有内容（包括但不限于文字、图片、AI生成作品等），均不得违反《中华人民共和国网络安全法》《中华人民共和国著作权法》《互联网信息服务管理办法》等相关法律法规及政策要求，不得包含危害国家安全、色情、暴力、诽谤、侵权等违法违规或不良信息。</li>
-            <li>本平台提供的AI生成作品内容仅供娱乐消遣使用，不得用于商业盈利、学术研究、法律证明等正式场景，且不得擅自传播、篡改或二次创作后用于违规用途。</li>
-            <li>你需对自身账号的使用行为负责，妥善保管账号信息，不得转借、出租或出售账号，若因账号泄露或违规使用导致的一切后果，由你自行承担。</li>
-            <li>本平台有权对违规内容进行删除、屏蔽处理，对违规账号采取警告、限制功能、封禁账号等措施，情节严重的将依法移交相关部门处理。</li>
-            <li>本平台有权根据业务发展调整服务内容及协议条款，调整后将通过平台公告等方式通知你，若你继续使用本平台服务，即视为接受修改后的条款。</li>
+          <li>
+            你在本平台发布的所有内容（包括但不限于文字、图片、AI生成作品等），均不得违反《中华人民共和国网络安全法》《中华人民共和国著作权法》《互联网信息服务管理办法》等相关法律法规及政策要求，不得包含危害国家安全、色情、暴力、诽谤、侵权等违法违规或不良信息。
+          </li>
+          <li>
+            本平台提供的AI生成作品内容仅供娱乐消遣使用，不得用于商业盈利、学术研究、法律证明等正式场景，且不得擅自传播、篡改或二次创作后用于违规用途。
+          </li>
+          <li>
+            你需对自身账号的使用行为负责，妥善保管账号信息，不得转借、出租或出售账号，若因账号泄露或违规使用导致的一切后果，由你自行承担。
+          </li>
+          <li>
+            本平台有权对违规内容进行删除、屏蔽处理，对违规账号采取警告、限制功能、封禁账号等措施，情节严重的将依法移交相关部门处理。
+          </li>
+          <li>
+            本平台有权根据业务发展调整服务内容及协议条款，调整后将通过平台公告等方式通知你，若你继续使用本平台服务，即视为接受修改后的条款。
+          </li>
         </ul>
 
         <h3 class="agreement-section">二、免责声明</h3>
         <div class="disclaimer">
-            <ul class="agreement-list">
-                <li>因网络环境、设备故障、不可抗力等非本平台可控因素导致服务中断或使用异常的，本平台将尽力协助解决，但不承担由此造成的直接或间接损失。</li>
-                <li>AI作品生成基于算法模型，可能存在内容偏差或不当信息，本平台不对AI作品的准确性、完整性、适用性作出任何承诺，你需自行甄别内容风险。</li>
-            </ul>
+          <ul class="agreement-list">
+            <li>
+              因网络环境、设备故障、不可抗力等非本平台可控因素导致服务中断或使用异常的，本平台将尽力协助解决，但不承担由此造成的直接或间接损失。
+            </li>
+            <li>
+              AI作品生成基于算法模型，可能存在内容偏差或不当信息，本平台不对AI作品的准确性、完整性、适用性作出任何承诺，你需自行甄别内容风险。
+            </li>
+          </ul>
         </div>
 
-        <p class="agreement-welcome" style="margin-top: 20px;">请你遵守本协议约定，共同维护健康、合规的平台环境。</p>
+        <p class="agreement-welcome" style="margin-top: 20px">
+          请你遵守本协议约定，共同维护健康、合规的平台环境。
+        </p>
       </div>
 
       <button class="agree-btn" @click="handleAgree">同意</button>
-      <button class="disagree-btn" @click="showAgreementModel=false">不同意</button>
+      <button class="disagree-btn" @click="showAgreementModel = false">不同意</button>
     </div>
   </div>
 </template>
@@ -168,16 +184,15 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { getMyworks, publishWorks, unpublishWorks} from '../api/user'
+import { getMyworks, publishWorks, unpublishWorks } from '../api/user'
 import { http } from '../service/http.js'
 import { useTags } from '../composables/useTags'
 
 // 初始化标签工具
-const { getTagsByIds } = useTags();
+const { getTagsByIds } = useTags()
 
 const router = useRouter()
 const myCreations = ref([])
-
 
 //发布弹窗状态
 const showPublishModel = ref(false)
@@ -186,7 +201,7 @@ const showAgreementModel = ref(false)
 //协议勾选
 const isAgreementChecked = ref(false)
 // 存储当前操作的作品信息
-const currentBook = ref(null);
+const currentBook = ref(null)
 //输入的解锁积分
 const requiredCredits = ref('')
 //积分有效
@@ -220,8 +235,14 @@ const confirmDelete = async () => {
       } catch (err) {
         const status = err?.status || err?.response?.status
         if (status === 405) {
-          console.warn(`DELETE ${ep} returned 405 Method Not Allowed. Allow:`, err?.response?.headers && err.response.headers.allow)
-          showToast({ message: '删除操作被服务器拒绝（405）。请检查后端是否允许 DELETE 或需要额外权限。', duration: 1000 })
+          console.warn(
+            `DELETE ${ep} returned 405 Method Not Allowed. Allow:`,
+            err?.response?.headers && err.response.headers.allow
+          )
+          showToast({
+            message: '删除操作被服务器拒绝（405）。请检查后端是否允许 DELETE 或需要额外权限。',
+            duration: 1000
+          })
           continue
         }
         console.warn(`DELETE ${ep} failed`, err)
@@ -230,14 +251,14 @@ const confirmDelete = async () => {
     }
 
     if (deleted) {
-      myCreations.value = myCreations.value.filter(b => b.id !== deleteBookId.value)
+      myCreations.value = myCreations.value.filter((b) => b.id !== deleteBookId.value)
       showToast('作品已删除', 'success')
     } else {
       showToast({ message: '删除失败，请稍后重试', duration: 1000 })
     }
   } catch (e) {
     console.error('删除作品失败', e)
-    showToast((e?.response?.data?.message) || e?.message || '删除失败，请稍后重试', 'error')
+    showToast(e?.response?.data?.message || e?.message || '删除失败，请稍后重试', 'error')
   } finally {
     showDeleteDialog.value = false
     deleteBookId.value = null
@@ -253,16 +274,16 @@ onMounted(() => {
 const fetchMyWorks = async () => {
   isLoading.value = true
   try {
-    const response = await getMyworks();
+    const response = await getMyworks()
     if (!response.data.code || response.data.code !== 200) {
       throw new Error('获取作品列表失败')
     }
-    const books = response.data.data;
+    const books = response.data.data
     // 为每本书处理标签（转换ID为名称和颜色）
     for (const book of books) {
-      book.processedTags = await getTagsByIds(book.tags || []);
+      book.processedTags = await getTagsByIds(book.tags || [])
     }
-    myCreations.value = books;
+    myCreations.value = books
   } catch (error) {
     showToast(error.message || '获取数据失败，请稍后重试')
     console.error('作品列表请求失败:', error)
@@ -274,110 +295,113 @@ const fetchMyWorks = async () => {
 
 //处理眼睛Icon的点击事件
 const handleIconClick = (book) => {
-    showPublishModel.value = true;
-    currentBook.value = book;
+  showPublishModel.value = true
+  currentBook.value = book
 }
 
 //取消发布接口
 const handleUnpublish = async (book) => {
   try {
     // 调用取消发布接口
-    const response = await unpublishWorks(book.id);
-    
+    const response = await unpublishWorks(book.id)
+
     if (response.status === 200) {
-      book.is_published = false;
-      showToast({ message: '作品已取消发布', duration: 1000 });
-      fetchMyWorks(); // 刷新作品列表
+      book.is_published = false
+      showToast({ message: '作品已取消发布', duration: 1000 })
+      fetchMyWorks() // 刷新作品列表
     } else {
-      showToast({ message: '取消发布失败：' + (response.data.message || '未知错误'), duration: 1000 });
+      showToast({
+        message: '取消发布失败：' + (response.data.message || '未知错误'),
+        duration: 1000
+      })
     }
   } catch (error) {
-    console.error('取消发布操作失败:', error);
+    console.error('取消发布操作失败:', error)
     // 错误处理
     if (error.response && error.response.status === 403) {
-      showToast({ message: '您没有权限取消发布该作品', duration: 1000 });
+      showToast({ message: '您没有权限取消发布该作品', duration: 1000 })
     } else if (error.response && error.response.status === 404) {
-      showToast({ message: '作品未找到', duration: 1000 });
+      showToast({ message: '作品未找到', duration: 1000 })
     } else {
-      showToast({ message: '操作失败，请稍后重试', duration: 1000 });
+      showToast({ message: '操作失败，请稍后重试', duration: 1000 })
     }
   }
-};
+}
 
 // 返回上一页
 const handleBack = () => {
   router.back()
-};
+}
 
 // 随机获取一个颜色样式
 const getRandomTagStyle = () => {
-  const randomIndex = Math.floor(Math.random() * tagColorOptions.length);
-  return tagColorOptions[randomIndex];
-};
+  const randomIndex = Math.floor(Math.random() * tagColorOptions.length)
+  return tagColorOptions[randomIndex]
+}
 
 // 导航到书籍详情页
 const navigateToBookDetail = (bookId) => {
   router.push(`/works/${bookId}`)
-};
-
-const handleAgree = () =>{
-  isAgreementChecked.value = true;
-  showAgreementModel.value = false;
 }
 
-const validateCredits = () =>{
+const handleAgree = () => {
+  isAgreementChecked.value = true
+  showAgreementModel.value = false
+}
+
+const validateCredits = () => {
   const num = Number(requiredCredits.value)
   isCreditsValid.value = !isNaN(num) && num >= 0 && num <= 50 && requiredCredits.value !== ''
 }
 
 // 发布/隐藏功能
 const handlePublish = async (book) => {
-  if(!isAgreementChecked.value){
+  if (!isAgreementChecked.value) {
     showToast({ message: '请先阅读作者须知', duration: 1000 })
     return
   }
   try {
     if (!book.is_published) {
-      const response = await publishWorks(book.id, Number(requiredCredits.value));
-      
+      const response = await publishWorks(book.id, Number(requiredCredits.value))
+
       // 假设接口返回200时表示发布成功
       if (response.status === 200) {
-        book.isPublished = true;
-        showPublishModel.value = false;
-        showToast({ message: '作品已发布', duration: 1000 });
-        fetchMyWorks();
+        book.isPublished = true
+        showPublishModel.value = false
+        showToast({ message: '作品已发布', duration: 1000 })
+        fetchMyWorks()
       } else {
-        showToast({ message: '发布失败：' + (response.data.message || '未知错误'), duration: 1000 });
+        showToast({ message: '发布失败：' + (response.data.message || '未知错误'), duration: 1000 })
       }
     }
   } catch (error) {
     // 处理接口调用失败的情况
-    console.error('发布操作失败:', error);
+    console.error('发布操作失败:', error)
     // 恢复状态
-    book.isPublished = !book.isPublished;
-    
+    book.isPublished = !book.isPublished
+
     // 根据错误类型显示不同提示
     if (error.response && error.response.status === 403) {
-      showToast({ message: '您没有权限发布该作品', duration: 1000 });
+      showToast({ message: '您没有权限发布该作品', duration: 1000 })
     } else if (error.response && error.response.status === 404) {
-      showToast({ message: '作品未找到', duration: 1000 });
+      showToast({ message: '作品未找到', duration: 1000 })
     } else {
-      showToast({ message: '操作失败，请稍后重试', duration: 1000 });
+      showToast({ message: '操作失败，请稍后重试', duration: 1000 })
     }
   }
-};
+}
 
 // 点击标签跳转到标签页面
 const handleTagClick = (tag) => {
   if (!tag?.id) {
-    showToast({ message: '标签信息不完整', duration: 1000 });
-    return;
+    showToast({ message: '标签信息不完整', duration: 1000 })
+    return
   }
   router.push({
     path: `/tag/${tag.id}`, // 跳转到标签页面，路径包含标签ID
-    query: { name: tag.name } 
-  });
-};
+    query: { name: tag.name }
+  })
+}
 </script>
 
 <style scoped>
@@ -387,7 +411,7 @@ const handleTagClick = (tag) => {
 }
 ::v-deep .van-nav-bar__title,
 ::v-deep .van-nav-bar__left .van-icon {
-  color: #54494B; 
+  color: #54494b;
 }
 /* 与阅读历史页面样式相同 */
 .creations-page {
@@ -465,7 +489,6 @@ const handleTagClick = (tag) => {
   color: #ffcc00;
 }
 
-
 .visibility-icon {
   font-size: 20px;
   margin-left: 12px;
@@ -479,7 +502,7 @@ const handleTagClick = (tag) => {
   cursor: pointer;
 }
 
-.model-overlay{
+.model-overlay {
   position: fixed;
   top: 0;
   left: 0;
@@ -490,11 +513,12 @@ const handleTagClick = (tag) => {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  align-items: center; 
-  z-index: 1000; 
+  align-items: center;
+  z-index: 1000;
 }
 
-.publish-model, .agreement-model{
+.publish-model,
+.agreement-model {
   background-color: #faf8f3;
   border-radius: 20px;
   padding: 40px 10px 25px;
@@ -502,7 +526,7 @@ const handleTagClick = (tag) => {
   height: auto;
 }
 
-.nav{
+.nav {
   display: flex;
   width: 100%;
   padding: 10px;
@@ -511,40 +535,40 @@ const handleTagClick = (tag) => {
   margin: -30px 0 10px 0;
 }
 
-.back-arrow{
+.back-arrow {
   position: absolute;
   right: 10px;
   top: -4px;
   font-size: 20px;
 }
 
-.item-card{
+.item-card {
   display: flex;
   flex-direction: row;
   background-color: #ffffff;
-  border: 1px solid #D4A5A5;
+  border: 1px solid #d4a5a5;
   border-radius: 15px;
   padding: 15px;
   margin: 0 5px 10px;
 }
 
-.item-card .book-cover{
+.item-card .book-cover {
   border-radius: 15px;
   width: 150px;
   height: 100px;
   overflow: hidden;
 }
 
-.item-card .book-info{
+.item-card .book-info {
   flex-direction: column;
 }
 
-.item-card .book-info .book-title{
+.item-card .book-info .book-title {
   font-size: 16px;
   color: #444444;
 }
 
-.form-input{
+.form-input {
   background-color: #ffffff;
   width: 80%;
   border: 1px solid rgba(0, 0, 0, 0.15);
@@ -553,18 +577,20 @@ const handleTagClick = (tag) => {
   border-radius: 10px;
 }
 
-.form-input::placeholder{
-  color:#D4A5A5;
+.form-input::placeholder {
+  color: #d4a5a5;
   font-size: 13px;
 }
 
-.remind-txt{
+.remind-txt {
   color: #444444;
   font-size: 10px;
   display: block;
 }
 
-.publish-btn, .agreement-btn, .unpublish-btn{
+.publish-btn,
+.agreement-btn,
+.unpublish-btn {
   color: white;
   font-size: 16px;
   width: 100%;
@@ -575,31 +601,32 @@ const handleTagClick = (tag) => {
   margin: 10px 0 0 0;
 }
 
-.publish-btn:disabled, .unpublish-btn:disabled {
-  background: #cccccc; 
+.publish-btn:disabled,
+.unpublish-btn:disabled {
+  background: #cccccc;
   color: #999999;
-  cursor: not-allowed; 
-  opacity: 0.7; 
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 .checkbox-agreement-container {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 15px 0; 
+  margin: 15px 0;
 }
 
 ::v-deep .van-checkbox {
   margin: 0 10px 0 0;
 }
 
-.agreement{
-  color: #BB8585;
+.agreement {
+  color: #bb8585;
   text-decoration: underline;
   font-size: 12px;
 }
 
-.agreement-title{
+.agreement-title {
   font-size: 16px;
   color: #444444;
   text-align: center;
@@ -654,7 +681,7 @@ const handleTagClick = (tag) => {
   margin-bottom: 16px;
 }
 
-.agree-btn{
+.agree-btn {
   margin-top: 20px;
   color: white;
   font-size: 16px;
@@ -664,13 +691,13 @@ const handleTagClick = (tag) => {
   border-radius: 16px;
   height: 35px;
 }
-.agreement-model{
+.agreement-model {
   display: flex;
   flex-direction: column;
   align-items: center;
 }
 
-.disagree-btn{
+.disagree-btn {
   background-color: #fff;
   border: 1px solid rgba(212, 165, 165, 0.35);
   color: #d4a5a5;
@@ -711,12 +738,11 @@ const handleTagClick = (tag) => {
 }
 ::v-deep(.custom-dialog-overlay),
 ::v-deep(.van-overlay) {
-  background: rgba(0,0,0,0.3) !important;
+  background: rgba(0, 0, 0, 0.3) !important;
   backdrop-filter: blur(5px) !important;
 }
 .custom-dialog-overlay {
-  background: rgba(0,0,0,0.3) !important;
+  background: rgba(0, 0, 0, 0.3) !important;
   backdrop-filter: blur(5px) !important;
 }
-
 </style>

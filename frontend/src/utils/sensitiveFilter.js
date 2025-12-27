@@ -27,7 +27,7 @@ export function sanitize(text) {
 export function containsSensitive(text) {
   if (!text || typeof text !== 'string') return false
   // 使用非全局正则进行检测以避免 lastIndex 问题
-  return SENSITIVE_WORDS.some(w => new RegExp(escapeRegExp(w), 'i').test(text))
+  return SENSITIVE_WORDS.some((w) => new RegExp(escapeRegExp(w), 'i').test(text))
 }
 
 // 允许外部扩展敏感词
@@ -45,8 +45,9 @@ export function addSensitiveWords(words) {
 try {
   if (Array.isArray(sensitiveExtra) && sensitiveExtra.length > 0) {
     // 仅加入合法的字符串项，去重
-    const toAdd = Array.from(new Set(sensitiveExtra.filter(w => typeof w === 'string' && w && w.length > 0)))
-      .filter(w => !SENSITIVE_WORDS.includes(w))
+    const toAdd = Array.from(
+      new Set(sensitiveExtra.filter((w) => typeof w === 'string' && w && w.length > 0))
+    ).filter((w) => !SENSITIVE_WORDS.includes(w))
     if (toAdd.length > 0) addSensitiveWords(toAdd)
   }
 } catch (e) {

@@ -1,56 +1,64 @@
 <template>
   <div class="history-page">
     <van-nav-bar title="阅读历史" left-arrow @click-left="handleBack" />
-    <div style="padding: 0 16px 8px 16px; display: flex; align-items: center; gap: 8px; justify-content: flex-end;">
+    <div
+      style="
+        padding: 0 16px 8px 16px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        justify-content: flex-end;
+      "
+    >
       <van-button
         size="small"
         :style="{
           background: selectedIds.length === 0 ? '#b88484' : '#a73f3f',
           border: 'none',
-          color: '#fff',
+          color: '#fff'
         }"
         @click="handleBatchDelete"
         :disabled="selectedIds.length === 0"
-      >批量删除</van-button>
+        >批量删除</van-button
+      >
       <van-button
         size="small"
         :style="{
           background: '#a73f3f',
           border: 'none',
-          color: '#fff',
+          color: '#fff'
         }"
         @click="handleClearAll"
-      >清空全部</van-button>
+        >清空全部</van-button
+      >
     </div>
     <div class="book-list">
       <template v-if="isLoading">
-        <div style="text-align:center;color:#999;padding:48px 0 32px 0;font-size:16px;">正在加载...</div>
+        <div style="text-align: center; color: #999; padding: 48px 0 32px 0; font-size: 16px">
+          正在加载...
+        </div>
       </template>
       <template v-else-if="readingHistory.length === 0">
-        <div style="text-align:center;color:#999;padding:48px 0 32px 0;font-size:16px;">
+        <div style="text-align: center; color: #999; padding: 48px 0 32px 0; font-size: 16px">
           暂时没有阅读历史，快去发现好故事吧！
         </div>
       </template>
       <van-checkbox-group v-else v-model="selectedIds">
-        <div 
-          class="book-item" 
-          v-for="book in readingHistory" 
-          :key="book.id"
-        >
+        <div class="book-item" v-for="book in readingHistory" :key="book.id">
           <van-checkbox :name="book.id" class="history-checkbox" />
-          <van-image 
-            :src="book.image_url" 
-            class="book-cover" 
+          <van-image
+            :src="book.image_url"
+            class="book-cover"
             fit="cover"
             @click="navigateToBookDetail(book.id)"
           />
           <div class="book-info">
-            <h3 class="book-title"  @click="navigateToBookDetail(book.id)">{{ book.title }}</h3>
+            <h3 class="book-title" @click="navigateToBookDetail(book.id)">{{ book.title }}</h3>
             <p class="book-author">作者: {{ book.author }}</p>
             <p class="book-desc">{{ book.description }}</p>
             <div class="book-tags">
-              <van-tag 
-                v-for="tag in book.processedTags.slice(0, 2)" 
+              <van-tag
+                v-for="tag in book.processedTags.slice(0, 2)"
                 :key="tag.id"
                 size="small"
                 :style="tag.color"
@@ -60,20 +68,25 @@
               </van-tag>
             </div>
           </div>
-          <van-icon name="delete" class="delete-icon" @click="openDeleteDialog(book.id)" title="删除本条" />
-            <!-- 单本删除弹窗 -->
-            <van-dialog 
-              v-model:show="showDeleteDialog" 
-              title="确认删除" 
-              show-cancel-button 
-              @confirm="confirmDelete"
-              class="custom-dialog"
-              overlay-class="custom-dialog-overlay"
-           >
-              <div class="delete-dialog-message">确定要删除这条阅读历史吗？</div>
-            </van-dialog>
+          <van-icon
+            name="delete"
+            class="delete-icon"
+            @click="openDeleteDialog(book.id)"
+            title="删除本条"
+          />
+          <!-- 单本删除弹窗 -->
+          <van-dialog
+            v-model:show="showDeleteDialog"
+            title="确认删除"
+            show-cancel-button
+            @confirm="confirmDelete"
+            class="custom-dialog"
+            overlay-class="custom-dialog-overlay"
+          >
+            <div class="delete-dialog-message">确定要删除这条阅读历史吗？</div>
+          </van-dialog>
 
-            <van-dialog
+          <van-dialog
             v-model:show="showBatchDeleteDialog"
             title="批量删除"
             show-cancel-button
@@ -81,7 +94,9 @@
             class="custom-dialog"
             overlay-class="custom-dialog-overlay"
           >
-            <div class="delete-dialog-message">确定要删除选中的{{ selectedIds.length }}条记录吗？</div>
+            <div class="delete-dialog-message">
+              确定要删除选中的{{ selectedIds.length }}条记录吗？
+            </div>
           </van-dialog>
 
           <van-dialog
@@ -108,7 +123,7 @@ import { getReadingHistory, clearReadingHistory } from '../api/user'
 import { useTags } from '../composables/useTags'
 
 // 初始化标签工具
-const { getTagsByIds } = useTags();
+const { getTagsByIds } = useTags()
 
 const router = useRouter()
 
@@ -124,22 +139,20 @@ onMounted(() => {
   fetchReadingHistory()
 })
 
-
-
 // 获取当前用户阅读历史的作品列表
 const fetchReadingHistory = async () => {
   isLoading.value = true
   try {
-    const response = await getReadingHistory();
+    const response = await getReadingHistory()
     if (!response.data.code || response.data.code !== 200) {
       throw new Error('获取阅读历史失败')
     }
-    const books = response.data.data;
+    const books = response.data.data
     // 为每本书处理标签（转换ID为名称和颜色）
     for (const book of books) {
-      book.processedTags = await getTagsByIds(book.tags || []);
+      book.processedTags = await getTagsByIds(book.tags || [])
     }
-    readingHistory.value = books;
+    readingHistory.value = books
   } catch (error) {
     showToast({ message: error.message || '获取数据失败，请稍后重试', duration: 1000 })
     console.error('作品列表请求失败:', error)
@@ -149,12 +162,10 @@ const fetchReadingHistory = async () => {
   }
 }
 
-
 // 返回上一页
 const handleBack = () => {
   router.back()
 }
-
 
 // 单本删除弹窗逻辑
 const showDeleteDialog = ref(false)
@@ -176,7 +187,6 @@ const confirmDelete = async () => {
     deleteId.value = null
   }
 }
-
 
 // 批量删除弹窗逻辑
 const showBatchDeleteDialog = ref(false)
@@ -217,26 +227,22 @@ const confirmClearAll = async () => {
   }
 }
 
-
-
-
 // 导航到书籍详情页
 const navigateToBookDetail = (bookId) => {
   router.push(`/works/${bookId}`)
-};
+}
 
 // 点击标签跳转到标签页面
 const handleTagClick = (tag) => {
   if (!tag?.id) {
-    showToast({ message: '标签信息不完整', duration: 1000 });
-    return;
+    showToast({ message: '标签信息不完整', duration: 1000 })
+    return
   }
   router.push({
     path: `/tag/${tag.id}`, // 跳转到标签页面，路径包含标签ID
-    query: { name: tag.name } 
-  });
-};
-
+    query: { name: tag.name }
+  })
+}
 </script>
 
 <style scoped>
@@ -267,11 +273,11 @@ const handleTagClick = (tag) => {
 }
 ::v-deep(.custom-dialog-overlay),
 ::v-deep(.van-overlay) {
-  background: rgba(0,0,0,0.3) !important;
+  background: rgba(0, 0, 0, 0.3) !important;
   backdrop-filter: blur(5px) !important;
 }
 .custom-dialog-overlay {
-  background: rgba(0,0,0,0.3) !important;
+  background: rgba(0, 0, 0, 0.3) !important;
   backdrop-filter: blur(5px) !important;
 }
 ::v-deep .van-nav-bar {
@@ -280,7 +286,7 @@ const handleTagClick = (tag) => {
 }
 ::v-deep .van-nav-bar__title,
 ::v-deep .van-nav-bar__left .van-icon {
-  color: #54494B; 
+  color: #54494b;
 }
 
 .history-page {

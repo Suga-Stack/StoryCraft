@@ -8,7 +8,12 @@ import { http } from './http.js'
  * 返回：{ success: true, reports: [...] }
  * 若后端不可用或响应不符合预期，则回退到前端 mock 的 variants。
  */
-export async function fetchPersonalityReportVariants(workId, attributes = {}, statuses = {}, options = {}) {
+export async function fetchPersonalityReportVariants(
+  workId,
+  attributes = {},
+  statuses = {},
+  options = {}
+) {
   // allow workId to be numeric or string; ensure numeric in URL if possible
   const wid = Number(workId)
   // 注意：Django 需要 URL 以斜杠结尾

@@ -29,18 +29,14 @@ export class ErrorHandler {
    * @returns {Object} - 格式化的错误信息
    */
   static handle(error, options = {}) {
-    const {
-      showToast = false,
-      onAuthError,
-      onNetworkError
-    } = options
+    const { showToast = false, onAuthError, onNetworkError } = options
 
     let errorMessage = '未知错误'
     let errorType = 'unknown'
 
     if (error instanceof APIError || error.status) {
       const status = error.status
-      
+
       switch (status) {
         case 400:
           errorMessage = '请求参数错误'
@@ -118,7 +114,7 @@ export class ErrorHandler {
     // 这里可以集成第三方 toast 库
     // 目前简单使用原生 alert
     console.log(`[${type.toUpperCase()}] ${message}`)
-    
+
     // 如果在移动端环境,可以使用 Capacitor 的 Toast 插件
     if (window.Capacitor?.Plugins?.Toast) {
       window.Capacitor.Plugins.Toast.show({
@@ -138,32 +134,32 @@ export class ErrorHandler {
    */
   static async retry(fn, maxRetries = 3, delay = 1000) {
     let lastError
-    
+
     for (let i = 0; i < maxRetries; i++) {
       try {
         return await fn()
       } catch (error) {
         lastError = error
-        
+
         // 如果是认证错误或参数错误,不重试
         if (error.status === 401 || error.status === 400 || error.status === 422) {
           throw error
         }
-        
+
         // 最后一次尝试失败后直接抛出
         if (i === maxRetries - 1) {
           throw error
         }
-        
+
         // 等待后重试
         console.log(`Retry attempt ${i + 1}/${maxRetries} after ${delay}ms`)
-        await new Promise(resolve => setTimeout(resolve, delay))
-        
+        await new Promise((resolve) => setTimeout(resolve, delay))
+
         // 指数退避
         delay *= 2
       }
     }
-    
+
     throw lastError
   }
 }

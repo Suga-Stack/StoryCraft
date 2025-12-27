@@ -17,12 +17,17 @@ const goToCreate = () => {
     <div class="content">
       <h1 class="title">StoryCraft</h1>
       <p class="subtitle">欢迎来到故事创作平台</p>
-      
+
       <div class="actions">
         <button class="main-button" @click="goToWorks">
           <span>进入作品主页</span>
           <svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <path d="M5 12h14M12 5l7 7-7 7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path
+              d="M5 12h14M12 5l7 7-7 7"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
         </button>
         <button class="secondary-button" @click="goToCreate">创建</button>
@@ -95,21 +100,37 @@ const goToCreate = () => {
   transform: translateX(4px);
 }
 
-.actions { display:flex; gap: 1rem; justify-content:center; }
-.secondary-button { padding: 0.9rem 1.6rem; border-radius: 50px; border:1px solid rgba(212,165,165,0.5); background:#fff; color:#2c1810; font-weight:600; cursor:pointer; transition: all .2s ease; }
-.secondary-button:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.08); }
+.actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+.secondary-button {
+  padding: 0.9rem 1.6rem;
+  border-radius: 50px;
+  border: 1px solid rgba(212, 165, 165, 0.5);
+  background: #fff;
+  color: #2c1810;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.secondary-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+}
 
 /* 移动端适配 */
 @media (max-width: 768px) {
   .title {
     font-size: 2rem;
   }
-  
+
   .subtitle {
     font-size: 1rem;
     margin-bottom: 2rem;
   }
-  
+
   .main-button {
     padding: 0.875rem 1.75rem;
     font-size: 1rem;

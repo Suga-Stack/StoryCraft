@@ -12,7 +12,7 @@ import { STORY_MAX_RETRIES, STORY_RETRY_INTERVAL_MS } from '../config/polling.js
  * @param {string|number} workId - 作品 ID
  * @param {number} chapterIndex - 章节索引（1-based，1表示第一章）
  * @returns {Promise<{generating: boolean, end: boolean, scenes: Array}>}
- * 
+ *
  * 场景对象结构：
  * {
  *   sceneId: number,           // 场景唯一ID
@@ -22,7 +22,7 @@ import { STORY_MAX_RETRIES, STORY_RETRY_INTERVAL_MS } from '../config/polling.js
  *   choices?: Array,           // 选项数组
  *   chapterEnd?: boolean       // 标记章节结束（用于章节切换）
  * }
- * 
+ *
  * 当场景标记了 chapterEnd: true 时，表示该场景是本章最后一个场景，
  * 播放完该场景后，前端应增加 currentChapterIndex 并请求下一章内容。
  */
@@ -31,7 +31,7 @@ export async function getScenes(workId, chapterIndex = 1, options = {}) {
     // 默认更耐心：约 10 分钟（120 次 * 5 秒）
     maxRetries = STORY_MAX_RETRIES,
     retryInterval = STORY_RETRY_INTERVAL_MS,
-    onProgress  // 进度回调函数
+    onProgress // 进度回调函数
   } = options
 
   let retries = 0
@@ -76,20 +76,21 @@ export async function getScenes(workId, chapterIndex = 1, options = {}) {
       }
 
       // 如果还没准备好，继续等待
-      await new Promise(resolve => setTimeout(resolve, retryInterval))
+      await new Promise((resolve) => setTimeout(resolve, retryInterval))
       retries++
     } catch (error) {
       console.error(`[Story] 获取章节 ${chapterIndex} 失败:`, error)
-      const status = error && error.status ? error.status : (error && error.response && error.response.status)
-      
+      const status =
+        error && error.status ? error.status : error && error.response && error.response.status
+
       // 对于某些HTTP状态码，继续重试
       if (status === 202 || status === 204 || status === 503) {
         console.log(`[Story] 服务器返回 ${status}，继续等待...`)
-        await new Promise(resolve => setTimeout(resolve, retryInterval))
+        await new Promise((resolve) => setTimeout(resolve, retryInterval))
         retries++
         continue
       }
-      
+
       // 其他错误直接抛出
       throw error
     }
@@ -108,7 +109,7 @@ export async function getScenes(workId, chapterIndex = 1, options = {}) {
  * @param {Object} context.attributes - 当前属性
  * @param {Object} context.statuses - 当前状态
  * @returns {Promise<{attributesDelta: Object, statusesDelta: Object, nextScenes: Array, end: boolean}>}
- * 
+ *
  * nextScenes 数组中的场景对象结构：
  * {
  *   sceneId: number,           // 场景唯一ID
@@ -116,7 +117,7 @@ export async function getScenes(workId, chapterIndex = 1, options = {}) {
  *   dialogues: Array,          // 对话数组
  *   chapterEnd?: boolean       // 标记章节结束（用于章节切换）
  * }
- * 
+ *
  * 选项返回的最后一个场景应标记 chapterEnd: true 以触发章节切换。
  * 例如：第一章选项返回的最后场景标记 chapterEnd: true，
  * 播放完后前端会自动增加章节索引并请求第二章内容。
@@ -180,13 +181,15 @@ export async function generateChapter(gameworkId, chapterIndex, body = {}) {
     const safeBody = JSON.parse(JSON.stringify(body || {}))
     if (safeBody.userPrompt) safeBody.userPrompt = sanitize(safeBody.userPrompt)
     if (Array.isArray(safeBody.chapterOutlines)) {
-      safeBody.chapterOutlines = safeBody.chapterOutlines.map(o => {
+      safeBody.chapterOutlines = safeBody.chapterOutlines.map((o) => {
         try {
           if (o && typeof o === 'object') {
             return Object.assign({}, o, { outline: sanitize(o.outline || '') })
           }
           return o
-        } catch (e) { return o }
+        } catch (e) {
+          return o
+        }
       })
     }
     return await http.post(`/api/game/chapter/generate/${gameworkId}/${chapterIndex}/`, safeBody)
@@ -205,12 +208,19 @@ export async function saveChapter(gameworkId, chapterIndex, chapterData = {}) {
     const safeData = (function deepSanitize(obj) {
       if (obj == null) return obj
       if (typeof obj === 'string') return sanitize(obj)
-      if (Array.isArray(obj)) return obj.map(item => deepSanitize(item))
+      if (Array.isArray(obj)) return obj.map((item) => deepSanitize(item))
       if (typeof obj === 'object') {
         const out = {}
         for (const k of Object.keys(obj)) {
           // 优先对常见文本字段做 sanitize
-          if (k === 'text' || k === 'narration' || k === 'content' || k === 'outline' || k === 'title' || k === 'description') {
+          if (
+            k === 'text' ||
+            k === 'narration' ||
+            k === 'content' ||
+            k === 'outline' ||
+            k === 'title' ||
+            k === 'description'
+          ) {
             out[k] = deepSanitize(obj[k])
           } else {
             out[k] = deepSanitize(obj[k])
@@ -238,12 +248,12 @@ export async function saveChapter(gameworkId, chapterIndex, chapterData = {}) {
 export async function saveEnding(gameworkId, body = {}) {
   try {
     // 如果提供了逻辑上的 endingIndex，则把请求发送到带索引的接口
-    const idx = (body && (body.endingIndex != null)) ? Number(body.endingIndex) : null
+    const idx = body && body.endingIndex != null ? Number(body.endingIndex) : null
     // 在发送前 sanitize body 中的文本字段
     const safeBody = (function deepSanitize(obj) {
       if (obj == null) return obj
       if (typeof obj === 'string') return sanitize(obj)
-      if (Array.isArray(obj)) return obj.map(item => deepSanitize(item))
+      if (Array.isArray(obj)) return obj.map((item) => deepSanitize(item))
       if (typeof obj === 'object') {
         const out = {}
         for (const k of Object.keys(obj)) out[k] = deepSanitize(obj[k])
@@ -319,7 +329,7 @@ export async function fetchSettlementReport(workId, gameState = {}) {
     console.log('[Story] 游戏状态 - attributes:', attributes, 'statuses:', statuses)
 
     const wid = Number(workId)
-    const idx = (endingIndex != null && !isNaN(Number(endingIndex))) ? Number(endingIndex) : null
+    const idx = endingIndex != null && !isNaN(Number(endingIndex)) ? Number(endingIndex) : null
 
     // 优先调用新的接口：/api/game/report/{gameworkId}/{endingIndex}/
     // 如果未提供 endingIndex 或者 workId 非整数，则回退到旧的 /api/settlement/report/ 接口以保持兼容性

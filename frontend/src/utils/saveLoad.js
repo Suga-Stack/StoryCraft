@@ -6,7 +6,8 @@ const USE_BACKEND_SAVE = true
 const USE_MOCK_SAVE = false
 
 // 本地存档key
-const localSaveKey = (userId, workId, slot = 'default') => `storycraft_save_${userId}_${workId}_${slot}`
+const localSaveKey = (userId, workId, slot = 'default') =>
+  `storycraft_save_${userId}_${workId}_${slot}`
 
 // Mock后端存档
 const mockBackendKey = (userId) => `storycraft_mock_saves_${userId}`
@@ -16,7 +17,7 @@ const mockBackendSave = async (userId, workId, slot, data) => {
   const map = JSON.parse(mapRaw)
   map[`${workId}::${slot}`] = { data, timestamp: Date.now() }
   localStorage.setItem(mockBackendKey(userId), JSON.stringify(map))
-  await new Promise(r => setTimeout(r, 120))
+  await new Promise((r) => setTimeout(r, 120))
   return { ok: true }
 }
 
@@ -24,7 +25,7 @@ const mockBackendLoad = async (userId, workId, slot) => {
   const mapRaw = localStorage.getItem(mockBackendKey(userId)) || '{}'
   const map = JSON.parse(mapRaw)
   const entry = map[`${workId}::${slot}`]
-  await new Promise(r => setTimeout(r, 120))
+  await new Promise((r) => setTimeout(r, 120))
   return entry ? entry.data : null
 }
 
@@ -35,14 +36,14 @@ const backendSave = async (userId, workId, slot, data) => {
   // 将 slot1-slot6 转换为 1-6
   const slotNum = slot.replace('slot', '')
   const url = `/api/game/saves/${encodeURIComponent(numWorkId)}/${encodeURIComponent(slotNum)}/`
-  
+
   // 按照API文档格式化数据
   const body = {
     title: `存档 ${new Date().toLocaleString()}`,
     timestamp: Date.now(),
     state: data.state || data
   }
-  
+
   // 使用 axios http 客户端,它会自动添加 token 和处理响应
   console.log(`💾 后端存档请求 - URL: ${url}`, body)
   const result = await http.put(url, body)
@@ -56,9 +57,9 @@ const backendLoad = async (userId, workId, slot) => {
   // 将 slot1-slot6 转换为 1-6
   const slotNum = slot.replace('slot', '')
   const url = `/api/game/saves/${encodeURIComponent(numWorkId)}/${encodeURIComponent(slotNum)}/`
-  
+
   console.log(`🌐 后端读档请求 - URL: ${url}`)
-  
+
   try {
     // 使用 axios http 客户端,它会自动添加 token 和处理响应
     const result = await http.get(url)
@@ -91,7 +92,7 @@ export const saveGameData = async (gameData, slot = 'default') => {
   }
 
   // 清理 choiceHistory，只保留 API 需要的字段
-  const cleanedChoiceHistory = (gameData.choiceHistory || []).map(choice => {
+  const cleanedChoiceHistory = (gameData.choiceHistory || []).map((choice) => {
     // 确保 choiceId 是整数(后端要求)
     let choiceId = choice.choiceId
     if (typeof choiceId === 'string') {
@@ -101,30 +102,36 @@ export const saveGameData = async (gameData, slot = 'default') => {
     if (isNaN(choiceId)) {
       choiceId = null
     }
-    
+
     return {
       chapterIndex: choice.chapterIndex || deriveChapterIndex(),
       sceneId: choice.sceneId,
       choiceTriggerIndex: choice.choiceTriggerIndex || 0,
       choiceId: choiceId,
       // 包含用户选择时的文本，兼容来自不同位置的命名
-      choice_content: (choice.choice_content ?? choice.choiceText ?? choice.choice_text ?? choice.text ?? '')
+      choice_content:
+        choice.choice_content ?? choice.choiceText ?? choice.choice_text ?? choice.text ?? ''
     }
   })
 
-  const stateFromCaller = (gameData && typeof gameData.state === 'object') ? gameData.state : null
+  const stateFromCaller = gameData && typeof gameData.state === 'object' ? gameData.state : null
   const payload = {
     title: `存档 ${new Date().toLocaleString()}`,
     timestamp: Date.now(),
     thumbnail: gameData.thumbnail || null,
-    state: stateFromCaller ? deepClone(stateFromCaller) : {
-      chapterIndex: deriveChapterIndex(),
-      sceneId: deriveSceneId(),
-      dialogueIndex: (gameData.currentDialogueIndex != null) ? gameData.currentDialogueIndex : (gameData.dialogueIndex || 0),
-      attributes: deepClone(gameData.attributes),
-      statuses: deepClone(gameData.statuses),
-      choiceHistory: cleanedChoiceHistory
-    }
+    state: stateFromCaller
+      ? deepClone(stateFromCaller)
+      : {
+          chapterIndex: deriveChapterIndex(),
+          sceneId: deriveSceneId(),
+          dialogueIndex:
+            gameData.currentDialogueIndex != null
+              ? gameData.currentDialogueIndex
+              : gameData.dialogueIndex || 0,
+          attributes: deepClone(gameData.attributes),
+          statuses: deepClone(gameData.statuses),
+          choiceHistory: cleanedChoiceHistory
+        }
   }
 
   const userId = getCurrentUserId()
@@ -182,7 +189,10 @@ export const loadGameData = async (workId, slot = 'default') => {
 }
 
 // 刷新存档槽位信息
-export const refreshSlotInfosUtil = async (workId, slots = ['slot1', 'slot2', 'slot3', 'slot4', 'slot5', 'slot6']) => {
+export const refreshSlotInfosUtil = async (
+  workId,
+  slots = ['slot1', 'slot2', 'slot3', 'slot4', 'slot5', 'slot6']
+) => {
   console.log('📦 refreshSlotInfos 调用 - workId:', workId, 'slots:', slots)
   const userId = getCurrentUserId()
   console.log('👤 当前用户ID:', userId)
@@ -196,11 +206,11 @@ export const refreshSlotInfosUtil = async (workId, slots = ['slot1', 'slot2', 's
       if (result.success) {
         let d = result.data
         console.log(`✅ ${slot} 原始数据:`, d)
-        
+
         // 保存顶层的 thumbnail/cover_url 字段（兼容前端发送和后端返回）
         const topLevelThumbnail = d.thumbnail || d.cover_url || null
         const topLevelTimestamp = d.timestamp || Date.now()
-        
+
         // 处理后端返回的嵌套结构: {game_state: {...}, timestamp: ...}
         // 或新格式: {state: {...}, timestamp: ..., thumbnail: ...}
         if (d.game_state) {
@@ -210,24 +220,45 @@ export const refreshSlotInfosUtil = async (workId, slots = ['slot1', 'slot2', 's
           console.log(`🔄 ${slot} 检测到 state 字段，展开嵌套结构`)
           d = { ...d.state, timestamp: topLevelTimestamp, thumbnail: topLevelThumbnail }
         }
-        
+
         console.log(`✅ ${slot} 处理后数据:`, d)
-        
+
         results[slot] = {
           slot,
           data: deepClone(d),
           timestamp: d.timestamp || Date.now(),
           // 显示友好字段：章节 / 场景 id / 对话索引
           // 支持结局存档：若 state 包含 endingindex，则标识为结局并暴露 endingIndex
-          chapterIndex: d.chapterIndex != null ? d.chapterIndex : (d.currentChapterIndex != null ? d.currentChapterIndex : null),
-          isEnding: (d.endingindex != null) || (d.endingIndex != null) || false,
-          endingIndex: (d.endingindex != null) ? d.endingindex : (d.endingIndex != null ? d.endingIndex : null),
+          chapterIndex:
+            d.chapterIndex != null
+              ? d.chapterIndex
+              : d.currentChapterIndex != null
+                ? d.currentChapterIndex
+                : null,
+          isEnding: d.endingindex != null || d.endingIndex != null || false,
+          endingIndex:
+            d.endingindex != null ? d.endingindex : d.endingIndex != null ? d.endingIndex : null,
           // sceneId 以字符串形式返回（例如 "1000"）以便统一展示与比较
-          sceneId: d.sceneId != null ? String(d.sceneId) : (d.currentSceneIndex != null ? String(d.currentSceneIndex) : null),
-          dialogueIndex: d.dialogueIndex != null ? d.dialogueIndex : (d.currentDialogueIndex != null ? d.currentDialogueIndex : 0),
+          sceneId:
+            d.sceneId != null
+              ? String(d.sceneId)
+              : d.currentSceneIndex != null
+                ? String(d.currentSceneIndex)
+                : null,
+          dialogueIndex:
+            d.dialogueIndex != null
+              ? d.dialogueIndex
+              : d.currentDialogueIndex != null
+                ? d.currentDialogueIndex
+                : 0,
           // 兼容旧字段：某些代码仍会读取 currentSceneIndex/currentDialogueIndex
-          currentSceneIndex: (typeof d.currentSceneIndex === 'number') ? d.currentSceneIndex : null,
-          currentDialogueIndex: (typeof d.currentDialogueIndex === 'number') ? d.currentDialogueIndex : (d.dialogueIndex != null ? d.dialogueIndex : 0),
+          currentSceneIndex: typeof d.currentSceneIndex === 'number' ? d.currentSceneIndex : null,
+          currentDialogueIndex:
+            typeof d.currentDialogueIndex === 'number'
+              ? d.currentDialogueIndex
+              : d.dialogueIndex != null
+                ? d.dialogueIndex
+                : 0,
           // 缩略图字段 - 兼容后端的 cover_url 和前端的 thumbnail
           thumbnail: d.thumbnail || d.cover_url || null,
           thumbnailData: d.thumbnailData || null,
@@ -259,7 +290,7 @@ export const deleteGameData = async (workId, slot = 'default') => {
       // 将 slot1-slot6 转换为 1-6
       const slotNum = slot.replace('slot', '')
       const url = `/api/game/saves/${encodeURIComponent(numWorkId)}/${encodeURIComponent(slotNum)}/`
-      
+
       console.log(`🗑️ 后端删档请求 - URL: ${url}`)
       // 使用 axios http 客户端,它会自动添加 token 和处理响应
       const result = await http.delete(url)

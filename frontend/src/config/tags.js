@@ -95,4 +95,4 @@ export const defaultTags = [
   { id: 87, name: '第二人称' },
   { id: 88, name: '第三人称' },
   { id: 89, name: '单元剧' }
-];
+]

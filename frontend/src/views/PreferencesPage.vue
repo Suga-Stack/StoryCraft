@@ -1,11 +1,11 @@
 <template>
   <div class="preferences-container">
-    <van-nav-bar 
-      :title="currentStep === 0 ? '选择性别' : '选择感兴趣的标签'" 
+    <van-nav-bar
+      :title="currentStep === 0 ? '选择性别' : '选择感兴趣的标签'"
       :left-arrow="currentStep > 0"
       @click-left="handleBack"
     />
-    
+
     <!-- 滑动容器 -->
     <div class="slider-container" :style="{ transform: `translateX(-${currentStep * 100}%)` }">
       <div class="slider-page">
@@ -18,21 +18,15 @@
             <van-radio name="Other" class="gender-radio">其他</van-radio>
           </van-radio-group>
           <p class="error-text" v-if="errors.gender">{{ errors.gender }}</p>
-          
+
           <div class="next-btn-container">
-            <van-button 
-              type="primary" 
-              round 
-              block 
-              @click="goToNextStep"
-              class=" next-btn"
-            >
+            <van-button type="primary" round block @click="goToNextStep" class="next-btn">
               下一步
             </van-button>
           </div>
         </div>
       </div>
-      
+
       <div class="slider-page">
         <!-- 标签选择页面 -->
         <div class="section tags-section">
@@ -40,8 +34,8 @@
 
           <!-- 分类切换按钮 -->
           <div class="category-buttons">
-            <van-button 
-              v-for="(category, index) in categories" 
+            <van-button
+              v-for="(category, index) in categories"
               :key="index"
               :type="currentCategory === index ? 'primary' : 'default'"
               @click="switchCategory(index)"
@@ -51,14 +45,14 @@
               {{ category.name }}
             </van-button>
           </div>
-          
+
           <!-- 加载状态 -->
           <van-loading v-if="isLoadingTags" color="#c78c8c" size="24" class="loading-indicator" />
-          
+
           <!-- 标签容器（加载完成且无错误时显示） -->
           <div v-else-if="!tagsError" class="tags-container">
-            <van-tag 
-              v-for="(tag, index) in filteredTags"  
+            <van-tag
+              v-for="(tag, index) in filteredTags"
               :key="tag.id"
               :name="tag.name"
               :checked="selectedTags.includes(tag.id)"
@@ -69,30 +63,25 @@
                 backgroundColor: selectedTags.includes(tag.id) ? '#D4A5A5' : '#fff',
                 color: selectedTags.includes(tag.id) ? '#ffffff' : '#444444',
                 borderColor: selectedTags.includes(tag.id) ? '#e5b7b7' : '#b88484',
-                borderWidth: '1px',  // 边框宽度
+                borderWidth: '1px', // 边框宽度
                 borderStyle: 'solid' // 边框样式
               }"
             >
               {{ tag.name }}
             </van-tag>
           </div>
-          
+
           <!-- 错误提示 -->
           <p class="error-text" v-if="tagsError">{{ tagsError }}</p>
           <p class="error-text" v-if="errors.tags">{{ errors.tags }}</p>
-          
+
           <div class="button-group">
-            <van-button 
-              type="info" 
-              round 
-              @click="goToPrevStep"
-              class="prev-btn"
-            >
+            <van-button type="info" round @click="goToPrevStep" class="prev-btn">
               上一步
             </van-button>
-            <van-button 
-              type="primary" 
-              round 
+            <van-button
+              type="primary"
+              round
               @click="handleSubmit"
               :loading="isSubmitting"
               class="submit-btn"
@@ -108,155 +97,152 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue';
-import { useRouter } from 'vue-router';
-import { useUserStore } from '../store';
-import { showToast, Loading } from 'vant';
-import http from '../utils/http';
-import { defaultTags } from '../config/tags';
+import { ref, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
+import { useUserStore } from '../store'
+import { showToast, Loading } from 'vant'
+import http from '../utils/http'
+import { defaultTags } from '../config/tags'
 
 // 状态管理
-const userStore = useUserStore();
-const router = useRouter();
+const userStore = useUserStore()
+const router = useRouter()
 
 // 步骤控制
-const currentStep = ref(0); // 0: 性别选择, 1: 标签选择
+const currentStep = ref(0) // 0: 性别选择, 1: 标签选择
 
 // 表单数据
-const selectedGender = ref('');
-const selectedTags = ref([]);
-const isSubmitting = ref(false);
+const selectedGender = ref('')
+const selectedTags = ref([])
+const isSubmitting = ref(false)
 const errors = ref({
   gender: '',
   tags: ''
-});
+})
 
 // 标签相关状态
-const allTags = ref([...defaultTags]);
-const isLoadingTags = ref(false); 
-const tagsError = ref(''); 
+const allTags = ref([...defaultTags])
+const isLoadingTags = ref(false)
+const tagsError = ref('')
 
 // 标签分类相关状态
 const categories = ref([
-  { name: '类型', range: [1, 16] },    // 类型标签：1-16
-  { name: '风格', range: [17, 49] },   // 风格标签：17-49
+  { name: '类型', range: [1, 16] }, // 类型标签：1-16
+  { name: '风格', range: [17, 49] }, // 风格标签：17-49
   { name: '世界观', range: [50, 64] }, // 世界观标签：50-64
-  { name: '题材', range: [65, 89] }    // 题材标签：65-89
-]);
+  { name: '题材', range: [65, 89] } // 题材标签：65-89
+])
 
-
-const currentCategory = ref(0); // 当前选中的分类索引，默认选中"类型"
+const currentCategory = ref(0) // 当前选中的分类索引，默认选中"类型"
 
 // 筛选当前分类的标签
 const filteredTags = computed(() => {
-  const { range } = categories.value[currentCategory.value];
-  const [min, max] = range;
+  const { range } = categories.value[currentCategory.value]
+  const [min, max] = range
   // 筛选出id在[min, max]范围内的标签
-  return allTags.value.filter(tag => tag.id >= min && tag.id <= max);
-});
+  return allTags.value.filter((tag) => tag.id >= min && tag.id <= max)
+})
 
 // 切换分类
 const switchCategory = (index) => {
-  currentCategory.value = index;
-  window.scrollTo(0, 0); // 切换时滚动到顶部
-};
-
+  currentCategory.value = index
+  window.scrollTo(0, 0) // 切换时滚动到顶部
+}
 
 // 初始化：获取已保存的偏好和标签列表
 onMounted(async () => {
   // 并行请求：同时获取偏好设置和标签列表
   try {
     // 再获取用户偏好
-    const res = await http.get('/api/users/preferences/');
+    const res = await http.get('/api/users/preferences/')
     if (res.code === 200 && res.data?.preferences) {
-      const { gender, favoriteTags } = res.data.preferences;
-      selectedGender.value = gender || '';
-      selectedTags.value = favoriteTags || [];
+      const { gender, favoriteTags } = res.data.preferences
+      selectedGender.value = gender || ''
+      selectedTags.value = favoriteTags || []
     }
   } catch (error) {
-    console.error('初始化数据失败:', error);
+    console.error('初始化数据失败:', error)
   }
-});
-
+})
 
 // 切换标签选择状态
 const toggleTag = (tagId) => {
-  const index = selectedTags.value.indexOf(tagId);
+  const index = selectedTags.value.indexOf(tagId)
   if (index > -1) {
-    selectedTags.value = selectedTags.value.filter(id => id !== tagId);
+    selectedTags.value = selectedTags.value.filter((id) => id !== tagId)
   } else {
-    selectedTags.value.push(tagId);
+    selectedTags.value.push(tagId)
   }
-  errors.value.tags = ''; // 清除错误提示
-};
+  errors.value.tags = '' // 清除错误提示
+}
 
 // 步骤切换
 const goToNextStep = () => {
   if (!selectedGender.value) {
-    errors.value.gender = '请选择性别';
-    return;
+    errors.value.gender = '请选择性别'
+    return
   }
-  currentStep.value = 1;
-  window.scrollTo(0, 0); // 滚动到顶部
-};
+  currentStep.value = 1
+  window.scrollTo(0, 0) // 滚动到顶部
+}
 
 const goToPrevStep = () => {
-  currentStep.value = 0;
-  window.scrollTo(0, 0); // 滚动到顶部
-};
+  currentStep.value = 0
+  window.scrollTo(0, 0) // 滚动到顶部
+}
 
 const handleBack = () => {
   if (currentStep.value > 0) {
-    goToPrevStep();
+    goToPrevStep()
   }
-};
+}
 
 // 表单验证
 const validateForm = () => {
-  let isValid = true;
-  errors.value = { gender: '', tags: '' };
+  let isValid = true
+  errors.value = { gender: '', tags: '' }
 
   if (!selectedGender.value) {
-    errors.value.gender = '请选择性别';
-    isValid = false;
+    errors.value.gender = '请选择性别'
+    isValid = false
   }
 
   if (selectedTags.value.length === 0) {
-    errors.value.tags = '请至少选择一个感兴趣的标签';
-    isValid = false;
+    errors.value.tags = '请至少选择一个感兴趣的标签'
+    isValid = false
   }
 
-  return isValid;
-};
+  return isValid
+}
 
 // 提交表单
 const handleSubmit = async () => {
-  if (!validateForm()) return;
+  if (!validateForm()) return
 
   try {
-    isSubmitting.value = true;
-    
+    isSubmitting.value = true
+
     const submitData = {
       gender: selectedGender.value,
-      liked_tags: selectedTags.value.map(tagId => parseInt(tagId, 10)) // 转换为整数
-    };
+      liked_tags: selectedTags.value.map((tagId) => parseInt(tagId, 10)) // 转换为整数
+    }
 
-    const response = await http.put('/api/users/preferences/', submitData);
+    const response = await http.put('/api/users/preferences/', submitData)
 
     if (response.status === 200) {
-      userStore.setPreferences(response.data.preferences);
-      showToast({ message: '偏好设置保存成功', duration: 1000 });
-      router.push('/');
+      userStore.setPreferences(response.data.preferences)
+      showToast({ message: '偏好设置保存成功', duration: 1000 })
+      router.push('/')
     } else {
-      showToast({ message: response.message || '保存失败，请重试', duration: 1000 });
+      showToast({ message: response.message || '保存失败，请重试', duration: 1000 })
     }
   } catch (error) {
-    console.error('保存偏好设置失败:', error);
-    showToast({ message: error.response?.data?.message || '网络错误，请稍后重试', duration: 1000 });
+    console.error('保存偏好设置失败:', error)
+    showToast({ message: error.response?.data?.message || '网络错误，请稍后重试', duration: 1000 })
   } finally {
-    isSubmitting.value = false;
+    isSubmitting.value = false
   }
-};
+}
 </script>
 
 <style scoped>
@@ -266,14 +252,13 @@ const handleSubmit = async () => {
 }
 ::v-deep .van-nav-bar__title,
 ::v-deep .van-nav-bar__left .van-icon {
-  color: #444444 ; 
+  color: #444444;
 }
 
 .loading-indicator {
   text-align: center;
   padding: 20px 0;
 }
-
 
 .preferences-container {
   background-color: #faf8f3;
@@ -368,9 +353,9 @@ const handleSubmit = async () => {
 }
 
 ::v-deep .custom-tag {
-  border-radius: 12px; 
-  padding: 10px 0; 
-  font-size: 14px; 
+  border-radius: 12px;
+  padding: 10px 0;
+  font-size: 14px;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -383,7 +368,7 @@ const handleSubmit = async () => {
   padding: 0 16px 30px;
 }
 
-.next-btn{
+.next-btn {
   color: white;
   font-size: 16px;
   width: 100%;
@@ -398,7 +383,8 @@ const handleSubmit = async () => {
   padding: 0 16px 30px;
 }
 
-.prev-btn, .submit-btn {
+.prev-btn,
+.submit-btn {
   color: white;
   font-size: 16px;
   width: 100%;

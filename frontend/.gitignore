@@ -24,3 +24,6 @@ dist-ssr
 *.sw?
 db.sqlite3-wal
 db.sqlite3-shm
+
+# ESLint
+.eslintcache

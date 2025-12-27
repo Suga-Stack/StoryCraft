@@ -3,14 +3,22 @@ import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { useRouter } from 'vue-router'
 import { http } from '../service/http.js'
-import { addFavorite, deleteFavorite, getComments, postComments, likeComment, unlikeComment, reportComment } from '../api/user.js'
+import {
+  addFavorite,
+  deleteFavorite,
+  getComments,
+  postComments,
+  likeComment,
+  unlikeComment,
+  reportComment
+} from '../api/user.js'
 import { sanitize } from '../utils/sensitiveFilter'
 import { showToast as vantToast } from 'vant'
-import { useTags } from '../composables/useTags'; 
+import { useTags } from '../composables/useTags'
 import ReplyItem from '@/components/ReplyItem.vue'
 
 // 初始化标签工具
-const { getTagsByIds } = useTags();
+const { getTagsByIds } = useTags()
 
 const router = useRouter()
 const entryPath = ref(null)
@@ -22,13 +30,19 @@ onMounted(() => {
     // 如果从 GamePage 返回到本页，保留之前设置的入口路径
     const stored = sessionStorage.getItem('introEntryPath')
     if (!entryPath.value && stored) entryPath.value = stored
-  } catch (e) { }
+  } catch (e) {}
 })
 
 // 当前用户信息
 const userInfo = ref({})
-try { userInfo.value = JSON.parse(localStorage.getItem('userInfo') || '{}') } catch (e) { userInfo.value = {} }
-const isStaff = computed(() => !!(userInfo.value.is_staff || userInfo.value.isStaff || userInfo.value.staff))
+try {
+  userInfo.value = JSON.parse(localStorage.getItem('userInfo') || '{}')
+} catch (e) {
+  userInfo.value = {}
+}
+const isStaff = computed(
+  () => !!(userInfo.value.is_staff || userInfo.value.isStaff || userInfo.value.staff)
+)
 
 const goBack = () => {
   // 固定返回到 Bookstorepage 界面
@@ -39,9 +53,20 @@ const emit = defineEmits(['delete-comment', 'report-comment'])
 
 const showToast = (message, type = 'info', duration = 1000) => {
   try {
-    vantToast({ message: String(message || ''), type: type || undefined, duration: Number(duration) || 1000, position: 'top', forbidClick: true, className: 'sc-toast-gray' })
+    vantToast({
+      message: String(message || ''),
+      type: type || undefined,
+      duration: Number(duration) || 1000,
+      position: 'top',
+      forbidClick: true,
+      className: 'sc-toast-gray'
+    })
   } catch (e) {
-    try { alert(String(message || '')) } catch (e) { /* ignore */ }
+    try {
+      alert(String(message || ''))
+    } catch (e) {
+      /* ignore */
+    }
   }
 }
 
@@ -50,12 +75,23 @@ const route = useRoute()
 const state = history.state || {}
 // 若存在 createResult，则优先使用 sessionStorage.createResult 中的 backendWork
 let sessionCreate = null
-try { sessionCreate = JSON.parse(sessionStorage.getItem('createResult')) } catch (e) { sessionCreate = null }
+try {
+  sessionCreate = JSON.parse(sessionStorage.getItem('createResult'))
+} catch (e) {
+  sessionCreate = null
+}
 
 // 规范化后端返回的数据字段（兼容 image_url / coverUrl / cover_url 等差异）
 const normalizeBackendWork = (raw) => {
   if (!raw) return null
-  const coverCandidate = raw.coverUrl || raw.cover_url || raw.image_url || raw.imageUrl || raw.cover || (raw.image && raw.image.url) || ''
+  const coverCandidate =
+    raw.coverUrl ||
+    raw.cover_url ||
+    raw.image_url ||
+    raw.imageUrl ||
+    raw.cover ||
+    (raw.image && raw.image.url) ||
+    ''
   let cover = coverCandidate || ''
   if (cover && /^\//.test(cover)) cover = 'https://storycraft.work.gd' + cover
   // 如果已经是完整 URL，保留原样
@@ -67,14 +103,19 @@ const normalizeBackendWork = (raw) => {
     coverUrl: cover || raw.coverUrl || raw.image_url || '',
     tags: raw.tags || raw.tag_names || raw.tag_ids || [],
     favoritesCount: raw.favorite_count || raw.favoritesCount || 0,
-      publishedAt: raw.published_at || raw.publishedAt || raw.created_at || null,
+    publishedAt: raw.published_at || raw.publishedAt || raw.created_at || null,
     updatedAt: raw.updated_at || raw.updatedAt || raw.modified || null,
     isFavorited: raw.is_favorited || false,
     averageScore: raw.average_score || raw.averageScore || 0,
     ratingCount: raw.rating_count || raw.ratingCount || 0,
     wordCount: raw.word_count || null,
     // 兼容后端可能使用的 price 或 unlock_points_needed 字段，用于解锁/付费显示
-    price: typeof raw.price !== 'undefined' ? raw.price : (typeof raw.unlock_points_needed !== 'undefined' ? raw.unlock_points_needed : undefined),
+    price:
+      typeof raw.price !== 'undefined'
+        ? raw.price
+        : typeof raw.unlock_points_needed !== 'undefined'
+          ? raw.unlock_points_needed
+          : undefined,
     readCount: raw.read_count || 0
   }
 }
@@ -136,14 +177,22 @@ onMounted(async () => {
   selectedStars.value = 0
   currentUsername.value = null
   isRemoved.value = false
-  
+
   try {
     // 每次进入作品介绍页都向后端拉取最新详情，避免展示本地占位内容
     // 优先使用路由参数 / query 中的 id，其次使用 sessionStorage.createResult 中的 backendWork.id，最后回退到当前 work.value.id
     let sr = null
-    try { sr = JSON.parse(sessionStorage.getItem('createResult')) } catch (e) { sr = null }
+    try {
+      sr = JSON.parse(sessionStorage.getItem('createResult'))
+    } catch (e) {
+      sr = null
+    }
     const paramId = route.params?.id || route.query?.id || null
-    const candidateId = paramId || sr?.backendWork?.id || new URLSearchParams(window.location.search).get('id') || work.value.id
+    const candidateId =
+      paramId ||
+      sr?.backendWork?.id ||
+      new URLSearchParams(window.location.search).get('id') ||
+      work.value.id
 
     if (!candidateId) {
       console.warn('[game_introduction] no candidate id to fetch')
@@ -166,18 +215,31 @@ onMounted(async () => {
       work.value.title = normalized.title || work.value.title
       work.value.coverUrl = normalized.coverUrl || work.value.coverUrl
       work.value.description = normalized.description || work.value.description
-     
-      const fetchedTags = await getTagsByIds(normalized.tags || []);
-      work.value.tags = fetchedTags || [];
-      
+
+      const fetchedTags = await getTagsByIds(normalized.tags || [])
+      work.value.tags = fetchedTags || []
+
       work.value.isFavorite = normalized.isFavorited || work.value.isFavorite
-      try { favoritesCount.value = payload.favorite_count || payload.favoritesCount || favoritesCount.value } catch (e) {}
-      try { publishedAt.value = payload.published_at || payload.publishedAt || payload.created_at || publishedAt.value } catch (e) {}
-      try { updatedAt.value = payload.updated_at || payload.updatedAt || payload.modified || updatedAt.value } catch (e) {}
-      try { averageScore.value = payload.average_score || payload.averageScore || averageScore.value } catch (e) {}
-      try { ratingCount.value = payload.rating_count || payload.ratingCount || ratingCount.value } catch (e) {}
+      try {
+        favoritesCount.value =
+          payload.favorite_count || payload.favoritesCount || favoritesCount.value
+      } catch (e) {}
+      try {
+        publishedAt.value =
+          payload.published_at || payload.publishedAt || payload.created_at || publishedAt.value
+      } catch (e) {}
+      try {
+        updatedAt.value =
+          payload.updated_at || payload.updatedAt || payload.modified || updatedAt.value
+      } catch (e) {}
+      try {
+        averageScore.value = payload.average_score || payload.averageScore || averageScore.value
+      } catch (e) {}
+      try {
+        ratingCount.value = payload.rating_count || payload.ratingCount || ratingCount.value
+      } catch (e) {}
       work.value.isFavorite = normalized.isFavorited
-      
+
       // 更新统计数据
       favoritesCount.value = normalized.favoritesCount
       publishedAt.value = normalized.publishedAt || publishedAt.value
@@ -215,8 +277,10 @@ onMounted(async () => {
 
       // 如果后端返回章节数，则更新 totalChapters
       try {
-        if (typeof payload.total_chapters !== 'undefined') totalChapters.value = payload.total_chapters
-        else if (typeof payload.totalChapters !== 'undefined') totalChapters.value = payload.totalChapters
+        if (typeof payload.total_chapters !== 'undefined')
+          totalChapters.value = payload.total_chapters
+        else if (typeof payload.totalChapters !== 'undefined')
+          totalChapters.value = payload.totalChapters
       } catch (e) {}
 
       // 将获取到的后端原始数据写回 sessionStorage.createResult，方便其他页面/刷新时复用
@@ -225,8 +289,17 @@ onMounted(async () => {
         // 写入后端原始数据到 backendWork，便于其它页面读取；同时保留两个重要标记：modifiable / ai_callable
         prev.backendWork = payload
         // 兼容性：将 modifiable 与 ai_callable 同时写回顶级 createResult，便于前端快速判断权限/能力
-        try { prev.modifiable = !!payload.modifiable } catch (e) {}
-        try { prev.ai_callable = typeof payload.ai_callable !== 'undefined' ? !!payload.ai_callable : (payload.data && typeof payload.data.ai_callable !== 'undefined' ? !!payload.data.ai_callable : undefined) } catch (e) {}
+        try {
+          prev.modifiable = !!payload.modifiable
+        } catch (e) {}
+        try {
+          prev.ai_callable =
+            typeof payload.ai_callable !== 'undefined'
+              ? !!payload.ai_callable
+              : payload.data && typeof payload.data.ai_callable !== 'undefined'
+                ? !!payload.data.ai_callable
+                : undefined
+        } catch (e) {}
         sessionStorage.setItem('createResult', JSON.stringify(prev))
         // 如果后端明确标记作品未发布（is_published === false），
         // 仅允许具有 modifiable 权限的用户查看；其他用户（包含管理员）一律显示下架遮罩。
@@ -234,11 +307,19 @@ onMounted(async () => {
           const sess = JSON.parse(sessionStorage.getItem('createResult') || '{}')
           const modifiableFlag = !!(payload?.modifiable || sess?.modifiable)
           // 只有在后端显式返回 is_published === false 时认为未发布
-          if (typeof payload?.is_published !== 'undefined' && payload.is_published === false && !modifiableFlag) {
+          if (
+            typeof payload?.is_published !== 'undefined' &&
+            payload.is_published === false &&
+            !modifiableFlag
+          ) {
             isRemoved.value = true
           }
-        } catch (e) { /* ignore */ }
-      } catch (e) { console.warn('failed to write createResult to sessionStorage', e) }
+        } catch (e) {
+          /* ignore */
+        }
+      } catch (e) {
+        console.warn('failed to write createResult to sessionStorage', e)
+      }
       // 如果 payload 中包含评论数据，归一化并写入 comments
       try {
         if (Array.isArray(payload.comments_by_time)) {
@@ -268,7 +349,8 @@ onMounted(async () => {
             // 尝试读取当前登录用户的用户名（优先 window 注入，其次 localStorage.userInfo）
             try {
               if (!currentUsername.value) {
-                if (window.__STORYCRAFT_USER__ && window.__STORYCRAFT_USER__.username) currentUsername.value = window.__STORYCRAFT_USER__.username
+                if (window.__STORYCRAFT_USER__ && window.__STORYCRAFT_USER__.username)
+                  currentUsername.value = window.__STORYCRAFT_USER__.username
                 else {
                   const stored = localStorage.getItem('userInfo')
                   if (stored) {
@@ -282,23 +364,33 @@ onMounted(async () => {
             // 如果当前用户已在后端评分记录中出现，标记为已评分并在星级处显示他之前的分数
             try {
               if (currentUsername.value) {
-                const found = payload.rating_details.find(r => (r.username || r.user) === currentUsername.value)
+                const found = payload.rating_details.find(
+                  (r) => (r.username || r.user) === currentUsername.value
+                )
                 if (found) {
                   userHasRated.value = true
                   const s10 = Number(found.score || found.score10 || 0)
                   if (!isNaN(s10) && s10 > 0) selectedStars.value = Math.round(s10 / 2)
                 }
               }
-            } catch (e) { console.warn('check user rating failed', e) }
+            } catch (e) {
+              console.warn('check user rating failed', e)
+            }
           }
-        } catch (e) { console.warn('failed to parse rating_details from payload', e) }
-      } catch (e) { console.warn('failed to parse comments from payload', e) }
+        } catch (e) {
+          console.warn('failed to parse rating_details from payload', e)
+        }
+      } catch (e) {
+        console.warn('failed to parse comments from payload', e)
+      }
     }
     // 仅在作品详情未包含任何评论时，回退到独立的 comments API 拉取（避免覆盖已加载的评论）
-    if ((!rawCommentsByTime.value || rawCommentsByTime.value.length === 0) && (!rawCommentsByHot.value || rawCommentsByHot.value.length === 0)) {
+    if (
+      (!rawCommentsByTime.value || rawCommentsByTime.value.length === 0) &&
+      (!rawCommentsByHot.value || rawCommentsByHot.value.length === 0)
+    ) {
       await fetchCommentsFromAPI(1)
     }
-
   } catch (e) {
     console.error('[game_introduction] fetch work details failed:', e)
     // 若后端返回 404，则认为该作品已下架，显示全屏遮罩阻止阅读
@@ -316,7 +408,11 @@ onMounted(async () => {
       baseURL: http.baseURL || 'unknown'
     })
     if (import.meta.env.DEV) {
-      showToast(`[调试信息] 获取作品详情失败\nID: ${candidateId}\n错误: ${e.message}\n请检查网络连接和后端服务器`, 'error', 1000)
+      showToast(
+        `[调试信息] 获取作品详情失败\nID: ${candidateId}\n错误: ${e.message}\n请检查网络连接和后端服务器`,
+        'error',
+        1000
+      )
     }
   }
 })
@@ -333,23 +429,25 @@ const toggleFavoriteWithCount = async () => {
   try {
     // 如果当前是未收藏状态，调用收藏接口
     if (!work.value.isFavorite) {
-      await addFavorite(work.value.id); 
-      work.value.isFavorite = true;
-      favoritesCount.value += 1;
+      await addFavorite(work.value.id)
+      work.value.isFavorite = true
+      favoritesCount.value += 1
     } else {
-      await deleteFavorite(work.value.id);
-      work.value.isFavorite = false;
-      favoritesCount.value -= 1;
+      await deleteFavorite(work.value.id)
+      work.value.isFavorite = false
+      favoritesCount.value -= 1
     }
   } catch (e) {
-    console.error('收藏操作失败:', e);
+    console.error('收藏操作失败:', e)
     // 操作失败时回滚状态
-    work.value.isFavorite = !work.value.isFavorite;
+    work.value.isFavorite = !work.value.isFavorite
   }
 }
 
 // 发表时间
-const publishedAt = ref(backendWorkRaw?.publishedAt || backendWorkRaw?.publishedDate || new Date().toISOString())
+const publishedAt = ref(
+  backendWorkRaw?.publishedAt || backendWorkRaw?.publishedDate || new Date().toISOString()
+)
 
 // 章节数
 const totalChapters = ref(backendWorkRaw?.totalChapters || backendWorkRaw?.total_chapters || null)
@@ -365,7 +463,11 @@ const backendWordCount = ref(backendWorkRaw?.wordCount || null)
 
 // 积分/打赏相关（用于作品简介与评论评分之间的“送积分”模块）
 // 优先从后端返回的 price 字段，否则使用 unlock_points_needed，默认 100
-const unlockPointsNeeded = ref((backendWorkRaw?.price !== undefined) ? backendWorkRaw.price : (backendWorkRaw?.unlock_points_needed || 100)) // 解锁该作品需要的积分（后端可返回字段）
+const unlockPointsNeeded = ref(
+  backendWorkRaw?.price !== undefined
+    ? backendWorkRaw.price
+    : backendWorkRaw?.unlock_points_needed || 100
+) // 解锁该作品需要的积分（后端可返回字段）
 const userGivenPoints = ref(backendWorkRaw?.user_given_points || 0) // 当前用户已在该作品上送出的积分
 const sendingPoints = ref(false)
 // 页面内 modal 控制：改为页面内弹窗输入数量
@@ -439,14 +541,14 @@ const updatedDisplay = computed(() => {
 })
 // 标签颜色配置（低饱和度浅色）
 const tagColors = [
-  { bg: '#e9e5f5', text: '#5d4d7a' },   // 浅紫色
-  { bg: '#dff5eb', text: '#3d7a5e' },   // 浅绿色
-  { bg: '#ffe9d9', text: '#946640' },   // 浅橙色
-  { bg: '#ffe5e8', text: '#945560' },   // 浅红色
-  { bg: '#e3eeff', text: '#4a6b94' },   // 浅蓝色
-  { bg: '#f0e7f7', text: '#6e4d87' },   // 浅紫罗兰
-  { bg: '#ffeaf2', text: '#94556e' },   // 浅粉色
-  { bg: '#e0f5f3', text: '#3d7a73' }    // 浅青色
+  { bg: '#e9e5f5', text: '#5d4d7a' }, // 浅紫色
+  { bg: '#dff5eb', text: '#3d7a5e' }, // 浅绿色
+  { bg: '#ffe9d9', text: '#946640' }, // 浅橙色
+  { bg: '#ffe5e8', text: '#945560' }, // 浅红色
+  { bg: '#e3eeff', text: '#4a6b94' }, // 浅蓝色
+  { bg: '#f0e7f7', text: '#6e4d87' }, // 浅紫罗兰
+  { bg: '#ffeaf2', text: '#94556e' }, // 浅粉色
+  { bg: '#e0f5f3', text: '#3d7a73' } // 浅青色
 ]
 
 // 根据索引获取标签颜色
@@ -533,10 +635,17 @@ const normalizeComments = (list) => {
       id: item.id,
       author: item.user || item.author || '匿名',
       text: item.content || item.text || '',
-      time: item.created_at ? new Date(item.created_at).toLocaleString() : (item.time || ''),
-      timestamp: item.created_at ? Date.parse(item.created_at) : (item.timestamp || Date.now()),
+      time: item.created_at ? new Date(item.created_at).toLocaleString() : item.time || '',
+      timestamp: item.created_at ? Date.parse(item.created_at) : item.timestamp || Date.now(),
       likes: Number(item.like_count ?? item.likes ?? item.like_counted ?? 0) || 0,
-      isLiked: !!(item.is_liked ?? item.isLiked ?? item.liked ?? item.user_liked ?? item.liked_by_user ?? false),
+      isLiked: !!(
+        item.is_liked ??
+        item.isLiked ??
+        item.liked ??
+        item.user_liked ??
+        item.liked_by_user ??
+        false
+      ),
       profile_picture: item.profile_picture || (item.user && item.user.profile_picture) || '',
       replies: []
     }
@@ -552,19 +661,18 @@ const normalizeComments = (list) => {
 const getCommentAvatar = (comment) => {
   // 1. 直接 profile_picture 字段
   if (comment && comment.profile_picture) {
-    return normalizeAvatar(comment.profile_picture);
+    return normalizeAvatar(comment.profile_picture)
   }
   // 2. 嵌套 user 对象的 profile_picture
   if (comment && comment.user && comment.user.profile_picture) {
-    return normalizeAvatar(comment.user.profile_picture);
+    return normalizeAvatar(comment.user.profile_picture)
   }
   // 3. 用用户名生成头像
   if (comment && comment.user && comment.user.username && typeof getAvatar === 'function') {
-    return getAvatar(comment.user.username);
+    return getAvatar(comment.user.username)
   }
-  return '';
-};
-
+  return ''
+}
 
 // 可见回复计数（按顶层评论 id）
 const visibleReplies = ref({})
@@ -596,21 +704,24 @@ const toggleDescription = () => {
   isDescriptionExpanded.value = !isDescriptionExpanded.value
 }
 
-
-
 // 计算属性：排序后的评论
 const sortedComments = computed(() => {
   const commentsCopy = [...comments.value]
   if (sortBy.value === 'likes') {
     // 最热排序：同时考虑点赞数与被回复数（综合分 = likes + replies.length）
-    return commentsCopy.sort((a, b) => (b.likes + (b.replies?.length || 0)) - (a.likes + (a.replies?.length || 0)))
+    return commentsCopy.sort(
+      (a, b) => b.likes + (b.replies?.length || 0) - (a.likes + (a.replies?.length || 0))
+    )
   }
   return commentsCopy.sort((a, b) => b.timestamp - a.timestamp)
 })
 
 // 包含回复的评论总数（用于标签显示与空状态判断）
 const totalCommentsCount = computed(() => {
-  return comments.value.reduce((acc, c) => acc + 1 + (Array.isArray(c.replies) ? c.replies.length : 0), 0)
+  return comments.value.reduce(
+    (acc, c) => acc + 1 + (Array.isArray(c.replies) ? c.replies.length : 0),
+    0
+  )
 })
 
 // 评分系统（切换评论区为评分分页）
@@ -666,7 +777,6 @@ const onPullEnd = () => {
   pullTriggered.value = false
 }
 
-
 const averageRating = computed(() => {
   if (!ratings.value.length) return 0
   const sum = ratings.value.reduce((s, r) => s + (r.stars || 0), 0)
@@ -720,15 +830,19 @@ const submitRating = async () => {
       const details = await http.get(`/api/gameworks/gameworks/${work.value.id}/`)
       const payload = details?.data || details || null
       if (payload) {
-        try { ratingCount.value = payload.rating_count || payload.ratingCount || ratingCount.value } catch (e) {}
-        try { averageScore.value = payload.average_score || payload.averageScore || averageScore.value } catch (e) {}
+        try {
+          ratingCount.value = payload.rating_count || payload.ratingCount || ratingCount.value
+        } catch (e) {}
+        try {
+          averageScore.value = payload.average_score || payload.averageScore || averageScore.value
+        } catch (e) {}
       }
     } catch (e) {
       console.warn('刷新作品详情失败，无法更新评分统计', e)
     }
 
     // 本地也保持一个评分记录用于立即显示，带上当前用户头像
-    const userProfilePicture = normalizeAvatar(userInfo.value?.profile_picture);
+    const userProfilePicture = normalizeAvatar(userInfo.value?.profile_picture)
     ratings.value.unshift({
       id: Date.now(),
       author: currentUsername.value || 'current_user',
@@ -758,7 +872,10 @@ const averageRating10 = computed(() => {
   }
   // 否则使用本地 ratings 计算
   if (!ratings.value.length) return 0
-  const sum = ratings.value.reduce((s, r) => s + ((r.score10 !== undefined) ? r.score10 : (r.stars || 0) * 2), 0)
+  const sum = ratings.value.reduce(
+    (s, r) => s + (r.score10 !== undefined ? r.score10 : (r.stars || 0) * 2),
+    0
+  )
   return sum / ratings.value.length
 })
 
@@ -778,7 +895,9 @@ const nextRatingPage = () => {
 
 // 筛选下拉
 const showFilterDropdown = ref(false)
-const toggleFilter = () => { showFilterDropdown.value = !showFilterDropdown.value }
+const toggleFilter = () => {
+  showFilterDropdown.value = !showFilterDropdown.value
+}
 const selectFilter = async (opt) => {
   sortBy.value = opt
   showFilterDropdown.value = false
@@ -793,7 +912,9 @@ const selectFilter = async (opt) => {
       if (rawCommentsByTime.value) comments.value = normalizeComments(rawCommentsByTime.value)
       else await fetchCommentsFromAPI(1)
     }
-  } catch (e) { console.warn('failed to apply filter', e) }
+  } catch (e) {
+    console.warn('failed to apply filter', e)
+  }
 }
 
 // 从后端的 /interactions/comments/ 接口获取（用于回退/独立调用）
@@ -813,7 +934,6 @@ const fetchCommentsFromAPI = async (page = 1) => {
   }
 }
 
-
 // 点赞评论（乐观更新，失败回滚）
 const toggleLike = async (comment) => {
   if (!comment || !comment.id) return
@@ -831,8 +951,10 @@ const toggleLike = async (comment) => {
       const remote = res?.data?.data ?? res?.data ?? res
       if (remote) {
         if (typeof remote.is_liked !== 'undefined') comment.isLiked = !!remote.is_liked
-        if (typeof remote.like_count !== 'undefined') comment.likes = Number(remote.like_count) || comment.likes
-        else if (typeof remote.likes !== 'undefined') comment.likes = Number(remote.likes) || comment.likes
+        if (typeof remote.like_count !== 'undefined')
+          comment.likes = Number(remote.like_count) || comment.likes
+        else if (typeof remote.likes !== 'undefined')
+          comment.likes = Number(remote.likes) || comment.likes
       }
       // 同步到原始 arrays，保证切换排序时能看到更新
       updateRawCommentsLike(comment.id, comment.likes, comment.isLiked)
@@ -841,8 +963,10 @@ const toggleLike = async (comment) => {
       const remote = res?.data?.data ?? res?.data ?? res
       if (remote) {
         if (typeof remote.is_liked !== 'undefined') comment.isLiked = !!remote.is_liked
-        if (typeof remote.like_count !== 'undefined') comment.likes = Number(remote.like_count) || comment.likes
-        else if (typeof remote.likes !== 'undefined') comment.likes = Number(remote.likes) || comment.likes
+        if (typeof remote.like_count !== 'undefined')
+          comment.likes = Number(remote.like_count) || comment.likes
+        else if (typeof remote.likes !== 'undefined')
+          comment.likes = Number(remote.likes) || comment.likes
       }
       // 同步到原始 arrays，保证切换排序时能看到更新
       updateRawCommentsLike(comment.id, comment.likes, comment.isLiked)
@@ -895,7 +1019,11 @@ const removeFromRawComments = (id, listCandidates = [rawCommentsByTime, rawComme
 
   for (const cand of listCandidates) {
     if (!cand || !Array.isArray(cand.value)) continue
-    try { removeInList(cand.value) } catch (e) { /* ignore */ }
+    try {
+      removeInList(cand.value)
+    } catch (e) {
+      /* ignore */
+    }
   }
 
   // 刷新当前视图
@@ -905,11 +1033,17 @@ const removeFromRawComments = (id, listCandidates = [rawCommentsByTime, rawComme
     } else if (Array.isArray(rawCommentsByTime.value)) {
       comments.value = normalizeComments(rawCommentsByTime.value)
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) {
+    /* ignore */
+  }
 }
 
 // 向原始数组插入新评论或回复（递归查找 parentId），如果 parentId 为 null 则插入为顶层评论
-const addToRawComments = (newItem, parentId = null, listCandidates = [rawCommentsByTime, rawCommentsByHot]) => {
+const addToRawComments = (
+  newItem,
+  parentId = null,
+  listCandidates = [rawCommentsByTime, rawCommentsByHot]
+) => {
   const insertInList = (arr) => {
     if (!Array.isArray(arr)) return false
     if (!parentId) {
@@ -937,7 +1071,11 @@ const addToRawComments = (newItem, parentId = null, listCandidates = [rawComment
 
   for (const cand of listCandidates) {
     if (!cand || !Array.isArray(cand.value)) continue
-    try { insertInList(cand.value) } catch (e) { /* ignore */ }
+    try {
+      insertInList(cand.value)
+    } catch (e) {
+      /* ignore */
+    }
   }
 
   // 刷新当前视图
@@ -947,11 +1085,18 @@ const addToRawComments = (newItem, parentId = null, listCandidates = [rawComment
     } else if (Array.isArray(rawCommentsByTime.value)) {
       comments.value = normalizeComments(rawCommentsByTime.value)
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) {
+    /* ignore */
+  }
 }
 
 // 将点赞状态同步到后端原始数组（rawCommentsByTime/rawCommentsByHot），保证在切换排序时数据一致
-const updateRawCommentsLike = (commentId, likes, isLiked, listCandidates = [rawCommentsByTime, rawCommentsByHot]) => {
+const updateRawCommentsLike = (
+  commentId,
+  likes,
+  isLiked,
+  listCandidates = [rawCommentsByTime, rawCommentsByHot]
+) => {
   const updateInList = (lst) => {
     if (!Array.isArray(lst)) return false
     const traverse = (items) => {
@@ -969,7 +1114,9 @@ const updateRawCommentsLike = (commentId, likes, isLiked, listCandidates = [rawC
               it.is_liked = !!isLiked
               it.liked = !!isLiked
             }
-          } catch (e) { /* ignore */ }
+          } catch (e) {
+            /* ignore */
+          }
           return true
         }
         if (Array.isArray(it.replies) && it.replies.length) {
@@ -986,7 +1133,9 @@ const updateRawCommentsLike = (commentId, likes, isLiked, listCandidates = [rawC
     if (!cand || !cand.value) continue
     try {
       updateInList(cand.value)
-    } catch (e) { /* ignore errors */ }
+    } catch (e) {
+      /* ignore errors */
+    }
   }
 
   // 如果当前视图是按热度或按时间，则刷新 comments.value 保持 UI 与原始数组一致
@@ -996,7 +1145,9 @@ const updateRawCommentsLike = (commentId, likes, isLiked, listCandidates = [rawC
     } else if (Array.isArray(rawCommentsByTime.value)) {
       comments.value = normalizeComments(rawCommentsByTime.value)
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) {
+    /* ignore */
+  }
 }
 
 // 删除评论
@@ -1023,9 +1174,15 @@ const onDeleteComment = async (comment) => {
       // 从本地删除以立即反映 UI
       removeCommentById(comment.id)
       // 同步删除到原始数组，保证 latest/hot 两个数据源一致
-      try { removeFromRawComments(comment.id) } catch (e) { /* ignore */ }
+      try {
+        removeFromRawComments(comment.id)
+      } catch (e) {
+        /* ignore */
+      }
       // 向外部发出事件，供上层处理（例如刷新）
-      try { emit('delete-comment', comment.id) } catch (e) {}
+      try {
+        emit('delete-comment', comment.id)
+      } catch (e) {}
       showToast('删除成功', 'success')
     } else {
       // 删除失败，不应在前端移除评论
@@ -1169,20 +1326,26 @@ const confirmWorkReport = async () => {
     }
 
     // 将要发送的标签使用前端显示的中文 label
-    const workTagLabel = findLabelByValue(workReportType.value, workReportTypes.map(t => ({ items: [t] })))
+    const workTagLabel = findLabelByValue(
+      workReportType.value,
+      workReportTypes.map((t) => ({ items: [t] }))
+    )
 
     // 新接口要求的字段名：gamework (id), tag (string), remark (string)
     const payload = {
       gamework: work.value.id,
       tag: workTagLabel,
-      remark: workReportReason.value && workReportReason.value.trim() ? workReportReason.value.trim() : ''
+      remark:
+        workReportReason.value && workReportReason.value.trim() ? workReportReason.value.trim() : ''
     }
 
     // 直接调用新的固定接口（不再兼容旧接口）
     await http.post('/api/users/report/gamework/', payload)
 
     showToast('举报已提交，我们会尽快处理', 'success')
-    try { emit('report-work', work.value.id) } catch (e) {}
+    try {
+      emit('report-work', work.value.id)
+    } catch (e) {}
   } catch (e) {
     console.error('作品举报失败', e)
     showToast('举报失败，请稍后重试', 'error')
@@ -1193,7 +1356,7 @@ const confirmWorkReport = async () => {
 }
 
 // 取消发布作品（仅管理员可见）
-// 使用 POST /api/gameworks/unpublish/{id}/ 
+// 使用 POST /api/gameworks/unpublish/{id}/
 const deletingWork = ref(false)
 const unpublishWork = async () => {
   if (!work.value || !work.value.id) return
@@ -1221,7 +1384,11 @@ const unpublishWork = async () => {
 
     if (succeeded) {
       showToast('作品已取消发布', 'success')
-      try { router.back() } catch (e) { router.push('/') }
+      try {
+        router.back()
+      } catch (e) {
+        router.push('/')
+      }
     } else {
       showToast('取消发布失败，请稍后重试', 'error')
     }
@@ -1239,25 +1406,31 @@ const confirmReport = async () => {
     cancelReport()
     return
   }
+  try {
+    // 必须选择举报类型
+    if (!reportType.value) {
+      showToast('请先选择举报类型', 'warning')
+      return
+    }
+    comment._reporting = true
+    // 后端期望 body 中 comment 为被举报评论的主键（integer）
+    const commentId = comment.id
+    // 将要发送的标签使用前端显示的中文 label
+    const tag = findLabelByValue(reportType.value, reportTypeGroups)
+    const remark = reportReason.value && reportReason.value.trim() ? reportReason.value.trim() : ''
     try {
-      // 必须选择举报类型
-      if (!reportType.value) {
-        showToast('请先选择举报类型', 'warning')
-        return
-      }
-      comment._reporting = true
-      // 后端期望 body 中 comment 为被举报评论的主键（integer）
-      const commentId = comment.id
-      // 将要发送的标签使用前端显示的中文 label
-      const tag = findLabelByValue(reportType.value, reportTypeGroups)
-      const remark = (reportReason.value && reportReason.value.trim()) ? reportReason.value.trim() : ''
+      await reportComment(commentId, tag, remark)
+    } catch (e) {
       try {
-        await reportComment(commentId, tag, remark)
-      } catch (e) {
-        try { await http.post('/api/interactions/reports/', { comment: commentId, tag, remark }) } catch (e2) { /* ignore */ }
+        await http.post('/api/interactions/reports/', { comment: commentId, tag, remark })
+      } catch (e2) {
+        /* ignore */
       }
-      showToast('举报已提交，我们会尽快处理', 'success')
-      try { emit('report-comment', comment.id) } catch (e) {}
+    }
+    showToast('举报已提交，我们会尽快处理', 'success')
+    try {
+      emit('report-comment', comment.id)
+    } catch (e) {}
   } catch (e) {
     console.error('举报失败', e)
     showToast('举报失败，请稍后重试', 'error')
@@ -1287,7 +1460,9 @@ const startReading = async () => {
       const details = await http.get(`/api/gameworks/gameworks/${work.value.id}/`)
       const payload = details?.data || details || null
       if (payload) {
-        try { readCount.value = payload.read_count || payload.readCount || readCount.value } catch (e) {}
+        try {
+          readCount.value = payload.read_count || payload.readCount || readCount.value
+        } catch (e) {}
       }
     } catch (e) {
       console.warn('刷新作品详情失败，无法更新阅读量', e)
@@ -1299,10 +1474,13 @@ const startReading = async () => {
     const initialStatuses = createResult?.initialStatuses || {}
 
     // 同步缓存，确保 GamePage 与加载页统一使用本次选择的封面/标题
-    sessionStorage.setItem('lastWorkMeta', JSON.stringify({
-      title: work.value.title,
-      coverUrl: work.value.coverUrl
-    }))
+    sessionStorage.setItem(
+      'lastWorkMeta',
+      JSON.stringify({
+        title: work.value.title,
+        coverUrl: work.value.coverUrl
+      })
+    )
 
     // 进入 GamePage 用 push，保留 introduction 历史
     router.push({
@@ -1325,14 +1503,14 @@ const startReading = async () => {
 // 点击标签跳转到标签页面
 const handleTagClick = (tag) => {
   if (!tag?.id) {
-    showToast('标签信息不完整', 'warning');
-    return;
+    showToast('标签信息不完整', 'warning')
+    return
   }
   router.push({
     path: `/tag/${tag.id}`, // 跳转到标签页面，路径包含标签ID
-    query: { name: tag.name } 
-  });
-};
+    query: { name: tag.name }
+  })
+}
 </script>
 
 <template>
@@ -1340,8 +1518,20 @@ const handleTagClick = (tag) => {
     <!-- 作品下架覆盖层 -->
     <div v-if="isRemoved" class="removed-overlay">
       <div class="removed-card">
-        <svg class="lock-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <path d="M17 8V7a5 5 0 0 0-10 0v1" stroke="#d4a5a5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+        <svg
+          class="lock-icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden="true"
+        >
+          <path
+            d="M17 8V7a5 5 0 0 0-10 0v1"
+            stroke="#d4a5a5"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
           <rect x="4" y="8" width="16" height="12" rx="2" stroke="#d4a5a5" stroke-width="1.6" />
           <circle cx="12" cy="14" r="1.6" fill="#d4a5a5" />
         </svg>
@@ -1352,21 +1542,23 @@ const handleTagClick = (tag) => {
     <div class="cover-container">
       <img :src="work.coverUrl" :alt="work.title" class="cover-image" />
     </div>
-    
+
     <!-- 作品信息 -->
     <div class="content">
       <!-- 作品名和收藏按钮 -->
       <div class="title-row">
         <h1 class="work-title">{{ work.title }}</h1>
         <div class="title-actions">
-          <button 
-            class="favorite-btn" 
+          <button
+            class="favorite-btn"
             :class="{ active: work.isFavorite }"
             @click="toggleFavoriteWithCount"
             title="收藏"
           >
             <svg viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+              <path
+                d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+              />
             </svg>
           </button>
           <button
@@ -1376,7 +1568,12 @@ const handleTagClick = (tag) => {
             title="举报作品"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path d="M12 9v2m0 4h.01M21 12A9 9 0 1 1 3 12a9 9 0 0 1 18 0z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path
+                d="M12 9v2m0 4h.01M21 12A9 9 0 1 1 3 12a9 9 0 0 1 18 0z"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
             </svg>
           </button>
           <button
@@ -1390,50 +1587,54 @@ const handleTagClick = (tag) => {
           </button>
         </div>
       </div>
-      
+
       <!-- 作者ID -->
       <div class="author-info">
         <span class="author-label">作者：</span>
         <span class="author-id">{{ work.authorId }}</span>
       </div>
 
-        <!-- 元数据：字数、收藏数、评分（位于作者与标签之间） -->
-        <div class="meta-stats">
-          <div class="meta-item">
-            <div class="meta-label">章节数</div>
-            <div class="meta-value">{{ totalChapters !== null ? totalChapters : '—' }}</div>
+      <!-- 元数据：字数、收藏数、评分（位于作者与标签之间） -->
+      <div class="meta-stats">
+        <div class="meta-item">
+          <div class="meta-label">章节数</div>
+          <div class="meta-value">{{ totalChapters !== null ? totalChapters : '—' }}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">阅读量</div>
+          <div class="meta-value">{{ readCount || 0 }}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">收藏</div>
+          <div class="meta-value">{{ favoritesCount }}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">
+            {{ totalRatingCount > 0 ? totalRatingCount + ' 人已评分' : '0 人已评分' }}
           </div>
-            <div class="meta-item">
-              <div class="meta-label">阅读量</div>
-              <div class="meta-value">{{ readCount || 0 }}</div>
-            </div>
-          <div class="meta-item">
-            <div class="meta-label">收藏</div>
-            <div class="meta-value">{{ favoritesCount }}</div>
-          </div>
-          <div class="meta-item">
-              <div class="meta-label">{{ totalRatingCount > 0 ? (totalRatingCount + ' 人已评分') : '0 人已评分' }}</div>
-              <div class="meta-value rating-inline">
-                <span class="rating-text">{{ averageRating10 > 0 ? (averageRating10).toFixed(1) : '—' }}</span>
-              </div>
-            </div>
-          <!-- 发表时间 -->
-          <div class="meta-item">
-            <div class="meta-label">发表</div>
-            <div class="meta-value">{{ publicationDisplay }}</div>
-          </div>
-          <!-- 更新时间 -->
-          <div class="meta-item">
-            <div class="meta-label">更新时间</div>
-            <div class="meta-value">{{ updatedDisplay }}</div>
+          <div class="meta-value rating-inline">
+            <span class="rating-text">{{
+              averageRating10 > 0 ? averageRating10.toFixed(1) : '—'
+            }}</span>
           </div>
         </div>
-      
+        <!-- 发表时间 -->
+        <div class="meta-item">
+          <div class="meta-label">发表</div>
+          <div class="meta-value">{{ publicationDisplay }}</div>
+        </div>
+        <!-- 更新时间 -->
+        <div class="meta-item">
+          <div class="meta-label">更新时间</div>
+          <div class="meta-value">{{ updatedDisplay }}</div>
+        </div>
+      </div>
+
       <!-- 标签 -->
       <div class="tags-container">
-        <span 
-          v-for="(tag, index) in work.tags" 
-          :key="index" 
+        <span
+          v-for="(tag, index) in work.tags"
+          :key="index"
           class="tag"
           :style="{
             backgroundColor: getTagColor(index).bg,
@@ -1444,7 +1645,7 @@ const handleTagClick = (tag) => {
           {{ tag.name }}
         </span>
       </div>
-      
+
       <!-- 作品简介（限高35%） -->
       <div class="description-container">
         <h2 class="description-title">作品简介</h2>
@@ -1453,16 +1654,21 @@ const handleTagClick = (tag) => {
             {{ paragraph }}
           </p>
         </div>
-        
+
         <!-- 展开按钮 -->
         <button class="expand-btn" @click="toggleDescription">
           <span>展开</span>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <path d="M19 9l-7 7-7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path
+              d="M19 9l-7 7-7-7"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
         </button>
       </div>
-      
+
       <!-- 送积分模块：显示解锁所需积分与用户已送出的积分 -->
       <div class="points-box">
         <div class="points-info">
@@ -1481,73 +1687,126 @@ const handleTagClick = (tag) => {
           </button>
         </div>
       </div>
-      
+
       <!-- 页面内送积分弹窗 -->
       <div v-if="showPointsModal" class="modal-overlay" @click="cancelSendPoints">
         <div class="modal-content" @click.stop>
           <h2 class="modal-title">送出积分</h2>
-          <p style="color:#555;margin-top:0.5rem;">向作者送出积分以支持创作。请输入送出的积分数量（整数）。</p>
-          <div style="margin-top:1rem;">
+          <p style="color: #555; margin-top: 0.5rem">
+            向作者送出积分以支持创作。请输入送出的积分数量（整数）。
+          </p>
+          <div style="margin-top: 1rem">
             <div class="preset-grid">
               <button
                 v-for="(p, idx) in presets"
                 :key="idx"
-                :class="['preset-btn', { active: selectedPreset === p || selectedPreset === p } ]"
-                @click="selectPreset(p)">
+                :class="['preset-btn', { active: selectedPreset === p || selectedPreset === p }]"
+                @click="selectPreset(p)"
+              >
                 {{ p }}
               </button>
             </div>
 
-            <div v-if="selectedPreset === '自定义'" style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center;">
-              <input type="number" v-model.number="pointsAmount" min="1" style="flex:1;padding:0.6rem;border:1px solid #e0e0e0;border-radius:8px;font-size:1rem;" />
-              <div style="color:#999;font-size:0.95rem;">积分</div>
+            <div
+              v-if="selectedPreset === '自定义'"
+              style="margin-top: 0.75rem; display: flex; gap: 0.5rem; align-items: center"
+            >
+              <input
+                type="number"
+                v-model.number="pointsAmount"
+                min="1"
+                style="
+                  flex: 1;
+                  padding: 0.6rem;
+                  border: 1px solid #e0e0e0;
+                  border-radius: 8px;
+                  font-size: 1rem;
+                "
+              />
+              <div style="color: #999; font-size: 0.95rem">积分</div>
             </div>
           </div>
-          <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-top:1.25rem;">
-            <button class="close-btn" @click="cancelSendPoints" aria-label="关闭" title="关闭" style="background:#f0f0f0;color:#333;padding:0.5rem 0.9rem;border-radius:8px;border:none">×</button>
+          <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem">
+            <button
+              class="close-btn"
+              @click="cancelSendPoints"
+              aria-label="关闭"
+              title="关闭"
+              style="
+                background: #f0f0f0;
+                color: #333;
+                padding: 0.5rem 0.9rem;
+                border-radius: 8px;
+                border: none;
+              "
+            >
+              ×
+            </button>
             <button class="submit-comment-btn" @click="confirmSendPoints">确认送出</button>
           </div>
         </div>
       </div>
-      
+
       <!-- 评论区域 -->
       <div class="comments-section">
         <div class="comments-header">
           <!-- tabs: 评论 / 评分 在同一水平线 -->
-          <div style="display:flex;flex-direction:column;gap:0.5rem;width:100%">
+          <div style="display: flex; flex-direction: column; gap: 0.5rem; width: 100%">
             <!-- tabs 平分宽度 -->
-            <div style="display:flex;width:100%">
-              <button class="tab-btn" :class="{ active: !showingRatings }" @click="showingRatings = false" style="flex:1;justify-content:center;">
+            <div style="display: flex; width: 100%">
+              <button
+                class="tab-btn"
+                :class="{ active: !showingRatings }"
+                @click="showingRatings = false"
+                style="flex: 1; justify-content: center"
+              >
                 <div class="tab-label">评论</div>
-                <div class="tab-count">{{ totalCommentsCount }} <span class="tab-unit">条</span></div>
+                <div class="tab-count">
+                  {{ totalCommentsCount }} <span class="tab-unit">条</span>
+                </div>
               </button>
-              <button class="tab-btn" :class="{ active: showingRatings }" @click="showingRatings = true" style="flex:1;justify-content:center;">
+              <button
+                class="tab-btn"
+                :class="{ active: showingRatings }"
+                @click="showingRatings = true"
+                style="flex: 1; justify-content: center"
+              >
                 <div class="tab-label">评分</div>
                 <div class="tab-count">{{ totalRatingCount }} <span class="tab-unit">人</span></div>
               </button>
             </div>
 
             <!-- 平铺的平均评分显示（仅在评分 tab 激活时显示） -->
-            <div class="avg-rating" v-if="showingRatings && totalRatingCount > 0" style="display:flex;align-items:center;gap:0.5rem;">
+            <div
+              class="avg-rating"
+              v-if="showingRatings && totalRatingCount > 0"
+              style="display: flex; align-items: center; gap: 0.5rem"
+            >
               <div class="avg-stars">
-                <span v-for="n in 5" :key="n" class="star" :class="{ filled: n <= Math.round(averageRating) }">★</span>
+                <span
+                  v-for="n in 5"
+                  :key="n"
+                  class="star"
+                  :class="{ filled: n <= Math.round(averageRating) }"
+                  >★</span
+                >
               </div>
-              <div class="avg-text">{{ averageRating10.toFixed(1) }} </div>
+              <div class="avg-text">{{ averageRating10.toFixed(1) }}</div>
             </div>
 
             <!-- 排序按钮（已移动到评论输入区下方） -->
           </div>
         </div>
-        
+
         <!-- 评论输入或评分输入 -->
         <div v-if="!showingRatings" class="comment-input-container" ref="commentInputBox">
           <div v-if="replyingTo" class="replying-to">
             <span>回复评论中...</span>
             <button class="cancel-reply-btn" @click="cancelReply">取消</button>
           </div>
-          <textarea 
-            v-model="newComment" 
-            class="comment-input" 
+          <textarea
+            v-model="newComment"
+            class="comment-input"
             :placeholder="replyingTo ? '写下你的回复...' : '说说你的看法...'"
             rows="3"
           ></textarea>
@@ -1556,106 +1815,195 @@ const handleTagClick = (tag) => {
           </button>
         </div>
 
-  <!-- 用筛选图标替换原来的两个排序按钮（仅在评论视图显示） -->
-  <div v-if="!showingRatings" class="sort-buttons-row" style="position:relative;width:100%;margin-top:0.5rem;display:flex;justify-content:flex-end;align-items:center;">
-    <!-- 合并文本与图标为单一可点击框：在框内显示评论总数及图标 -->
-    <div class="filter-box" role="button" tabindex="0" @click="toggleFilter" :aria-expanded="showFilterDropdown" aria-label="筛选排序">
-      <span class="filter-text">共 {{ totalCommentsCount }} 条评论</span>
-      <span class="filter-icon-wrap" aria-hidden="true">
-        <!-- 三条横线（从上到下逐渐变短） -->
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <path d="M3 6h18" />
-          <path d="M6 12h12" />
-          <path d="M9 18h6" />
-        </svg>
-      </span>
-    </div>
+        <!-- 用筛选图标替换原来的两个排序按钮（仅在评论视图显示） -->
+        <div
+          v-if="!showingRatings"
+          class="sort-buttons-row"
+          style="
+            position: relative;
+            width: 100%;
+            margin-top: 0.5rem;
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+          "
+        >
+          <!-- 合并文本与图标为单一可点击框：在框内显示评论总数及图标 -->
+          <div
+            class="filter-box"
+            role="button"
+            tabindex="0"
+            @click="toggleFilter"
+            :aria-expanded="showFilterDropdown"
+            aria-label="筛选排序"
+          >
+            <span class="filter-text">共 {{ totalCommentsCount }} 条评论</span>
+            <span class="filter-icon-wrap" aria-hidden="true">
+              <!-- 三条横线（从上到下逐渐变短） -->
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              >
+                <path d="M3 6h18" />
+                <path d="M6 12h12" />
+                <path d="M9 18h6" />
+              </svg>
+            </span>
+          </div>
 
-    <transition name="fade">
-      <div v-if="showFilterDropdown" class="filter-dropdown">
-        <button class="filter-item" :class="{ active: sortBy === 'latest' }" @click="selectFilter('latest')">最新</button>
-        <button class="filter-item" :class="{ active: sortBy === 'likes' }" @click="selectFilter('likes')">最热</button>
-      </div>
-    </transition>
-  </div>
+          <transition name="fade">
+            <div v-if="showFilterDropdown" class="filter-dropdown">
+              <button
+                class="filter-item"
+                :class="{ active: sortBy === 'latest' }"
+                @click="selectFilter('latest')"
+              >
+                最新
+              </button>
+              <button
+                class="filter-item"
+                :class="{ active: sortBy === 'likes' }"
+                @click="selectFilter('likes')"
+              >
+                最热
+              </button>
+            </div>
+          </transition>
+        </div>
 
-        <div v-else class="comment-input-container" style="align-items:flex-start;">
-          <div style="display:flex;flex-direction:column;gap:0.75rem;width:100%">
-            <div style="display:flex;align-items:center;gap:0.5rem;">
+        <div v-else class="comment-input-container" style="align-items: flex-start">
+          <div style="display: flex; flex-direction: column; gap: 0.75rem; width: 100%">
+            <div style="display: flex; align-items: center; gap: 0.5rem">
               <div class="star-selector">
                 <span
                   v-for="n in 5"
                   :key="n"
                   class="star"
                   :class="{ filled: n <= selectedStars, disabled: userHasRated }"
-                  @click="handleStarClick(n)">
+                  @click="handleStarClick(n)"
+                >
                   ★
                 </span>
               </div>
-              <div style="margin-left:auto;">
-                <button class="submit-comment-btn" :disabled="userHasRated" @click="submitRating">{{ userHasRated ? '已评分' : '提交评分' }}</button>
+              <div style="margin-left: auto">
+                <button class="submit-comment-btn" :disabled="userHasRated" @click="submitRating">
+                  {{ userHasRated ? '已评分' : '提交评分' }}
+                </button>
               </div>
             </div>
 
             <!-- 分页显示评分列表 -->
-            <div class="ratings-list" style="width:100%;margin-top:0.5rem;">
+            <div class="ratings-list" style="width: 100%; margin-top: 0.5rem">
               <div v-if="totalRatingCount === 0" class="empty-comments">
                 <p>还没有评分，快来评分吧！</p>
               </div>
               <div v-else>
-                <div v-for="r in pagedRatings" :key="r.id" class="rating-item" style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 0;border-bottom:1px solid #f0f0f0;">
-                  <div class="comment-avatar" style="overflow:hidden;display:flex;align-items:center;justify-content:center;">
-                    <img v-if="r.profile_picture" :src="r.profile_picture" :alt="r.author" style="width:100%;height:100%;object-fit:cover;" @error="r.profile_picture=null" />
+                <div
+                  v-for="r in pagedRatings"
+                  :key="r.id"
+                  class="rating-item"
+                  style="
+                    display: flex;
+                    align-items: center;
+                    gap: 0.75rem;
+                    padding: 0.75rem 0;
+                    border-bottom: 1px solid #f0f0f0;
+                  "
+                >
+                  <div
+                    class="comment-avatar"
+                    style="
+                      overflow: hidden;
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                    "
+                  >
+                    <img
+                      v-if="r.profile_picture"
+                      :src="r.profile_picture"
+                      :alt="r.author"
+                      style="width: 100%; height: 100%; object-fit: cover"
+                      @error="r.profile_picture = null"
+                    />
                     <span v-else>{{ r.author.charAt(0) }}</span>
                   </div>
-                  <div style="flex:1;min-width:0;">
-                    <div style="display:flex;align-items:center;gap:0.5rem;">
-                      <div style="color:#333;font-weight:600;">{{ r.author }}</div>
+                  <div style="flex: 1; min-width: 0">
+                    <div style="display: flex; align-items: center; gap: 0.5rem">
+                      <div style="color: #333; font-weight: 600">{{ r.author }}</div>
                       <div class="rating-stars">
-                        <span v-for="n in 5" :key="n" class="star" :class="{ filled: n <= r.stars }">★</span>
+                        <span v-for="n in 5" :key="n" class="star" :class="{ filled: n <= r.stars }"
+                          >★</span
+                        >
                       </div>
-                      <div style="margin-left:auto;color:#999;font-size:0.9rem;">{{ r.time }}</div>
+                      <div style="margin-left: auto; color: #999; font-size: 0.9rem">
+                        {{ r.time }}
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                <div style="display:flex;justify-content:center;gap:0.5rem;padding:0.75rem;align-items:center;">
+                <div
+                  style="
+                    display: flex;
+                    justify-content: center;
+                    gap: 0.5rem;
+                    padding: 0.75rem;
+                    align-items: center;
+                  "
+                >
                   <button class="sort-btn" @click="prevRatingPage">上一页</button>
-                  <div style="padding:0 0.5rem;color:#666;">{{ ratingPage }} / {{ Math.max(1, Math.ceil(ratings.length / ratingPageSize)) }}</div>
+                  <div style="padding: 0 0.5rem; color: #666">
+                    {{ ratingPage }} / {{ Math.max(1, Math.ceil(ratings.length / ratingPageSize)) }}
+                  </div>
                   <button class="sort-btn" @click="nextRatingPage">下一页</button>
                 </div>
               </div>
             </div>
           </div>
         </div>
-        
+
         <!-- 评论列表 -->
         <div v-if="!showingRatings" class="comments-list">
-          <div 
-            v-for="comment in displayedComments" 
-            :key="comment.id" 
-            class="comment-item"
-          >
+          <div v-for="comment in displayedComments" :key="comment.id" class="comment-item">
             <div class="top-right-actions">
               <button
                 class="action-btn delete-btn"
                 :disabled="comment._deleting"
                 @click="onDeleteComment(comment)"
-                title="删除评论">
+                title="删除评论"
+              >
                 <span class="delete-x">×</span>
               </button>
               <button
                 class="action-btn report-btn"
                 :disabled="comment._reporting"
                 @click="onReportComment(comment)"
-                title="举报评论">
+                title="举报评论"
+              >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                  <path d="M12 9v2m0 4h.01M21 12A9 9 0 1 1 3 12a9 9 0 0 1 18 0z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path
+                    d="M12 9v2m0 4h.01M21 12A9 9 0 1 1 3 12a9 9 0 0 1 18 0z"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
                 </svg>
               </button>
             </div>
             <div class="comment-avatar">
-              <img v-if="getCommentAvatar(comment)" :src="getCommentAvatar(comment)" :alt="comment.author" style="width:100%;height:100%;object-fit:cover;" @error="e=>e.target.style.display='none'" />
+              <img
+                v-if="getCommentAvatar(comment)"
+                :src="getCommentAvatar(comment)"
+                :alt="comment.author"
+                style="width: 100%; height: 100%; object-fit: cover"
+                @error="(e) => (e.target.style.display = 'none')"
+              />
               <span v-else>{{ comment.author.charAt(0) }}</span>
             </div>
             <div class="comment-content">
@@ -1664,31 +2012,47 @@ const handleTagClick = (tag) => {
                 <span class="comment-time">{{ comment.time }}</span>
               </div>
               <p class="comment-text">{{ comment.text }}</p>
-              
+
               <!-- 评论操作按钮 -->
               <div class="comment-actions">
-                <button 
-                  class="action-btn like-btn" 
+                <button
+                  class="action-btn like-btn"
                   :class="{ active: comment.isLiked }"
                   @click="toggleLike(comment)"
                 >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                    <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path
+                      d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
                   </svg>
                   <span>{{ comment.likes }}</span>
                 </button>
-                <button class="action-btn reply-btn" @click="startReply(comment.id, comment.author)">
+                <button
+                  class="action-btn reply-btn"
+                  @click="startReply(comment.id, comment.author)"
+                >
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path
+                      d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
                   </svg>
                   <span>回复</span>
                 </button>
               </div>
-              
+
               <!-- 回复列表（第二层受展开控制，更深层级递归全部展示） -->
-              <div v-if="Array.isArray(comment.replies) && comment.replies.length > 0" class="replies-list">
+              <div
+                v-if="Array.isArray(comment.replies) && comment.replies.length > 0"
+                class="replies-list"
+              >
                 <ReplyItem
-                  v-for="reply in topReplies(comment).slice(0,getVisibleCount(comment.id))"
+                  v-for="reply in topReplies(comment).slice(0, getVisibleCount(comment.id))"
                   :key="reply.id"
                   :reply="reply"
                   :start-reply="startReply"
@@ -1698,51 +2062,61 @@ const handleTagClick = (tag) => {
                 />
 
                 <!-- 展开 / 收起 控制 -->
-                <div class="replies-controls" style="padding:0.5rem 0 0 0;">
+                <div class="replies-controls" style="padding: 0.5rem 0 0 0">
                   <button
                     v-if="topReplies(comment).length > getVisibleCount(comment.id)"
                     class="replies-toggle"
-                    @click="expandReplies(comment.id)">
-                    展开更多回复（剩余 {{ topReplies(comment).length - getVisibleCount(comment.id) }} 条）
+                    @click="expandReplies(comment.id)"
+                  >
+                    展开更多回复（剩余
+                    {{ topReplies(comment).length - getVisibleCount(comment.id) }} 条）
                   </button>
                   <button
                     v-else-if="topReplies(comment).length > 2 && getVisibleCount(comment.id) > 2"
                     class="replies-toggle"
-                    @click="collapseReplies(comment.id)">
+                    @click="collapseReplies(comment.id)"
+                  >
                     收起回复
                   </button>
                 </div>
               </div>
             </div>
           </div>
-          
+
           <!-- sentinel 与手动加载更多 -->
-          <div style="text-align:center;margin-top:1rem;">
+          <div style="text-align: center; margin-top: 1rem">
             <div v-if="displayedCount < sortedComments.length">
-              <div ref="loadMoreSentinel" style="height:8px;"></div>
-              <button class="replies-toggle" @click="loadMoreComments">点击或下拉以加载更多评论</button>
+              <div ref="loadMoreSentinel" style="height: 8px"></div>
+              <button class="replies-toggle" @click="loadMoreComments">
+                点击或下拉以加载更多评论
+              </button>
             </div>
             <div v-else-if="sortedComments.length === 0" class="empty-comments">
               <span class="empty-icon">💬</span>
               <p>还没有评论，快来抢沙发吧！</p>
             </div>
-            <div v-else style="color:#999;margin-top:0.5rem;">你看到了我的底线</div>
+            <div v-else style="color: #999; margin-top: 0.5rem">你看到了我的底线</div>
           </div>
         </div>
       </div>
     </div>
-    
+
     <!-- 完整简介弹窗 -->
     <div v-if="isDescriptionExpanded" class="modal-overlay" @click="closeModal">
       <div class="modal-content" @click.stop>
         <button class="close-btn" @click="closeModal">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <path d="M18 6L6 18M6 6l12 12" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path
+              d="M18 6L6 18M6 6l12 12"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
         </button>
-        
+
         <h2 class="modal-title">作品简介</h2>
-        
+
         <div class="modal-description">
           <p v-for="(paragraph, index) in work.description.split('\n')" :key="index">
             {{ paragraph }}
@@ -1750,23 +2124,56 @@ const handleTagClick = (tag) => {
         </div>
       </div>
     </div>
-    
+
     <!-- 作品举报弹窗（可填写或跳过） -->
     <div v-if="workReportModalVisible" class="modal-overlay" @click="cancelWorkReport">
       <div class="modal-content" @click.stop>
         <button class="close-btn" @click="cancelWorkReport">×</button>
         <h2 class="modal-title">举报作品</h2>
-        <p style="color:#555;margin-top:0.25rem;">请选择违规类型（必选），下面的补充备注为可选项。</p>
-        <div class="report-type-list" style="margin-top:0.6rem;">
+        <p style="color: #555; margin-top: 0.25rem">
+          请选择违规类型（必选），下面的补充备注为可选项。
+        </p>
+        <div class="report-type-list" style="margin-top: 0.6rem">
           <label v-for="opt in workReportTypes" :key="opt.value" class="report-type-item">
             <input type="radio" name="workReportType" :value="opt.value" v-model="workReportType" />
             <span class="report-type-label">{{ opt.label }}</span>
           </label>
         </div>
-        <textarea v-model="workReportReason" placeholder="补充备注（可选）" rows="4" style="width:100%;margin-top:0.8rem;padding:0.8rem;border-radius:8px;border:1px solid #eee;resize:vertical;font-size:1rem;"></textarea>
-        <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-top:1rem;">
-          <button class="close-btn" @click="cancelWorkReport" style="background:#f0f0f0;color:#333;padding:0.5rem 0.9rem;border-radius:8px;border:none">取消</button>
-          <button class="submit-comment-btn" :disabled="workReportSubmitting" @click="confirmWorkReport">提交举报</button>
+        <textarea
+          v-model="workReportReason"
+          placeholder="补充备注（可选）"
+          rows="4"
+          style="
+            width: 100%;
+            margin-top: 0.8rem;
+            padding: 0.8rem;
+            border-radius: 8px;
+            border: 1px solid #eee;
+            resize: vertical;
+            font-size: 1rem;
+          "
+        ></textarea>
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1rem">
+          <button
+            class="close-btn"
+            @click="cancelWorkReport"
+            style="
+              background: #f0f0f0;
+              color: #333;
+              padding: 0.5rem 0.9rem;
+              border-radius: 8px;
+              border: none;
+            "
+          >
+            取消
+          </button>
+          <button
+            class="submit-comment-btn"
+            :disabled="workReportSubmitting"
+            @click="confirmWorkReport"
+          >
+            提交举报
+          </button>
         </div>
       </div>
     </div>
@@ -1775,10 +2182,14 @@ const handleTagClick = (tag) => {
       <div class="modal-content" @click.stop>
         <button class="close-btn" @click="cancelReport">×</button>
         <h2 class="modal-title">举报评论</h2>
-        <p style="color:#555;margin-top:0.25rem;">请选择举报类型（必选），下面为补充备注（可选）。</p>
-        <div class="report-group-list" style="margin-top:0.6rem;">
-          <div v-for="group in reportTypeGroups" :key="group.title" style="margin-bottom:0.6rem;">
-            <div style="font-weight:700;color:#444;margin-bottom:0.35rem;">{{ group.title }}</div>
+        <p style="color: #555; margin-top: 0.25rem">
+          请选择举报类型（必选），下面为补充备注（可选）。
+        </p>
+        <div class="report-group-list" style="margin-top: 0.6rem">
+          <div v-for="group in reportTypeGroups" :key="group.title" style="margin-bottom: 0.6rem">
+            <div style="font-weight: 700; color: #444; margin-bottom: 0.35rem">
+              {{ group.title }}
+            </div>
             <div class="report-type-list">
               <label v-for="opt in group.items" :key="opt.value" class="report-type-item">
                 <input type="radio" name="reportType" :value="opt.value" v-model="reportType" />
@@ -1787,25 +2198,60 @@ const handleTagClick = (tag) => {
             </div>
           </div>
         </div>
-        <textarea v-model="reportReason" placeholder="补充备注（可选）" rows="4" style="width:100%;margin-top:0.6rem;padding:0.8rem;border-radius:8px;border:1px solid #eee;resize:vertical;font-size:1rem;"></textarea>
-        <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-top:1rem;">
-          <button class="close-btn" @click="cancelReport" style="background:#f0f0f0;color:#333;padding:0.5rem 0.9rem;border-radius:8px;border:none">取消</button>
+        <textarea
+          v-model="reportReason"
+          placeholder="补充备注（可选）"
+          rows="4"
+          style="
+            width: 100%;
+            margin-top: 0.6rem;
+            padding: 0.8rem;
+            border-radius: 8px;
+            border: 1px solid #eee;
+            resize: vertical;
+            font-size: 1rem;
+          "
+        ></textarea>
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1rem">
+          <button
+            class="close-btn"
+            @click="cancelReport"
+            style="
+              background: #f0f0f0;
+              color: #333;
+              padding: 0.5rem 0.9rem;
+              border-radius: 8px;
+              border: none;
+            "
+          >
+            取消
+          </button>
           <button class="submit-comment-btn" @click="confirmReport">提交举报</button>
         </div>
       </div>
     </div>
-    
+
     <!-- 固定在底部的按钮栏 -->
     <div class="bottom-bar">
       <button class="back-button" @click="goBack">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-          <path d="M19 12H5M12 19l-7-7 7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path
+            d="M19 12H5M12 19l-7-7 7-7"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
         </svg>
       </button>
-      
+
       <button class="read-button" @click="startReading" :disabled="isRemoved">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-          <path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path
+            d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
         </svg>
         <span class="read-text">开始阅读</span>
       </button>
@@ -1902,7 +2348,7 @@ const handleTagClick = (tag) => {
 }
 
 .favorite-btn:hover {
-  background-color:rgba(218, 217, 217, 0.5);
+  background-color: rgba(218, 217, 217, 0.5);
   transform: scale(1.1);
 }
 
@@ -1918,14 +2364,53 @@ const handleTagClick = (tag) => {
   color: #ffd900e7;
 }
 
-.title-actions { display:flex; align-items:center; gap:0.6rem }
-.report-work-btn { width:48px; height:48px; border:none; background: rgba(128,128,128,0.08); border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer }
-.report-work-btn svg { width:20px; height:20px; color:#666 }
-.report-work-btn:disabled { opacity:0.5; cursor:not-allowed }
+.title-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.report-work-btn {
+  width: 48px;
+  height: 48px;
+  border: none;
+  background: rgba(128, 128, 128, 0.08);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.report-work-btn svg {
+  width: 20px;
+  height: 20px;
+  color: #666;
+}
+.report-work-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
-.delete-work-btn { width:48px; height:48px; border:none; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; background: linear-gradient(180deg,#ff6b6b,#e63946); color:#fff }
-.delete-work-btn svg { width:20px; height:20px; color:#fff }
-.delete-work-btn:disabled { opacity:0.5; cursor:not-allowed }
+.delete-work-btn {
+  width: 48px;
+  height: 48px;
+  border: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: linear-gradient(180deg, #ff6b6b, #e63946);
+  color: #fff;
+}
+.delete-work-btn svg {
+  width: 20px;
+  height: 20px;
+  color: #fff;
+}
+.delete-work-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 /* 标签容器 */
 .tags-container {
@@ -1960,13 +2445,13 @@ const handleTagClick = (tag) => {
   -webkit-overflow-scrolling: touch; /* iOS 顺滑滚动 */
 }
 .meta-item {
-  display:flex;
-  flex-direction:column;
-  align-items:flex-start;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   padding: 0.45rem 0.75rem;
   background: white;
   border-radius: 10px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   min-width: 72px;
   flex: 0 0 auto; /* 防止项被压缩，保持可横向滚动 */
 }
@@ -1979,16 +2464,38 @@ const handleTagClick = (tag) => {
   color: #333;
   margin-top: 0.15rem;
 }
-.rating-inline { display:flex; align-items:center; gap:0.5rem; }
-.rating-stars-inline .star { font-size:14px; color:#ddd }
-.rating-stars-inline .star.filled { color: #ffcc33 }
+.rating-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.rating-stars-inline .star {
+  font-size: 14px;
+  color: #ddd;
+}
+.rating-stars-inline .star.filled {
+  color: #ffcc33;
+}
 /* 将评分数字样式与收藏数一致（深色、加粗），不要使用灰色 */
-.rating-text { color: #333; font-weight: 700 }
-.rating-count { color: #333; font-size:0.85rem; font-weight:700 }
+.rating-text {
+  color: #333;
+  font-weight: 700;
+}
+.rating-count {
+  color: #333;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
 
 /* 隐藏横向滚动条（视觉上） */
-.meta-stats::-webkit-scrollbar { height: 6px; display: none }
-.meta-stats { scrollbar-width: none; -ms-overflow-style: none }
+.meta-stats::-webkit-scrollbar {
+  height: 6px;
+  display: none;
+}
+.meta-stats {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
 
 /* 作品描述容器 */
 .description-container {
@@ -2035,7 +2542,7 @@ const handleTagClick = (tag) => {
 
 .description br {
   display: block;
-  content: "";
+  content: '';
   margin: 0.5rem 0;
 }
 
@@ -2175,7 +2682,7 @@ const handleTagClick = (tag) => {
 
 .modal-description br {
   display: block;
-  content: "";
+  content: '';
   margin: 0.5rem 0;
 }
 
@@ -2277,83 +2784,83 @@ const handleTagClick = (tag) => {
     height: 25vh;
     min-height: 180px;
   }
-  
+
   .content {
     padding: 1.5rem 1rem;
   }
-  
+
   .work-title {
     font-size: 1.5rem;
   }
-  
+
   .author-info {
     font-size: 0.85rem;
     margin-bottom: 1rem;
   }
-  
+
   .favorite-btn {
     width: 40px;
     height: 40px;
   }
-  
+
   .favorite-btn svg {
     width: 20px;
     height: 20px;
   }
-  
+
   .tags-container {
     gap: 0.5rem;
   }
-  
+
   .tag {
     font-size: 0.85rem;
     padding: 0.4rem 0.8rem;
   }
-  
+
   .description-title {
     font-size: 1.25rem;
   }
-  
+
   .description {
     max-height: 30vh;
     padding: 1.5rem;
   }
-  
+
   .expand-btn {
     font-size: 0.9rem;
     padding: 0.75rem 1.25rem;
   }
-  
+
   .modal-content {
     padding: 2rem;
     margin: 1rem;
   }
-  
+
   .modal-title {
     font-size: 1.5rem;
   }
-  
+
   .bottom-bar {
     height: 70px;
     padding: 0 1rem;
     gap: 0.75rem;
   }
-  
+
   .back-button {
     width: 48px;
     height: 48px;
   }
-  
+
   .back-button svg {
     width: 20px;
     height: 20px;
   }
-  
+
   .read-button {
     height: 48px;
     border-radius: 24px;
   }
-  
+
   .read-text {
     font-size: 1rem;
   }
@@ -2414,29 +2921,34 @@ const handleTagClick = (tag) => {
 
 /* filter dropdown */
 .filter-btn {
-  background: linear-gradient(135deg,#ffffff,#fffaf8);
-  border: 1px solid rgba(200,200,200,0.35);
+  background: linear-gradient(135deg, #ffffff, #fffaf8);
+  border: 1px solid rgba(200, 200, 200, 0.35);
   width: 36px;
   height: 36px;
   border-radius: 8px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  cursor:pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
   transition: all 0.18s ease;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
-.filter-btn svg { color: #6b6b6b }
-.filter-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.12); }
+.filter-btn svg {
+  color: #6b6b6b;
+}
+.filter-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+}
 .filter-dropdown {
   position: absolute;
   right: 0;
   top: 44px;
-  display:flex;
-  flex-direction:column;
+  display: flex;
+  flex-direction: column;
   background: white;
   border: 1px solid #eee;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
   border-radius: 8px;
   overflow: hidden;
   z-index: 60;
@@ -2450,31 +2962,56 @@ const handleTagClick = (tag) => {
   cursor: pointer;
   font-weight: 600;
 }
-.filter-item + .filter-item { border-top: 1px solid #f2f2f2 }
+.filter-item + .filter-item {
+  border-top: 1px solid #f2f2f2;
+}
 .filter-item.active {
   background: #fff4f2;
   color: #c86969;
 }
-.fade-enter-active, .fade-leave-active { transition: opacity .15s ease }
-.fade-enter-from, .fade-leave-to { opacity: 0 }
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
 
 /* 合并文本与图标的筛选框样式 */
 .filter-box {
-  display:flex;
-  align-items:center;
-  gap:0.6rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   padding: 0.45rem 0.75rem;
-  background: linear-gradient(135deg,#ffffff,#fffaf8);
-  border: 1px solid rgba(200,200,200,0.35);
+  background: linear-gradient(135deg, #ffffff, #fffaf8);
+  border: 1px solid rgba(200, 200, 200, 0.35);
   border-radius: 12px;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   user-select: none;
 }
-.filter-box:focus { outline: none; box-shadow: 0 4px 14px rgba(0,0,0,0.08); }
-.filter-text { color: #6b6b6b; font-weight:600; font-size:0.95rem; }
-.filter-icon-wrap { display:flex; align-items:center; justify-content:center; width:20px; height:20px; color:#6b6b6b; }
-.filter-box:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,0.12); }
+.filter-box:focus {
+  outline: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+}
+.filter-text {
+  color: #6b6b6b;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.filter-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: #6b6b6b;
+}
+.filter-box:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+}
 
 .sort-btn.active {
   background: white;
@@ -2515,59 +3052,59 @@ const handleTagClick = (tag) => {
 
 /* 送积分模块 */
 .points-box {
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
   background: white;
   border-radius: 12px;
   padding: 1rem;
   margin: 1rem 0 1.5rem 0;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 .points-info {
-  display:flex;
-  flex-direction:column;
-  gap:0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 .points-row {
-  display:flex;
-  gap:0.75rem;
-  align-items:center;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
 }
 .points-label {
-  color:#777;
-  font-size:0.95rem;
+  color: #777;
+  font-size: 0.95rem;
 }
 .points-value {
-  color:#2c3e50;
-  font-weight:700;
+  color: #2c3e50;
+  font-weight: 700;
 }
 .points-actions {
-  display:flex;
-  align-items:center;
+  display: flex;
+  align-items: center;
 }
 
 /* 预设额度按钮 */
 .preset-grid {
-  display:flex;
-  flex-wrap:wrap;
-  gap:0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 .preset-btn {
-  padding:0.5rem 0.9rem;
-  border-radius:8px;
-  border:1px solid #eee;
-  background:#fff;
-  cursor:pointer;
-  font-weight:600;
+  padding: 0.5rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid #eee;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 600;
   color: #999; /* 未选中时字体浅灰 */
 }
 .preset-btn.active {
-  background:#d4a5a5; /* 与 submit-comment-btn 一致的肉粉色 */
-  color:#fff;
-  border-color:transparent;
-  box-shadow:0 4px 12px rgba(212,165,165,0.28);
+  background: #d4a5a5; /* 与 submit-comment-btn 一致的肉粉色 */
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 4px 12px rgba(212, 165, 165, 0.28);
 }
 
 /* 评论输入区 */
@@ -2628,21 +3165,91 @@ const handleTagClick = (tag) => {
 }
 
 /* 评论列表 */
-.comment-item, .reply-item { position: relative; }
-.top-right-actions { position: absolute; top: 8px; right: 8px; display:flex; gap:0.35rem; z-index: 10; }
-.reply-top-actions { top: 6px; }
-.top-right-actions .action-btn { background: #fff; border:1px solid #f0f0f0; padding:0; border-radius:6px; width:34px; height:34px; display:flex; align-items:center; justify-content:center; }
-.delete-x { font-size:16px; line-height:1; color: #666; background: transparent; display:inline-flex; width:18px; height:18px; align-items:center; justify-content:center; text-align:center; border-radius:50%; }
-.top-right-actions .delete-btn { padding:0; }
-.top-right-actions .report-btn svg { width:16px; height:16px; }
-.modal-content textarea { min-height: 100px; border-radius: 8px; border: 1px solid #eee; padding: 0.7rem; font-size:1rem }
-.report-type-list { display:flex; flex-direction:column; gap:0.5rem }
-.report-type-item { display:flex; align-items:center; gap:0.6rem; padding:0.5rem 0.6rem; border-radius:8px; cursor:pointer; background:#fff; border:1px solid #f3f3f3 }
-.report-type-item input { appearance:auto; width:16px; height:16px }
-.report-type-item .report-type-label { color:#333 }
-.report-type-item:hover { background:#fbfbfb }
-.report-group-list { margin-bottom: 0.6rem }
-.report-type-item input[type="radio"] { accent-color: #c89090 }
+.comment-item,
+.reply-item {
+  position: relative;
+}
+.top-right-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 0.35rem;
+  z-index: 10;
+}
+.reply-top-actions {
+  top: 6px;
+}
+.top-right-actions .action-btn {
+  background: #fff;
+  border: 1px solid #f0f0f0;
+  padding: 0;
+  border-radius: 6px;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.delete-x {
+  font-size: 16px;
+  line-height: 1;
+  color: #666;
+  background: transparent;
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border-radius: 50%;
+}
+.top-right-actions .delete-btn {
+  padding: 0;
+}
+.top-right-actions .report-btn svg {
+  width: 16px;
+  height: 16px;
+}
+.modal-content textarea {
+  min-height: 100px;
+  border-radius: 8px;
+  border: 1px solid #eee;
+  padding: 0.7rem;
+  font-size: 1rem;
+}
+.report-type-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.report-type-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 8px;
+  cursor: pointer;
+  background: #fff;
+  border: 1px solid #f3f3f3;
+}
+.report-type-item input {
+  appearance: auto;
+  width: 16px;
+  height: 16px;
+}
+.report-type-item .report-type-label {
+  color: #333;
+}
+.report-type-item:hover {
+  background: #fbfbfb;
+}
+.report-group-list {
+  margin-bottom: 0.6rem;
+}
+.report-type-item input[type='radio'] {
+  accent-color: #c89090;
+}
 
 /* Toast 样式 */
 .toast-container {
@@ -2659,24 +3266,42 @@ const handleTagClick = (tag) => {
   max-width: 360px;
   background: #fff;
   border-radius: 8px;
-  box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
   padding: 0.6rem 0.8rem;
-  display:flex;
-  align-items:center;
-  gap:0.6rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   border-left: 4px solid transparent;
 }
-.toast .toast-message { flex:1; color:#222; font-size:0.95rem; }
-.toast .toast-close { background:transparent;border:none;cursor:pointer;color:#666;font-size:16px }
-.toast.success { border-left-color: #2ecc71 }
-.toast.error { border-left-color: #e74c3c }
-.toast.warning { border-left-color: #f1c40f }
-.toast.info { border-left-color: #3498db }
+.toast .toast-message {
+  flex: 1;
+  color: #222;
+  font-size: 0.95rem;
+}
+.toast .toast-close {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #666;
+  font-size: 16px;
+}
+.toast.success {
+  border-left-color: #2ecc71;
+}
+.toast.error {
+  border-left-color: #e74c3c;
+}
+.toast.warning {
+  border-left-color: #f1c40f;
+}
+.toast.info {
+  border-left-color: #3498db;
+}
 /* 覆盖层：当后端返回 404（作品下架）时，遮罩整个界面并显示提示 */
 .removed-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(255,255,255,0.95);
+  background: rgba(255, 255, 255, 0.95);
   z-index: 3000;
   display: flex;
   align-items: center;
@@ -2690,13 +3315,22 @@ const handleTagClick = (tag) => {
   align-items: center;
   gap: 12px;
   padding: 18px 24px;
-  background: rgba(255,255,255,0.85);
+  background: rgba(255, 255, 255, 0.85);
   border-radius: 14px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
-  border: 1px solid rgba(212,165,165,0.12);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(212, 165, 165, 0.12);
 }
-.removed-card .lock-icon { width: 40px; height: 40px; flex-shrink: 0; }
-.removed-card .lock-icon path, .removed-card .lock-icon rect, .removed-card .lock-icon circle { stroke: #d4a5a5; fill: #d4a5a5; }
+.removed-card .lock-icon {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+}
+.removed-card .lock-icon path,
+.removed-card .lock-icon rect,
+.removed-card .lock-icon circle {
+  stroke: #d4a5a5;
+  fill: #d4a5a5;
+}
 .removed-card .removed-message {
   color: #333;
   font-size: 18px;
@@ -2715,9 +3349,19 @@ const handleTagClick = (tag) => {
   padding: 0.35rem;
   border-radius: 6px;
 }
-.action-btn svg { width: 16px; height: 16px; }
-.action-btn.delete-btn, .action-btn.report-btn, .action-btn.reply-btn { color: #666; }
-.action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.action-btn svg {
+  width: 16px;
+  height: 16px;
+}
+.action-btn.delete-btn,
+.action-btn.report-btn,
+.action-btn.reply-btn {
+  color: #666;
+}
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .comments-list {
   display: flex;
   flex-direction: column;
@@ -2845,8 +3489,8 @@ const handleTagClick = (tag) => {
 
 .replies-list .replies-list {
   border-left: none;
-  padding-left: 0; 
-  margin-left: 0; 
+  padding-left: 0;
+  margin-left: 0;
 }
 
 .reply-item {
@@ -2858,9 +3502,12 @@ const handleTagClick = (tag) => {
   border-radius: 8px;
 }
 
-
-.reply-item .comment-actions { flex-wrap: nowrap; }
-.reply-item .action-btn { min-height: 28px; }
+.reply-item .comment-actions {
+  flex-wrap: nowrap;
+}
+.reply-item .action-btn {
+  min-height: 28px;
+}
 
 .reply-avatar {
   width: 32px;
@@ -2879,7 +3526,9 @@ const handleTagClick = (tag) => {
   cursor: pointer;
   padding: 0.35rem 0.5rem;
 }
-.replies-toggle:hover { text-decoration: underline; }
+.replies-toggle:hover {
+  text-decoration: underline;
+}
 
 /* 评分星星样式 */
 .star {
@@ -2900,11 +3549,11 @@ const handleTagClick = (tag) => {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
-  color:#fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
 }
 
 /* tabs */
@@ -2925,7 +3574,7 @@ const handleTagClick = (tag) => {
 .tab-btn.active {
   background: white;
   border-color: #e0e0e0;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
 /* tabs 下方计数样式 */
@@ -2946,7 +3595,7 @@ const handleTagClick = (tag) => {
 .sort-buttons-row {
   margin: 0.6rem 0 1.2rem; /* 上间距和下间距，分开按钮与评论区 */
   padding-top: 0.6rem;
-  border-top: 1px solid rgba(0,0,0,0.04);
+  border-top: 1px solid rgba(0, 0, 0, 0.04);
 }
 
 /* 空状态 */
@@ -2972,81 +3621,81 @@ const handleTagClick = (tag) => {
   .work-title {
     font-size: 1.25rem;
   }
-  
+
   .bottom-bar {
     height: 65px;
     padding: 0 0.75rem;
     gap: 0.5rem;
   }
-  
+
   .back-button {
     width: 44px;
     height: 44px;
   }
-  
+
   .read-button {
     height: 44px;
   }
-  
+
   .read-text {
     font-size: 0.95rem;
   }
-  
+
   .comments-section {
     padding: 1.5rem 1rem;
   }
-  
+
   .comments-header {
     flex-direction: column;
     align-items: flex-start;
   }
-  
+
   .comments-title {
     font-size: 1.25rem;
   }
-  
+
   .sort-selector {
     width: 100%;
   }
-  
+
   .sort-btn {
     flex: 1;
   }
-  
+
   .comment-input-container {
     padding: 1rem;
   }
-  
+
   .comment-item {
     padding: 1rem;
     gap: 0.75rem;
   }
-  
+
   .comment-avatar {
     width: 36px;
     height: 36px;
     font-size: 1rem;
   }
-  
+
   .comment-header {
     flex-direction: column;
     align-items: flex-start;
     gap: 0.25rem;
   }
-  
+
   .comment-actions {
     gap: 0.5rem;
   }
-  
+
   .action-btn {
     font-size: 0.8rem;
     padding: 0.35rem 0.6rem;
   }
-  
+
   .replies-list {
     padding-left: 0.5rem;
   }
-  
+
   .reply-item {
     padding: 0.75rem;
     gap: 0.5rem;

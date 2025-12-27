@@ -42,7 +42,7 @@ const getWorkId = () => {
     console.log('[Settlement] workId 来自 route.params.id:', route.params.id)
     return parseInt(route.params.id)
   }
-  
+
   // 尝试从 sessionStorage 获取最后一次游戏的作品信息
   try {
     const lastWorkMeta = JSON.parse(sessionStorage.getItem('lastWorkMeta'))
@@ -53,7 +53,7 @@ const getWorkId = () => {
   } catch (e) {
     console.warn('Failed to parse lastWorkMeta:', e)
   }
-  
+
   console.error('[Settlement] 无法获取 workId，将使用默认值 1')
   return 1
 }
@@ -71,7 +71,7 @@ const getWorkObject = () => {
       ...sessionData.work
     }
   }
-  
+
   // 其次从 history.state 获取
   if (history.state?.work && typeof history.state.work === 'object') {
     console.log('[Settlement] work 对象来自 history.state:', history.state.work)
@@ -81,7 +81,7 @@ const getWorkObject = () => {
       ...history.state.work
     }
   }
-  
+
   // 尝试从 lastWorkMeta 获取
   try {
     const lastWorkMeta = JSON.parse(sessionStorage.getItem('lastWorkMeta'))
@@ -96,7 +96,7 @@ const getWorkObject = () => {
   } catch (e) {
     console.warn('Failed to parse lastWorkMeta:', e)
   }
-  
+
   // 如果都没有，构造一个基本的 work 对象
   console.warn('[Settlement] 无法获取完整 work 对象，使用基本信息构造')
   return {
@@ -113,17 +113,22 @@ const gameData = ref({
   finalStatuses: sessionData?.finalStatuses || history.state?.finalStatuses || {},
   storyScenes: sessionData?.storyScenes || history.state?.storyScenes || [],
   currentSceneIndex: sessionData?.currentSceneIndex || history.state?.currentSceneIndex || 0,
-  currentDialogueIndex: sessionData?.currentDialogueIndex || history.state?.currentDialogueIndex || 0
+  currentDialogueIndex:
+    sessionData?.currentDialogueIndex || history.state?.currentDialogueIndex || 0
 })
 
 console.log('[Settlement] 使用的 workId:', workId, '完整 work 信息:', gameData.value.work)
 
 if (Object.keys(gameData.value.finalAttributes).length === 0) {
-  console.warn('SettlementPage: finalAttributes not provided by backend; leaving empty for backend testing')
+  console.warn(
+    'SettlementPage: finalAttributes not provided by backend; leaving empty for backend testing'
+  )
 }
 
 if (Object.keys(gameData.value.finalStatuses).length === 0) {
-  console.warn('SettlementPage: finalStatuses not provided by backend; leaving empty for backend testing')
+  console.warn(
+    'SettlementPage: finalStatuses not provided by backend; leaving empty for backend testing'
+  )
 }
 
 console.log('SettlementPage - Final Game Data:', gameData.value) // 调试日志
@@ -168,7 +173,9 @@ const onGraphTouchStart = (ev) => {
     _touchStartX = t.clientX
     _touchStartY = t.clientY
     _isTouchingGraph = true
-  } catch (e) { /* ignore */ }
+  } catch (e) {
+    /* ignore */
+  }
 }
 const onGraphTouchMove = (ev) => {
   try {
@@ -182,9 +189,13 @@ const onGraphTouchMove = (ev) => {
       ev.stopPropagation()
       // 不调用 preventDefault()，允许容器本身滚动
     }
-  } catch (e) { /* ignore */ }
+  } catch (e) {
+    /* ignore */
+  }
 }
-const onGraphTouchEnd = () => { _isTouchingGraph = false }
+const onGraphTouchEnd = () => {
+  _isTouchingGraph = false
+}
 
 // 鼠标 / Pointer 事件处理，防止桌面拖动导致父级导航
 let _mouseStartX = 0
@@ -206,17 +217,23 @@ const onGraphPointerMove = (ev) => {
     const dy = cy - _mouseStartY
     if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 6) {
       // 明显水平拖动：阻止默认并停止传播，确保只在图内滚动
-      try { ev.preventDefault && ev.preventDefault() } catch (e) {}
+      try {
+        ev.preventDefault && ev.preventDefault()
+      } catch (e) {}
       ev.stopPropagation()
     }
   } catch (e) {}
 }
-const onGraphPointerUp = (ev) => { _isPointerDown = false }
+const onGraphPointerUp = (ev) => {
+  _isPointerDown = false
+}
 
 // 去掉装饰性破折号等前后缀，提取实际标题
 const stripDecorative = (s = '') => {
   if (!s) return ''
-  return String(s).replace(/^[\-—_\s]+|[\-—_\s]+$/g, '').trim()
+  return String(s)
+    .replace(/^[\-—_\s]+|[\-—_\s]+$/g, '')
+    .trim()
 }
 
 // 计算节点尺寸和描述行：基于字符宽度估算，使节点宽度/高度自适应文本
@@ -231,16 +248,22 @@ const computeNodeLayout = (title = '', description = '', opts = {}) => {
   const MAX_W = opts.maxW || 360
   const MAX_CHARS = Math.max(6, Math.floor((MAX_W - PAD_X * 2) / CHAR_PX))
 
-  const descLines = splitLines(stripDecorative(description || ''), Math.max(6, Math.min(MAX_CHARS, opts.chunk || 18)))
-  const maxLineLen = Math.max(String(title || '').length, ...descLines.map(l => l.length || 0))
+  const descLines = splitLines(
+    stripDecorative(description || ''),
+    Math.max(6, Math.min(MAX_CHARS, opts.chunk || 18))
+  )
+  const maxLineLen = Math.max(String(title || '').length, ...descLines.map((l) => l.length || 0))
 
   // 图片优先决定宽度。为让边框包裹图片，节点宽度在图片宽度基础上增加左右内边距
   const imageW = opts.imageW || null
-  const width = imageW ? (imageW + PAD_X * 2) : Math.min(MAX_W, Math.max(MIN_W, maxLineLen * CHAR_PX + PAD_X * 2))
+  const width = imageW
+    ? imageW + PAD_X * 2
+    : Math.min(MAX_W, Math.max(MIN_W, maxLineLen * CHAR_PX + PAD_X * 2))
 
   // 高度：上下内边距 + 顶部图片高度 + 标题高度 + 描述行高度
   const imageH = opts.imageH || 0
-  const height = PAD_Y * 2 + imageH + TITLE_H + (descLines.length > 0 ? descLines.length * LINE_H : 0)
+  const height =
+    PAD_Y * 2 + imageH + TITLE_H + (descLines.length > 0 ? descLines.length * LINE_H : 0)
   return { width, height, descLines, imageW, imageH }
 }
 
@@ -249,12 +272,12 @@ const graphHeight = computed(() => {
   const nodes = branchingGraph.value.nodes || []
   if (!nodes || nodes.length === 0) return 600
   // 计算基于节点底部的高度，并添加上下留白
-  const bottoms = nodes.map(n => (n.y || 0) + (n.height || THUMB_H) / 2)
-  const tops = nodes.map(n => (n.y || 0) - (n.height || THUMB_H) / 2)
+  const bottoms = nodes.map((n) => (n.y || 0) + (n.height || THUMB_H) / 2)
+  const tops = nodes.map((n) => (n.y || 0) - (n.height || THUMB_H) / 2)
   const maxBottom = Math.max(...bottoms)
   const minTop = Math.min(...tops)
   const padding = 200
-  const h = (maxBottom - minTop) + padding
+  const h = maxBottom - minTop + padding
   return Math.max(600, h)
 })
 
@@ -262,12 +285,12 @@ const graphWidth = computed(() => {
   const nodes = branchingGraph.value.nodes || []
   if (!nodes || nodes.length === 0) return 900
   // 计算基于节点左右边界的画布宽度
-  const lefts = nodes.map(n => (n.x || 0) - (n.width || THUMB_W) / 2)
-  const rights = nodes.map(n => (n.x || 0) + (n.width || THUMB_W) / 2)
+  const lefts = nodes.map((n) => (n.x || 0) - (n.width || THUMB_W) / 2)
+  const rights = nodes.map((n) => (n.x || 0) + (n.width || THUMB_W) / 2)
   const minLeft = Math.min(...lefts)
   const maxRight = Math.max(...rights)
   const padding = 300
-  const w = (maxRight - minLeft) + padding
+  const w = maxRight - minLeft + padding
   return Math.max(900, w)
 })
 
@@ -284,7 +307,13 @@ const resolveNodeOverlaps = () => {
         const a = nodes[i]
         const b = nodes[j]
         // 确保有坐标
-        if (typeof a.x !== 'number' || typeof a.y !== 'number' || typeof b.x !== 'number' || typeof b.y !== 'number') continue
+        if (
+          typeof a.x !== 'number' ||
+          typeof a.y !== 'number' ||
+          typeof b.x !== 'number' ||
+          typeof b.y !== 'number'
+        )
+          continue
 
         const dx = a.x - b.x
         const dy = a.y - b.y
@@ -294,8 +323,8 @@ const resolveNodeOverlaps = () => {
         const aHalfH = (a.height || THUMB_H) / 2
         const bHalfH = (b.height || THUMB_H) / 2
 
-        const overlapX = (aHalfW + bHalfW + NODE_MARGIN) - Math.abs(dx)
-        const overlapY = (aHalfH + bHalfH + NODE_MARGIN) - Math.abs(dy)
+        const overlapX = aHalfW + bHalfW + NODE_MARGIN - Math.abs(dx)
+        const overlapY = aHalfH + bHalfH + NODE_MARGIN - Math.abs(dy)
 
         if (overlapX > 0 && overlapY > 0) {
           // 优先沿着重合更严重的方向分离
@@ -331,28 +360,32 @@ const personalityTemplates = [
   {
     condition: (attrs) => attrs['心计'] >= 50 && attrs['圣宠'] >= 30,
     title: '宫心计谋家',
-    content: '你在深宫中展现了出色的智慧与手段，善于察言观色，步步为营。你的每一个选择都经过深思熟虑，最终在宫斗中占据了有利位置。',
+    content:
+      '你在深宫中展现了出色的智慧与手段，善于察言观色，步步为营。你的每一个选择都经过深思熟虑，最终在宫斗中占据了有利位置。',
     traits: ['善于谋划', '察言观色', '步步为营', '深谋远虑'],
     scores: { 智慧: 95, 手段: 88, 人缘: 75, 威望: 82 }
   },
   {
     condition: (attrs) => attrs['才情'] >= 60 && attrs['声望'] >= 20,
     title: '才华横溢的文雅佳人',
-    content: '你凭借出众的才华和优雅的气质在宫中赢得了众人的赞赏。无论是诗词歌赋还是琴棋书画，你都能信手拈来，成为宫中的一道亮丽风景。',
+    content:
+      '你凭借出众的才华和优雅的气质在宫中赢得了众人的赞赏。无论是诗词歌赋还是琴棋书画，你都能信手拈来，成为宫中的一道亮丽风景。',
     traits: ['才华出众', '气质优雅', '博学多才', '温文尔雅'],
     scores: { 才华: 92, 气质: 90, 学识: 85, 魅力: 88 }
   },
   {
     condition: (attrs) => attrs['健康'] >= 80 && attrs['心计'] <= 30,
     title: '天真烂漫的纯真少女',
-    content: '你保持着一颗纯真的心，在复杂的宫廷中依然坚持自己的本心。虽然不善权谋，但你的真诚和善良为你赢得了真心朋友。',
+    content:
+      '你保持着一颗纯真的心，在复杂的宫廷中依然坚持自己的本心。虽然不善权谋，但你的真诚和善良为你赢得了真心朋友。',
     traits: ['心地善良', '真诚待人', '天真无邪', '坚持本心'],
     scores: { 纯真: 95, 善良: 92, 真诚: 90, 坚韧: 78 }
   },
   {
     condition: (attrs) => attrs['声望'] >= 30,
     title: '备受瞩目的宫中新星',
-    content: '你在宫中迅速崭露头角，凭借自己的努力和智慧获得了众人的认可。你的名声在后宫中传播，成为了不可忽视的存在。',
+    content:
+      '你在宫中迅速崭露头角，凭借自己的努力和智慧获得了众人的认可。你的名声在后宫中传播，成为了不可忽视的存在。',
     traits: ['迅速成长', '备受瞩目', '努力上进', '潜力无限'],
     scores: { 影响力: 88, 成长性: 92, 适应力: 85, 潜力: 90 }
   }
@@ -361,7 +394,8 @@ const personalityTemplates = [
 // 默认个性报告
 const defaultPersonalityReport = {
   title: '谨慎新人',
-  content: '你小心翼翼,每一步都走得格外谨慎。虽然还在适应星际生活,但你的谨慎和观察力将会是你在太空中生存的重要武器。',
+  content:
+    '你小心翼翼,每一步都走得格外谨慎。虽然还在适应星际生活,但你的谨慎和观察力将会是你在太空中生存的重要武器。',
   traits: ['小心谨慎', '善于观察', '稳重内敛', '厚积薄发'],
   scores: { 谨慎: 85, 观察力: 80, 适应力: 75, 潜力: 82 }
 }
@@ -372,33 +406,33 @@ const chapterDataCache = ref({})
 // 获取指定章节的数据(包括背景图等)
 const fetchChapterData = async (workId, chapterIndex) => {
   const cacheKey = `${workId}_${chapterIndex}`
-  
+
   // 如果已缓存,直接返回
   if (chapterDataCache.value[cacheKey]) {
     return chapterDataCache.value[cacheKey]
   }
-  
+
   try {
     console.log(`[Settlement] 获取章节 ${chapterIndex} 的数据...`)
     const data = await getScenes(workId, chapterIndex, { maxRetries: 1 })
-    
+
     // 提取第一个场景的背景图作为章节代表图
     let backgroundImage = null
     if (data && data.scenes && data.scenes.length > 0) {
       backgroundImage = data.scenes[0].backgroundImage || null
     }
-    
+
     const result = {
       chapterIndex: data?.chapterIndex || chapterIndex,
       title: data?.title || `第${chapterIndex}章`,
       backgroundImage: backgroundImage,
       scenes: data?.scenes || []
     }
-    
+
     // 缓存结果
     chapterDataCache.value[cacheKey] = result
     console.log(`[Settlement] 章节 ${chapterIndex} 数据获取成功:`, result)
-    
+
     return result
   } catch (error) {
     console.warn(`[Settlement] 获取章节 ${chapterIndex} 数据失败:`, error)
@@ -431,7 +465,7 @@ const generateBranchingGraph = async () => {
     branchingGraph.value = { nodes: [], edges: [] }
     return
   }
-  
+
   console.log('[Settlement] 生成分支图，使用 workId:', currentWorkId)
 
   // 收集所有需要获取的章节索引
@@ -442,10 +476,10 @@ const generateBranchingGraph = async () => {
       chaptersToFetch.add(chapterIdx)
     }
   })
-  
+
   // 批量获取所有章节数据
   console.log('[Settlement] 需要获取的章节:', Array.from(chaptersToFetch))
-  const chapterDataPromises = Array.from(chaptersToFetch).map(idx => 
+  const chapterDataPromises = Array.from(chaptersToFetch).map((idx) =>
     fetchChapterData(currentWorkId, idx)
   )
   await Promise.all(chapterDataPromises)
@@ -453,11 +487,14 @@ const generateBranchingGraph = async () => {
 
   // 起始节点：优先使用后端传来的第一章标题作为起始节点名称（例如"第一章 标题"），
   // 如果没有可用章节数据则回退到默认标题
-  const firstChapter = (gameData.value.storyScenes && gameData.value.storyScenes.length > 0) ? gameData.value.storyScenes[0] : null
+  const firstChapter =
+    gameData.value.storyScenes && gameData.value.storyScenes.length > 0
+      ? gameData.value.storyScenes[0]
+      : null
   let startTitle = '初入深宫'
   let startDescription = '故事开始，初入宫闱'
   let startImage = null
-  
+
   // 从缓存中获取第一章数据 - 使用 currentWorkId
   const cacheKey1 = `${currentWorkId}_1`
   const chapter1Data = chapterDataCache.value[cacheKey1]
@@ -465,7 +502,7 @@ const generateBranchingGraph = async () => {
     startTitle = chapter1Data.title || startTitle
     startDescription = chapter1Data.title || startDescription
     startImage = chapter1Data.backgroundImage || null
-    
+
     // 如果缓存中的标题为空，尝试从第一个场景的 dialogue 获取
     if (!startDescription || startDescription === chapter1Data.title) {
       if (chapter1Data.scenes && chapter1Data.scenes.length > 0) {
@@ -478,7 +515,7 @@ const generateBranchingGraph = async () => {
         }
       }
     }
-  } 
+  }
   // 如果缓存中没有数据，再使用 firstChapter（来自 gameData）
   else if (firstChapter) {
     const idx = firstChapter.chapterIndex || 1
@@ -486,7 +523,11 @@ const generateBranchingGraph = async () => {
     startTitle = `${chapterLabel} ${firstChapter.title || ''}`.trim()
     // 优先使用 chapterTitle/title 字段；若缺失则尝试从第一个 dialogue 的文本中提取（去掉装饰性破折号）
     startDescription = firstChapter.title || ''
-    if (!startDescription && Array.isArray(firstChapter.dialogues) && firstChapter.dialogues.length > 0) {
+    if (
+      !startDescription &&
+      Array.isArray(firstChapter.dialogues) &&
+      firstChapter.dialogues.length > 0
+    ) {
       const raw = firstChapter.dialogues[0]
       const txt = raw && (raw.text ?? raw.narration ?? '')
       startDescription = stripDecorative(txt)
@@ -510,7 +551,10 @@ const generateBranchingGraph = async () => {
         }
       }
     }
-    const layout = computeNodeLayout(startShortTitle, startDescription, { imageW: THUMB_W, imageH: THUMB_H })
+    const layout = computeNodeLayout(startShortTitle, startDescription, {
+      imageW: THUMB_W,
+      imageH: THUMB_H
+    })
     nodes.push({
       id: nodeId++,
       title: startShortTitle,
@@ -539,54 +583,73 @@ const generateBranchingGraph = async () => {
     }
     const fallbackIdx = historyIndex + 1
     const displayIdx = chapterIdx != null ? chapterIdx : fallbackIdx
-    
+
     // 从缓存中获取该章节的完整数据
     const cacheKey = `${currentWorkId}_${displayIdx}`
     const cachedChapterData = chapterDataCache.value[cacheKey]
-    
+
     console.log(`[Settlement] 处理章节 ${displayIdx}，缓存数据:`, cachedChapterData)
-    
+
     // 优先使用缓存的章节数据中的选项列表
     let choicesForThisChapter = []
-    
+
     // 从缓存的章节数据中提取所有选项
     if (cachedChapterData && cachedChapterData.scenes && cachedChapterData.scenes.length > 0) {
       // 查找具有 choices 的场景（通常是第一个有选择的场景）
-      const sceneWithChoices = cachedChapterData.scenes.find(s => s.choices && s.choices.length > 0)
+      const sceneWithChoices = cachedChapterData.scenes.find(
+        (s) => s.choices && s.choices.length > 0
+      )
       if (sceneWithChoices && sceneWithChoices.choices) {
         choicesForThisChapter = sceneWithChoices.choices
-        console.log(`[Settlement] 章节 ${displayIdx} 从缓存获取到 ${choicesForThisChapter.length} 个选项:`, choicesForThisChapter)
+        console.log(
+          `[Settlement] 章节 ${displayIdx} 从缓存获取到 ${choicesForThisChapter.length} 个选项:`,
+          choicesForThisChapter
+        )
       }
     }
-    
+
     // 如果缓存中没有找到选项，尝试从 userChoice 中恢复
     if (choicesForThisChapter.length === 0) {
       console.log(`[Settlement] 警告：章节 ${displayIdx} 缓存中无选项，尝试从 userChoice 恢复`)
-      
-      if (userChoice.allChoices && Array.isArray(userChoice.allChoices) && userChoice.allChoices.length > 0) {
+
+      if (
+        userChoice.allChoices &&
+        Array.isArray(userChoice.allChoices) &&
+        userChoice.allChoices.length > 0
+      ) {
         choicesForThisChapter = userChoice.allChoices
-        console.log(`[Settlement] 从 userChoice.allChoices 恢复了 ${choicesForThisChapter.length} 个选项`)
-      } else if (userChoice.choices && Array.isArray(userChoice.choices) && userChoice.choices.length > 0) {
+        console.log(
+          `[Settlement] 从 userChoice.allChoices 恢复了 ${choicesForThisChapter.length} 个选项`
+        )
+      } else if (
+        userChoice.choices &&
+        Array.isArray(userChoice.choices) &&
+        userChoice.choices.length > 0
+      ) {
         choicesForThisChapter = userChoice.choices
-        console.log(`[Settlement] 从 userChoice.choices 恢复了 ${choicesForThisChapter.length} 个选项`)
+        console.log(
+          `[Settlement] 从 userChoice.choices 恢复了 ${choicesForThisChapter.length} 个选项`
+        )
       } else if (userChoice.choiceId) {
         // 至少构造用户选择的那个选项
-        choicesForThisChapter = [{ 
-            id: userChoice.choiceId, 
+        choicesForThisChapter = [
+          {
+            id: userChoice.choiceId,
             // 优先使用存档中保存的 choice_content，再回退到旧字段 choiceText
-            text: (userChoice.choice_content ?? userChoice.choiceText ?? '已选择'),
+            text: userChoice.choice_content ?? userChoice.choiceText ?? '已选择',
             choiceId: userChoice.choiceId
-          }]
+          }
+        ]
         console.log(`[Settlement] 从 userChoice 构造了单个选项`)
       }
     }
 
     // 场景节点（选择发生的地方）
     const sceneNodeId = nodeId++
-    
+
     // 场景节点：粗体（title）只显示章节编号，如 "第1章"；浅色描述（description）显示完整章节标题
     let chapterTitle = ''
-    
+
     // 优先从缓存的章节数据获取标题
     if (cachedChapterData && cachedChapterData.title) {
       chapterTitle = cachedChapterData.title
@@ -596,7 +659,7 @@ const generateBranchingGraph = async () => {
 
     const sceneShortTitle = `第${displayIdx}章`
     let sceneFullTitle = chapterTitle || `第${displayIdx}章`
-    
+
     // 若没有显式的 chapterTitle，则尝试从缓存的章节数据或场景第一个 dialogue 提取
     if (!chapterTitle || chapterTitle === '') {
       if (cachedChapterData && cachedChapterData.scenes && cachedChapterData.scenes.length > 0) {
@@ -612,9 +675,12 @@ const generateBranchingGraph = async () => {
 
     // 从缓存中获取当前章节的背景图
     const sceneImage = cachedChapterData?.backgroundImage || null
-    
+
     {
-      const layout = computeNodeLayout(sceneShortTitle, sceneFullTitle, { imageW: THUMB_W, imageH: THUMB_H })
+      const layout = computeNodeLayout(sceneShortTitle, sceneFullTitle, {
+        imageW: THUMB_W,
+        imageH: THUMB_H
+      })
       nodes.push({
         id: sceneNodeId,
         title: sceneShortTitle,
@@ -641,8 +707,8 @@ const generateBranchingGraph = async () => {
 
     // 为这个章节的所有选项创建节点
     const choiceSpacing = 240
-    const startX = 400 - (choicesForThisChapter.length - 1) * choiceSpacing / 2
-    
+    const startX = 400 - ((choicesForThisChapter.length - 1) * choiceSpacing) / 2
+
     console.log(`[Settlement] 章节 ${displayIdx} 渲染 ${choicesForThisChapter.length} 个选项`)
 
     choicesForThisChapter.forEach((choice, choiceIndex) => {
@@ -650,18 +716,23 @@ const generateBranchingGraph = async () => {
       const choiceY = currentY + 120
 
       // 兼容选项的 id 或 choiceId 字段
-      const currentChoiceId = (choice.id != null) ? choice.id : choice.choiceId
+      const currentChoiceId = choice.id != null ? choice.id : choice.choiceId
 
       // 判断是否是用户实际选择的选项（使用字符串比较以兼容数字/字符串格式）
-      const selectedChoiceId = (userChoice && (userChoice.choiceId != null)) ? userChoice.choiceId : null
-      const isUserChoice = selectedChoiceId != null && String(currentChoiceId) === String(selectedChoiceId)
+      const selectedChoiceId =
+        userChoice && userChoice.choiceId != null ? userChoice.choiceId : null
+      const isUserChoice =
+        selectedChoiceId != null && String(currentChoiceId) === String(selectedChoiceId)
 
       // 计算选项字母：优先使用显式的 numeric choiceId（1 => A, 2 => B），
       // 回退到 choice.id 若它是数字，否则使用当前的序号 choiceIndex
       let optLetter
-      const numericForLetter = (choice.choiceId != null && !isNaN(Number(choice.choiceId)))
-        ? Number(choice.choiceId)
-        : ((choice.id != null && !isNaN(Number(choice.id))) ? Number(choice.id) : (choiceIndex + 1))
+      const numericForLetter =
+        choice.choiceId != null && !isNaN(Number(choice.choiceId))
+          ? Number(choice.choiceId)
+          : choice.id != null && !isNaN(Number(choice.id))
+            ? Number(choice.id)
+            : choiceIndex + 1
       if (Number.isFinite(numericForLetter) && numericForLetter >= 1) {
         optLetter = String.fromCharCode(64 + Number(numericForLetter))
       } else {
@@ -669,13 +740,18 @@ const generateBranchingGraph = async () => {
       }
       const choiceShortTitle = `选项${optLetter}`
 
-      console.log(`[Settlement] 章节 ${displayIdx} 选项 ${choiceIndex}: choiceId=${currentChoiceId}, optLetter=${optLetter}, isUserChoice=${isUserChoice}, text="${choice.text}"`)
+      console.log(
+        `[Settlement] 章节 ${displayIdx} 选项 ${choiceIndex}: choiceId=${currentChoiceId}, optLetter=${optLetter}, isUserChoice=${isUserChoice}, text="${choice.text}"`
+      )
 
       if (isUserChoice) {
         // 显示带缩略图的用户选择节点
         const choiceNodeId = nodeId++
-        
-        const layout = computeNodeLayout(choiceShortTitle, (choice.text || '').toString(), { imageW: THUMB_W, imageH: THUMB_H })
+
+        const layout = computeNodeLayout(choiceShortTitle, (choice.text || '').toString(), {
+          imageW: THUMB_W,
+          imageH: THUMB_H
+        })
         nodes.push({
           id: choiceNodeId,
           title: choiceShortTitle,
@@ -772,7 +848,7 @@ const generateBranchingGraph = async () => {
 
       const endCount = endings.length
       const endSpacing = 240
-      const endStartX = 400 - (endCount - 1) * endSpacing / 2
+      const endStartX = 400 - ((endCount - 1) * endSpacing) / 2
       let endY = currentY + 40
       // 保存进入结局前的父节点ID，所有结局分支都从该节点分出，避免将未选中结局连接到已选中结局的节点上
       const endingsParentNodeId = lastNodeId
@@ -780,15 +856,21 @@ const generateBranchingGraph = async () => {
         const ed = endings[ei]
         const ex = endStartX + ei * endSpacing
         // list 接口返回的索引字段可能是 endingIndex
-        const listIndex = ed.endingIndex || (ei + 1)
+        const listIndex = ed.endingIndex || ei + 1
         // 优先使用从 detail 获取到的标题/场景（如果是用户所选的结局）
         let etitle = ed.title || `结局 ${listIndex}`
-        let endImage = (Array.isArray(ed.scenes) && ed.scenes.length > 0) ? (ed.scenes[0].backgroundImage || null) : null
+        let endImage =
+          Array.isArray(ed.scenes) && ed.scenes.length > 0
+            ? ed.scenes[0].backgroundImage || null
+            : null
 
         // 如果我们 fetch 了 selectedEndingDetail，并且它对应当前 list 项，则覆盖 title/image
         if (selectedEndingDetail && storedIdx && Number(listIndex) === Number(storedIdx)) {
           etitle = selectedEndingDetail.title || etitle
-          if (Array.isArray(selectedEndingDetail.scenes) && selectedEndingDetail.scenes.length > 0) {
+          if (
+            Array.isArray(selectedEndingDetail.scenes) &&
+            selectedEndingDetail.scenes.length > 0
+          ) {
             endImage = selectedEndingDetail.scenes[0].backgroundImage || endImage
           }
         }
@@ -873,15 +955,15 @@ const generateBranchingGraph = async () => {
   resolveNodeOverlaps()
   // 归一化：确保最左/最上有足够留白，避免被 svg 裁剪
   if (nodes.length > 0) {
-    const lefts = nodes.map(n => (n.x || 0) - (n.width || THUMB_W) / 2)
-    const tops = nodes.map(n => (n.y || 0) - (n.height || THUMB_H) / 2)
+    const lefts = nodes.map((n) => (n.x || 0) - (n.width || THUMB_W) / 2)
+    const tops = nodes.map((n) => (n.y || 0) - (n.height || THUMB_H) / 2)
     const minLeft = Math.min(...lefts)
     const minTop = Math.min(...tops)
     const PAD = 40
-    const offsetX = minLeft < PAD ? (PAD - minLeft) : 0
-    const offsetY = minTop < PAD ? (PAD - minTop) : 0
+    const offsetX = minLeft < PAD ? PAD - minLeft : 0
+    const offsetY = minTop < PAD ? PAD - minTop : 0
     if (offsetX !== 0 || offsetY !== 0) {
-      nodes.forEach(n => {
+      nodes.forEach((n) => {
         n.x = (n.x || 0) + offsetX
         n.y = (n.y || 0) + offsetY
       })
@@ -914,7 +996,13 @@ const generatePersonalityReport = async () => {
     const statuses = gameData.value.finalStatuses || {}
     // 确保使用有效的 workId
     const currentWorkId = gameData.value.work?.id || workId
-    console.log('Fetching personality report variants... workId:', currentWorkId, 'attrs/statuses:', attrs, statuses)
+    console.log(
+      'Fetching personality report variants... workId:',
+      currentWorkId,
+      'attrs/statuses:',
+      attrs,
+      statuses
+    )
     // 优先使用 sessionStorage 中已由前端 fetchReport/后端返回并保存的结算数据（避免重复请求）
     if (sessionData && sessionData.status === 'ready' && sessionData.details) {
       console.log('[Settlement] 使用 sessionData.details 作为个性报告', sessionData.details)
@@ -923,7 +1011,8 @@ const generatePersonalityReport = async () => {
         title: d.title || defaultPersonalityReport.title,
         content: d.content || defaultPersonalityReport.content,
         traits: Array.isArray(d.traits) ? d.traits : defaultPersonalityReport.traits,
-        scores: (d.scores && typeof d.scores === 'object') ? d.scores : defaultPersonalityReport.scores
+        scores:
+          d.scores && typeof d.scores === 'object' ? d.scores : defaultPersonalityReport.scores
       }
       console.log('Selected personality report from sessionData:', personalityReport.value)
       return
@@ -932,7 +1021,9 @@ const generatePersonalityReport = async () => {
     const variants = await fetchPersonalityReportVariants(currentWorkId, attrs, statuses)
     console.log('Variants received:', variants)
 
-    const matched = (Array.isArray(variants) ? variants.find(v => variantMatches(v, attrs, statuses)) : null)
+    const matched = Array.isArray(variants)
+      ? variants.find((v) => variantMatches(v, attrs, statuses))
+      : null
     if (matched && matched.report) {
       personalityReport.value = matched.report
     } else {
@@ -950,7 +1041,7 @@ const startDrag = (event, node) => {
   if (event.type === 'mousedown') {
     isDragging.value = true
     dragNode.value = node
-    
+
     const onMouseMove = (e) => {
       if (isDragging.value && dragNode.value) {
         const container = document.querySelector('.branching-graph')
@@ -961,7 +1052,7 @@ const startDrag = (event, node) => {
         dragNode.value.y = e.clientY - rect.top + scrollTop
       }
     }
-    
+
     const onMouseUp = () => {
       isDragging.value = false
       dragNode.value = null
@@ -970,7 +1061,7 @@ const startDrag = (event, node) => {
       // 拖拽结束后整理布局，避免与其它节点重叠
       resolveNodeOverlaps()
     }
-    
+
     document.addEventListener('mousemove', onMouseMove)
     document.addEventListener('mouseup', onMouseUp)
   }
@@ -981,13 +1072,13 @@ const goBack = () => {
   try {
     // 优先级：gameData.work.id > history.state.work.id > route.params.id > lastWorkMeta in sessionStorage > workId
     let targetId = null
-    
+
     // 1. 从 gameData.value.work.id 获取
     if (gameData.value?.work?.id) {
       targetId = Number(gameData.value.work.id)
       console.log('[Settlement] goBack: using gameData.work.id =', targetId)
     }
-    
+
     // 2. 从 history.state.work.id 获取
     if (!targetId || !Number.isFinite(targetId) || targetId <= 0) {
       if (history.state?.work?.id) {
@@ -995,7 +1086,7 @@ const goBack = () => {
         console.log('[Settlement] goBack: using history.state.work.id =', targetId)
       }
     }
-    
+
     // 3. 从 route.params.id 获取
     if (!targetId || !Number.isFinite(targetId) || targetId <= 0) {
       if (route?.params?.id) {
@@ -1003,7 +1094,7 @@ const goBack = () => {
         console.log('[Settlement] goBack: using route.params.id =', targetId)
       }
     }
-    
+
     // 4. 从 sessionStorage 的 lastWorkMeta 获取
     if (!targetId || !Number.isFinite(targetId) || targetId <= 0) {
       try {
@@ -1016,7 +1107,7 @@ const goBack = () => {
         console.warn('[Settlement] Failed to parse lastWorkMeta:', e)
       }
     }
-    
+
     // 5. 使用模块级 workId 变量
     if (!targetId || !Number.isFinite(targetId) || targetId <= 0) {
       targetId = Number(workId)
@@ -1060,7 +1151,7 @@ onMounted(async () => {
   console.log('SettlementPage mounted with data:', gameData.value)
   console.log('Final Attributes:', gameData.value.finalAttributes)
   console.log('Final Statuses:', gameData.value.finalStatuses)
-  
+
   // 获取作品详情，更新作品标题
   try {
     const workInfo = await getWorkInfo(workId)
@@ -1072,23 +1163,40 @@ onMounted(async () => {
     console.warn('[Settlement] 获取作品详情失败:', error)
     // 保持使用原有的 title，不影响页面渲染
   }
-  
+
   await generateBranchingGraph()
   await generatePersonalityReport()
-  
+
   // 尝试在移动端/原生环境强制横屏（参考 GamePage 的实现）
   try {
     if (window && window.Capacitor) {
       // Capacitor 环境：请求横屏
-      try { await ScreenOrientation.lock({ orientation: 'landscape' }) } catch (e) { try { await ScreenOrientation.lock({ type: 'landscape' }) } catch (e2) { console.warn('[Settlement] ScreenOrientation.lock failed', e, e2) } }
+      try {
+        await ScreenOrientation.lock({ orientation: 'landscape' })
+      } catch (e) {
+        try {
+          await ScreenOrientation.lock({ type: 'landscape' })
+        } catch (e2) {
+          console.warn('[Settlement] ScreenOrientation.lock failed', e, e2)
+        }
+      }
       // 隐藏状态栏以实现全屏显示（如在原生 App 中可用）
-      try { await StatusBar.hide() } catch (sbErr) { console.warn('[Settlement] StatusBar.hide failed', sbErr) }
+      try {
+        await StatusBar.hide()
+      } catch (sbErr) {
+        console.warn('[Settlement] StatusBar.hide failed', sbErr)
+      }
     } else {
       // 浏览器环境：请求全屏然后尝试锁定横屏
       const elem = document.documentElement
-      if (elem.requestFullscreen) await elem.requestFullscreen().catch(()=>{})
-      else if (elem.webkitRequestFullscreen) await elem.webkitRequestFullscreen().catch(()=>{})
-      try { if (screen && screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape') } catch (e) { console.warn('[Settlement] screen.orientation.lock failed', e) }
+      if (elem.requestFullscreen) await elem.requestFullscreen().catch(() => {})
+      else if (elem.webkitRequestFullscreen) await elem.webkitRequestFullscreen().catch(() => {})
+      try {
+        if (screen && screen.orientation && screen.orientation.lock)
+          await screen.orientation.lock('landscape')
+      } catch (e) {
+        console.warn('[Settlement] screen.orientation.lock failed', e)
+      }
       // 尝试隐藏浏览器中的状态栏样式（只能影响 PWA/移动 Safari 的显示, 不保证生效）
     }
   } catch (e) {
@@ -1103,7 +1211,10 @@ onMounted(async () => {
 // 在挂载后绑定 touch 事件，卸载时移除
 onMounted(() => {
   try {
-    const el = branchingGraphRef && branchingGraphRef.value ? branchingGraphRef.value : document.querySelector('.branching-graph')
+    const el =
+      branchingGraphRef.value && branchingGraphRef.value
+        ? branchingGraphRef.value
+        : document.querySelector('.branching-graph')
     if (el && el.addEventListener) {
       el.addEventListener('touchstart', onGraphTouchStart, { passive: false })
       el.addEventListener('touchmove', onGraphTouchMove, { passive: false })
@@ -1115,12 +1226,17 @@ onMounted(() => {
       el.addEventListener('mousemove', onGraphPointerMove, { passive: false })
       el.addEventListener('mouseup', onGraphPointerUp, { passive: false })
     }
-  } catch (e) { console.warn('[Settlement] bind graph touch/pointer handlers failed', e) }
+  } catch (e) {
+    console.warn('[Settlement] bind graph touch/pointer handlers failed', e)
+  }
 })
 
 onUnmounted(() => {
   try {
-    const el = branchingGraphRef && branchingGraphRef.value ? branchingGraphRef.value : document.querySelector('.branching-graph')
+    const el =
+      branchingGraphRef.value && branchingGraphRef.value
+        ? branchingGraphRef.value
+        : document.querySelector('.branching-graph')
     if (el && el.removeEventListener) {
       el.removeEventListener('touchstart', onGraphTouchStart)
       el.removeEventListener('touchmove', onGraphTouchMove)
@@ -1132,20 +1248,41 @@ onUnmounted(() => {
       el.removeEventListener('mousemove', onGraphPointerMove)
       el.removeEventListener('mouseup', onGraphPointerUp)
     }
-  } catch (e) { console.warn('[Settlement] remove graph touch/pointer handlers failed', e) }
+  } catch (e) {
+    console.warn('[Settlement] remove graph touch/pointer handlers failed', e)
+  }
 })
 
 // 页面卸载时恢复竖屏
 onUnmounted(async () => {
   try {
     if (window && window.Capacitor) {
-      try { await ScreenOrientation.lock({ orientation: 'portrait' }) } catch (e) { try { await ScreenOrientation.lock({ type: 'portrait' }) } catch (e2) { console.warn('[Settlement] restore portrait failed', e, e2) } }
+      try {
+        await ScreenOrientation.lock({ orientation: 'portrait' })
+      } catch (e) {
+        try {
+          await ScreenOrientation.lock({ type: 'portrait' })
+        } catch (e2) {
+          console.warn('[Settlement] restore portrait failed', e, e2)
+        }
+      }
     } else {
-      try { if (screen && screen.orientation && screen.orientation.lock) await screen.orientation.lock('portrait') } catch (e) { console.warn('[Settlement] restore screen.orientation failed', e) }
-      try { if (document.exitFullscreen) await document.exitFullscreen().catch(()=>{}) } catch (e) {}
+      try {
+        if (screen && screen.orientation && screen.orientation.lock)
+          await screen.orientation.lock('portrait')
+      } catch (e) {
+        console.warn('[Settlement] restore screen.orientation failed', e)
+      }
+      try {
+        if (document.exitFullscreen) await document.exitFullscreen().catch(() => {})
+      } catch (e) {}
     }
     // 恢复状态栏显示
-    try { await StatusBar.show() } catch (sbShowErr) { console.warn('[Settlement] StatusBar.show failed', sbShowErr) }
+    try {
+      await StatusBar.show()
+    } catch (sbShowErr) {
+      console.warn('[Settlement] StatusBar.show failed', sbShowErr)
+    }
   } catch (e) {
     console.warn('[Settlement] onUnmounted restore failed', e)
   }
@@ -1158,13 +1295,13 @@ onUnmounted(async () => {
     <div class="top-nav">
       <button class="nav-btn back-btn" @click="goBack">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-          <path d="M19 12H6m6-7l-7 7 7 7"/>
+          <path d="M19 12H6m6-7l-7 7 7 7" />
         </svg>
         返回
       </button>
-      
+
       <h1 class="page-title">{{ gameData.work.title }} - 游戏结算</h1>
-      
+
       <div class="quick-actions">
         <button class="nav-btn" @click="showAttributesModal = true">属性</button>
       </div>
@@ -1172,22 +1309,25 @@ onUnmounted(async () => {
 
     <!-- 视图切换标签 -->
     <div class="view-tabs">
-      <button 
-        class="tab-btn" 
+      <button
+        class="tab-btn"
         :class="{ active: currentView === 'overview' }"
         @click="currentView = 'overview'"
       >
         总览
       </button>
-      <button 
-        class="tab-btn" 
+      <button
+        class="tab-btn"
         :class="{ active: currentView === 'branching' }"
-        @click="currentView = 'branching'; isBranchingFullscreen = true"
+        @click="
+          currentView = 'branching'
+          isBranchingFullscreen = true
+        "
       >
         分支探索
       </button>
-      <button 
-        class="tab-btn" 
+      <button
+        class="tab-btn"
         :class="{ active: currentView === 'personality' }"
         @click="currentView = 'personality'"
       >
@@ -1205,13 +1345,13 @@ onUnmounted(async () => {
             <div class="stat-value">100%</div>
             <p>恭喜通关全部剧情！</p>
           </div>
-          
+
           <div class="stat-card">
             <h3>选择次数</h3>
             <div class="stat-value">{{ gameData.choiceHistory.length }}</div>
             <p>做出的关键决定</p>
           </div>
-          
+
           <div class="stat-card">
             <h3>最终评价</h3>
             <div class="stat-value">{{ personalityReport.title }}</div>
@@ -1221,73 +1361,93 @@ onUnmounted(async () => {
       </div>
 
       <!-- 分支探索图 -->
-      <div v-if="currentView === 'branching'" :class="['branching-content', { 'fullscreen': isBranchingFullscreen }]">
+      <div
+        v-if="currentView === 'branching'"
+        :class="['branching-content', { fullscreen: isBranchingFullscreen }]"
+      >
         <div v-if="isBranchingFullscreen" class="fullscreen-header">
           <button class="exit-fullscreen-btn" @click="isBranchingFullscreen = false">×</button>
         </div>
-        <div ref="branchingGraphRef" class="branching-graph" :style="{ 
+        <div
+          ref="branchingGraphRef"
+          class="branching-graph"
+          :style="{
             width: isBranchingFullscreen ? 'auto' : graphWidth + 'px',
             height: isBranchingFullscreen ? 'auto' : graphHeight + 'px',
             minWidth: isBranchingFullscreen ? graphWidth + 'px' : 'auto',
             minHeight: isBranchingFullscreen ? graphHeight + 'px' : 'auto',
             maxWidth: isBranchingFullscreen ? 'none' : graphWidth + 'px',
             maxHeight: isBranchingFullscreen ? 'none' : graphHeight + 'px'
-          }">
+          }"
+        >
           <!-- 全屏展开按钮放入图框左上角（只有在非全屏时显示） -->
-          <button v-if="!isBranchingFullscreen" class="expand-fullscreen-btn" @click="isBranchingFullscreen = true" title="全屏查看">⛶</button>
-          <svg class="graph-svg" :width="isBranchingFullscreen ? graphWidth : graphWidth" :height="graphHeight" :viewBox="isBranchingFullscreen ? `0 0 ${graphWidth} ${graphHeight}` : null" preserveAspectRatio="xMidYMid meet">
+          <button
+            v-if="!isBranchingFullscreen"
+            class="expand-fullscreen-btn"
+            @click="isBranchingFullscreen = true"
+            title="全屏查看"
+          >
+            ⛶
+          </button>
+          <svg
+            class="graph-svg"
+            :width="isBranchingFullscreen ? graphWidth : graphWidth"
+            :height="graphHeight"
+            :viewBox="isBranchingFullscreen ? `0 0 ${graphWidth} ${graphHeight}` : null"
+            preserveAspectRatio="xMidYMid meet"
+          >
             <defs>
               <!-- 墨汁晕染渐变 -->
               <radialGradient id="inkGradient" cx="30%" cy="30%" r="70%">
-                <stop offset="0%" style="stop-color:#2c1810;stop-opacity:0.9"/>
-                <stop offset="40%" style="stop-color:#4a2c1a;stop-opacity:0.7"/>
-                <stop offset="70%" style="stop-color:#8b7355;stop-opacity:0.4"/>
-                <stop offset="100%" style="stop-color:#d4c4a8;stop-opacity:0.2"/>
+                <stop offset="0%" style="stop-color: #2c1810; stop-opacity: 0.9" />
+                <stop offset="40%" style="stop-color: #4a2c1a; stop-opacity: 0.7" />
+                <stop offset="70%" style="stop-color: #8b7355; stop-opacity: 0.4" />
+                <stop offset="100%" style="stop-color: #d4c4a8; stop-opacity: 0.2" />
               </radialGradient>
-              
+
               <radialGradient id="inkGradientStart" cx="40%" cy="40%" r="80%">
-                <stop offset="0%" style="stop-color:#8b4513;stop-opacity:0.95"/>
-                <stop offset="30%" style="stop-color:#a0522d;stop-opacity:0.8"/>
-                <stop offset="60%" style="stop-color:#cd853f;stop-opacity:0.5"/>
-                <stop offset="100%" style="stop-color:#f4e4bc;stop-opacity:0.3"/>
+                <stop offset="0%" style="stop-color: #8b4513; stop-opacity: 0.95" />
+                <stop offset="30%" style="stop-color: #a0522d; stop-opacity: 0.8" />
+                <stop offset="60%" style="stop-color: #cd853f; stop-opacity: 0.5" />
+                <stop offset="100%" style="stop-color: #f4e4bc; stop-opacity: 0.3" />
               </radialGradient>
-              
+
               <radialGradient id="inkGradientScene" cx="35%" cy="35%" r="75%">
-                <stop offset="0%" style="stop-color:#654321;stop-opacity:0.85"/>
-                <stop offset="35%" style="stop-color:#8b7355;stop-opacity:0.7"/>
-                <stop offset="65%" style="stop-color:#b8860b;stop-opacity:0.4"/>
-                <stop offset="100%" style="stop-color:#f5f5dc;stop-opacity:0.2"/>
+                <stop offset="0%" style="stop-color: #654321; stop-opacity: 0.85" />
+                <stop offset="35%" style="stop-color: #8b7355; stop-opacity: 0.7" />
+                <stop offset="65%" style="stop-color: #b8860b; stop-opacity: 0.4" />
+                <stop offset="100%" style="stop-color: #f5f5dc; stop-opacity: 0.2" />
               </radialGradient>
-              
+
               <radialGradient id="inkGradientChoice" cx="25%" cy="25%" r="65%">
-                <stop offset="0%" style="stop-color:#8b4513;stop-opacity:0.8"/>
-                <stop offset="40%" style="stop-color:#a0522d;stop-opacity:0.6"/>
-                <stop offset="70%" style="stop-color:#cd853f;stop-opacity:0.3"/>
-                <stop offset="100%" style="stop-color:#fff8dc;stop-opacity:0.1"/>
+                <stop offset="0%" style="stop-color: #8b4513; stop-opacity: 0.8" />
+                <stop offset="40%" style="stop-color: #a0522d; stop-opacity: 0.6" />
+                <stop offset="70%" style="stop-color: #cd853f; stop-opacity: 0.3" />
+                <stop offset="100%" style="stop-color: #fff8dc; stop-opacity: 0.1" />
               </radialGradient>
-              
+
               <radialGradient id="inkGradientSelected" cx="45%" cy="45%" r="85%">
-                <stop offset="0%" style="stop-color:#2c1810;stop-opacity:1"/>
-                <stop offset="25%" style="stop-color:#4a2c1a;stop-opacity:0.9"/>
-                <stop offset="50%" style="stop-color:#8b7355;stop-opacity:0.7"/>
-                <stop offset="75%" style="stop-color:#d4c4a8;stop-opacity:0.4"/>
-                <stop offset="100%" style="stop-color:#f5f5dc;stop-opacity:0.2"/>
+                <stop offset="0%" style="stop-color: #2c1810; stop-opacity: 1" />
+                <stop offset="25%" style="stop-color: #4a2c1a; stop-opacity: 0.9" />
+                <stop offset="50%" style="stop-color: #8b7355; stop-opacity: 0.7" />
+                <stop offset="75%" style="stop-color: #d4c4a8; stop-opacity: 0.4" />
+                <stop offset="100%" style="stop-color: #f5f5dc; stop-opacity: 0.2" />
               </radialGradient>
             </defs>
-            
+
             <!-- 边 -->
             <g class="edges">
               <line
                 v-for="edge in branchingGraph.edges"
                 :key="`edge-${edge.from}-${edge.to}`"
-                :x1="branchingGraph.nodes.find(n => n.id === edge.from)?.x || 0"
-                :y1="branchingGraph.nodes.find(n => n.id === edge.from)?.y || 0"
-                :x2="branchingGraph.nodes.find(n => n.id === edge.to)?.x || 0"
-                :y2="branchingGraph.nodes.find(n => n.id === edge.to)?.y || 0"
+                :x1="branchingGraph.nodes.find((n) => n.id === edge.from)?.x || 0"
+                :y1="branchingGraph.nodes.find((n) => n.id === edge.from)?.y || 0"
+                :x2="branchingGraph.nodes.find((n) => n.id === edge.to)?.x || 0"
+                :y2="branchingGraph.nodes.find((n) => n.id === edge.to)?.y || 0"
                 :class="['edge-line', edge.isSelected ? 'edge-selected' : 'edge-unselected']"
               />
             </g>
-            
+
             <!-- 节点 -->
             <g class="nodes">
               <g
@@ -1313,22 +1473,25 @@ onUnmounted(async () => {
                   :width="(node.width || THUMB_W) - NODE_PAD_X * 2"
                   :height="node.imageH || THUMB_H"
                   preserveAspectRatio="xMidYMid slice"
-                  style="filter: drop-shadow(0 6px 12px rgba(0,0,0,0.12)); border-radius:4px;"
+                  style="filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.12)); border-radius: 4px"
                 />
                 <text
                   :x="(node.width || 120) / 2"
-                  :y="( (node.imageH || 0) ? (NODE_PAD_Y + (node.imageH || 0) + 18) : (NODE_PAD_Y + 16) )"
+                  :y="node.imageH || 0 ? NODE_PAD_Y + (node.imageH || 0) + 18 : NODE_PAD_Y + 16"
                   text-anchor="middle"
                   class="node-title"
-                >{{ node.title }}</text>
+                >
+                  {{ node.title }}
+                </text>
                 <text
                   :x="(node.width || 120) / 2"
-                  :y="( (node.imageH || 0) ? (NODE_PAD_Y + (node.imageH || 0) + 36) : (NODE_PAD_Y + 34) )"
+                  :y="node.imageH || 0 ? NODE_PAD_Y + (node.imageH || 0) + 36 : NODE_PAD_Y + 34"
                   text-anchor="middle"
                   class="node-desc"
                 >
                   <tspan
-                    v-for="(line, idx) in (node.descLines || splitLines(node.description || '', Math.floor(((node.width || 120) - 24) / 8)))"
+                    v-for="(line, idx) in node.descLines ||
+                    splitLines(node.description || '', Math.floor(((node.width || 120) - 24) / 8))"
                     :key="idx"
                     :x="(node.width || 120) / 2"
                     :dy="idx === 0 ? 0 : 14"
@@ -1347,39 +1510,28 @@ onUnmounted(async () => {
         <div class="personality-header">
           <h2 class="personality-title">{{ personalityReport.title }}</h2>
         </div>
-        
+
         <div class="personality-body">
           <div class="personality-description">
             <p>{{ personalityReport.content }}</p>
           </div>
-          
+
           <div class="personality-traits">
             <h4>性格特征</h4>
             <div class="traits-list">
-              <span 
-                v-for="trait in personalityReport.traits" 
-                :key="trait"
-                class="trait-tag"
-              >
+              <span v-for="trait in personalityReport.traits" :key="trait" class="trait-tag">
                 {{ trait }}
               </span>
             </div>
           </div>
-          
+
           <div class="personality-scores">
             <h4>综合评分</h4>
             <div class="scores-grid">
-              <div 
-                v-for="(score, key) in personalityReport.scores" 
-                :key="key"
-                class="score-item"
-              >
+              <div v-for="(score, key) in personalityReport.scores" :key="key" class="score-item">
                 <span class="score-name">{{ key }}</span>
                 <div class="score-bar">
-                  <div 
-                    class="score-fill" 
-                    :style="{ width: `${score}%` }"
-                  ></div>
+                  <div class="score-fill" :style="{ width: `${score}%` }"></div>
                   <span class="score-value">{{ score }}</span>
                 </div>
               </div>
@@ -1391,12 +1543,8 @@ onUnmounted(async () => {
 
     <!-- 底部操作栏 -->
     <div class="bottom-actions">
-      <button class="action-btn secondary" @click="goBack">
-        返回主页
-      </button>
-      <button class="action-btn primary" @click="continueGame">
-        重新游戏
-      </button>
+      <button class="action-btn secondary" @click="goBack">返回主页</button>
+      <button class="action-btn primary" @click="continueGame">重新游戏</button>
     </div>
 
     <!-- 属性弹窗（与游戏内属性面板一致） -->
@@ -1407,7 +1555,9 @@ onUnmounted(async () => {
         <div class="attr-status-grid">
           <div class="attr-col">
             <div class="section-title">属性</div>
-            <div v-if="Object.keys(gameData.finalAttributes).length === 0" class="empty-text">暂无属性</div>
+            <div v-if="Object.keys(gameData.finalAttributes).length === 0" class="empty-text">
+              暂无属性
+            </div>
             <ul v-else class="kv-list attr-two-col">
               <li v-for="(val, key) in gameData.finalAttributes" :key="key">
                 <span class="kv-key">{{ key }}</span>
@@ -1423,12 +1573,13 @@ onUnmounted(async () => {
             <button @click="showAttributesModal = false">关闭</button>
           </div>
           <div class="attributes-meta">
-            <div class="modal-row meta-small"><strong>作品：</strong> {{ gameData.work.title }}</div>
+            <div class="modal-row meta-small">
+              <strong>作品：</strong> {{ gameData.work.title }}
+            </div>
           </div>
         </div>
       </div>
     </div>
-
   </div>
 </template>
 
@@ -1459,7 +1610,7 @@ onUnmounted(async () => {
   background: rgba(212, 165, 165, 0.1);
   border: 1px solid rgba(212, 165, 165, 0.3);
   border-radius: 8px;
-  color: #8B7355;
+  color: #8b7355;
   cursor: pointer;
   transition: all 0.3s ease;
 }
@@ -1500,7 +1651,7 @@ onUnmounted(async () => {
   padding: 0.55rem 1rem; /* 缩小垂直占用 */
   border: none;
   background: transparent;
-  color: #8B7355;
+  color: #8b7355;
   font-size: 0.95rem;
   cursor: pointer;
   border-bottom: 3px solid transparent;
@@ -1541,7 +1692,7 @@ onUnmounted(async () => {
 }
 
 .stat-card h3 {
-  color: #8B7355;
+  color: #8b7355;
   margin: 0 0 1rem 0;
   font-size: 1.1rem;
 }
@@ -1588,14 +1739,20 @@ onUnmounted(async () => {
   padding: 2rem;
   z-index: 1000;
   /* 纯色羊皮纸底色并加上微小斑点以模拟瑕疵，避免条纹 */
-  background: 
+  background:
     radial-gradient(circle at 20% 80%, rgba(101, 67, 33, 0.08) 0%, transparent 50%),
     radial-gradient(circle at 80% 20%, rgba(139, 115, 85, 0.06) 0%, transparent 50%),
     radial-gradient(circle at 40% 40%, rgba(160, 130, 90, 0.04) 0%, transparent 50%),
     radial-gradient(circle at 60% 30%, rgba(139, 115, 85, 0.03) 0%, transparent 40%),
     radial-gradient(circle at 30% 70%, rgba(101, 67, 33, 0.05) 0%, transparent 45%),
     linear-gradient(135deg, #f4f1e8 0%, #e8dcc0 30%, #f4f1e8 70%, #e8dcc0 100%);
-  background-size: 100% 100%, 100% 100%, 100% 100%, 80% 80%, 70% 70%, 100% 100%;
+  background-size:
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    80% 80%,
+    70% 70%,
+    100% 100%;
   box-shadow: inset 0 0 100px rgba(139, 115, 85, 0.3);
 }
 
@@ -1705,7 +1862,7 @@ onUnmounted(async () => {
   stroke: #6b8aa4;
   stroke-width: 1.6;
   opacity: 0.9;
-  stroke-dasharray: 6,4;
+  stroke-dasharray: 6, 4;
 }
 
 .node-group {
@@ -1747,7 +1904,7 @@ onUnmounted(async () => {
   fill: url(#inkGradientChoice);
   stroke: #8b4513;
   stroke-width: 1.5;
-  stroke-dasharray: 5,5;
+  stroke-dasharray: 5, 5;
 }
 
 .node-result .node-rect {
@@ -1760,7 +1917,7 @@ onUnmounted(async () => {
   fill: url(#inkGradientChoice);
   stroke: #2c1810;
   stroke-width: 1.5;
-  stroke-dasharray: 3,3;
+  stroke-dasharray: 3, 3;
 }
 
 .node-end .node-rect {
@@ -1811,7 +1968,7 @@ onUnmounted(async () => {
 }
 
 .personality-subtitle {
-  color: #8B7355;
+  color: #8b7355;
   margin: 0;
   font-size: 1.1rem;
 }
@@ -1828,7 +1985,7 @@ onUnmounted(async () => {
 }
 
 .personality-traits h4 {
-  color: #8B7355;
+  color: #8b7355;
   margin: 0 0 1rem 0;
 }
 
@@ -1848,7 +2005,7 @@ onUnmounted(async () => {
 }
 
 .personality-scores h4 {
-  color: #8B7355;
+  color: #8b7355;
   margin: 0 0 1rem 0;
 }
 
@@ -1865,7 +2022,7 @@ onUnmounted(async () => {
 
 .score-name {
   min-width: 80px;
-  color: #8B7355;
+  color: #8b7355;
   font-weight: 500;
 }
 
@@ -1917,7 +2074,7 @@ onUnmounted(async () => {
 
 .action-btn.secondary {
   background: #f5f5f5;
-  color: #8B7355;
+  color: #8b7355;
 }
 
 .action-btn.secondary:hover {
@@ -1939,7 +2096,7 @@ onUnmounted(async () => {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.6);
+  background: rgba(0, 0, 0, 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1952,81 +2109,87 @@ onUnmounted(async () => {
   padding: 1.25rem;
   border-radius: 8px;
   min-width: 300px;
-  border: 1px solid rgba(212,165,165,0.3);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+  border: 1px solid rgba(212, 165, 165, 0.3);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   backdrop-filter: blur(10px);
 }
 
-.attributes-panel { 
-  width: min(90vw, 900px); 
-  max-height: 92vh; 
-  display:flex; 
-  flex-direction:column; 
+.attributes-panel {
+  width: min(90vw, 900px);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
 }
 
-.modal-header { 
-  display:flex; 
-  align-items:center; 
-  justify-content:space-between; 
-  margin-bottom: 0.5rem; 
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
 }
 
-.modal-close { 
-  background: transparent; 
-  color:#8B7355; 
-  border: none; 
-  font-size: 1.25rem; 
-  cursor: pointer; 
+.modal-close {
+  background: transparent;
+  color: #8b7355;
+  border: none;
+  font-size: 1.25rem;
+  cursor: pointer;
 }
 
-.attr-status-grid { 
-  display:grid; 
-  grid-template-columns: 1fr; 
-  gap: 1rem; 
-  margin-top: 0.25rem; 
-  flex: 1 1 auto; 
-  min-height: 78%; 
-  overflow: auto; 
+.attr-status-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  margin-top: 0.25rem;
+  flex: 1 1 auto;
+  min-height: 78%;
+  overflow: auto;
 }
 
-.section-title { 
-  font-weight: 700; 
-  color:#8B7355; 
-  margin-bottom: 0.25rem; 
+.section-title {
+  font-weight: 700;
+  color: #8b7355;
+  margin-bottom: 0.25rem;
 }
 
-.kv-list { 
-  list-style: none; 
-  margin: 0; 
-  padding: 0; 
+.kv-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
-.kv-list li { 
-  display:flex; 
-  align-items: baseline; 
-  gap: 0.25rem; 
-  padding: 0.25rem 0; 
-  border-bottom: 1px dashed rgba(212,165,165,0.15); 
+.kv-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  padding: 0.25rem 0;
+  border-bottom: 1px dashed rgba(212, 165, 165, 0.15);
 }
 
-.kv-key { color:#5a4533; }
-.kv-sep { color:#8B7355; }
-.kv-val { color:#2c1810; }
-
-.modal-actions { 
-  display:flex; 
-  gap:0.5rem; 
-  justify-content:flex-end; 
-  margin-top:1rem;
+.kv-key {
+  color: #5a4533;
+}
+.kv-sep {
+  color: #8b7355;
+}
+.kv-val {
+  color: #2c1810;
 }
 
-.modal-actions button { 
-  padding:0.4rem 0.8rem; 
-  border-radius:6px; 
-  cursor:pointer;
-  background: rgba(212,165,165,0.15); 
-  color:#fff; 
-  border:1px solid rgba(212,165,165,0.3);
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
+.modal-actions button {
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  background: rgba(212, 165, 165, 0.15);
+  color: #fff;
+  border: 1px solid rgba(212, 165, 165, 0.3);
 }
 
 /* 响应式设计 */
@@ -2036,36 +2199,36 @@ onUnmounted(async () => {
     gap: 1rem;
     padding: 1rem;
   }
-  
+
   .page-title {
     font-size: 1.2rem;
   }
-  
+
   .quick-actions {
     justify-content: center;
   }
-  
+
   .view-tabs {
     padding: 0 1rem;
   }
-  
+
   .tab-btn {
     padding: 0.75rem 1rem;
     font-size: 0.9rem;
   }
-  
+
   .content-area {
     padding: 1rem;
   }
-  
+
   .completion-stats {
     grid-template-columns: 1fr;
   }
-  
+
   .attr-status-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .bottom-actions {
     flex-direction: column;
     padding: 1rem;

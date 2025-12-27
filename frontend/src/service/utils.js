@@ -11,14 +11,14 @@
  */
 export function mergeAttributes(current = {}, delta = {}) {
   const result = { ...current }
-  
-  Object.keys(delta).forEach(key => {
+
+  Object.keys(delta).forEach((key) => {
     const value = delta[key]
     if (typeof value === 'number') {
       result[key] = (result[key] || 0) + value
     }
   })
-  
+
   return result
 }
 
@@ -30,10 +30,10 @@ export function mergeAttributes(current = {}, delta = {}) {
  */
 export function mergeStatuses(current = {}, delta = {}) {
   const result = { ...current }
-  
-  Object.keys(delta).forEach(key => {
+
+  Object.keys(delta).forEach((key) => {
     const value = delta[key]
-    
+
     // null 或 false 表示删除
     if (value === null || value === false) {
       delete result[key]
@@ -47,7 +47,7 @@ export function mergeStatuses(current = {}, delta = {}) {
       result[key] = value
     }
   })
-  
+
   return result
 }
 
@@ -59,33 +59,33 @@ export function mergeStatuses(current = {}, delta = {}) {
  */
 export function formatTimestamp(timestamp, format = 'datetime') {
   if (!timestamp) return ''
-  
+
   const date = new Date(timestamp)
-  
+
   if (format === 'relative') {
     const now = Date.now()
     const diff = now - timestamp
-    
+
     const minutes = Math.floor(diff / 60000)
     const hours = Math.floor(diff / 3600000)
     const days = Math.floor(diff / 86400000)
-    
+
     if (minutes < 1) return '刚刚'
     if (minutes < 60) return `${minutes}分钟前`
     if (hours < 24) return `${hours}小时前`
     if (days < 7) return `${days}天前`
-    
+
     // 超过一周显示日期
     format = 'date'
   }
-  
+
   const year = date.getFullYear()
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const day = String(date.getDate()).padStart(2, '0')
   const hour = String(date.getHours()).padStart(2, '0')
   const minute = String(date.getMinutes()).padStart(2, '0')
   const second = String(date.getSeconds()).padStart(2, '0')
-  
+
   switch (format) {
     case 'date':
       return `${year}-${month}-${day}`
@@ -106,11 +106,11 @@ export function formatTimestamp(timestamp, format = 'datetime') {
 export function throttle(func, wait = 300) {
   let timeout = null
   let previous = 0
-  
-  return function(...args) {
+
+  return function (...args) {
     const now = Date.now()
     const remaining = wait - (now - previous)
-    
+
     if (remaining <= 0 || remaining > wait) {
       if (timeout) {
         clearTimeout(timeout)
@@ -136,12 +136,12 @@ export function throttle(func, wait = 300) {
  */
 export function debounce(func, wait = 300) {
   let timeout = null
-  
-  return function(...args) {
+
+  return function (...args) {
     if (timeout) {
       clearTimeout(timeout)
     }
-    
+
     timeout = setTimeout(() => {
       func.apply(this, args)
     }, wait)
@@ -157,23 +157,23 @@ export function deepClone(obj) {
   if (obj === null || typeof obj !== 'object') {
     return obj
   }
-  
+
   if (obj instanceof Date) {
     return new Date(obj.getTime())
   }
-  
+
   if (obj instanceof Array) {
-    return obj.map(item => deepClone(item))
+    return obj.map((item) => deepClone(item))
   }
-  
+
   if (obj instanceof Object) {
     const cloned = {}
-    Object.keys(obj).forEach(key => {
+    Object.keys(obj).forEach((key) => {
       cloned[key] = deepClone(obj[key])
     })
     return cloned
   }
-  
+
   return obj
 }
 
@@ -198,8 +198,8 @@ export function validateRequired(obj, requiredFields) {
   if (!obj || typeof obj !== 'object') {
     return false
   }
-  
-  return requiredFields.every(field => {
+
+  return requiredFields.every((field) => {
     return obj[field] !== undefined && obj[field] !== null && obj[field] !== ''
   })
 }
@@ -211,14 +211,14 @@ export function validateRequired(obj, requiredFields) {
  */
 export function buildQueryString(params = {}) {
   const pairs = []
-  
-  Object.keys(params).forEach(key => {
+
+  Object.keys(params).forEach((key) => {
     const value = params[key]
     if (value !== undefined && value !== null && value !== '') {
       pairs.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
     }
   })
-  
+
   return pairs.length > 0 ? `?${pairs.join('&')}` : ''
 }
 
@@ -229,19 +229,19 @@ export function buildQueryString(params = {}) {
  */
 export function parseQueryString(queryString = '') {
   const params = {}
-  
+
   if (!queryString) return params
-  
+
   const search = queryString.startsWith('?') ? queryString.slice(1) : queryString
   const pairs = search.split('&')
-  
-  pairs.forEach(pair => {
+
+  pairs.forEach((pair) => {
     const [key, value] = pair.split('=')
     if (key) {
       params[decodeURIComponent(key)] = decodeURIComponent(value || '')
     }
   })
-  
+
   return params
 }
 
@@ -252,10 +252,10 @@ export function parseQueryString(queryString = '') {
  */
 export function getFileExtension(filename) {
   if (!filename) return ''
-  
+
   const parts = filename.split('.')
   if (parts.length < 2) return ''
-  
+
   return parts[parts.length - 1].toLowerCase()
 }
 
@@ -267,11 +267,11 @@ export function getFileExtension(filename) {
  */
 export function formatFileSize(bytes, decimals = 2) {
   if (bytes === 0) return '0 Bytes'
-  
+
   const k = 1024
   const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
-  
+
   return parseFloat((bytes / Math.pow(k, i)).toFixed(decimals)) + ' ' + sizes[i]
 }
 
@@ -280,9 +280,7 @@ export function formatFileSize(bytes, decimals = 2) {
  * @returns {boolean} - 是否为移动设备
  */
 export function isMobile() {
-  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-    navigator.userAgent
-  )
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
 }
 
 /**
@@ -302,7 +300,7 @@ export const storage = {
       return false
     }
   },
-  
+
   /**
    * 获取存储项
    */
@@ -315,7 +313,7 @@ export const storage = {
       return defaultValue
     }
   },
-  
+
   /**
    * 删除存储项
    */
@@ -328,7 +326,7 @@ export const storage = {
       return false
     }
   },
-  
+
   /**
    * 清空存储
    */

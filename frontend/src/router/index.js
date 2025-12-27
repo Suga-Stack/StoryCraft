@@ -1,5 +1,5 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
-import { isLogin, handleNotLogin } from '../utils/auth';
+import { isLogin, handleNotLogin } from '../utils/auth'
 import HomePage from '../views/HomePage.vue'
 import GameIntroduction from '../views/game_introduction.vue'
 import GamePage from '../views/GamePage.vue'
@@ -15,10 +15,10 @@ import ProfilePage from '../views/ProfilePage.vue'
 import MyCreationsPage from '../views/MyCreationsPage.vue'
 import ReadingHistoryPage from '../views/ReadinghistoryPage.vue'
 import CreditsChargePage from '../views/CreditsChargePage.vue'
-import TagWorksPage from '../views/TagWorksPage.vue';
+import TagWorksPage from '../views/TagWorksPage.vue'
 
 const routes = [
-   {
+  {
     path: '/home',
     name: 'Home',
     component: HomePage
@@ -64,7 +64,7 @@ const routes = [
     component: BookshelfPage
   },
   {
-    path: '/', 
+    path: '/',
     name: 'bookstore',
     component: BookstorePage
   },
@@ -76,12 +76,12 @@ const routes = [
   {
     path: '/mycreations',
     name: 'mycreations',
-    component: MyCreationsPage  
+    component: MyCreationsPage
   },
   {
     path: '/readinghistory',
     name: 'readinghistory',
-    component: ReadingHistoryPage  
+    component: ReadingHistoryPage
   },
   {
     path: '/search',
@@ -92,8 +92,7 @@ const routes = [
     path: '/charge',
     name: 'charge',
     component: CreditsChargePage
-  }
- ,
+  },
   {
     path: '/staff',
     name: 'staff',
@@ -108,22 +107,37 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createWebHashHistory(), 
+  history: createWebHashHistory(),
   routes
 })
 
 // 全局前置守卫
 router.beforeEach((to, from, next) => {
   // 需要登录的页面白名单
-  const needLoginPages = ['/bookshelf', '/create', '/profile', '/mycreations', '/readinghistory', '/charge', '/preferences', '/settlement', '/game/:id?', '/works/:id', '/search', '/home', '/', '/staff', '/tag/:id'];
-  
+  const needLoginPages = [
+    '/bookshelf',
+    '/create',
+    '/profile',
+    '/mycreations',
+    '/readinghistory',
+    '/charge',
+    '/preferences',
+    '/settlement',
+    '/game/:id?',
+    '/works/:id',
+    '/search',
+    '/home',
+    '/',
+    '/staff',
+    '/tag/:id'
+  ]
+
   if (needLoginPages.includes(to.path) && !isLogin()) {
     // 未登录且访问需要登录的页面，拦截并跳转登录页
-    handleNotLogin(router, to);
+    handleNotLogin(router, to)
   } else {
-    next(); // 已登录或访问无需登录的页面，正常跳转
+    next() // 已登录或访问无需登录的页面，正常跳转
   }
-});
-
+})
 
 export default router

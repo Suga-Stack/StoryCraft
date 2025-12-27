@@ -23,7 +23,7 @@ import { getUserId } from '../utils/auth.js'
 export async function saveGame(workId, slot, saveData) {
   // 将 slot1-slot6 转换为 1-6
   const slotNum = slot.replace('slot', '')
-  
+
   const requestBody = {
     title: `存档 ${new Date().toLocaleString()}`,
     timestamp: Date.now(),
@@ -36,7 +36,7 @@ export async function saveGame(workId, slot, saveData) {
       choiceHistory: saveData.choiceHistory || []
     }
   }
-  
+
   try {
     const result = await http.put(`/api/game/saves/${Number(workId)}/${slotNum}`, requestBody)
     // axios 响应拦截器已经返回 response.data
@@ -56,7 +56,7 @@ export async function saveGame(workId, slot, saveData) {
 export async function loadGame(workId, slot) {
   // 将 slot1-slot6 转换为 1-6
   const slotNum = slot.replace('slot', '')
-  
+
   try {
     const result = await http.get(`/api/game/saves/${Number(workId)}/${slotNum}`)
     // axios 响应拦截器已经返回 response.data
@@ -101,7 +101,7 @@ export async function getSavesList(workId) {
 export async function deleteSave(workId, slot) {
   // 将 slot1-slot6 转换为 1-6
   const slotNum = slot.replace('slot', '')
-  
+
   try {
     const result = await http.delete(`/api/game/saves/${Number(workId)}/${slotNum}`)
     // axios 响应拦截器已经返回 response.data
@@ -118,15 +118,18 @@ export async function deleteSave(workId, slot) {
  * @param {Array<string>} slots - 槽位数组,默认 ['slot1', 'slot2', 'slot3', 'slot4', 'slot5', 'slot6']
  * @returns {Promise<Object>} - 返回 { slot1: data, slot2: data, ... } 形式的对象
  */
-export async function loadAllSlots(workId, slots = ['slot1', 'slot2', 'slot3', 'slot4', 'slot5', 'slot6']) {
+export async function loadAllSlots(
+  workId,
+  slots = ['slot1', 'slot2', 'slot3', 'slot4', 'slot5', 'slot6']
+) {
   const result = {}
-  
+
   // 先尝试批量获取
   try {
     const savesList = await getSavesList(workId)
     if (savesList.length > 0) {
       // 如果有批量接口返回数据,转换为槽位映射
-      savesList.forEach(save => {
+      savesList.forEach((save) => {
         result[save.slot] = save
       })
       return result
@@ -135,7 +138,7 @@ export async function loadAllSlots(workId, slots = ['slot1', 'slot2', 'slot3', '
     // 批量获取失败,继续逐个读取
     console.warn('Batch get saves failed, will load individually:', error)
   }
-  
+
   // 逐个读取各槽位
   await Promise.all(
     slots.map(async (slot) => {
@@ -149,7 +152,7 @@ export async function loadAllSlots(workId, slots = ['slot1', 'slot2', 'slot3', '
       }
     })
   )
-  
+
   return result
 }
 

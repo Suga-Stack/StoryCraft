@@ -30,20 +30,10 @@ export {
 } from './story.js'
 
 // 存档相关服务
-export {
-  saveGame,
-  loadGame,
-  getSavesList,
-  deleteSave,
-  loadAllSlots
-} from './save.js'
+export { saveGame, loadGame, getSavesList, deleteSave, loadAllSlots } from './save.js'
 
 // 流式数据服务
-export {
-  createSSEConnection,
-  createWebSocketConnection,
-  parseNDJSON
-} from './stream.js'
+export { createSSEConnection, createWebSocketConnection, parseNDJSON } from './stream.js'
 
 // 默认导出所有服务模块
 import userService from './user.js'

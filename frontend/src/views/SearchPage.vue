@@ -6,11 +6,11 @@
         v-model="searchValue"
         placeholder="搜索作品..."
         shape="round"
-        background=transparent
+        background="transparent"
         :right-icon="showAdvancedFilter ? 'arrow-up' : 'arrow-down'"
         @click-right-icon="toggleAdvancedFilter"
-        :show-action="true" 
-        @search="handleSearch" 
+        :show-action="true"
+        @search="handleSearch"
         :show-left-icon="false"
         @click="reactivateSearch"
       >
@@ -20,24 +20,20 @@
 
         <!-- 添加搜索按钮 -->
         <template #action>
-          <span  @click="handleSearch(searchValue)" class="custom-search-span">搜索</span>
+          <span @click="handleSearch(searchValue)" class="custom-search-span">搜索</span>
         </template>
       </van-search>
     </div>
 
     <!-- 高级搜索筛选区 -->
-    <div class="advanced-filter" v-if="showAdvancedFilter && !isSearchCompleted ">
+    <div class="advanced-filter" v-if="showAdvancedFilter && !isSearchCompleted">
       <van-row :gutter="16" class="filter-row">
         <van-col span="12">
-          <van-field
-            v-model="authorFilter"
-            placeholder="搜索作者名"
-            clearable
-          />
+          <van-field v-model="authorFilter" placeholder="搜索作者名" clearable />
         </van-col>
         <van-col span="12">
           <van-field
-            v-model=tagDisplayText
+            v-model="tagDisplayText"
             placeholder="选择标签"
             readonly
             :clickable="true"
@@ -47,119 +43,123 @@
       </van-row>
     </div>
 
-      <!-- 标签选择弹窗 -->
-      <teleport to="body">
-        <van-popup
-          v-model:show="showTagPopup"
-          round
-          position="bottom"
-          :style="{ 
-            height: '50%',
-            position: 'fixed',  // 强制固定定位
-            bottom: '0',        // 固定在底部
-            left: '0',          // 左侧对齐
-            right: '0',         // 右侧对齐（确保宽度满屏）
-            transform: 'translateY(0)'  // 强制取消位移
-          }"
-        >
-          <div class="tag-popup-header">
-            <span>选择标签</span>
-            <span class="close-btn" @click="showTagPopup = false">x</span>
+    <!-- 标签选择弹窗 -->
+    <teleport to="body">
+      <van-popup
+        v-model:show="showTagPopup"
+        round
+        position="bottom"
+        :style="{
+          height: '50%',
+          position: 'fixed', // 强制固定定位
+          bottom: '0', // 固定在底部
+          left: '0', // 左侧对齐
+          right: '0', // 右侧对齐（确保宽度满屏）
+          transform: 'translateY(0)' // 强制取消位移
+        }"
+      >
+        <div class="tag-popup-header">
+          <span>选择标签</span>
+          <span class="close-btn" @click="showTagPopup = false">x</span>
+        </div>
+
+        <div class="category-buttons">
+          <van-button
+            v-for="(category, index) in categories"
+            :key="index"
+            :type="currentCategory === index ? 'primary' : 'default'"
+            @click="switchCategory(index)"
+            round
+            size="small"
+          >
+            {{ category.name }}
+          </van-button>
+        </div>
+
+        <div class="tag-list">
+          <!-- 加载状态 -->
+          <van-loading
+            v-if="isLoadingTags && allTags.length === 0"
+            color="#c78c8c"
+            size="24"
+            class="loading-indicator"
+          />
+
+          <!-- 错误提示 -->
+          <p class="error-text" v-if="tagsError && allTags.length === 0">{{ tagsError }}</p>
+
+          <!-- 标签列表（只显示当前分类的标签） -->
+          <van-tag
+            v-for="tag in filteredTags"
+            :key="tag.id"
+            :color="getTagColorById(tag.id).backgroundColor"
+            :text-color="getTagColorById(tag.id).color"
+            clickable
+            @click="selectTag(tag)"
+            :class="{ 'selected-tag': selectedTagIds.includes(tag.id) }"
+          >
+            {{ tag.name }}
+          </van-tag>
+
+          <!-- 加载更多提示 -->
+          <div v-if="isLoadingTags && allTags.length > 0" class="loading-more">
+            <van-loading size="16" />
           </div>
 
-          <div class="category-buttons">
-            <van-button 
-              v-for="(category, index) in categories" 
-              :key="index"
-              :type="currentCategory === index ? 'primary' : 'default'"
-              @click="switchCategory(index)"
-              round
-              size="small"
-            >
-              {{ category.name }}
-            </van-button>
+          <!-- 没有更多数据提示 -->
+          <div v-if="!hasMoreTags && !isLoadingTags && allTags.length > 0" class="no-more">
+            没有更多标签了
           </div>
+        </div>
 
-          <div class="tag-list">
-            <!-- 加载状态 -->
-            <van-loading v-if="isLoadingTags && allTags.length === 0" color="#c78c8c" size="24" class="loading-indicator" />
-            
-            <!-- 错误提示 -->
-            <p class="error-text" v-if="tagsError && allTags.length === 0">{{ tagsError }}</p>
-            
-            <!-- 标签列表（只显示当前分类的标签） -->
-            <van-tag
-              v-for="tag in filteredTags"
-              :key="tag.id"
-              :color="getTagColorById(tag.id).backgroundColor"
-              :text-color="getTagColorById(tag.id).color"
-              clickable
-              @click="selectTag(tag)"
-              :class="{ 'selected-tag': selectedTagIds.includes(tag.id) }"
-            >
-              {{ tag.name }}
-            </van-tag>
-            
-            <!-- 加载更多提示 -->
-            <div v-if="isLoadingTags && allTags.length > 0" class="loading-more">
-              <van-loading size="16" />
-            </div>
-            
-            <!-- 没有更多数据提示 -->
-            <div v-if="!hasMoreTags && !isLoadingTags && allTags.length > 0" class="no-more">
-              没有更多标签了
-            </div>
-          </div>
-
-          <div class="tag-popup-footer">
-            <van-button 
-              type="primary" 
-              block 
-              @click="confirmTagSelection"
-              :style="{ 
-                background: 'linear-gradient(135deg, #d4a5a5 0%, #b88484 100%)',
-                border: 'none'
-              }"
-            >
-              确定
-            </van-button>
-          </div>
-        </van-popup>
-      </teleport>
-
+        <div class="tag-popup-footer">
+          <van-button
+            type="primary"
+            block
+            @click="confirmTagSelection"
+            :style="{
+              background: 'linear-gradient(135deg, #d4a5a5 0%, #b88484 100%)',
+              border: 'none'
+            }"
+          >
+            确定
+          </van-button>
+        </div>
+      </van-popup>
+    </teleport>
 
     <!-- 导航按钮栏 -->
     <div class="nav-buttons" v-if="!isSearchCompleted">
-      <button 
-        class="primary-btn" 
+      <button
+        class="primary-btn"
         :class="{ active: currentTab === 'total' }"
         @click="switchTab('total')"
       >
         总热榜
       </button>
-      <button 
-        class="primary-btn" 
+      <button
+        class="primary-btn"
         :class="{ active: currentTab === 'month' }"
         @click="switchTab('month')"
       >
         本月热榜
       </button>
-      <button 
-        class="primary-btn" 
+      <button
+        class="primary-btn"
         :class="{ active: currentTab === 'week' }"
         @click="switchTab('week')"
       >
         本周热榜
       </button>
-      <button 
-        class="primary-btn" 
+      <button
+        class="primary-btn"
         :class="{ active: currentTab === 'rating' }"
         @click="switchTab('rating')"
       >
         评分榜
       </button>
-      <button 
-        class="primary-btn" 
+      <button
+        class="primary-btn"
         :class="{ active: currentTab === 'collection' }"
         @click="switchTab('collection')"
       >
@@ -168,19 +168,21 @@
     </div>
 
     <!-- 搜索历史 -->
-    <div class="search-history" v-if="searchValue === '' && searchHistory.length && !isSearchCompleted">
+    <div
+      class="search-history"
+      v-if="searchValue === '' && searchHistory.length && !isSearchCompleted"
+    >
       <div class="history-header">
         <span>搜索历史</span>
         <van-icon name="delete" @click="clearHistory" />
       </div>
       <div class="history-tags">
-        <van-tag 
-          v-for="(item, index) in searchHistory" 
+        <van-tag
+          v-for="(item, index) in searchHistory"
           :key="index"
           closeable
           @click="handleHistoryClick(item)"
           @close="deleteHistory(index)"
-          
         >
           {{ item }}
         </van-tag>
@@ -191,47 +193,53 @@
     <div class="rankings" v-if="!isSearchCompleted">
       <div class="ranking-section">
         <div class="ranking-header">
-         <van-icon 
-          :name="currentTab === 'rating' ? 'star' : currentTab === 'collection' ? 'like' : 'fire'" 
-          :color="currentTab === 'rating' ? '#ffd700' : currentTab === 'collection' ? '#ff4d4f' : '#ff7a45'" 
-        />
+          <van-icon
+            :name="currentTab === 'rating' ? 'star' : currentTab === 'collection' ? 'like' : 'fire'"
+            :color="
+              currentTab === 'rating'
+                ? '#ffd700'
+                : currentTab === 'collection'
+                  ? '#ff4d4f'
+                  : '#ff7a45'
+            "
+          />
           <span>{{ currentTabText }}</span>
         </div>
-        
+
         <!-- 可滚动的排行榜列表 -->
         <div class="ranking-list-wrapper">
           <div class="ranking-list">
-            <div 
-              class="ranking-item" 
-              v-for="(item, index) in currentRankList" 
-              :key="item.id"
-            >
+            <div class="ranking-item" v-for="(item, index) in currentRankList" :key="item.id">
               <!-- 排名标识 -->
               <div class="rank-number" :class="{ top3: index < 3 }">
-                  {{ (currentPage - 1) * pageSize + index + 1 }}
+                {{ (currentPage - 1) * pageSize + index + 1 }}
               </div>
-              
+
               <!-- 封面 -->
-              <van-image 
-                :src="item.cover" 
-                class="item-cover" 
+              <van-image
+                :src="item.cover"
+                class="item-cover"
                 fit="cover"
                 @click="navigateToDetail(item.id)"
               />
-              
+
               <!-- 信息区域 -->
               <div class="item-info">
                 <h3 class="item-title" @click="navigateToDetail(item.id)">{{ item.title }}</h3>
                 <p class="item-author">作者: {{ item.author }}</p>
                 <div class="item-meta">
                   <span class="meta-tag">
-                    {{ currentTab === 'rating' ? '评分: ' + item.rating.toFixed(1) : 
-                    currentTab === 'collection' ? '收藏: ' + formatNumber(item.collectionCount) : 
-                    '热度: ' + formatNumber(item.hotScore) }}
+                    {{
+                      currentTab === 'rating'
+                        ? '评分: ' + item.rating.toFixed(1)
+                        : currentTab === 'collection'
+                          ? '收藏: ' + formatNumber(item.collectionCount)
+                          : '热度: ' + formatNumber(item.hotScore)
+                    }}
                   </span>
                   <div class="tags">
-                    <van-tag 
-                      v-for="(tagId, index) in item.tags.slice(0, 2)" 
+                    <van-tag
+                      v-for="(tagId, index) in item.tags.slice(0, 2)"
                       :key="tagId"
                       :color="getTagColorById(tagId).backgroundColor"
                       :text-color="getTagColorById(tagId).color"
@@ -249,7 +257,6 @@
         </div>
       </div>
     </div>
-        
 
     <!-- 搜索结果区域 -->
     <div class="search-result" v-if="isSearchCompleted">
@@ -258,14 +265,10 @@
       </div>
 
       <div class="result-list" v-if="searchResults.length">
-        <div 
-          class="result-item" 
-          v-for="item in searchResults" 
-          :key="item.id"
-        >
-          <van-image 
-            :src="item.cover" 
-            class="result-cover" 
+        <div class="result-item" v-for="item in searchResults" :key="item.id">
+          <van-image
+            :src="item.cover"
+            class="result-cover"
             fit="cover"
             @click="navigateToDetail(item.id)"
           />
@@ -274,8 +277,8 @@
             <p class="result-author">作者: {{ item.author }}</p>
             <p class="result-desc">{{ item.description }}</p>
             <div class="result-tags">
-              <van-tag 
-                v-for="(tagId, index) in item.tags.slice(0, 3)" 
+              <van-tag
+                v-for="(tagId, index) in item.tags.slice(0, 3)"
                 :key="tagId"
                 :color="getTagColorById(tagId).backgroundColor"
                 :text-color="getTagColorById(tagId).color"
@@ -300,14 +303,19 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast } from 'vant'
-import { getFavoriteLeaderboard, search, getRatingLeaderboard, getHotLeaderboard } from '../api/user' 
-import { useTags } from '../composables/useTags';
-import { defaultTags } from '../config/tags';
-import { get } from 'vant/lib/utils';
+import {
+  getFavoriteLeaderboard,
+  search,
+  getRatingLeaderboard,
+  getHotLeaderboard
+} from '../api/user'
+import { useTags } from '../composables/useTags'
+import { defaultTags } from '../config/tags'
+import { get } from 'vant/lib/utils'
 // 路由实例
 const router = useRouter()
 
-const { convertTagIdsToNames, getTagColorById } = useTags();
+const { convertTagIdsToNames, getTagColorById } = useTags()
 
 // 搜索相关数据
 const searchValue = ref('')
@@ -315,45 +323,43 @@ const searchHistory = ref([])
 const searchResults = ref([])
 const showTagPopup = ref(false)
 
-
 // 标签缓存（5分钟）
-const TAGS_CACHE_KEY = 'searchTagsCache';
-const TAGS_CACHE_TTL = 5 * 60 * 1000;
+const TAGS_CACHE_KEY = 'searchTagsCache'
+const TAGS_CACHE_TTL = 5 * 60 * 1000
 const allTags = ref([])
-const tagDisplayText = ref('') 
+const tagDisplayText = ref('')
 const tagFilter = ref('')
-const selectedTagIds = ref([])  
-const selectedTagNames = ref([])  
+const selectedTagIds = ref([])
+const selectedTagNames = ref([])
 
 // 标签加载函数
 const fetchTags = () => {
-  const cacheStr = localStorage.getItem(TAGS_CACHE_KEY);
+  const cacheStr = localStorage.getItem(TAGS_CACHE_KEY)
   if (cacheStr) {
     try {
-      const cache = JSON.parse(cacheStr);
+      const cache = JSON.parse(cacheStr)
       if (Date.now() - cache.time < TAGS_CACHE_TTL && Array.isArray(cache.data)) {
-        allTags.value = cache.data;
-        return;
+        allTags.value = cache.data
+        return
       }
     } catch {}
   }
   // 默认用 defaultTags
-  allTags.value = [...defaultTags];
+  allTags.value = [...defaultTags]
   // 写入缓存
-  localStorage.setItem(TAGS_CACHE_KEY, JSON.stringify({ time: Date.now(), data: allTags.value }));
+  localStorage.setItem(TAGS_CACHE_KEY, JSON.stringify({ time: Date.now(), data: allTags.value }))
 }
-
 
 // 标签分类相关状态
 const categories = ref([
-  { name: '类型', range: [1, 16] },    // 类型标签：1-16
-  { name: '风格', range: [17, 49] },   // 风格标签：17-49
+  { name: '类型', range: [1, 16] }, // 类型标签：1-16
+  { name: '风格', range: [17, 49] }, // 风格标签：17-49
   { name: '世界观', range: [50, 64] }, // 世界观标签：50-64
-  { name: '题材', range: [65, 89] }    // 题材标签：65-89
-]);
+  { name: '题材', range: [65, 89] } // 题材标签：65-89
+])
 
 // 当前选中的分类索引
-const currentCategory = ref(0);
+const currentCategory = ref(0)
 
 const authorFilter = ref('')
 
@@ -375,12 +381,17 @@ const collectionRank = ref([])
 
 // 计算当前显示的排行榜数据
 const currentRankList = computed(() => {
-  const allData = currentTab.value === 'total' ? totalRank.value :
-                 currentTab.value === 'month' ? monthRank.value :
-                 currentTab.value === 'week' ? weekRank.value :
-                 currentTab.value === 'rating' ? ratingRank.value :
-                 collectionRank.value 
-  
+  const allData =
+    currentTab.value === 'total'
+      ? totalRank.value
+      : currentTab.value === 'month'
+        ? monthRank.value
+        : currentTab.value === 'week'
+          ? weekRank.value
+          : currentTab.value === 'rating'
+            ? ratingRank.value
+            : collectionRank.value
+
   // 计算分页
   const start = (currentPage.value - 1) * pageSize.value
   const end = start + pageSize.value
@@ -408,16 +419,16 @@ const switchTab = (tab) => {
 // 获取收藏榜数据的函数
 
 // 排行榜缓存（5分钟）
-const FAVORITE_CACHE_KEY = 'favoriteRankCache';
-const FAVORITE_CACHE_TTL = 5 * 60 * 1000;
+const FAVORITE_CACHE_KEY = 'favoriteRankCache'
+const FAVORITE_CACHE_TTL = 5 * 60 * 1000
 const fetchFavoriteLeaderboard = async () => {
-  const cacheStr = localStorage.getItem(FAVORITE_CACHE_KEY);
+  const cacheStr = localStorage.getItem(FAVORITE_CACHE_KEY)
   if (cacheStr) {
     try {
-      const cache = JSON.parse(cacheStr);
+      const cache = JSON.parse(cacheStr)
       if (Date.now() - cache.time < FAVORITE_CACHE_TTL && Array.isArray(cache.data)) {
-        collectionRank.value = cache.data;
-        return;
+        collectionRank.value = cache.data
+        return
       }
     } catch {}
   }
@@ -425,41 +436,44 @@ const fetchFavoriteLeaderboard = async () => {
     const response = await getFavoriteLeaderboard()
     const itemsWithTags = await Promise.all(
       response.data.data.map(async (item) => {
-        const tagNames = await convertTagIdsToNames(item.tags);
-        return{
+        const tagNames = await convertTagIdsToNames(item.tags)
+        return {
           ...item,
-          id: item.id.toString(),  // 统一转为字符串ID
+          id: item.id.toString(), // 统一转为字符串ID
           title: item.title,
           author: item.author,
-          cover: item.image_url,  // 映射到cover字段
+          cover: item.image_url, // 映射到cover字段
           tags: item.tags,
           tagNames: tagNames,
-          hotScore: item.read_count,  // 热度使用阅读量
+          hotScore: item.read_count, // 热度使用阅读量
           rating: item.average_score, // 评分
-          collectionCount: item.favorite_count  // 收藏数
+          collectionCount: item.favorite_count // 收藏数
         }
       })
     )
     // 按收藏数排序
     collectionRank.value = itemsWithTags.sort((a, b) => b.collectionCount - a.collectionCount)
     // 写入缓存
-    localStorage.setItem(FAVORITE_CACHE_KEY, JSON.stringify({ time: Date.now(), data: collectionRank.value }));
+    localStorage.setItem(
+      FAVORITE_CACHE_KEY,
+      JSON.stringify({ time: Date.now(), data: collectionRank.value })
+    )
   } catch (error) {
-    console.error('获取收藏收藏榜失败', error);
-    showToast({ message: '获取收藏榜失败，请稍后重试', duration: 1000 });
+    console.error('获取收藏收藏榜失败', error)
+    showToast({ message: '获取收藏榜失败，请稍后重试', duration: 1000 })
   }
 }
 
-const RATING_CACHE_KEY = 'ratingRankCache';
-const RATING_CACHE_TTL = 5 * 60 * 1000;
+const RATING_CACHE_KEY = 'ratingRankCache'
+const RATING_CACHE_TTL = 5 * 60 * 1000
 const fetchRatingLeaderboard = async () => {
-  const cacheStr = localStorage.getItem(RATING_CACHE_KEY);
+  const cacheStr = localStorage.getItem(RATING_CACHE_KEY)
   if (cacheStr) {
     try {
-      const cache = JSON.parse(cacheStr);
+      const cache = JSON.parse(cacheStr)
       if (Date.now() - cache.time < RATING_CACHE_TTL && Array.isArray(cache.data)) {
-        ratingRank.value = cache.data;
-        return;
+        ratingRank.value = cache.data
+        return
       }
     } catch {}
   }
@@ -468,27 +482,30 @@ const fetchRatingLeaderboard = async () => {
     if (response.data) {
       const itemsWithTags = await Promise.all(
         response.data.data.map(async (item) => {
-          const tagNames = await convertTagIdsToNames(item.tags);
-          return{
+          const tagNames = await convertTagIdsToNames(item.tags)
+          return {
             ...item,
-            id: item.id.toString(),  // 统一转为字符串ID
+            id: item.id.toString(), // 统一转为字符串ID
             title: item.title,
             author: item.author,
-            cover: item.image_url,  // 映射到cover字段
+            cover: item.image_url, // 映射到cover字段
             tags: item.tags, // 等待标签名称解析完成
             tagNames: tagNames,
             rating: item.average_score, // 评分
-            collectionCount: item.favorite_count  // 收藏数
+            collectionCount: item.favorite_count // 收藏数
           }
         })
       )
-      ratingRank.value = itemsWithTags.sort((a, b) => b.average_score - a.average_score);
+      ratingRank.value = itemsWithTags.sort((a, b) => b.average_score - a.average_score)
       // 写入缓存
-      localStorage.setItem(RATING_CACHE_KEY, JSON.stringify({ time: Date.now(), data: ratingRank.value }));
+      localStorage.setItem(
+        RATING_CACHE_KEY,
+        JSON.stringify({ time: Date.now(), data: ratingRank.value })
+      )
     }
   } catch (error) {
-    console.error('获取评分评分榜失败', error);
-    showToast({ message: '获取评分评分榜失败，请稍后重试', duration: 1000 });
+    console.error('获取评分评分榜失败', error)
+    showToast({ message: '获取评分评分榜失败，请稍后重试', duration: 1000 })
   }
 }
 
@@ -498,7 +515,7 @@ const fetchHotLeaderboard = async () => {
     const totalResponse = await getHotLeaderboard('total')
     const totalItems = await Promise.all(
       totalResponse.data.data.map(async (item) => {
-        const tagNames = await convertTagIdsToNames(item.tags);
+        const tagNames = await convertTagIdsToNames(item.tags)
         return {
           ...item,
           id: item.id.toString(),
@@ -519,7 +536,7 @@ const fetchHotLeaderboard = async () => {
     const monthResponse = await getHotLeaderboard('month')
     const monthItems = await Promise.all(
       monthResponse.data.data.map(async (item) => {
-        const tagNames = await convertTagIdsToNames(item.tags);
+        const tagNames = await convertTagIdsToNames(item.tags)
         return {
           ...item,
           id: item.id.toString(),
@@ -540,7 +557,7 @@ const fetchHotLeaderboard = async () => {
     const weekResponse = await getHotLeaderboard('week')
     const weekItems = await Promise.all(
       weekResponse.data.data.map(async (item) => {
-        const tagNames = await convertTagIdsToNames(item.tags);
+        const tagNames = await convertTagIdsToNames(item.tags)
         return {
           ...item,
           id: item.id.toString(),
@@ -556,10 +573,9 @@ const fetchHotLeaderboard = async () => {
       })
     )
     weekRank.value = weekItems
-    
   } catch (error) {
-    console.error('获取热度榜失败', error);
-    showToast({ message: '获取热度榜失败，请稍后重试', duration: 1000 });
+    console.error('获取热度榜失败', error)
+    showToast({ message: '获取热度榜失败，请稍后重试', duration: 1000 })
   }
 }
 
@@ -589,23 +605,23 @@ onMounted(() => {
       localStorage.removeItem('searchHistory')
     }
   }
-  fetchTags();
-  fetchRatingLeaderboard();
-  fetchFavoriteLeaderboard();
-  fetchHotLeaderboard();
+  fetchTags()
+  fetchRatingLeaderboard()
+  fetchFavoriteLeaderboard()
+  fetchHotLeaderboard()
 })
 
 // 选择标签（切换选中状态）
 const selectTag = (tag) => {
-    // 清除已有选择，只保留当前选中项
-   if (selectedTagIds.value[0] !== tag.id) {
-     selectedTagIds.value = [tag.id]
-     selectedTagNames.value = [tag.name]
-   } else {
-     // 再次点击已选中项则取消选择
-     selectedTagIds.value = []
-     selectedTagNames.value = []
-   }
+  // 清除已有选择，只保留当前选中项
+  if (selectedTagIds.value[0] !== tag.id) {
+    selectedTagIds.value = [tag.id]
+    selectedTagNames.value = [tag.name]
+  } else {
+    // 再次点击已选中项则取消选择
+    selectedTagIds.value = []
+    selectedTagNames.value = []
+  }
 
   // 实时更新显示文本
   tagDisplayText.value = selectedTagNames.value.join(',')
@@ -630,7 +646,7 @@ const toggleAdvancedFilter = () => {
 const saveHistory = (value) => {
   if (!value.trim()) return
   // 去重
-  const newHistory = searchHistory.value.filter(item => item !== value)
+  const newHistory = searchHistory.value.filter((item) => item !== value)
   // 添加到最前面
   newHistory.unshift(value)
   // 限制最多10条历史
@@ -641,35 +657,35 @@ const saveHistory = (value) => {
 
 // 搜索处理
 const handleSearch = async (value = searchValue.value) => {
-  const searchText = (value || '').toString().trim();
-  const authorText = (authorFilter.value || '').toString().trim();
-  const tagText = (tagFilter.value || '').toString().trim();
+  const searchText = (value || '').toString().trim()
+  const authorText = (authorFilter.value || '').toString().trim()
+  const tagText = (tagFilter.value || '').toString().trim()
 
   // 验证：所有条件都为空时才阻止搜索
   if (!searchText && !authorText && !tagText) {
     showToast({ message: '请输入搜索内容或选择筛选条件', duration: 1000 })
     return
   }
-  
+
   // 保存搜索历史
   if (value.trim()) {
     saveHistory(value)
   }
-  
+
   // 重置搜索状态
   isSearchCompleted.value = false
   searchCurrentPage.value = 1
-  
+
   try {
     const searchResponse = await search(
-      searchCurrentPage.value,  // page参数
-      searchText,               // q参数
-      authorText,               // author参数
-      tagText                   // tag参数
+      searchCurrentPage.value, // page参数
+      searchText, // q参数
+      authorText, // author参数
+      tagText // tag参数
     )
     const searchItems = await Promise.all(
       searchResponse.data.data.map(async (item) => {
-        const tagNames = await convertTagIdsToNames(item.tags);
+        const tagNames = await convertTagIdsToNames(item.tags)
         return {
           ...item,
           id: item.id.toString(),
@@ -686,7 +702,7 @@ const handleSearch = async (value = searchValue.value) => {
     )
     searchResults.value = searchItems
     isSearchCompleted.value = true
-    console.log("搜索成功", isSearchCompleted.value)
+    console.log('搜索成功', isSearchCompleted.value)
   } catch (error) {
     console.error('搜索失败', error)
     showToast({ message: '搜索失败，请稍后重试', duration: 1000 })
@@ -726,17 +742,17 @@ const navigateToDetail = (id) => {
 // 数字格式化
 const formatNumber = (num) => {
   if (num === undefined || num === null) {
-    return '0';
+    return '0'
   }
   // 确保是数字类型
-  const number = Number(num);
+  const number = Number(num)
   if (isNaN(number)) {
-    return '0';
+    return '0'
   }
   if (number >= 10000) {
-    return (number / 10000).toFixed(1) + '万';
+    return (number / 10000).toFixed(1) + '万'
   }
-  return number.toString();
+  return number.toString()
 }
 
 // 在标签相关变量区域添加
@@ -744,38 +760,37 @@ const hasMoreTags = ref(true)
 
 // 筛选当前分类的标签
 const filteredTags = computed(() => {
-  const { range } = categories.value[currentCategory.value];
-  const [min, max] = range;
-  return allTags.value.filter(tag => tag.id >= min && tag.id <= max);
-});
+  const { range } = categories.value[currentCategory.value]
+  const [min, max] = range
+  return allTags.value.filter((tag) => tag.id >= min && tag.id <= max)
+})
 
 // 切换分类
 const switchCategory = (index) => {
-  currentCategory.value = index;
+  currentCategory.value = index
   // 滚动到标签列表顶部
-  const tagList = document.querySelector('.tag-list');
+  const tagList = document.querySelector('.tag-list')
   if (tagList) {
-    tagList.scrollTop = 0;
+    tagList.scrollTop = 0
   }
-};
+}
 
 // 在打开标签弹窗时加载标签
 const toggleTagPopup = () => {
   // 切换弹窗显示状态（true→false 或 false→true）
-  showTagPopup.value = !showTagPopup.value;
+  showTagPopup.value = !showTagPopup.value
 }
 
 // 点击标签跳转到标签页面
 const handleTagClick = (tagId) => {
   if (!tagId) {
-    showToast({ message: '标签信息不完整', duration: 1000 });
-    return;
+    showToast({ message: '标签信息不完整', duration: 1000 })
+    return
   }
   router.push({
-    path: `/tag/${tagId}`, // 跳转到标签页面，路径包含标签ID
-  });
-};
-
+    path: `/tag/${tagId}` // 跳转到标签页面，路径包含标签ID
+  })
+}
 </script>
 
 <style scoped>
@@ -790,7 +805,6 @@ const handleTagClick = (tagId) => {
   font-size: 16px;
   padding: 8px 6px;
   height: auto;
-
 }
 
 .advanced-filter {
@@ -802,7 +816,7 @@ const handleTagClick = (tagId) => {
   margin: 0 5%;
   z-index: 100;
   background-color: #fff;
-  border: 1px solid rgba(212,165,165,0.35) !important;
+  border: 1px solid rgba(212, 165, 165, 0.35) !important;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.05);
 }
 
@@ -813,15 +827,14 @@ const handleTagClick = (tagId) => {
 .van-popup {
   display: flex;
   flex-direction: column;
-  z-index: 9999 !important; 
-  
+  z-index: 9999 !important;
 }
 
 .tag-popup-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px; 
+  padding: 12px 16px;
   border-bottom: 1px solid #eee;
 }
 
@@ -853,8 +866,8 @@ const handleTagClick = (tagId) => {
 }
 
 ::v-deep .tag-list .van-tag {
-  padding: 2px 10px !important; 
-  border-radius: 20px !important; 
+  padding: 2px 10px !important;
+  border-radius: 20px !important;
   font-size: 12px !important;
   height: 30px;
 }
@@ -913,7 +926,7 @@ const handleTagClick = (tagId) => {
   background-color: #faf8f3;
 }
 
-::v-deep .van-search{ 
+::v-deep .van-search {
   padding: 0 0 0 10px;
   height: 70px;
   .van-search__content {
@@ -922,7 +935,7 @@ const handleTagClick = (tagId) => {
     border-radius: 20px !important;
     overflow: hidden;
     background-color: #ffffff !important;
-    border: 1px solid rgba(212,165,165,0.35) !important;
+    border: 1px solid rgba(212, 165, 165, 0.35) !important;
   }
 }
 
@@ -963,7 +976,7 @@ const handleTagClick = (tagId) => {
 .primary-btn:active {
   transform: translateY(0);
   opacity: 0.95;
-  box-shadow: 0 2px 8px rgba(212,165,165,0.25);
+  box-shadow: 0 2px 8px rgba(212, 165, 165, 0.25);
 }
 
 .primary-btn.active {
@@ -983,7 +996,7 @@ const handleTagClick = (tagId) => {
   display: flex;
   gap: 8px;
   margin: 10px 16px 0 16px;
-  overflow-x: auto; 
+  overflow-x: auto;
 }
 
 /* 自定义按钮样式 */
@@ -998,7 +1011,6 @@ const handleTagClick = (tagId) => {
   border: 1px solid #c78c8c;
 }
 
-
 /* 标签点击反馈（在弹窗中生效） */
 ::v-deep .tag-list .van-tag:active {
   transform: translateY(0);
@@ -1008,7 +1020,7 @@ const handleTagClick = (tagId) => {
 /* 列表项点击反馈（搜索结果 / 排行榜） */
 .ranking-item:active,
 .result-item:active {
-  background-color: rgba(0,0,0,0.02);
+  background-color: rgba(0, 0, 0, 0.02);
 }
 
 /* 搜索历史样式 */
@@ -1038,7 +1050,7 @@ const handleTagClick = (tagId) => {
   background-color: #fff;
   margin-bottom: 10px;
   padding: 16px;
-  width:88%;
+  width: 88%;
   margin-left: auto;
   margin-right: auto;
   border-radius: 10px;
@@ -1186,8 +1198,8 @@ const handleTagClick = (tagId) => {
 }
 
 .result-cover {
-  width: 150px;  
-  height: 100px;  
+  width: 150px;
+  height: 100px;
   border-radius: 4px;
   flex-shrink: 0;
   overflow: hidden;
@@ -1215,20 +1227,20 @@ const handleTagClick = (tagId) => {
 }
 
 .result-author {
-  font-size: 12px; 
+  font-size: 12px;
   color: #666;
   margin: 0 0 6px 0;
 }
 
 .result-tags {
   display: flex;
-  gap: 4px; 
+  gap: 4px;
   flex-wrap: wrap;
 }
 
 .result-desc {
-  font-size: 12px; 
-  color: #888;      
+  font-size: 12px;
+  color: #888;
   margin: 0 0 10px 0;
   display: -webkit-box;
   line-clamp: 2;

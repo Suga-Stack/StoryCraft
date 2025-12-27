@@ -77,7 +77,7 @@ export function useAutoPlay(dependencies = {}) {
   // 启动自动播放定时器
   const startAutoPlayTimer = () => {
     stopAutoPlayTimer()
-    
+
     if (!autoPlayEnabled.value) {
       return
     }
@@ -98,7 +98,10 @@ export function useAutoPlay(dependencies = {}) {
   const saveAutoPlayPrefs = () => {
     try {
       localStorage.setItem('autoPlayEnabled', JSON.stringify(autoPlayEnabled.value))
-      localStorage.setItem('autoPlayIntervalMs', JSON.stringify(clampInterval(autoPlayIntervalMs.value)))
+      localStorage.setItem(
+        'autoPlayIntervalMs',
+        JSON.stringify(clampInterval(autoPlayIntervalMs.value))
+      )
     } catch (error) {
       console.warn('[AutoPlay] Failed to save preferences:', error)
     }
@@ -109,7 +112,7 @@ export function useAutoPlay(dependencies = {}) {
     try {
       const enabled = JSON.parse(localStorage.getItem('autoPlayEnabled'))
       const interval = JSON.parse(localStorage.getItem('autoPlayIntervalMs'))
-      
+
       if (typeof enabled === 'boolean') {
         autoPlayEnabled.value = enabled
       }
@@ -124,7 +127,7 @@ export function useAutoPlay(dependencies = {}) {
   // 监听自动播放状态和间隔变化
   watch([autoPlayEnabled, autoPlayIntervalMs], () => {
     saveAutoPlayPrefs()
-    
+
     if (autoPlayEnabled.value) {
       startAutoPlayTimer()
     } else {
@@ -143,7 +146,7 @@ export function useAutoPlay(dependencies = {}) {
     (newState, oldState) => {
       // 如果自动播放未启用,不做处理
       if (!autoPlayEnabled.value) return
-      
+
       // 如果从不能自动前进变为可以自动前进,重启定时器
       if (newState.canAdvance && !oldState?.canAdvance) {
         startAutoPlayTimer()

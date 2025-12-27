@@ -17,20 +17,14 @@ import { getUserId } from './http.js'
  * @returns {Object} - 返回控制对象 { close, reconnect }
  */
 export function createSSEConnection(workId, options = {}) {
-  const {
-    resumeAfterSeq,
-    onMessage,
-    onError,
-    onOpen,
-    onClose
-  } = options
+  const { resumeAfterSeq, onMessage, onError, onOpen, onClose } = options
 
   const userId = getUserId()
   // 检测是否在 Capacitor 环境
   const isCapacitor = window.Capacitor !== undefined
   const baseURL = import.meta.env.VITE_API_BASE_URL || 'https://storycraft.work.gd'
   console.log('[startSSE] isCapacitor:', isCapacitor, 'baseURL:', baseURL)
-  
+
   // 构建 SSE URL
   let url = `${baseURL}/api/story/${workId}/stream?userId=${userId}`
   if (resumeAfterSeq !== undefined) {
@@ -56,12 +50,12 @@ export function createSSEConnection(workId, options = {}) {
       eventSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data)
-          
+
           // 更新最后接收的序号
           if (data.seq !== undefined) {
             lastSeq = data.seq
           }
-          
+
           if (onMessage) onMessage(data)
         } catch (error) {
           console.error('Failed to parse SSE message:', error)
@@ -70,9 +64,9 @@ export function createSSEConnection(workId, options = {}) {
 
       eventSource.onerror = (error) => {
         console.error('SSE connection error:', error)
-        
+
         if (onError) onError(error)
-        
+
         // 自动重连(如果连接未被主动关闭)
         if (!isClosed && eventSource.readyState === EventSource.CLOSED) {
           attemptReconnect()
@@ -86,7 +80,7 @@ export function createSSEConnection(workId, options = {}) {
 
   function attemptReconnect() {
     if (isClosed) return
-    
+
     // 5秒后尝试重连
     reconnectTimer = setTimeout(() => {
       console.log('Attempting to reconnect SSE...')
@@ -101,17 +95,17 @@ export function createSSEConnection(workId, options = {}) {
 
   function close() {
     isClosed = true
-    
+
     if (reconnectTimer) {
       clearTimeout(reconnectTimer)
       reconnectTimer = null
     }
-    
+
     if (eventSource) {
       eventSource.close()
       eventSource = null
     }
-    
+
     if (onClose) onClose()
   }
 
@@ -143,20 +137,14 @@ export function createSSEConnection(workId, options = {}) {
  * @returns {Object} - 返回控制对象 { send, close, reconnect }
  */
 export function createWebSocketConnection(workId, options = {}) {
-  const {
-    resumeAfterSeq,
-    onMessage,
-    onError,
-    onOpen,
-    onClose
-  } = options
+  const { resumeAfterSeq, onMessage, onError, onOpen, onClose } = options
 
   const userId = getUserId()
   // 检测是否在 Capacitor 环境
   const isCapacitor = window.Capacitor !== undefined
   const baseURL = import.meta.env.VITE_WS_BASE_URL || 'ws://storycraft.work.gd'
   console.log('[startWebSocket] isCapacitor:', isCapacitor, 'baseURL:', baseURL)
-  
+
   // 构建 WebSocket URL
   let url = `${baseURL}/api/story/${workId}/ws?userId=${userId}`
   if (resumeAfterSeq !== undefined) {
@@ -182,12 +170,12 @@ export function createWebSocketConnection(workId, options = {}) {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data)
-          
+
           // 更新最后接收的序号
           if (data.seq !== undefined) {
             lastSeq = data.seq
           }
-          
+
           if (onMessage) onMessage(data)
         } catch (error) {
           console.error('Failed to parse WebSocket message:', error)
@@ -201,7 +189,7 @@ export function createWebSocketConnection(workId, options = {}) {
 
       ws.onclose = () => {
         console.log('WebSocket connection closed')
-        
+
         // 自动重连(如果连接未被主动关闭)
         if (!isClosed) {
           attemptReconnect()
@@ -215,7 +203,7 @@ export function createWebSocketConnection(workId, options = {}) {
 
   function attemptReconnect() {
     if (isClosed) return
-    
+
     // 3秒后尝试重连
     reconnectTimer = setTimeout(() => {
       console.log('Attempting to reconnect WebSocket...')
@@ -238,17 +226,17 @@ export function createWebSocketConnection(workId, options = {}) {
 
   function close() {
     isClosed = true
-    
+
     if (reconnectTimer) {
       clearTimeout(reconnectTimer)
       reconnectTimer = null
     }
-    
+
     if (ws) {
       ws.close()
       ws = null
     }
-    
+
     if (onClose) onClose()
   }
 
@@ -277,17 +265,17 @@ export function createWebSocketConnection(workId, options = {}) {
 export function parseNDJSON(ndjsonText) {
   const lines = ndjsonText.trim().split('\n')
   const results = []
-  
+
   for (const line of lines) {
     if (!line.trim()) continue
-    
+
     try {
       results.push(JSON.parse(line))
     } catch (error) {
       console.error('Failed to parse NDJSON line:', line, error)
     }
   }
-  
+
   return results
 }
 

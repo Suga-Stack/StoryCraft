@@ -18,14 +18,14 @@ const getBaseURL = () => {
     console.log('[getBaseURL] 使用环境变量 VITE_API_BASE_URL:', url)
     return url
   }
-  
+
   // 在 Capacitor Android 应用中,默认使用远程服务器
   // (因为 10.0.2.2 只能在模拟器中访问宿主机,真机需要实际 IP)
   if (isCapacitor()) {
     console.log('[getBaseURL] Capacitor 环境,使用远程服务器')
     return 'https://storycraft.work.gd'
   }
-  
+
   // 浏览器环境:默认使用远程服务器地址
   console.log('[getBaseURL] 浏览器环境,使用远程服务器')
   return 'https://storycraft.work.gd'
@@ -40,12 +40,18 @@ console.log('[HTTP Client] 初始化,BASE_URL:', BASE_URL)
 function getAuthToken() {
   // 优先从 window 对象获取注入的 token
   if (window.__STORYCRAFT_AUTH_TOKEN__) {
-    console.log('[getAuthToken] 使用 window.__STORYCRAFT_AUTH_TOKEN__:', window.__STORYCRAFT_AUTH_TOKEN__)
+    console.log(
+      '[getAuthToken] 使用 window.__STORYCRAFT_AUTH_TOKEN__:',
+      window.__STORYCRAFT_AUTH_TOKEN__
+    )
     return window.__STORYCRAFT_AUTH_TOKEN__
   }
   // 从 localStorage 获取（统一使用 'token' 作为 key）
   const token = localStorage.getItem('token')
-  console.log('[getAuthToken] 从 localStorage 读取 token:', token ? '存在(' + token.substring(0, 20) + '...)' : '不存在')
+  console.log(
+    '[getAuthToken] 从 localStorage 读取 token:',
+    token ? '存在(' + token.substring(0, 20) + '...)' : '不存在'
+  )
   return token
 }
 
@@ -152,7 +158,9 @@ class HttpClient {
         })
 
         // 统一错误格式
-        const customError = new Error(error.response?.statusText || error.message || 'Request failed')
+        const customError = new Error(
+          error.response?.statusText || error.message || 'Request failed'
+        )
         customError.status = error.response?.status
         customError.data = error.response?.data
         customError.code = error.code

@@ -7,7 +7,7 @@
  * 延迟函数,模拟网络延迟
  * @param {number} ms - 延迟毫秒数
  */
-const delay = (ms = 500) => new Promise(resolve => setTimeout(resolve, ms))
+const delay = (ms = 500) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /**
  * Mock 存档服务
@@ -42,20 +42,20 @@ export class MockSaveService {
    */
   async saveGame(workId, slot, saveData) {
     await delay(300)
-    
+
     const allSaves = this.getAllSaves()
-    
+
     if (!allSaves[workId]) {
       allSaves[workId] = {}
     }
-    
+
     allSaves[workId][slot] = {
       data: saveData,
       timestamp: Date.now()
     }
-    
+
     this.setAllSaves(allSaves)
-    
+
     console.log('Mock save:', workId, slot)
     return { ok: true }
   }
@@ -65,10 +65,10 @@ export class MockSaveService {
    */
   async loadGame(workId, slot) {
     await delay(200)
-    
+
     const allSaves = this.getAllSaves()
     const save = allSaves[workId]?.[slot]
-    
+
     console.log('Mock load:', workId, slot, save ? 'found' : 'not found')
     return save || null
   }
@@ -78,11 +78,11 @@ export class MockSaveService {
    */
   async getSavesList(workId) {
     await delay(200)
-    
+
     const allSaves = this.getAllSaves()
     const workSaves = allSaves[workId] || {}
-    
-    return Object.keys(workSaves).map(slot => ({
+
+    return Object.keys(workSaves).map((slot) => ({
       slot,
       timestamp: workSaves[slot].timestamp,
       excerpt: this.generateExcerpt(workSaves[slot].data)
@@ -94,14 +94,14 @@ export class MockSaveService {
    */
   async deleteSave(workId, slot) {
     await delay(200)
-    
+
     const allSaves = this.getAllSaves()
-    
+
     if (allSaves[workId]?.[slot]) {
       delete allSaves[workId][slot]
       this.setAllSaves(allSaves)
     }
-    
+
     console.log('Mock delete:', workId, slot)
     return { ok: true }
   }
@@ -111,16 +111,16 @@ export class MockSaveService {
    */
   generateExcerpt(saveData) {
     if (!saveData) return ''
-    
+
     const { currentSceneIndex, storyScenes } = saveData
     const currentScene = storyScenes?.[currentSceneIndex]
-    
+
     if (currentScene?.dialogues?.length > 0) {
       const dialogue = currentScene.dialogues[0]
       const text = typeof dialogue === 'string' ? dialogue : dialogue.text
       return text.substring(0, 30) + '...'
     }
-    
+
     return '未知场景'
   }
 }
@@ -134,17 +134,17 @@ export class MockStoryService {
    */
   async getNextScenes(workId, afterSceneId) {
     await delay(800)
-    
+
     // 模拟生成中
     if (Math.random() < 0.1) {
       return { generating: true, end: false, nextScenes: [] }
     }
-    
+
     // 模拟结束
     if (Math.random() < 0.2) {
       return { end: true }
     }
-    
+
     // 返回模拟场景
     return {
       end: false,
@@ -167,17 +167,14 @@ export class MockStoryService {
    */
   async submitChoice(workId, choiceId, context) {
     await delay(600)
-    
+
     return {
-      attributesDelta: { '心计': 2, '声望': 1 },
-      statusesDelta: { '德妃印象': 3 },
+      attributesDelta: { 心计: 2, 声望: 1 },
+      statusesDelta: { 德妃印象: 3 },
       insertScenes: [
         {
           id: `choice_scene_${Date.now()}`,
-          dialogues: [
-            '你的选择让局势发生了微妙的变化……',
-            '德妃若有所思地看着你。'
-          ]
+          dialogues: ['你的选择让局势发生了微妙的变化……', '德妃若有所思地看着你。']
         }
       ],
       end: false
@@ -189,7 +186,7 @@ export class MockStoryService {
    */
   async getWorkInfo(workId) {
     await delay(300)
-    
+
     return {
       id: workId,
       title: '锦瑟深宫',
@@ -204,7 +201,7 @@ export class MockStoryService {
    */
   async getInitialScenes(workId) {
     await delay(500)
-    
+
     return [
       {
         id: 1,

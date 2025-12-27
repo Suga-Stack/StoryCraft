@@ -11,13 +11,10 @@ import { StatusBar, Style } from '@capacitor/status-bar'
 const app = createApp(App)
 const pinia = createPinia()
 
-
 app.use(Vant)
 app.use(pinia)
 app.use(router)
 app.mount('#app')
-
-
 
 // 设置状态栏样式
 if (Capacitor.getPlatform() === 'android') {
@@ -99,4 +96,3 @@ if (Capacitor.getPlatform() === 'android') {
   document.addEventListener('touchmove', onTouchMove, { passive: true })
   document.addEventListener('touchend', onTouchEnd, { passive: true })
 }
-

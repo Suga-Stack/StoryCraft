@@ -47,7 +47,9 @@ export async function createWorkOnBackend(payload = {}) {
   // 新接口约定：POST 返回 { gameworkId }，随后需轮询 GET /api/gameworks/gameworks/{id}/
   if (!res || !res.gameworkId) {
     // 如果没有按约定返回 id，抛出错误（不再兼容旧格式）
-    const err = new Error('createWork: unexpected response from /api/game/create, missing gameworkId')
+    const err = new Error(
+      'createWork: unexpected response from /api/game/create, missing gameworkId'
+    )
     err.raw = res
     throw err
   }
@@ -69,7 +71,7 @@ export async function createWorkOnBackend(payload = {}) {
       // 忽略单次轮询错误，继续重试直到超时
       console.warn('polling gamework details failed, will retry', err)
     }
-    await new Promise(r => setTimeout(r, pollIntervalMs))
+    await new Promise((r) => setTimeout(r, pollIntervalMs))
   }
 
   // 超时：抛出错误以由调用方处理（前端可展示超时提示）

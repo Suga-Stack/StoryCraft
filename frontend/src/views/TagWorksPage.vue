@@ -28,8 +28,20 @@
         :aria-label="isTagsOpen ? '收起标签' : '展开标签'"
         title="切换标签显示"
       >
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M6 14l6-6 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <svg
+          viewBox="0 0 24 24"
+          width="20"
+          height="20"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="M6 14l6-6 6 6"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
         </svg>
       </button>
     </div>
@@ -61,50 +73,52 @@
 
       <!-- 作品列表 -->
       <div v-else class="works-grid">
-        <div 
-          v-for="work in works" 
-          :key="work.id" 
+        <div
+          v-for="work in works"
+          :key="work.id"
           class="work-card"
           @click="navigateToWorkDetail(work.id)"
         >
           <div class="cover-container">
-          <!-- 封面图 -->
-          <img :src="work.image_url" alt="作品封面" class="work-cover" />
-          <!-- 渐变遮罩层（单独一层，仅负责渐变效果） -->
-          <div class="gradient-mask"></div>
-          <!-- 文字内容层（只放文字，不包含背景） -->
-          <div class="text-content">
-            <h3 class="work-title">{{ work.title }}</h3>
-            <p class="work-description">{{ work.description }}</p>
-            <div class="work-meta">
-              <span class="author">作者: {{ work.author }}</span>
-              <span class="price">¥{{ work.price }}</span>
+            <!-- 封面图 -->
+            <img :src="work.image_url" alt="作品封面" class="work-cover" />
+            <!-- 渐变遮罩层（单独一层，仅负责渐变效果） -->
+            <div class="gradient-mask"></div>
+            <!-- 文字内容层（只放文字，不包含背景） -->
+            <div class="text-content">
+              <h3 class="work-title">{{ work.title }}</h3>
+              <p class="work-description">{{ work.description }}</p>
+              <div class="work-meta">
+                <span class="author">作者: {{ work.author }}</span>
+                <span class="price">¥{{ work.price }}</span>
+              </div>
             </div>
           </div>
-        </div>
         </div>
       </div>
 
       <!-- 简洁的上一页/下一页与页码信息 -->
-      <div v-if="works.length!=0 && !isLoading" class="pager-controls">
+      <div v-if="works.length != 0 && !isLoading" class="pager-controls">
         <button class="pager-btn" :disabled="currentPage <= 1" @click="goPrevPage">上一页</button>
         <span class="pager-info">第 {{ currentPage }} 页</span>
-        <button class="pager-btn" :disabled="works.length < pageSize" @click="goNextPage">下一页</button>
+        <button class="pager-btn" :disabled="works.length < pageSize" @click="goNextPage">
+          下一页
+        </button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
-import { NavBar, Loading, Empty, Pagination } from 'vant';
-import { search } from '../api/user'; // 导入搜索接口
-import { defaultTags } from '../config/tags'; // 导入标签数据
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { NavBar, Loading, Empty, Pagination } from 'vant'
+import { search } from '../api/user' // 导入搜索接口
+import { defaultTags } from '../config/tags' // 导入标签数据
 
 // 路由与导航
-const router = useRouter();
-const route = useRoute();
+const router = useRouter()
+const route = useRoute()
 
 // 标签分类数据
 const categories = ref([
@@ -112,138 +126,138 @@ const categories = ref([
   { name: '风格', range: [17, 49] },
   { name: '世界观', range: [50, 64] },
   { name: '题材', range: [65, 89] }
-]);
+])
 
 // 状态管理
-const currentCategory = ref(0); // 当前选中的分类索引
-const currentTagId = ref(''); // 当前选中的标签ID（字符串便于路由参数比较）
-const currentTagName = ref(''); // 当前标签名称
-const allTags = ref([...defaultTags]); // 所有标签数据
-const isLoading = ref(false); // 加载状态
-const isTagsOpen = ref(false); // 标签区是否展开（初始收起，箭头朝上）
+const currentCategory = ref(0) // 当前选中的分类索引
+const currentTagId = ref('') // 当前选中的标签ID（字符串便于路由参数比较）
+const currentTagName = ref('') // 当前标签名称
+const allTags = ref([...defaultTags]) // 所有标签数据
+const isLoading = ref(false) // 加载状态
+const isTagsOpen = ref(false) // 标签区是否展开（初始收起，箭头朝上）
 
 // 作品列表相关
-const works = ref([]);
-const currentPage = ref(1);
-const pageSize = ref(10);
+const works = ref([])
+const currentPage = ref(1)
+const pageSize = ref(10)
 
 // 筛选当前分类的标签
 const filteredTags = computed(() => {
-  const { range } = categories.value[currentCategory.value];
-  const [min, max] = range;
-  return allTags.value.filter(tag => tag.id >= min && tag.id <= max);
-});
+  const { range } = categories.value[currentCategory.value]
+  const [min, max] = range
+  return allTags.value.filter((tag) => tag.id >= min && tag.id <= max)
+})
 
 // 从路由参数初始化标签
 onMounted(() => {
-  const paramId = route.params.id; // 来自 /tag/:id
-  const queryId = route.query.tagId; 
-  const tagId = paramId || queryId;
-  const tagName = route.query.tagName || '';
+  const paramId = route.params.id // 来自 /tag/:id
+  const queryId = route.query.tagId
+  const tagId = paramId || queryId
+  const tagName = route.query.tagName || ''
   if (tagId) {
-    currentTagId.value = String(tagId);
-    currentTagName.value = String(tagName);
-    switchTagCategory(tagId);
-    isTagsOpen.value = true; // 进入页面时展开标签区
-    currentPage.value = 1;
-    fetchWorks();
+    currentTagId.value = String(tagId)
+    currentTagName.value = String(tagName)
+    switchTagCategory(tagId)
+    isTagsOpen.value = true // 进入页面时展开标签区
+    currentPage.value = 1
+    fetchWorks()
   }
-});
+})
 
 // 监听路由参数变化，支持从其他页面再次跳转到不同标签
 watch(
   () => route.params.id,
   (newId, oldId) => {
     if (newId && newId !== oldId) {
-      currentTagId.value = String(newId);
-      currentTagName.value = String(route.query.tagName || '');
-      switchTagCategory(newId);
-      isTagsOpen.value = true;
-      currentPage.value = 1;
-      fetchWorks();
+      currentTagId.value = String(newId)
+      currentTagName.value = String(route.query.tagName || '')
+      switchTagCategory(newId)
+      isTagsOpen.value = true
+      currentPage.value = 1
+      fetchWorks()
     }
   }
-);
+)
 
 // 根据标签ID切换到对应分类
 const switchTagCategory = (tagId) => {
-  const tagIdNum = Number(tagId);
-  const targetCategory = categories.value.findIndex(cat => {
-    const [min, max] = cat.range;
-    return tagIdNum >= min && tagIdNum <= max;
-  });
+  const tagIdNum = Number(tagId)
+  const targetCategory = categories.value.findIndex((cat) => {
+    const [min, max] = cat.range
+    return tagIdNum >= min && tagIdNum <= max
+  })
   if (targetCategory !== -1) {
-    currentCategory.value = targetCategory;
+    currentCategory.value = targetCategory
   }
-};
+}
 
 // 切换分类
 const switchCategory = (index) => {
-  currentCategory.value = index;
-  currentPage.value = 1; // 切换分类重置分页
+  currentCategory.value = index
+  currentPage.value = 1 // 切换分类重置分页
   // 分类按钮仅负责切换分类，且始终展开标签区
-  isTagsOpen.value = true;
-};
+  isTagsOpen.value = true
+}
 
 // 点击标签
 const handleTagClick = (tag) => {
-  currentTagId.value = tag.id.toString();
-  currentTagName.value = tag.name;
-  currentPage.value = 1; // 切换标签重置分页
-  fetchWorks();
-};
+  currentTagId.value = tag.id.toString()
+  currentTagName.value = tag.name
+  currentPage.value = 1 // 切换标签重置分页
+  fetchWorks()
+}
 
 // 切换标签区域显隐（与按钮行为一致）
 const toggleTagsSection = () => {
-  isTagsOpen.value = !isTagsOpen.value;
-};
+  isTagsOpen.value = !isTagsOpen.value
+}
 
 // 获取标签下的作品
 const fetchWorks = async () => {
-  if (!currentTagId.value) return;
+  if (!currentTagId.value) return
 
-  isLoading.value = true;
+  isLoading.value = true
   try {
     const response = await search(
       currentPage.value,
       '', // 空搜索词
       '', // 空作者筛选
       currentTagId.value // 标签ID
-    );
-    works.value = response.data.data || [];
+    )
+    works.value = response.data.data || []
   } catch (error) {
-    console.error('获取作品失败:', error);
-    vanToast('加载作品失败，请重试');
+    console.error('获取作品失败:', error)
+    vanToast('加载作品失败，请重试')
   } finally {
-    isLoading.value = false;
+    isLoading.value = false
   }
-};
+}
 
 // 监听页码变化，统一触发加载，避免多处手动调用
 watch(currentPage, (newVal, oldVal) => {
   if (newVal !== oldVal) {
-    fetchWorks();
+    fetchWorks()
   }
-});
+})
 
 // 上一页/下一页控制
 const goPrevPage = () => {
-  if (currentPage.value > 1) currentPage.value -= 1;
-};
+  if (currentPage.value > 1) currentPage.value -= 1
+}
 const goNextPage = () => {
   // 只有本页数据满 pageSize 才能翻到下一页
-  if (works.value.length >= pageSize.value) currentPage.value += 1;
-};
+  if (works.value.length >= pageSize.value) currentPage.value += 1
+}
 
 // 导航到作品详情
 const navigateToWorkDetail = (workId) => {
-  router.push(`/works/${workId}`);
-};
+  router.push(`/works/${workId}`)
+}
 
 // 返回上一页
 const handleBack = () => {
-  router.back();
-};
+  router.back()
+}
 </script>
 
 <style scoped>
@@ -253,7 +267,7 @@ const handleBack = () => {
 }
 ::v-deep .van-nav-bar__title,
 ::v-deep .van-nav-bar__left .van-icon {
-  color: #54494B; 
+  color: #54494b;
 }
 .tag-works-page {
   background-color: #faf8f3;
@@ -268,11 +282,11 @@ const handleBack = () => {
   gap: 0.5rem;
   padding: 0.5rem 0.4rem;
   background-color: #faf8f3;
-  border-bottom: 1px solid rgba(212,165,165,0.18);
+  border-bottom: 1px solid rgba(212, 165, 165, 0.18);
 }
 
 .category-tab {
-  padding: 0.36rem 0.8rem; 
+  padding: 0.36rem 0.8rem;
   border-radius: 10px;
   border: 1px solid transparent;
   background: #efefef;
@@ -287,7 +301,7 @@ const handleBack = () => {
 .category-tab.active {
   background: #fff;
   color: #2c1810;
-  border-color: rgba(212,165,165,0.18);
+  border-color: rgba(212, 165, 165, 0.18);
   font-weight: 700;
 }
 
@@ -300,13 +314,13 @@ const handleBack = () => {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  border: 1px solid rgba(212,165,165,0.35);
+  border: 1px solid rgba(212, 165, 165, 0.35);
   background: #efefef;
   color: #6b6b6b;
   cursor: pointer;
   align-self: flex-start;
-  flex-shrink: 0; 
- }
+  flex-shrink: 0;
+}
 
 .toggle-arrow:hover {
   background: #fff;
@@ -314,19 +328,19 @@ const handleBack = () => {
 }
 
 .toggle-arrow svg {
-  transform: rotate(0deg); 
+  transform: rotate(0deg);
   transition: transform 0.2s ease;
 }
 
 .toggle-arrow.open svg {
-  transform: rotate(180deg); 
+  transform: rotate(180deg);
 }
 
 /* 标签列表区域 */
 .tags-section {
   max-width: 960px;
   background: #fff;
-  border: 1px solid rgba(212,165,165,0.35);
+  border: 1px solid rgba(212, 165, 165, 0.35);
   border-radius: 12px;
   padding: 1rem;
 }
@@ -340,7 +354,7 @@ const handleBack = () => {
 .tag-btn {
   padding: 0.6rem 0.8rem;
   border-radius: 999px;
-  border: 1px solid rgba(212,165,165,0.35);
+  border: 1px solid rgba(212, 165, 165, 0.35);
   background: #fff;
   color: #2c1810;
   cursor: pointer;
@@ -353,7 +367,7 @@ const handleBack = () => {
 
 .tag-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(0,0,0,0.08);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
 }
 
 .tag-btn.selected {
@@ -388,7 +402,7 @@ const handleBack = () => {
 .work-card {
   border-radius: 8px;
   overflow: hidden;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   cursor: pointer;
   transition: transform 0.2s ease;
   transform: scale(0.95); /* 整体缩小一点 */
@@ -413,10 +427,10 @@ const handleBack = () => {
   /* 让图片本身从上到下逐渐透明淡出（兼容 WebKit） */
   -webkit-mask-image: linear-gradient(
     to bottom,
-    rgba(0, 0, 0, 1) 0%,    /* 顶部完全显示 */
-    rgba(0, 0, 0, 1) 20%,   /* 上20%保持显示 */
-    rgba(0, 0, 0, 0.4) 60%, /* 中间开始淡出 */
-    rgba(0, 0, 0, 0) 100%   /* 底部完全透明 */
+    rgba(0, 0, 0, 1) 0%,
+    /* 顶部完全显示 */ rgba(0, 0, 0, 1) 20%,
+    /* 上20%保持显示 */ rgba(0, 0, 0, 0.4) 60%,
+    /* 中间开始淡出 */ rgba(0, 0, 0, 0) 100% /* 底部完全透明 */
   );
   mask-image: linear-gradient(
     to bottom,
@@ -427,12 +441,11 @@ const handleBack = () => {
   );
 }
 
-
 .gradient-mask {
   position: absolute;
-  inset: 0; 
+  inset: 0;
   background: transparent;
-  z-index: 1; 
+  z-index: 1;
 }
 
 .text-content {
@@ -442,9 +455,14 @@ const handleBack = () => {
   color: #ffffff;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end; 
-  z-index: 2; 
-  background: linear-gradient(to top, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.25) 35%, rgba(0,0,0,0) 70%);
+  justify-content: flex-end;
+  z-index: 2;
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.55) 0%,
+    rgba(0, 0, 0, 0.25) 35%,
+    rgba(0, 0, 0, 0) 70%
+  );
 }
 
 .work-title {
@@ -453,7 +471,7 @@ const handleBack = () => {
   letter-spacing: 0.2px;
   margin: 0 0 0.6rem 0;
   color: #ffffff;
-  text-shadow: 0 3px 8px rgba(0,0,0,0.65);
+  text-shadow: 0 3px 8px rgba(0, 0, 0, 0.65);
 }
 
 .work-description {
@@ -465,7 +483,7 @@ const handleBack = () => {
   -webkit-box-orient: vertical;
   overflow: hidden;
   color: #f2f2f2;
-  text-shadow: 0 2px 6px rgba(0,0,0,0.6);
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
 }
 
 .work-meta {
@@ -473,16 +491,16 @@ const handleBack = () => {
   justify-content: space-between;
   font-size: 0.85rem;
   padding-top: 0.5rem;
-  border-top: 1px solid rgba(255,255,255,0.2);
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .author {
-  color: #ffdd77; 
+  color: #ffdd77;
 }
 
 .price {
   font-weight: 500;
-  color: #ffd700; 
+  color: #ffd700;
 }
 
 .pagination {
@@ -501,7 +519,7 @@ const handleBack = () => {
 .pager-btn {
   padding: 6px 12px;
   border-radius: 6px;
-  border: 1px solid rgba(212,165,165,0.35);
+  border: 1px solid rgba(212, 165, 165, 0.35);
   background: #fff;
   color: #2c1810;
   cursor: pointer;
@@ -513,7 +531,7 @@ const handleBack = () => {
 }
 .pager-btn:not(:disabled):hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 .pager-info {

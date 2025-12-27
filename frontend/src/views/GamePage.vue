@@ -10,7 +10,15 @@ import * as storyService from '../service/story.js'
 import { getCurrentUserId, deepClone } from '../utils/auth.js'
 import { sanitize } from '../utils/sensitiveFilter.js'
 import { showToast as vantToast } from 'vant'
-import { USE_MOCK_STORY, USE_MOCK_SAVE, FORCE_CREATOR_FOR_TEST, isCreatorIdentity, editorInvocation, creatorFeatureEnabled, modifiableFromCreate } from '../config/gamepage.js'
+import {
+  USE_MOCK_STORY,
+  USE_MOCK_SAVE,
+  FORCE_CREATOR_FOR_TEST,
+  isCreatorIdentity,
+  editorInvocation,
+  creatorFeatureEnabled,
+  modifiableFromCreate
+} from '../config/gamepage.js'
 import { useSaveLoad } from '../composables/useSaveLoad.js'
 import { useAutoPlay } from '../composables/useAutoPlay.js'
 import { useStoryAPI } from '../composables/useStoryAPI.js'
@@ -70,8 +78,26 @@ let {
 // 从 route 初始化 work
 work.value = {
   id: route.params.id || 1,
-  title: history.state?.title || (() => { try { return JSON.parse(sessionStorage.getItem('lastWorkMeta'))?.title } catch { return null } })() || '锦瑟深宫',
-  coverUrl: history.state?.coverUrl || (() => { try { return JSON.parse(sessionStorage.getItem('lastWorkMeta'))?.coverUrl } catch { return null } })() || '',
+  title:
+    history.state?.title ||
+    (() => {
+      try {
+        return JSON.parse(sessionStorage.getItem('lastWorkMeta'))?.title
+      } catch {
+        return null
+      }
+    })() ||
+    '锦瑟深宫',
+  coverUrl:
+    history.state?.coverUrl ||
+    (() => {
+      try {
+        return JSON.parse(sessionStorage.getItem('lastWorkMeta'))?.coverUrl
+      } catch {
+        return null
+      }
+    })() ||
+    '',
   authorId: 'author_001'
 }
 
@@ -107,8 +133,16 @@ const {
 // 统一使用 Vant 的 showToast（样式与 CreateWork 中的一致）
 const showToast = (msg, ms = 1000, opts = {}) => {
   try {
-    vantToast({ message: String(msg || ''), duration: Number(ms) || 1000, position: 'top', forbidClick: true, className: 'sc-toast-gray' })
-  } catch (e) { console.warn('showToast failed', e) }
+    vantToast({
+      message: String(msg || ''),
+      duration: Number(ms) || 1000,
+      position: 'top',
+      forbidClick: true,
+      className: 'sc-toast-gray'
+    })
+  } catch (e) {
+    console.warn('showToast failed', e)
+  }
 }
 
 // 检测是否在 Capacitor 环境中
@@ -158,7 +192,7 @@ const {
   pendingOutlineTargetChapter,
   overrides,
   outlineEditorResolver,
-  
+
   toggleCreatorMode,
   openOutlineEditorManual,
   cancelOutlineEdits,
@@ -176,11 +210,11 @@ const {
   addNarration,
   deleteNarration,
   isNarration,
-  
+
   loadOverrides,
   saveOverrides,
   applyOverridesToScenes,
-  
+
   setupCreatorModeWatch,
   setDependencies: setCreatorModeDependencies
 } = creatorModeAPI
@@ -193,7 +227,9 @@ const currentDialogueObject = computed(() => {
     const idx = currentDialogueIndex.value
     if (idx < 0 || idx >= scene.dialogues.length) return null
     return scene.dialogues[idx]
-  } catch (e) { return null }
+  } catch (e) {
+    return null
+  }
 })
 
 // 过滤后的大纲列表：只包含普通章节（不包括结局章节）
@@ -203,7 +239,7 @@ const filteredOutlineEdits = computed(() => {
     const total = Number(totalChapters.value) || 0
     if (total <= 0) return outlineEdits.value
     // 只返回 chapterIndex <= totalChapters 的章节
-    return outlineEdits.value.filter(item => {
+    return outlineEdits.value.filter((item) => {
       const idx = Number(item.chapterIndex) || 0
       return idx > 0 && idx <= total
     })
@@ -215,16 +251,28 @@ const filteredOutlineEdits = computed(() => {
 
 // 是否为旁白
 const currentIsNarration = computed(() => {
-  try { return isNarration(currentDialogueObject.value) } catch (e) { return false }
+  try {
+    return isNarration(currentDialogueObject.value)
+  } catch (e) {
+    return false
+  }
 })
 
 // 尝试删除旁白：若不满足条件则给出提示
 const attemptDeleteNarration = () => {
   try {
-    if (!creatorMode.value) { showToast('尚未进入创作者模式', 1000); return }
-    if (!currentIsNarration.value) { showToast('当前不是旁白，无法删除', 1000); return }
+    if (!creatorMode.value) {
+      showToast('尚未进入创作者模式', 1000)
+      return
+    }
+    if (!currentIsNarration.value) {
+      showToast('当前不是旁白，无法删除', 1000)
+      return
+    }
     deleteNarration()
-  } catch (e) { console.warn('attemptDeleteNarration failed', e) }
+  } catch (e) {
+    console.warn('attemptDeleteNarration failed', e)
+  }
 }
 
 // 先定义 showSettingsModal，因为它被 anyOverlayOpen 使用
@@ -247,24 +295,38 @@ const musicInput = ref(null)
 const LOCAL_MUSIC_KEY = `local_music_${work.value && work.value.id ? work.value.id : 'global'}`
 
 // 可视化调试/状态对象（UI 已移除，仅保留数据用于日志）
-const audioDebug = ref({ src: '', muted: false, volume: 0, paused: true, readyState: 0, error: null, trackIndex: 0 })
+const audioDebug = ref({
+  src: '',
+  muted: false,
+  volume: 0,
+  paused: true,
+  readyState: 0,
+  error: null,
+  trackIndex: 0
+})
 
 // 收集前端可展示的音频相关日志（用于手机上调试）
 const audioLogs = ref([]) // 每项: { ts, level, msg }
 const pushAudioLog = (level, msg) => {
   try {
-    const ts = (new Date()).toISOString()
+    const ts = new Date().toISOString()
     const entry = { ts, level: String(level || 'info'), msg: String(msg || '') }
     audioLogs.value.unshift(entry)
     // 限制最大数，避免内存无限增长
     if (audioLogs.value.length > 200) audioLogs.value.length = 200
     console.log('[GamePage][audioLog]', entry)
-  } catch (e) { console.warn('pushAudioLog failed', e) }
+  } catch (e) {
+    console.warn('pushAudioLog failed', e)
+  }
 }
 
 const copyAudioLogs = async () => {
   try {
-    const text = JSON.stringify({ audioDebug: audioDebug.value, audioLogs: audioLogs.value }, null, 2)
+    const text = JSON.stringify(
+      { audioDebug: audioDebug.value, audioLogs: audioLogs.value },
+      null,
+      2
+    )
     if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(text)
       pushAudioLog('info', 'copied audio logs to clipboard')
@@ -280,28 +342,40 @@ const copyAudioLogs = async () => {
 }
 
 const clearAudioLogs = () => {
-  try { audioLogs.value = [] ; pushAudioLog('info', 'cleared audio logs') } catch (e) { console.warn('clearAudioLogs failed', e) }
+  try {
+    audioLogs.value = []
+    pushAudioLog('info', 'cleared audio logs')
+  } catch (e) {
+    console.warn('clearAudioLogs failed', e)
+  }
 }
-
 
 const updateAudioDebug = () => {
   try {
     if (!audioEl.value) return
     // 显示给用户的 src 优先使用原始请求的 src（_originalSrc），并在原生设备上将 localhost 替换为局域网 IP 以便手机端能访问
-    const originalSrc = (audioEl.value && audioEl.value._originalSrc) ? audioEl.value._originalSrc : (audioEl.value.src || '')
-    const displaySrc = (isNativeApp && isNativeApp.value) ? normalizeUrlForDevice(originalSrc) : originalSrc
+    const originalSrc =
+      audioEl.value && audioEl.value._originalSrc
+        ? audioEl.value._originalSrc
+        : audioEl.value.src || ''
+    const displaySrc =
+      isNativeApp.value && isNativeApp.value ? normalizeUrlForDevice(originalSrc) : originalSrc
     audioDebug.value = {
       src: displaySrc || '',
       muted: !!audioEl.value.muted,
       volume: typeof audioEl.value.volume === 'number' ? audioEl.value.volume : 0,
       paused: !!audioEl.value.paused,
       readyState: typeof audioEl.value.readyState === 'number' ? audioEl.value.readyState : 0,
-      error: audioEl.value && audioEl.value.error ? (audioEl.value.error.message || String(audioEl.value.error)) : null,
+      error:
+        audioEl.value && audioEl.value.error
+          ? audioEl.value.error.message || String(audioEl.value.error)
+          : null,
       trackIndex: Number(currentTrackIndex.value || 0)
     }
-  } catch (e) { console.warn('updateAudioDebug failed', e) }
+  } catch (e) {
+    console.warn('updateAudioDebug failed', e)
+  }
 }
-
 
 // 将 ArrayBuffer 转为 Base64（用于 Capacitor Filesystem 写入）
 const arrayBufferToBase64 = (buffer) => {
@@ -325,7 +399,9 @@ const loadHowler = async () => {
     _howlerModule = await import('howler')
     return _howlerModule
   } catch (e) {
-    try { pushAudioLog('error', `loadHowler failed: ${e && e.message ? e.message : e}`) } catch {}
+    try {
+      pushAudioLog('error', `loadHowler failed: ${e && e.message ? e.message : e}`)
+    } catch {}
     throw e
   }
 }
@@ -336,7 +412,9 @@ const audioPlayer = {
   async play(trackId, url, opts = {}) {
     try {
       if (this.sounds[trackId]) {
-        try { this.sounds[trackId].unload() } catch (e) {}
+        try {
+          this.sounds[trackId].unload()
+        } catch (e) {}
         delete this.sounds[trackId]
       }
       // 动态加载 Howler 模块
@@ -350,25 +428,55 @@ const audioPlayer = {
       return await new Promise((resolve, reject) => {
         const finalUrl = url
         pushAudioLog('info', `Howler.play start ${finalUrl}`)
-        const sound = new (HowlCtor || (typeof window !== 'undefined' && window.Audio ? function(cfg){ 
-          const a = new Audio(cfg.src && cfg.src[0])
-          a.preload = true
-          a.volume = cfg.volume || 0.8
-          a.muted = cfg.mute || false
-          a.addEventListener('canplay', ()=>{ try{ a.play() }catch{}; if (cfg.onload) cfg.onload() })
-          a.addEventListener('error', (ev)=> { if (cfg.onloaderror) cfg.onloaderror(0, ev) })
-          this._a = a
-          this.play = ()=>{ try{ a.play() }catch(e){} }
-          this.stop = ()=>{ try{ a.pause(); a.currentTime=0 }catch(e){} }
-          this.unload = ()=>{ try{ a.pause(); a.src=''; a.load() }catch(e){} }
-        } : HowlCtor))({
+        const sound = new (
+          HowlCtor ||
+          (typeof window !== 'undefined' && window.Audio
+            ? function (cfg) {
+                const a = new Audio(cfg.src && cfg.src[0])
+                a.preload = true
+                a.volume = cfg.volume || 0.8
+                a.muted = cfg.mute || false
+                a.addEventListener('canplay', () => {
+                  try {
+                    a.play()
+                  } catch {}
+                  if (cfg.onload) cfg.onload()
+                })
+                a.addEventListener('error', (ev) => {
+                  if (cfg.onloaderror) cfg.onloaderror(0, ev)
+                })
+                this._a = a
+                this.play = () => {
+                  try {
+                    a.play()
+                  } catch (e) {}
+                }
+                this.stop = () => {
+                  try {
+                    a.pause()
+                    a.currentTime = 0
+                  } catch (e) {}
+                }
+                this.unload = () => {
+                  try {
+                    a.pause()
+                    a.src = ''
+                    a.load()
+                  } catch (e) {}
+                }
+              }
+            : HowlCtor)
+        )({
           src: [finalUrl],
           html5: true,
           preload: true,
           mute: false,
-          volume: (audioEl.value && typeof audioEl.value.volume === 'number') ? audioEl.value.volume : 0.8,
+          volume:
+            audioEl.value && typeof audioEl.value.volume === 'number' ? audioEl.value.volume : 0.8,
           onload() {
-            try { sound.play() } catch (e) {}
+            try {
+              sound.play()
+            } catch (e) {}
             pushAudioLog('info', `Howler loaded and play called ${finalUrl}`)
             resolve(sound)
           },
@@ -385,7 +493,9 @@ const audioPlayer = {
             pushAudioLog('info', `Howler ended ${finalUrl}`)
           }
         })
-        try { this.sounds[trackId] = sound } catch (e) {}
+        try {
+          this.sounds[trackId] = sound
+        } catch (e) {}
       })
     } catch (e) {
       pushAudioLog('error', `audioPlayer.play failed: ${e && e.message ? e.message : e}`)
@@ -399,7 +509,7 @@ const audioPlayer = {
         s.pause()
         pushAudioLog('info', `Howler paused ${trackId}`)
       }
-    } catch (e) { 
+    } catch (e) {
       console.warn('audioPlayer.pause failed', e)
       pushAudioLog('error', `Howler pause failed: ${e && e.message ? e.message : e}`)
     }
@@ -411,7 +521,7 @@ const audioPlayer = {
         s.play()
         pushAudioLog('info', `Howler resumed ${trackId}`)
       }
-    } catch (e) { 
+    } catch (e) {
       console.warn('audioPlayer.resume failed', e)
       pushAudioLog('error', `Howler resume failed: ${e && e.message ? e.message : e}`)
     }
@@ -419,14 +529,24 @@ const audioPlayer = {
   stop(trackId) {
     try {
       const s = this.sounds[trackId]
-      if (s) { try { s.stop(); s.unload() } catch (e) {} ; delete this.sounds[trackId] }
-    } catch (e) { console.warn('audioPlayer.stop failed', e) }
+      if (s) {
+        try {
+          s.stop()
+          s.unload()
+        } catch (e) {}
+        delete this.sounds[trackId]
+      }
+    } catch (e) {
+      console.warn('audioPlayer.stop failed', e)
+    }
   },
   isPlaying(trackId) {
     try {
       const s = this.sounds[trackId]
       return s && s.playing && s.playing()
-    } catch (e) { return false }
+    } catch (e) {
+      return false
+    }
   }
 }
 
@@ -436,8 +556,12 @@ const DEPLOY_BASE = import.meta.env.VITE_API_BASE_URL || 'https://storycraft.wor
 // 判断是否移动设备（手机浏览器或原生）
 const isMobileDevice = (() => {
   try {
-    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '')
-  } catch (e) { return false }
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+      navigator.userAgent || ''
+    )
+  } catch (e) {
+    return false
+  }
 })()
 
 // 将音频 URL 按平台分开处理：
@@ -452,7 +576,8 @@ const normalizeUrlForDevice = (url) => {
       // 如果是指向 localhost/127.0.0.1，需要根据平台替换主机部分
       if (/^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/i.test(url)) {
         // 桌面浏览器替换为本地 dev，手机/原生替换为部署域名
-        const replaceWith = ((isNativeApp && isNativeApp.value) || isMobileDevice) ? DEPLOY_BASE : LOCAL_DEV_BASE
+        const replaceWith =
+          (isNativeApp.value && isNativeApp.value) || isMobileDevice ? DEPLOY_BASE : LOCAL_DEV_BASE
         return url.replace(/^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/i, replaceWith)
       }
       // 其它外部 URL 保持不变
@@ -460,7 +585,10 @@ const normalizeUrlForDevice = (url) => {
     }
 
     // 相对路径（以 / 开头）
-    const useDeploy = (isNativeApp && isNativeApp.value) || isMobileDevice || (window && window.__FORCE_USE_DEPLOYED__)
+    const useDeploy =
+      (isNativeApp.value && isNativeApp.value) ||
+      isMobileDevice ||
+      (window && window.__FORCE_USE_DEPLOYED__)
     const base = useDeploy ? DEPLOY_BASE : LOCAL_DEV_BASE
     if (/^\//.test(url)) {
       return base.replace(/\/$/, '') + url
@@ -496,7 +624,9 @@ const saveRemoteToDevice = async (url) => {
 const saveLocalTracksToStorage = () => {
   try {
     localStorage.setItem(LOCAL_MUSIC_KEY, JSON.stringify(localTracks.value || []))
-  } catch (e) { console.warn('保存本地音乐到 localStorage 失败', e) }
+  } catch (e) {
+    console.warn('保存本地音乐到 localStorage 失败', e)
+  }
 }
 
 const loadLocalTracksFromStorage = () => {
@@ -507,7 +637,9 @@ const loadLocalTracksFromStorage = () => {
     if (Array.isArray(parsed)) {
       localTracks.value = parsed
     }
-  } catch (e) { console.warn('加载本地音乐失败', e) }
+  } catch (e) {
+    console.warn('加载本地音乐失败', e)
+  }
 }
 
 const onMusicFileSelected = (e) => {
@@ -524,13 +656,19 @@ const onMusicFileSelected = (e) => {
         // 将本地曲目放到播放列表前面，优先播放
         playlist.value = [item.dataUrl].concat(playlist.value || [])
         saveLocalTracksToStorage()
-      } catch (err) { console.warn('处理本地音乐文件失败', err) }
+      } catch (err) {
+        console.warn('处理本地音乐文件失败', err)
+      }
     }
-    reader.onerror = (err) => { console.warn('读取文件失败', err) }
+    reader.onerror = (err) => {
+      console.warn('读取文件失败', err)
+    }
     reader.readAsDataURL(f)
     // 清空 input 值，允许重复添加同一文件
     if (e && e.target) e.target.value = null
-  } catch (e) { console.warn('onMusicFileSelected 失败', e) }
+  } catch (e) {
+    console.warn('onMusicFileSelected 失败', e)
+  }
 }
 
 const removeLocalTrack = (idx) => {
@@ -541,36 +679,52 @@ const removeLocalTrack = (idx) => {
     // 从本地列表中移除
     localTracks.value.splice(idx, 1)
     // 从 playlist 中移除对应的 dataUrl，并确保本地条目仍排在前面
-    const remainingLocalUrls = localTracks.value.map(t => t.dataUrl)
+    const remainingLocalUrls = localTracks.value.map((t) => t.dataUrl)
     // 先移除被删除的 url
-    let newPlaylist = (playlist.value || []).filter(u => u !== removedUrl)
+    let newPlaylist = (playlist.value || []).filter((u) => u !== removedUrl)
     // 将本地 urls 放到前面，避免重复
-    newPlaylist = remainingLocalUrls.concat(newPlaylist.filter(u => !remainingLocalUrls.includes(u)))
+    newPlaylist = remainingLocalUrls.concat(
+      newPlaylist.filter((u) => !remainingLocalUrls.includes(u))
+    )
     playlist.value = newPlaylist
     saveLocalTracksToStorage()
     // 如果当前播放的就是被删除的曲目，停止播放并尝试切换到下一首
     try {
-      if (audioEl.value && removedUrl && (audioEl.value._originalSrc === removedUrl || audioEl.value.src === removedUrl)) {
-        try { pauseMusic() } catch (e) {}
+      if (
+        audioEl.value &&
+        removedUrl &&
+        (audioEl.value._originalSrc === removedUrl || audioEl.value.src === removedUrl)
+      ) {
+        try {
+          pauseMusic()
+        } catch (e) {}
         // 如果仍有曲目，播放当前索引（或 0）
         if (playlist.value.length > 0) {
           const nextIdx = Math.max(0, Math.min(currentTrackIndex.value, playlist.value.length - 1))
           loadTrack(nextIdx)
         } else {
           // 清理 audio 元素
-          try { audioEl.value.src = '' } catch (e) {}
+          try {
+            audioEl.value.src = ''
+          } catch (e) {}
         }
       }
-    } catch (e) { console.warn('处理被删除曲目正在播放的情况失败', e) }
+    } catch (e) {
+      console.warn('处理被删除曲目正在播放的情况失败', e)
+    }
     // 如果当前索引超出范围，重置为 0
     if (currentTrackIndex.value >= playlist.value.length) currentTrackIndex.value = 0
-  } catch (e) { console.warn('removeLocalTrack 失败', e) }
+  } catch (e) {
+    console.warn('removeLocalTrack 失败', e)
+  }
 }
 
 const triggerMusicFilePicker = () => {
   try {
-    if (musicInput && musicInput.value) musicInput.value.click()
-  } catch (e) { console.warn('triggerMusicFilePicker 失败', e) }
+    if (musicInput.value && musicInput.value) musicInput.value.click()
+  } catch (e) {
+    console.warn('triggerMusicFilePicker 失败', e)
+  }
 }
 
 const playLocal = async (i) => {
@@ -578,7 +732,9 @@ const playLocal = async (i) => {
     // 本地曲目按序放在 playlist 前部，直接使用索引
     await loadTrack(i)
     await playTrack()
-  } catch (e) { console.warn('playLocal 失败', e) }
+  } catch (e) {
+    console.warn('playLocal 失败', e)
+  }
 }
 // DEV-only flag
 const isDev = !!(import.meta && import.meta.env && import.meta.env.DEV)
@@ -590,9 +746,15 @@ const loadTrack = async (idx) => {
     currentTrackIndex.value = limited
     if (!audioEl.value) audioEl.value = new Audio()
     // 配置 audio 元素以增加自动播放兼容性
-    try { audioEl.value.crossOrigin = 'anonymous' } catch (e) {}
-    try { audioEl.value.preload = 'auto' } catch (e) {}
-    try { audioEl.value.setAttribute && audioEl.value.setAttribute('playsinline', '') } catch (e) {}
+    try {
+      audioEl.value.crossOrigin = 'anonymous'
+    } catch (e) {}
+    try {
+      audioEl.value.preload = 'auto'
+    } catch (e) {}
+    try {
+      audioEl.value.setAttribute && audioEl.value.setAttribute('playsinline', '')
+    } catch (e) {}
     const candidateSrc = playlist.value[limited]
     audioEl.value._originalSrc = candidateSrc
     // 对远程 URL 直接使用原始/归一化的 URL，不使用 blob 回退或本地保存
@@ -604,25 +766,56 @@ const loadTrack = async (idx) => {
     }
     audioEl.value.loop = false
     // 设置默认音量，避免静音场景
-    try { audioEl.value.volume = 0.8; audioEl.value.muted = false } catch (e) {}
+    try {
+      audioEl.value.volume = 0.8
+      audioEl.value.muted = false
+    } catch (e) {}
     audioEl.value.load()
-    audioEl.value.onended = () => { playNextTrack() }
+    audioEl.value.onended = () => {
+      playNextTrack()
+    }
     audioEl.value.onplay = () => {
       try {
         console.log('[GamePage][audio] onplay, src=', audioEl.value.src)
-        console.log('[GamePage][audio] onplay state: muted=', audioEl.value.muted, 'volume=', audioEl.value.volume, 'paused=', audioEl.value.paused, 'readyState=', audioEl.value.readyState)
+        console.log(
+          '[GamePage][audio] onplay state: muted=',
+          audioEl.value.muted,
+          'volume=',
+          audioEl.value.volume,
+          'paused=',
+          audioEl.value.paused,
+          'readyState=',
+          audioEl.value.readyState
+        )
         isMusicPlaying.value = true
         updateAudioDebug()
-      } catch (e) { console.warn('onplay handler failed', e) }
+      } catch (e) {
+        console.warn('onplay handler failed', e)
+      }
     }
     audioEl.value.onplaying = () => {
       try {
-        console.log('[GamePage][audio] onplaying — audio actually rendering sound (playing event). src=', audioEl.value.src, 'currentTime=', audioEl.value.currentTime, 'readyState=', audioEl.value.readyState, 'networkState=', audioEl.value.networkState)
+        console.log(
+          '[GamePage][audio] onplaying — audio actually rendering sound (playing event). src=',
+          audioEl.value.src,
+          'currentTime=',
+          audioEl.value.currentTime,
+          'readyState=',
+          audioEl.value.readyState,
+          'networkState=',
+          audioEl.value.networkState
+        )
         updateAudioDebug()
-      } catch (e) { console.warn('onplaying handler failed', e) }
+      } catch (e) {
+        console.warn('onplaying handler failed', e)
+      }
     }
     audioEl.value.onpause = () => {
-      try { console.log('[GamePage][audio] onpause'); isMusicPlaying.value = false; updateAudioDebug() } catch (e) {}
+      try {
+        console.log('[GamePage][audio] onpause')
+        isMusicPlaying.value = false
+        updateAudioDebug()
+      } catch (e) {}
     }
     audioEl.value.onerror = (ev) => {
       try {
@@ -635,9 +828,13 @@ const loadTrack = async (idx) => {
           console.error('[GamePage][audio] audioEl.error is null, ev=', ev)
         }
         updateAudioDebug()
-      } catch (e) { console.warn('onerror handler failed', e) }
+      } catch (e) {
+        console.warn('onerror handler failed', e)
+      }
     }
-  } catch (e) { console.warn('loadTrack failed', e) }
+  } catch (e) {
+    console.warn('loadTrack failed', e)
+  }
 }
 
 const playTrack = async (idx) => {
@@ -653,7 +850,9 @@ const playTrack = async (idx) => {
     }
     // 优先在移动/原生环境使用 Howler 播放，能提升 WebView 兼容性
     const finalUrl = normalizeUrlForDevice(candidateSrc)
-    const shouldUseHowler = (isNativeApp && isNativeApp.value) || (typeof isMobileDevice !== 'undefined' && isMobileDevice)
+    const shouldUseHowler =
+      (isNativeApp.value && isNativeApp.value) ||
+      (typeof isMobileDevice !== 'undefined' && isMobileDevice)
     if (shouldUseHowler) {
       try {
         await audioPlayer.play('main', finalUrl)
@@ -661,7 +860,8 @@ const playTrack = async (idx) => {
         // 更新 audioDebug，用 Howler 播放时填入 finalUrl
         audioDebug.value.src = finalUrl
         audioDebug.value.muted = false
-        audioDebug.value.volume = (audioEl.value && typeof audioEl.value.volume === 'number') ? audioEl.value.volume : 0.8
+        audioDebug.value.volume =
+          audioEl.value && typeof audioEl.value.volume === 'number' ? audioEl.value.volume : 0.8
         audioDebug.value.paused = false
         audioDebug.value.readyState = 4
         audioDebug.value.error = null
@@ -669,8 +869,14 @@ const playTrack = async (idx) => {
         updateAudioDebug()
         return
       } catch (howErr) {
-        console.warn('[GamePage][audio] Howler playback failed, falling back to native audio:', howErr)
-        pushAudioLog('error', `Howler failed: ${howErr && howErr.message ? howErr.message : howErr}`)
+        console.warn(
+          '[GamePage][audio] Howler playback failed, falling back to native audio:',
+          howErr
+        )
+        pushAudioLog(
+          'error',
+          `Howler failed: ${howErr && howErr.message ? howErr.message : howErr}`
+        )
       }
     }
     // 标记抑制，以避免其它事件在我们尝试播放期间调用 pause()
@@ -680,31 +886,59 @@ const playTrack = async (idx) => {
       audioEl.value.src = normalizeUrlForDevice(candidateSrc)
       await audioEl.value.play()
       // 确保播放后解除静音并设置合理音量
-      try { audioEl.value.muted = false; audioEl.value.volume = Math.max(0.05, audioEl.value.volume || 0.8) } catch (e) {}
+      try {
+        audioEl.value.muted = false
+        audioEl.value.volume = Math.max(0.05, audioEl.value.volume || 0.8)
+      } catch (e) {}
       isMusicPlaying.value = true
       updateAudioDebug()
-      console.log('[GamePage][audio] playTrack succeeded, src=', audioEl.value.src, 'muted=', audioEl.value.muted, 'volume=', audioEl.value.volume)
+      console.log(
+        '[GamePage][audio] playTrack succeeded, src=',
+        audioEl.value.src,
+        'muted=',
+        audioEl.value.muted,
+        'volume=',
+        audioEl.value.volume
+      )
     } catch (playErr) {
       console.error('[GamePage][audio] playTrack failed:', playErr)
-      pushAudioLog('error', `playTrack failed: ${playErr && playErr.message ? playErr.message : playErr}`)
+      pushAudioLog(
+        'error',
+        `playTrack failed: ${playErr && playErr.message ? playErr.message : playErr}`
+      )
       // 不使用 blob 回退，直接尝试静音播放以绕过自动播放策略
       try {
         audioEl.value.muted = true
         await audioEl.value.play()
         isMusicPlaying.value = true
         updateAudioDebug()
-        console.log('[GamePage][audio] playTrack succeeded with muted fallback, src=', audioEl.value.src)
+        console.log(
+          '[GamePage][audio] playTrack succeeded with muted fallback, src=',
+          audioEl.value.src
+        )
         setTimeout(async () => {
           try {
             audioEl.value.muted = false
             // 再次确保音量
-            try { audioEl.value.volume = Math.max(0.05, audioEl.value.volume || 0.8) } catch (e) {}
+            try {
+              audioEl.value.volume = Math.max(0.05, audioEl.value.volume || 0.8)
+            } catch (e) {}
             await audioEl.value.play()
             updateAudioDebug()
             console.log('[GamePage][audio] unmuted and resumed playback')
           } catch (unmuteErr) {
-            console.warn('[GamePage][audio] unmute/resume failed (likely blocked by autoplay policy):', unmuteErr)
-            console.log('[GamePage][audio] final state after unmute attempt: muted=', audioEl.value.muted, 'volume=', audioEl.value.volume, 'paused=', audioEl.value.paused)
+            console.warn(
+              '[GamePage][audio] unmute/resume failed (likely blocked by autoplay policy):',
+              unmuteErr
+            )
+            console.log(
+              '[GamePage][audio] final state after unmute attempt: muted=',
+              audioEl.value.muted,
+              'volume=',
+              audioEl.value.volume,
+              'paused=',
+              audioEl.value.paused
+            )
           }
         }, 600)
       } catch (mutedErr) {
@@ -712,7 +946,9 @@ const playTrack = async (idx) => {
         throw playErr
       }
     }
-    setTimeout(() => { suppressPauseDuringResume.value = false }, 150)
+    setTimeout(() => {
+      suppressPauseDuringResume.value = false
+    }, 150)
   } catch (e) {
     suppressPauseDuringResume.value = false
     console.warn('playTrack failed', e)
@@ -725,7 +961,9 @@ const playNextTrack = async () => {
     const next = (currentTrackIndex.value + 1) % playlist.value.length
     await loadTrack(next)
     await playTrack()
-  } catch (e) { console.warn('playNextTrack failed', e) }
+  } catch (e) {
+    console.warn('playNextTrack failed', e)
+  }
 }
 
 const playPrevTrack = async () => {
@@ -734,7 +972,9 @@ const playPrevTrack = async () => {
     const prev = (currentTrackIndex.value - 1 + playlist.value.length) % playlist.value.length
     await loadTrack(prev)
     await playTrack()
-  } catch (e) { console.warn('playPrevTrack failed', e) }
+  } catch (e) {
+    console.warn('playPrevTrack failed', e)
+  }
 }
 
 const pauseMusic = (force = false) => {
@@ -753,11 +993,13 @@ const pauseMusic = (force = false) => {
     try {
       audioPlayer.pause('main')
     } catch (e) {}
-    
+
     isMusicPlaying.value = false
     updateAudioDebug()
     console.log('[GamePage][audio] paused (both HTML and Howler)')
-  } catch (e) { console.warn('pauseMusic failed', e) }
+  } catch (e) {
+    console.warn('pauseMusic failed', e)
+  }
 }
 
 // 停止并清理音频（用于切换章节/加载时）
@@ -770,22 +1012,34 @@ const stopMusic = () => {
       console.log('[GamePage][audio] stopped and reset')
       updateAudioDebug()
     }
-  } catch (e) { console.warn('stopMusic failed', e) }
+  } catch (e) {
+    console.warn('stopMusic failed', e)
+  }
 }
 
 // 停止所有播放器（HTMLAudio + Howler 封装）
 const stopAllAudio = () => {
   try {
-    try { stopMusic() } catch (e) {}
-    try { audioPlayer.stop('main') } catch (e) {}
+    try {
+      stopMusic()
+    } catch (e) {}
+    try {
+      audioPlayer.stop('main')
+    } catch (e) {}
     isMusicPlaying.value = false
     pushAudioLog('info', 'stopAllAudio called')
-  } catch (e) { console.warn('stopAllAudio failed', e) }
+  } catch (e) {
+    console.warn('stopAllAudio failed', e)
+  }
 }
 
 // 只有在“阅读界面”时允许播放：横屏已就绪且不是加载界面
 const isReadingActive = computed(() => {
-  try { return !!(isLandscapeReady && isLandscapeReady.value && !isLoading && !isLoading.value) } catch (e) { return false }
+  try {
+    return !!(isLandscapeReady && isLandscapeReady.value && !isLoading && !isLoading.value)
+  } catch (e) {
+    return false
+  }
 })
 
 // 监控阅读状态：当不在阅读界面时自动停止播放
@@ -794,7 +1048,9 @@ watch(isReadingActive, (active) => {
     if (!active) {
       stopAllAudio()
     }
-  } catch (e) { console.warn('watch isReadingActive failed', e) }
+  } catch (e) {
+    console.warn('watch isReadingActive failed', e)
+  }
 })
 
 // 当页面不可见（切到后台或切换 app）时停止播放
@@ -803,7 +1059,9 @@ const handleVisibilityChange = () => {
     if (document.hidden) {
       stopAllAudio()
     }
-  } catch (e) { console.warn('handleVisibilityChange failed', e) }
+  } catch (e) {
+    console.warn('handleVisibilityChange failed', e)
+  }
 }
 if (typeof document !== 'undefined' && document.addEventListener) {
   document.addEventListener('visibilitychange', handleVisibilityChange)
@@ -816,7 +1074,9 @@ onUnmounted(() => {
     if (typeof document !== 'undefined' && document.removeEventListener) {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  } catch (e) { console.warn('onUnmounted cleanup failed', e) }
+  } catch (e) {
+    console.warn('onUnmounted cleanup failed', e)
+  }
 })
 
 const toggleMusic = async () => {
@@ -826,8 +1086,11 @@ const toggleMusic = async () => {
       pauseMusic(true)
     } else {
       // 检查是否使用Howler播放器
-      const isUsingHowler = audioPlayer.isPlaying('main') !== undefined && audioPlayer.sounds && audioPlayer.sounds['main']
-      
+      const isUsingHowler =
+        audioPlayer.isPlaying('main') !== undefined &&
+        audioPlayer.sounds &&
+        audioPlayer.sounds['main']
+
       if (isUsingHowler) {
         // 使用Howler恢复播放
         try {
@@ -846,14 +1109,19 @@ const toggleMusic = async () => {
           await audioEl.value.play()
           isMusicPlaying.value = true
           updateAudioDebug()
-          console.log('[GamePage][audio] HTML audio resumed from pause at', audioEl.value.currentTime)
+          console.log(
+            '[GamePage][audio] HTML audio resumed from pause at',
+            audioEl.value.currentTime
+          )
         } catch (playErr) {
           console.warn('[GamePage][audio] HTML audio resume failed, reloading track:', playErr)
           // 如果继续播放失败，重新加载当前曲目
           await playTrack()
         } finally {
           // 确保清除抑制标志
-          setTimeout(() => { suppressPauseDuringResume.value = false }, 150)
+          setTimeout(() => {
+            suppressPauseDuringResume.value = false
+          }, 150)
         }
       } else {
         // 没有加载的音频或已播放完毕，重新加载当前曲目
@@ -869,7 +1137,11 @@ const toggleMusic = async () => {
 // 如果外部（例如页面其他脚本）注入了全局播放列表，则自动使用它
 onMounted(() => {
   try {
-    if (window.__musicPlaylist && Array.isArray(window.__musicPlaylist) && window.__musicPlaylist.length > 0) {
+    if (
+      window.__musicPlaylist &&
+      Array.isArray(window.__musicPlaylist) &&
+      window.__musicPlaylist.length > 0
+    ) {
       playlist.value = window.__musicPlaylist
       loadTrack(0)
     }
@@ -881,12 +1153,16 @@ onMounted(() => {
   try {
     if (isDev) {
       const devUrl = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3'
-      try { window.__musicPlaylist = [devUrl] } catch (e) {}
+      try {
+        window.__musicPlaylist = [devUrl]
+      } catch (e) {}
       playlist.value = [devUrl]
       loadTrack(0)
       console.log('[GamePage] DEV audio playlist injected:', devUrl)
     }
-  } catch (e) { console.warn('DEV audio injection failed', e) }
+  } catch (e) {
+    console.warn('DEV audio injection failed', e)
+  }
 })
 
 // 加载并应用本地保存的音乐
@@ -895,187 +1171,283 @@ onMounted(() => {
     loadLocalTracksFromStorage()
     if (localTracks.value && localTracks.value.length > 0) {
       // 将本地曲目放到播放列表前面
-      const localUrls = localTracks.value.map(t => t.dataUrl)
+      const localUrls = localTracks.value.map((t) => t.dataUrl)
       playlist.value = localUrls.concat(playlist.value || [])
       loadTrack(0)
     }
-  } catch (e) { console.warn('初始化本地音乐失败', e) }
+  } catch (e) {
+    console.warn('初始化本地音乐失败', e)
+  }
 })
 
 // 如果后端通过作品详情提供了播放列表（通过 useStoryAPI.musicPlaylist），同步到本地 playlist
 try {
-    if (typeof storyAPI !== 'undefined' && storyAPI.musicPlaylist) {
-    watch(() => storyAPI.musicPlaylist.value, (val) => {
-      try {
-        if (Array.isArray(val) && val.length > 0) {
-          playlist.value = val
-          console.log('[GamePage][audio] musicPlaylist loaded:', playlist.value.length, 'tracks')
+  if (typeof storyAPI !== 'undefined' && storyAPI.musicPlaylist) {
+    watch(
+      () => storyAPI.musicPlaylist.value,
+      (val) => {
+        try {
+          if (Array.isArray(val) && val.length > 0) {
+            playlist.value = val
+            console.log('[GamePage][audio] musicPlaylist loaded:', playlist.value.length, 'tracks')
+          }
+        } catch (e) {
+          console.warn('sync musicPlaylist watch handler failed', e)
         }
-      } catch (e) { console.warn('sync musicPlaylist watch handler failed', e) }
-    }, { immediate: true })
+      },
+      { immediate: true }
+    )
   }
 } catch (e) {}
 // 每当章节变化时，停止当前音乐并切换到该章对应的音乐
-  try {
-    watch(currentChapterIndex, (val, oldVal) => {
+try {
+  watch(
+    currentChapterIndex,
+    (val, oldVal) => {
       try {
         if (!Array.isArray(playlist.value) || playlist.value.length === 0) return
-        
+
         // 章节变化时停止当前音乐
         if (val !== oldVal) {
-          console.log('[GamePage][audio] chapter changed from', oldVal, 'to', val, '- stopping current music')
+          console.log(
+            '[GamePage][audio] chapter changed from',
+            oldVal,
+            'to',
+            val,
+            '- stopping current music'
+          )
           stopMusic()
         }
-        
+
         const chap = Number(val || 1)
-        const idx = ((chap - 1) % playlist.value.length + playlist.value.length) % playlist.value.length
+        const idx =
+          (((chap - 1) % playlist.value.length) + playlist.value.length) % playlist.value.length
         loadTrack(idx)
         console.log('[GamePage][audio] loaded track for chapter', chap, '- track index:', idx)
-        
+
         // 章节切换时不立即播放，等待进入阅读状态后统一触发
-      } catch (e) { console.warn('chapter change music switch failed', e) }
-    }, { immediate: false })
-  } catch (e) {}
+      } catch (e) {
+        console.warn('chapter change music switch failed', e)
+      }
+    },
+    { immediate: false }
+  )
+} catch (e) {}
 
-    // 当应用切到后台或页面不可见时，自动暂停音乐
-    onMounted(() => {
+// 当应用切到后台或页面不可见时，自动暂停音乐
+onMounted(() => {
+  try {
+    const handleVisibilityChange = async () => {
       try {
-        const handleVisibilityChange = async () => {
+        if (document.hidden) {
           try {
-            if (document.hidden) {
-              try {
-                wasPlayingBeforeHidden = !!(audioEl.value && !audioEl.value.paused && !audioEl.value.ended)
-              } catch (e) { wasPlayingBeforeHidden = false }
-              console.log('[GamePage][audio] document hidden -> pause music, wasPlayingBeforeHidden=', wasPlayingBeforeHidden)
-              // 内部暂停（非用户触发），允许被 suppress 控制
-              pauseMusic(false)
-            } else {
-              console.log('[GamePage][audio] document visible -> try resume if needed, wasPlayingBeforeHidden=', wasPlayingBeforeHidden)
-              if (wasPlayingBeforeHidden) {
-                try {
-                  // 给系统时间稳定，再尝试恢复
-                  setTimeout(async () => {
-                    try {
-                      await playTrack()
-                      wasPlayingBeforeHidden = false
-                      resumePending = false
-                      console.log('[GamePage][audio] resumed playback on visibilitychange')
-                    } catch (e) {
-                      console.warn('[GamePage][audio] resume on visibilitychange blocked, will resume on user interaction', e)
-                      resumePending = true
-                    }
-                  }, 180)
-                } catch (e) {
-                  // 捕获外层异常（保底）
-                  console.warn('[GamePage][audio] unexpected error in visibility resume handler', e)
-                  resumePending = true
-                }
-              }
-            }
-          } catch (e) { console.warn('handleVisibilityChange failed', e) }
-        }
-
-        const handleBlur = () => {
-          try {
-            wasPlayingBeforeHidden = !!(audioEl.value && !audioEl.value.paused && !audioEl.value.ended)
-            console.log('[GamePage][audio] window blur -> pause music, wasPlayingBeforeHidden=', wasPlayingBeforeHidden)
-            pauseMusic(false)
-          } catch (e) { console.warn('handleBlur failed', e) }
-        }
-
-        const handleFocus = async () => {
-          try {
-            console.log('[GamePage][audio] window focus -> try resume if needed, wasPlayingBeforeHidden=', wasPlayingBeforeHidden)
-            if (wasPlayingBeforeHidden) {
-              // 延迟短暂恢复，减少与系统事件冲突
+            wasPlayingBeforeHidden = !!(
+              audioEl.value &&
+              !audioEl.value.paused &&
+              !audioEl.value.ended
+            )
+          } catch (e) {
+            wasPlayingBeforeHidden = false
+          }
+          console.log(
+            '[GamePage][audio] document hidden -> pause music, wasPlayingBeforeHidden=',
+            wasPlayingBeforeHidden
+          )
+          // 内部暂停（非用户触发），允许被 suppress 控制
+          pauseMusic(false)
+        } else {
+          console.log(
+            '[GamePage][audio] document visible -> try resume if needed, wasPlayingBeforeHidden=',
+            wasPlayingBeforeHidden
+          )
+          if (wasPlayingBeforeHidden) {
+            try {
+              // 给系统时间稳定，再尝试恢复
               setTimeout(async () => {
                 try {
                   await playTrack()
                   wasPlayingBeforeHidden = false
                   resumePending = false
-                  console.log('[GamePage][audio] resumed playback on focus')
+                  console.log('[GamePage][audio] resumed playback on visibilitychange')
                 } catch (e) {
-                  console.warn('[GamePage][audio] resume on focus blocked, will resume on user interaction', e)
+                  console.warn(
+                    '[GamePage][audio] resume on visibilitychange blocked, will resume on user interaction',
+                    e
+                  )
                   resumePending = true
                 }
               }, 180)
+            } catch (e) {
+              // 捕获外层异常（保底）
+              console.warn('[GamePage][audio] unexpected error in visibility resume handler', e)
+              resumePending = true
             }
-          } catch (e) { console.warn('handleFocus failed', e) }
+          }
         }
+      } catch (e) {
+        console.warn('handleVisibilityChange failed', e)
+      }
+    }
 
-        const tryResumeOnUserInteraction = async () => {
-          try {
-            if (!resumePending) return
-            console.log('[GamePage][audio] user interaction -> attempting resume')
+    const handleBlur = () => {
+      try {
+        wasPlayingBeforeHidden = !!(audioEl.value && !audioEl.value.paused && !audioEl.value.ended)
+        console.log(
+          '[GamePage][audio] window blur -> pause music, wasPlayingBeforeHidden=',
+          wasPlayingBeforeHidden
+        )
+        pauseMusic(false)
+      } catch (e) {
+        console.warn('handleBlur failed', e)
+      }
+    }
+
+    const handleFocus = async () => {
+      try {
+        console.log(
+          '[GamePage][audio] window focus -> try resume if needed, wasPlayingBeforeHidden=',
+          wasPlayingBeforeHidden
+        )
+        if (wasPlayingBeforeHidden) {
+          // 延迟短暂恢复，减少与系统事件冲突
+          setTimeout(async () => {
             try {
               await playTrack()
-              resumePending = false
               wasPlayingBeforeHidden = false
-              document.removeEventListener('click', tryResumeOnUserInteraction)
-              console.log('[GamePage][audio] resumed playback after user interaction')
+              resumePending = false
+              console.log('[GamePage][audio] resumed playback on focus')
             } catch (e) {
-              console.warn('[GamePage][audio] resume after user interaction failed', e)
+              console.warn(
+                '[GamePage][audio] resume on focus blocked, will resume on user interaction',
+                e
+              )
+              resumePending = true
             }
-          } catch (e) { console.warn('tryResumeOnUserInteraction failed', e) }
+          }, 180)
         }
+      } catch (e) {
+        console.warn('handleFocus failed', e)
+      }
+    }
 
-        document.addEventListener('visibilitychange', handleVisibilityChange)
-        window.addEventListener('blur', handleBlur)
-        window.addEventListener('focus', handleFocus)
-        document.addEventListener('click', tryResumeOnUserInteraction)
-
-        // 尝试使用 Capacitor App 插件来监听原生前后台切换
-        let capacitorAppListener = null
+    const tryResumeOnUserInteraction = async () => {
+      try {
+        if (!resumePending) return
+        console.log('[GamePage][audio] user interaction -> attempting resume')
         try {
-          if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
-                import('@capacitor/app').then(({ App }) => {
-              try {
-                capacitorAppListener = App.addListener('appStateChange', async (state) => {
-                  try {
-                    if (!state.isActive) {
-                          try { wasPlayingBeforeHidden = !!(audioEl.value && !audioEl.value.paused && !audioEl.value.ended) } catch (e) { wasPlayingBeforeHidden = false }
-                          console.log('[GamePage][audio] Capacitor appStateChange inactive -> pause music, wasPlayingBeforeHidden=', wasPlayingBeforeHidden)
-                          pauseMusic(false)
-                    } else {
-                      console.log('[GamePage][audio] Capacitor appStateChange active -> try resume if needed, wasPlayingBeforeHidden=', wasPlayingBeforeHidden)
-                      if (wasPlayingBeforeHidden) {
-                        try {
-                              setTimeout(async () => {
-                                try {
-                                  await playTrack()
-                                  wasPlayingBeforeHidden = false
-                                  resumePending = false
-                                  console.log('[GamePage][audio] resumed playback on appStateChange active')
-                                } catch (e) {
-                                  console.warn('[GamePage][audio] resume on appStateChange blocked, will resume on user interaction', e)
-                                  resumePending = true
-                                }
-                              }, 220)
-                        } catch (e) {
-                              console.warn('[GamePage][audio] unexpected error in appStateChange resume handler', e)
-                              resumePending = true
-                        }
+          await playTrack()
+          resumePending = false
+          wasPlayingBeforeHidden = false
+          document.removeEventListener('click', tryResumeOnUserInteraction)
+          console.log('[GamePage][audio] resumed playback after user interaction')
+        } catch (e) {
+          console.warn('[GamePage][audio] resume after user interaction failed', e)
+        }
+      } catch (e) {
+        console.warn('tryResumeOnUserInteraction failed', e)
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('blur', handleBlur)
+    window.addEventListener('focus', handleFocus)
+    document.addEventListener('click', tryResumeOnUserInteraction)
+
+    // 尝试使用 Capacitor App 插件来监听原生前后台切换
+    let capacitorAppListener = null
+    try {
+      if (
+        window.Capacitor &&
+        window.Capacitor.isNativePlatform &&
+        window.Capacitor.isNativePlatform()
+      ) {
+        import('@capacitor/app')
+          .then(({ App }) => {
+            try {
+              capacitorAppListener = App.addListener('appStateChange', async (state) => {
+                try {
+                  if (!state.isActive) {
+                    try {
+                      wasPlayingBeforeHidden = !!(
+                        audioEl.value &&
+                        !audioEl.value.paused &&
+                        !audioEl.value.ended
+                      )
+                    } catch (e) {
+                      wasPlayingBeforeHidden = false
+                    }
+                    console.log(
+                      '[GamePage][audio] Capacitor appStateChange inactive -> pause music, wasPlayingBeforeHidden=',
+                      wasPlayingBeforeHidden
+                    )
+                    pauseMusic(false)
+                  } else {
+                    console.log(
+                      '[GamePage][audio] Capacitor appStateChange active -> try resume if needed, wasPlayingBeforeHidden=',
+                      wasPlayingBeforeHidden
+                    )
+                    if (wasPlayingBeforeHidden) {
+                      try {
+                        setTimeout(async () => {
+                          try {
+                            await playTrack()
+                            wasPlayingBeforeHidden = false
+                            resumePending = false
+                            console.log(
+                              '[GamePage][audio] resumed playback on appStateChange active'
+                            )
+                          } catch (e) {
+                            console.warn(
+                              '[GamePage][audio] resume on appStateChange blocked, will resume on user interaction',
+                              e
+                            )
+                            resumePending = true
+                          }
+                        }, 220)
+                      } catch (e) {
+                        console.warn(
+                          '[GamePage][audio] unexpected error in appStateChange resume handler',
+                          e
+                        )
+                        resumePending = true
                       }
                     }
-                  } catch (e) { console.warn('App.appStateChange handler failed', e) }
-                })
-              } catch (e) { console.warn('register App.addListener failed', e) }
-            }).catch((e) => { console.warn('optional @capacitor/app import failed', e) })
-          }
-        } catch (e) { console.warn('Capacitor app listener setup failed', e) }
+                  }
+                } catch (e) {
+                  console.warn('App.appStateChange handler failed', e)
+                }
+              })
+            } catch (e) {
+              console.warn('register App.addListener failed', e)
+            }
+          })
+          .catch((e) => {
+            console.warn('optional @capacitor/app import failed', e)
+          })
+      }
+    } catch (e) {
+      console.warn('Capacitor app listener setup failed', e)
+    }
 
-        onUnmounted(() => {
-          try {
-            document.removeEventListener('visibilitychange', handleVisibilityChange)
-            window.removeEventListener('blur', handleBlur)
-            window.removeEventListener('focus', handleFocus)
-            try {
-              if (capacitorAppListener && typeof capacitorAppListener.remove === 'function') capacitorAppListener.remove()
-            } catch (e) { /* ignore */ }
-          } catch (e) { console.warn('remove visibility/app listeners failed', e) }
-        })
-      } catch (e) { console.warn('audio background handling onMounted failed', e) }
+    onUnmounted(() => {
+      try {
+        document.removeEventListener('visibilitychange', handleVisibilityChange)
+        window.removeEventListener('blur', handleBlur)
+        window.removeEventListener('focus', handleFocus)
+        try {
+          if (capacitorAppListener && typeof capacitorAppListener.remove === 'function')
+            capacitorAppListener.remove()
+        } catch (e) {
+          /* ignore */
+        }
+      } catch (e) {
+        console.warn('remove visibility/app listeners failed', e)
+      }
     })
+  } catch (e) {
+    console.warn('audio background handling onMounted failed', e)
+  }
+})
 
 // 是否正在进入结局判定的特殊加载（在跳转到结算/结局前显示）
 const isEndingLoading = ref(false)
@@ -1088,38 +1460,42 @@ const waitingForClickToShowChoices = ref(false)
 const fetchReport = async (workId) => {
   try {
     console.log('[GamePage] fetchReport 被调用 - workId:', workId)
-    
-    const chosenEndingIdx = (typeof lastSelectedEndingIndex !== 'undefined' && lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? Number(lastSelectedEndingIndex.value) : 1
+
+    const chosenEndingIdx =
+      typeof lastSelectedEndingIndex !== 'undefined' &&
+      lastSelectedEndingIndex &&
+      lastSelectedEndingIndex.value
+        ? Number(lastSelectedEndingIndex.value)
+        : 1
     const data = await storyService.fetchSettlementReport(workId, {
       attributes: attributes.value || {},
       statuses: statuses.value || {},
       endingIndex: chosenEndingIdx
     })
-    
+
     if (!data) {
       console.warn('[GamePage] fetchReport 返回空数据')
       return null
     }
-    
+
     if (!data.work) {
       console.warn('[GamePage] fetchReport 返回的数据缺少 work 信息，添加当前 work')
       data.work = work.value
     }
-    
-    try { 
+
+    try {
       sessionStorage.setItem('settlementData', JSON.stringify(data))
       console.log('[GamePage] fetchReport 保存 settlementData 到 sessionStorage:', data)
     } catch (e) {
       console.error('[GamePage] 保存 settlementData 失败:', e)
     }
-    
+
     return data
-  } catch (e) { 
+  } catch (e) {
     console.error('[GamePage] fetchReport 失败:', e)
-    return null 
+    return null
   }
 }
-
 
 const gameStateAPI = useGameState({
   router,
@@ -1150,7 +1526,7 @@ const gameStateAPI = useGameState({
   creatorMode,
   lastSelectedEndingIndex,
   allowAdvance,
-  editingDialogue, 
+  editingDialogue,
   creatorFeatureEnabled,
   isCreatorIdentity,
   modifiableFromCreate,
@@ -1163,7 +1539,7 @@ const gameStateAPI = useGameState({
   AUTO_SAVE_SLOT,
   autoSaveToSlot,
   previewSnapshot,
-  waitingForClickToShowChoices 
+  waitingForClickToShowChoices
 })
 
 const gameStateResult = gameStateAPI
@@ -1186,8 +1562,7 @@ const {
   startLoading,
   stopLoading,
   handleGameEnd,
-  cleanup: cleanupGameState
-  ,
+  cleanup: cleanupGameState,
   // 快进控制
   startFastForward,
   stopFastForward,
@@ -1206,29 +1581,47 @@ const isPlayingBackendGeneratedEnding = computed(() => {
   try {
     const cs = currentScene.value
     const cf = (creatorFeatureEnabled && creatorFeatureEnabled.value) || false
-    return cf && cs && cs._isBackendEnding && (cs._endingSaved !== true)
-  } catch (e) { return false }
+    return cf && cs && cs._isBackendEnding && cs._endingSaved !== true
+  } catch (e) {
+    return false
+  }
 })
 
 // 保存当前正在播放的后端结局
 const saveCurrentEnding = async () => {
   try {
-    try { if (typeof startLoading === 'function') startLoading() } catch (e) {}
+    try {
+      if (typeof startLoading === 'function') startLoading()
+    } catch (e) {}
     const workId = work && work.value && work.value.id
-    if (!workId) { showToast('无法识别作品 ID，保存失败', 1000); try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}; return }
-    const endingIdx = (lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? Number(lastSelectedEndingIndex.value) : 1
+    if (!workId) {
+      showToast('无法识别作品 ID，保存失败', 1000)
+      try {
+        if (typeof stopLoading === 'function') stopLoading()
+      } catch (e) {}
+      return
+    }
+    const endingIdx =
+      lastSelectedEndingIndex && lastSelectedEndingIndex.value
+        ? Number(lastSelectedEndingIndex.value)
+        : 1
     // Helper: 将前端内部的 dialogue 项规范化为后端期望的格式
     const normalizeDialogue = (item) => {
       try {
         // 如果已有后端格式（包含 narration 字段），保留
-        if (item && typeof item === 'object' && (typeof item.narration !== 'undefined' || typeof item.narration === 'string')) {
+        if (
+          item &&
+          typeof item === 'object' &&
+          (typeof item.narration !== 'undefined' || typeof item.narration === 'string')
+        ) {
           // 确保 narration 为字符串
           return { narration: String(item.narration), playerChoices: item.playerChoices ?? null }
         }
         // 如果是字符串，直接作为 narration
         if (typeof item === 'string') return { narration: item, playerChoices: null }
         // 如果是对象且有 text 字段（我们内部常用 text），使用 text
-        if (item && typeof item === 'object' && typeof item.text === 'string') return { narration: item.text, playerChoices: item.playerChoices ?? null }
+        if (item && typeof item === 'object' && typeof item.text === 'string')
+          return { narration: item.text, playerChoices: item.playerChoices ?? null }
         // 如果是对象且有 content 或 narrationText 等字段，尝试兜底
         if (item && typeof item === 'object') {
           const txt = item.text ?? item.content ?? item.narrationText ?? ''
@@ -1236,14 +1629,16 @@ const saveCurrentEnding = async () => {
         }
         // 其它情况返回空串，避免后端校验失败
         return { narration: '', playerChoices: null }
-      } catch (e) { return { narration: '', playerChoices: null } }
+      } catch (e) {
+        return { narration: '', playerChoices: null }
+      }
     }
 
     const isEndingSelectionScene = (scene) => {
       try {
         // 检查场景是否包含多个结局选择（通常是"请选择一个结局"的场景）
         if (!Array.isArray(scene.dialogues) || scene.dialogues.length === 0) return false
-        
+
         for (const dialogue of scene.dialogues) {
           // 如果有 playerChoices 且选项数量 >= 2，并且 narration 包含"结局"关键字
           const choices = dialogue.playerChoices || dialogue.choices
@@ -1254,7 +1649,7 @@ const saveCurrentEnding = async () => {
               return true
             }
             // 检查选项文本是否都包含结局名称特征
-            const endingChoiceCount = choices.filter(c => {
+            const endingChoiceCount = choices.filter((c) => {
               const text = String(c.text || '').toLowerCase()
               return text.includes('>=') || text.includes('结局') || /\(.+\)/.test(text)
             }).length
@@ -1272,20 +1667,29 @@ const saveCurrentEnding = async () => {
 
     // 从 storyScenes 中收集所有标记为 _isBackendEnding 的场景，过滤掉结局选项场景，并规范化 dialogues
     const scenesToSave = (storyScenes.value || [])
-      .filter(s => s && s._isBackendEnding && !isEndingSelectionScene(s))
-      .map(s => ({
+      .filter((s) => s && s._isBackendEnding && !isEndingSelectionScene(s))
+      .map((s) => ({
         id: s.id ?? s.sceneId ?? undefined,
         backgroundImage: s.backgroundImage || s.background || s.bg || '',
-        dialogues: Array.isArray(s.dialogues) ? s.dialogues.map(d => normalizeDialogue(d)) : []
+        dialogues: Array.isArray(s.dialogues) ? s.dialogues.map((d) => normalizeDialogue(d)) : []
       }))
-    const title = (sessionStorage.getItem(`selectedEndingTitle_${workId}`) || (currentScene.value && currentScene.value._endingTitle) || `结局 ${endingIdx}`)
+    const title =
+      sessionStorage.getItem(`selectedEndingTitle_${workId}`) ||
+      (currentScene.value && currentScene.value._endingTitle) ||
+      `结局 ${endingIdx}`
     const body = { endingIndex: endingIdx, title, scenes: scenesToSave }
     try {
       await storyService.saveEnding(workId, body)
       showToast('已保存结局内容', 1000)
       // 标记前端缓存为已保存
-      try { for (const s of storyScenes.value) { if (s && s._isBackendEnding) s._endingSaved = true } } catch (e) {}
-      try { await getWorkDetails(workId) } catch (e) {}
+      try {
+        for (const s of storyScenes.value) {
+          if (s && s._isBackendEnding) s._endingSaved = true
+        }
+      } catch (e) {}
+      try {
+        await getWorkDetails(workId)
+      } catch (e) {}
     } catch (e) {
       console.error('saveCurrentEnding failed', e)
       showToast('保存结局失败', 1000)
@@ -1294,7 +1698,9 @@ const saveCurrentEnding = async () => {
   } catch (e) {
     console.warn('saveCurrentEnding error', e)
   } finally {
-    try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}
+    try {
+      if (typeof stopLoading === 'function') stopLoading()
+    } catch (e) {}
   }
 }
 // 从 gameState 导出 playingEndingScenes 与 endingsAppended
@@ -1310,12 +1716,14 @@ const onGlobalClick = (e) => {
     if (anyOverlayOpen?.value) return
 
     // 忽略点击在表单或交互元素上的情况（按钮、链接、输入框等）
-    const tag = (e.target && e.target.tagName) ? String(e.target.tagName).toLowerCase() : ''
-    if (['button','a','input','select','textarea','label'].includes(tag)) return
+    const tag = e.target && e.target.tagName ? String(e.target.tagName).toLowerCase() : ''
+    if (['button', 'a', 'input', 'select', 'textarea', 'label'].includes(tag)) return
 
     // 忽略点击发生在可能的交互面板内（例如选项容器、菜单面板、编辑控件、模态面板等）
     if (e.target && e.target.closest) {
-      const ignore = e.target.closest('.choices-container, .menu-panel, .menu-button, .edit-controls, .choice-btn, .edit-btn, .modal-panel, .modal-backdrop, .save-load-modal')
+      const ignore = e.target.closest(
+        '.choices-container, .menu-panel, .menu-button, .edit-controls, .choice-btn, .edit-btn, .modal-panel, .modal-backdrop, .save-load-modal'
+      )
       if (ignore) return
     }
 
@@ -1330,7 +1738,12 @@ const onGlobalClick = (e) => {
 let _longPressTimer = null
 const LONG_PRESS_MS = 250
 const clearLongPressTimer = () => {
-  try { if (_longPressTimer) { clearTimeout(_longPressTimer); _longPressTimer = null } } catch (e) {}
+  try {
+    if (_longPressTimer) {
+      clearTimeout(_longPressTimer)
+      _longPressTimer = null
+    }
+  } catch (e) {}
 }
 
 const onPointerDown = (e) => {
@@ -1340,9 +1753,15 @@ const onPointerDown = (e) => {
     clearLongPressTimer()
     _longPressTimer = setTimeout(() => {
       _longPressTimer = null
-      try { if (typeof startFastForward === 'function') startFastForward() } catch (err) { console.warn('startFastForward failed', err) }
+      try {
+        if (typeof startFastForward === 'function') startFastForward()
+      } catch (err) {
+        console.warn('startFastForward failed', err)
+      }
     }, LONG_PRESS_MS)
-  } catch (err) { console.warn('onPointerDown failed', err) }
+  } catch (err) {
+    console.warn('onPointerDown failed', err)
+  }
 }
 
 const onPointerUp = (e) => {
@@ -1351,33 +1770,47 @@ const onPointerUp = (e) => {
     // 若计时器仍存在，视为短按 -> 触发 nextDialogue
     if (_longPressTimer) {
       clearLongPressTimer()
-      try { nextDialogue() } catch (err) { console.warn('nextDialogue failed on short press', err) }
+      try {
+        nextDialogue()
+      } catch (err) {
+        console.warn('nextDialogue failed on short press', err)
+      }
       return
     }
     // 否则为长按结束，停止快进
-    try { if (typeof stopFastForward === 'function') stopFastForward() } catch (err) { console.warn('stopFastForward failed', err) }
-  } catch (err) { console.warn('onPointerUp failed', err) }
+    try {
+      if (typeof stopFastForward === 'function') stopFastForward()
+    } catch (err) {
+      console.warn('stopFastForward failed', err)
+    }
+  } catch (err) {
+    console.warn('onPointerUp failed', err)
+  }
 }
 
 const onPointerCancel = (e) => {
   try {
     clearLongPressTimer()
-    try { if (typeof stopFastForward === 'function') stopFastForward() } catch (err) {}
-  } catch (err) { console.warn('onPointerCancel failed', err) }
+    try {
+      if (typeof stopFastForward === 'function') stopFastForward()
+    } catch (err) {}
+  } catch (err) {
+    console.warn('onPointerCancel failed', err)
+  }
 }
 
-
-const anyOverlayOpen = computed(() =>
-  showMenu.value ||
-  showSaveModal.value ||
-  showLoadModal.value ||
-  showAttributesModal.value ||
-  showSettingsModal.value ||
-  showOutlineEditor.value ||
-  (endingEditorVisible && endingEditorVisible.value)
+const anyOverlayOpen = computed(
+  () =>
+    showMenu.value ||
+    showSaveModal.value ||
+    showLoadModal.value ||
+    showAttributesModal.value ||
+    showSettingsModal.value ||
+    showOutlineEditor.value ||
+    (endingEditorVisible && endingEditorVisible.value)
 )
 
-// 初始化自动播放功能 
+// 初始化自动播放功能
 const autoPlayAPI = useAutoPlay({
   getNextDialogue: () => nextDialogue,
   isLandscapeReady,
@@ -1400,37 +1833,49 @@ const {
   loadAutoPlayPrefs
 } = autoPlayAPI
 
-
-watch([isLandscapeReady, isLoading, currentChapterIndex, () => playlist.value.length], async ([land, loading, chapIdx, playlistLen]) => {
-  try {
-    // 进入加载状态时立即停止音乐
-    if (loading) {
-      if (isMusicPlaying.value) {
-        console.log('[GamePage][audio] entering loading state - stopping music')
-        stopMusic()
+watch(
+  [isLandscapeReady, isLoading, currentChapterIndex, () => playlist.value.length],
+  async ([land, loading, chapIdx, playlistLen]) => {
+    try {
+      // 进入加载状态时立即停止音乐
+      if (loading) {
+        if (isMusicPlaying.value) {
+          console.log('[GamePage][audio] entering loading state - stopping music')
+          stopMusic()
+        }
+        return
       }
-      return
-    }
-    
-    // 离开加载状态，进入游戏或读档后的章节时自动播放音乐（只在横屏就绪且有播放列表时）
-    if (land && !loading && playlistLen > 0) {
-      if (!isMusicPlaying.value) {
-        console.log('[GamePage][audio] entering game - auto-playing music, chapter:', chapIdx, 'track:', currentTrackIndex.value)
-        try {
-          await playTrack(currentTrackIndex.value || 0)
-          console.log('[GamePage][audio] auto-play succeeded')
-        } catch (err) {
-          console.warn('[GamePage][audio] auto-play failed:', err)
-          // 只在第一次失败时提示，避免频繁通知
-          if (!window.__musicAutoPlayFailedNotified) {
-            window.__musicAutoPlayFailedNotified = true
-            try { showToast('自动播放被阻止，请在菜单中手动播放', 1000) } catch (e) {}
+
+      // 离开加载状态，进入游戏或读档后的章节时自动播放音乐（只在横屏就绪且有播放列表时）
+      if (land && !loading && playlistLen > 0) {
+        if (!isMusicPlaying.value) {
+          console.log(
+            '[GamePage][audio] entering game - auto-playing music, chapter:',
+            chapIdx,
+            'track:',
+            currentTrackIndex.value
+          )
+          try {
+            await playTrack(currentTrackIndex.value || 0)
+            console.log('[GamePage][audio] auto-play succeeded')
+          } catch (err) {
+            console.warn('[GamePage][audio] auto-play failed:', err)
+            // 只在第一次失败时提示，避免频繁通知
+            if (!window.__musicAutoPlayFailedNotified) {
+              window.__musicAutoPlayFailedNotified = true
+              try {
+                showToast('自动播放被阻止，请在菜单中手动播放', 1000)
+              } catch (e) {}
+            }
           }
         }
       }
+    } catch (e) {
+      console.warn('[GamePage][audio] unified music control failed', e)
     }
-  } catch (e) { console.warn('[GamePage][audio] unified music control failed', e) }
-}, { immediate: false })
+  },
+  { immediate: false }
+)
 
 // 本地引用，允许在运行时替换为 mock 实现
 let didLoadInitialMock = false
@@ -1447,10 +1892,12 @@ const initializeGame = async () => {
     router.push('/login')
     return
   }
-  
+
   isLoading.value = true
-  try { if (typeof startLoading === 'function') startLoading() } catch (e) {}
-  
+  try {
+    if (typeof startLoading === 'function') startLoading()
+  } catch (e) {}
+
   try {
     // 若启用本地 mock，则在组件挂载时异步加载 mock 实现
     if (USE_MOCK_STORY) {
@@ -1458,12 +1905,14 @@ const initializeGame = async () => {
         const mock = await import('../service/story.mock.js')
         getScenes = mock.getScenes
         setGetScenes(mock.getScenes)
-        try { window.__USE_MOCK_STORY__ = true } catch (e) {}
+        try {
+          window.__USE_MOCK_STORY__ = true
+        } catch (e) {}
       } catch (e) {
         console.warn('加载 story.mock.js 失败，将回退到真实 service：', e)
       }
     }
-    
+
     let initOk = false
     try {
       // 测试模式：强制在进入游戏前弹出创作者大纲编辑器
@@ -1484,7 +1933,9 @@ const initializeGame = async () => {
           } catch (e) {}
           // 标记为已处理，避免重复弹窗
           creatorEditorHandled = true
-        } catch (e) { console.warn('prepare FORCE_CREATOR_FOR_TEST failed', e) }
+        } catch (e) {
+          console.warn('prepare FORCE_CREATOR_FOR_TEST failed', e)
+        }
       }
 
       const ok = await initFromCreateResult()
@@ -1497,18 +1948,25 @@ const initializeGame = async () => {
               onProgress: (progress) => {
                 console.log(`[Story] 首章生成进度:`, progress)
                 // 进度由全局计时器控制；当后端不再处于生成或待生成(pending)状态时结束加载
-                if (progress && progress.status && progress.status !== 'generating' && progress.status !== 'pending') {
-                  try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}
+                if (
+                  progress &&
+                  progress.status &&
+                  progress.status !== 'generating' &&
+                  progress.status !== 'pending'
+                ) {
+                  try {
+                    if (typeof stopLoading === 'function') stopLoading()
+                  } catch (e) {}
                 }
               }
             })
-            const initial = (resp && resp.scenes) ? resp.scenes : (Array.isArray(resp) ? resp : [])
+            const initial = resp && resp.scenes ? resp.scenes : Array.isArray(resp) ? resp : []
             if (Array.isArray(initial) && initial.length > 0) {
               storyScenes.value = []
               for (const s of initial) {
                 if (s && Array.isArray(s.choices)) {
                   const seen = new Set()
-                  s.choices = s.choices.filter(c => {
+                  s.choices = s.choices.filter((c) => {
                     const id = c?.id ?? JSON.stringify(c)
                     if (seen.has(id)) return false
                     seen.add(id)
@@ -1517,7 +1975,9 @@ const initializeGame = async () => {
                 }
                 storyScenes.value.push(s)
               }
-              try { didLoadInitialMock = true } catch (e) {}
+              try {
+                didLoadInitialMock = true
+              } catch (e) {}
               currentSceneIndex.value = 0
               currentDialogueIndex.value = 0
               currentChapterIndex.value = 1
@@ -1527,8 +1987,15 @@ const initializeGame = async () => {
               const result = await fetchNextChapter(work.value.id, 1, {
                 onProgress: (progress) => {
                   console.log(`[Story] 首章生成进度:`, progress)
-                  if (progress && progress.status && progress.status !== 'generating' && progress.status !== 'pending') {
-                    try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}
+                  if (
+                    progress &&
+                    progress.status &&
+                    progress.status !== 'generating' &&
+                    progress.status !== 'pending'
+                  ) {
+                    try {
+                      if (typeof stopLoading === 'function') stopLoading()
+                    } catch (e) {}
                   }
                 }
               })
@@ -1537,17 +2004,29 @@ const initializeGame = async () => {
           } catch (e) {
             console.warn('getInitialScenes failed, fallback to fetchNextChapter', e)
             console.log('[GamePage] getInitialScenes失败，尝试fetchNextChapter...')
-              const result = await fetchNextChapter(work.value.id, 1, {
-                onProgress: (progress) => {
-                  console.log(`[Story] 首章生成进度:`, progress)
-                  // 将 'pending' 视为仍在生成中，避免过早结束 loading
-                  if (progress && (progress.status === 'generating' || progress.status === 'pending')) {
-                    try { if (typeof startLoading === 'function') startLoading() } catch (e) {}
-                  } else if (progress && progress.status && progress.status !== 'generating' && progress.status !== 'pending') {
-                    try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}
-                  }
+            const result = await fetchNextChapter(work.value.id, 1, {
+              onProgress: (progress) => {
+                console.log(`[Story] 首章生成进度:`, progress)
+                // 将 'pending' 视为仍在生成中，避免过早结束 loading
+                if (
+                  progress &&
+                  (progress.status === 'generating' || progress.status === 'pending')
+                ) {
+                  try {
+                    if (typeof startLoading === 'function') startLoading()
+                  } catch (e) {}
+                } else if (
+                  progress &&
+                  progress.status &&
+                  progress.status !== 'generating' &&
+                  progress.status !== 'pending'
+                ) {
+                  try {
+                    if (typeof stopLoading === 'function') stopLoading()
+                  } catch (e) {}
                 }
-              })
+              }
+            })
             console.log('[GamePage] fetchNextChapter返回结果:', result)
           }
         } else {
@@ -1555,8 +2034,15 @@ const initializeGame = async () => {
           const result = await fetchNextChapter(work.value.id, 1, {
             onProgress: (progress) => {
               console.log(`[Story] 首章生成进度:`, progress)
-              if (progress && progress.status && progress.status !== 'generating' && progress.status !== 'pending') {
-                try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}
+              if (
+                progress &&
+                progress.status &&
+                progress.status !== 'generating' &&
+                progress.status !== 'pending'
+              ) {
+                try {
+                  if (typeof stopLoading === 'function') stopLoading()
+                } catch (e) {}
               }
             }
           })
@@ -1564,18 +2050,25 @@ const initializeGame = async () => {
           console.log('[GamePage] 当前storyScenes数量:', storyScenes.value?.length || 0)
         }
       }
-    } catch (e) { 
+    } catch (e) {
       console.warn('initFromCreateResult failed', e)
       // 如果 initFromCreateResult 失败，尝试直接获取第一章
       try {
         console.log('[GamePage] initFromCreateResult失败，尝试fetchNextChapter...')
         const result = await fetchNextChapter(work.value.id, 1, {
-              onProgress: (progress) => {
-                console.log(`[Story] 首章生成进度:`, progress)
-                if (progress && progress.status && progress.status !== 'generating' && progress.status !== 'pending') {
-                  try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}
-                }
-              }
+          onProgress: (progress) => {
+            console.log(`[Story] 首章生成进度:`, progress)
+            if (
+              progress &&
+              progress.status &&
+              progress.status !== 'generating' &&
+              progress.status !== 'pending'
+            ) {
+              try {
+                if (typeof stopLoading === 'function') stopLoading()
+              } catch (e) {}
+            }
+          }
         })
         console.log('[GamePage] fetchNextChapter返回结果:', result)
       } catch (err) {
@@ -1590,14 +2083,19 @@ const initializeGame = async () => {
 
     // 检查是否已经有场景数据（从fetchNextChapter加载的）
     console.log('[initializeGame] 检查场景数据 - storyScenes长度:', storyScenes.value?.length || 0)
-    
+
     if (Array.isArray(storyScenes.value) && storyScenes.value.length > 0) {
-      console.log(`[initializeGame] 场景数据已加载，跳过等待循环。场景数量: ${storyScenes.value.length}`)
+      console.log(
+        `[initializeGame] 场景数据已加载，跳过等待循环。场景数量: ${storyScenes.value.length}`
+      )
       // 确保索引有效
       if (currentSceneIndex.value >= storyScenes.value.length) {
         currentSceneIndex.value = 0
       }
-      if (currentDialogueIndex.value >= (storyScenes.value[currentSceneIndex.value]?.dialogues?.length || 0)) {
+      if (
+        currentDialogueIndex.value >=
+        (storyScenes.value[currentSceneIndex.value]?.dialogues?.length || 0)
+      ) {
         currentDialogueIndex.value = 0
       }
     } else {
@@ -1606,26 +2104,31 @@ const initializeGame = async () => {
       let retryCount = 0
       // 采用全局轮询配置，延长等待时间（默认约 5 分钟）
       const maxRetries = INITIAL_SCENES_MAX_RETRIES
-      
-      while ((!Array.isArray(storyScenes.value) || storyScenes.value.length === 0) && retryCount < maxRetries) {
-        await new Promise(resolve => setTimeout(resolve, 1000)) // 每秒检查一次
+
+      while (
+        (!Array.isArray(storyScenes.value) || storyScenes.value.length === 0) &&
+        retryCount < maxRetries
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 1000)) // 每秒检查一次
         retryCount++
         console.log(`[initializeGame] 等待场景数据加载... 重试 ${retryCount}/${maxRetries}`)
-        
+
         // 如果进度超过50%，显示更详细的状态
         if (loadingProgress.value > 50) {
           console.log(`[initializeGame] 生成进度: ${loadingProgress.value}%`)
         }
       }
-      
+
       // 如果仍然没有场景，使用一个默认场景避免黑屏
       if (!Array.isArray(storyScenes.value) || storyScenes.value.length === 0) {
         console.warn('[initializeGame] 等待超时，使用默认场景')
-        storyScenes.value = [{
-          sceneId: 'fallback',
-          backgroundImage: work.value.coverUrl || 'https://picsum.photos/1920/1080?random=1',
-          dialogues: ['故事正在加载中，请稍候...']
-        }]
+        storyScenes.value = [
+          {
+            sceneId: 'fallback',
+            backgroundImage: work.value.coverUrl || 'https://picsum.photos/1920/1080?random=1',
+            dialogues: ['故事正在加载中，请稍候...']
+          }
+        ]
         currentSceneIndex.value = 0
         currentDialogueIndex.value = 0
       }
@@ -1633,25 +2136,36 @@ const initializeGame = async () => {
 
     // 现在可以安全关闭加载界面，显示进度和剧情
     console.log('[initializeGame] 场景加载完成，准备显示剧情。场景数量:', storyScenes.value.length)
-    console.log('[initializeGame] 当前索引 - scene:', currentSceneIndex.value, 'dialogue:', currentDialogueIndex.value)
+    console.log(
+      '[initializeGame] 当前索引 - scene:',
+      currentSceneIndex.value,
+      'dialogue:',
+      currentDialogueIndex.value
+    )
     console.log('[initializeGame] 当前场景内容:', storyScenes.value[currentSceneIndex.value])
-    
+
     await simulateLoadTo100(800)
 
     isLoading.value = false
     showText.value = true
-    
-    console.log('[initializeGame] 加载状态更新完成 - isLoading:', isLoading.value, 'showText:', showText.value)
-    
+
+    console.log(
+      '[initializeGame] 加载状态更新完成 - isLoading:',
+      isLoading.value,
+      'showText:',
+      showText.value
+    )
   } catch (error) {
     console.error('[initializeGame] Initialize game failed:', error)
     // 即使出错也要确保有场景显示
     if (!Array.isArray(storyScenes.value) || storyScenes.value.length === 0) {
-      storyScenes.value = [{
-        sceneId: 'error',
-        backgroundImage: work.value.coverUrl || 'https://picsum.photos/1920/1080?random=1',
-        dialogues: ['故事加载失败，请返回重试。']
-      }]
+      storyScenes.value = [
+        {
+          sceneId: 'error',
+          backgroundImage: work.value.coverUrl || 'https://picsum.photos/1920/1080?random=1',
+          dialogues: ['故事加载失败，请返回重试。']
+        }
+      ]
       currentSceneIndex.value = 0
       currentDialogueIndex.value = 0
     }
@@ -1665,10 +2179,11 @@ const initializeGame = async () => {
 const effectiveCoverUrl = computed(() => {
   try {
     const raw = work.value.coverUrl || ''
-    const defaultImg = 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=1600&h=900&fit=crop'
+    const defaultImg =
+      'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=1600&h=900&fit=crop'
     if (!raw) return defaultImg
     if (/^https?:\/\//i.test(raw)) return raw
-    return 'https://storycraft.work.gd' + (raw.startsWith('/') ? raw : ('/' + raw))
+    return 'https://storycraft.work.gd' + (raw.startsWith('/') ? raw : '/' + raw)
   } catch (e) {
     return 'https://images.unsplash.com/photo-1587614387466-0a72ca909e16?w=1600&h=900&fit=crop'
   }
@@ -1688,67 +2203,109 @@ const initFromCreateResult = async (opts = {}) => {
         work.value.ai_callable = obj.backendWork.ai_callable
       }
     }
-  
-  if (obj.initialAttributes) {
-    attributes.value = obj.initialAttributes
-    console.log('[initFromCreateResult] 初始化 attributes (从 initialAttributes):', attributes.value)
-  } else if (obj.initial_attributes) {
-    attributes.value = obj.initial_attributes
-    console.log('[initFromCreateResult] 初始化 attributes (从 initial_attributes):', attributes.value)
-  } else if (obj.backendWork && obj.backendWork.initialAttributes) {
-    attributes.value = obj.backendWork.initialAttributes
-    console.log('[initFromCreateResult] 初始化 attributes (从 backendWork.initialAttributes):', attributes.value)
-  } else if (obj.backendWork && obj.backendWork.initial_attributes) {
-    attributes.value = obj.backendWork.initial_attributes
-    console.log('[initFromCreateResult] 初始化 attributes (从 backendWork.initial_attributes):', attributes.value)
-  } else if (obj.backendWork && obj.backendWork.data && obj.backendWork.data.initialAttributes) {
-    attributes.value = obj.backendWork.data.initialAttributes
-    console.log('[initFromCreateResult] 初始化 attributes (从 backendWork.data.initialAttributes):', attributes.value)
-  } else if (obj.backendWork && obj.backendWork.data && obj.backendWork.data.initial_attributes) {
-    attributes.value = obj.backendWork.data.initial_attributes
-    console.log('[initFromCreateResult] 初始化 attributes (从 backendWork.data.initial_attributes):', attributes.value)
-  } else {
-    console.log('[initFromCreateResult] 未找到初始属性，使用空对象')
-  }
 
-  if (obj.initialStatuses) {
-    statuses.value = obj.initialStatuses
-    console.log('[initFromCreateResult] 初始化 statuses (从 initialStatuses):', statuses.value)
-  } else if (obj.initial_statuses) {
-    statuses.value = obj.initial_statuses
-    console.log('[initFromCreateResult] 初始化 statuses (从 initial_statuses):', statuses.value)
-  } else if (obj.backendWork && obj.backendWork.initialStatuses) {
-    statuses.value = obj.backendWork.initialStatuses
-    console.log('[initFromCreateResult] 初始化 statuses (从 backendWork.initialStatuses):', statuses.value)
-  } else if (obj.backendWork && obj.backendWork.initial_statuses) {
-    statuses.value = obj.backendWork.initial_statuses
-    console.log('[initFromCreateResult] 初始化 statuses (从 backendWork.initial_statuses):', statuses.value)
-  } else if (obj.backendWork && obj.backendWork.data && obj.backendWork.data.initialStatuses) {
-    statuses.value = obj.backendWork.data.initialStatuses
-    console.log('[initFromCreateResult] 初始化 statuses (从 backendWork.data.initialStatuses):', statuses.value)
-  } else if (obj.backendWork && obj.backendWork.data && obj.backendWork.data.initial_statuses) {
-    statuses.value = obj.backendWork.data.initial_statuses
-    console.log('[initFromCreateResult] 初始化 statuses (从 backendWork.data.initial_statuses):', statuses.value)
-  } else {
-    console.log('[initFromCreateResult] 未找到初始状态，使用空对象')
-  }
+    if (obj.initialAttributes) {
+      attributes.value = obj.initialAttributes
+      console.log(
+        '[initFromCreateResult] 初始化 attributes (从 initialAttributes):',
+        attributes.value
+      )
+    } else if (obj.initial_attributes) {
+      attributes.value = obj.initial_attributes
+      console.log(
+        '[initFromCreateResult] 初始化 attributes (从 initial_attributes):',
+        attributes.value
+      )
+    } else if (obj.backendWork && obj.backendWork.initialAttributes) {
+      attributes.value = obj.backendWork.initialAttributes
+      console.log(
+        '[initFromCreateResult] 初始化 attributes (从 backendWork.initialAttributes):',
+        attributes.value
+      )
+    } else if (obj.backendWork && obj.backendWork.initial_attributes) {
+      attributes.value = obj.backendWork.initial_attributes
+      console.log(
+        '[initFromCreateResult] 初始化 attributes (从 backendWork.initial_attributes):',
+        attributes.value
+      )
+    } else if (obj.backendWork && obj.backendWork.data && obj.backendWork.data.initialAttributes) {
+      attributes.value = obj.backendWork.data.initialAttributes
+      console.log(
+        '[initFromCreateResult] 初始化 attributes (从 backendWork.data.initialAttributes):',
+        attributes.value
+      )
+    } else if (obj.backendWork && obj.backendWork.data && obj.backendWork.data.initial_attributes) {
+      attributes.value = obj.backendWork.data.initial_attributes
+      console.log(
+        '[initFromCreateResult] 初始化 attributes (从 backendWork.data.initial_attributes):',
+        attributes.value
+      )
+    } else {
+      console.log('[initFromCreateResult] 未找到初始属性，使用空对象')
+    }
+
+    if (obj.initialStatuses) {
+      statuses.value = obj.initialStatuses
+      console.log('[initFromCreateResult] 初始化 statuses (从 initialStatuses):', statuses.value)
+    } else if (obj.initial_statuses) {
+      statuses.value = obj.initial_statuses
+      console.log('[initFromCreateResult] 初始化 statuses (从 initial_statuses):', statuses.value)
+    } else if (obj.backendWork && obj.backendWork.initialStatuses) {
+      statuses.value = obj.backendWork.initialStatuses
+      console.log(
+        '[initFromCreateResult] 初始化 statuses (从 backendWork.initialStatuses):',
+        statuses.value
+      )
+    } else if (obj.backendWork && obj.backendWork.initial_statuses) {
+      statuses.value = obj.backendWork.initial_statuses
+      console.log(
+        '[initFromCreateResult] 初始化 statuses (从 backendWork.initial_statuses):',
+        statuses.value
+      )
+    } else if (obj.backendWork && obj.backendWork.data && obj.backendWork.data.initialStatuses) {
+      statuses.value = obj.backendWork.data.initialStatuses
+      console.log(
+        '[initFromCreateResult] 初始化 statuses (从 backendWork.data.initialStatuses):',
+        statuses.value
+      )
+    } else if (obj.backendWork && obj.backendWork.data && obj.backendWork.data.initial_statuses) {
+      statuses.value = obj.backendWork.data.initial_statuses
+      console.log(
+        '[initFromCreateResult] 初始化 statuses (从 backendWork.data.initial_statuses):',
+        statuses.value
+      )
+    } else {
+      console.log('[initFromCreateResult] 未找到初始状态，使用空对象')
+    }
 
     // total_chapters
     if (obj.total_chapters) totalChapters.value = obj.total_chapters
-    else if (obj.backendWork && (obj.backendWork.total_chapters || obj.backendWork.total_chapters === 0)) totalChapters.value = obj.backendWork.total_chapters || null
-    
+    else if (
+      obj.backendWork &&
+      (obj.backendWork.total_chapters || obj.backendWork.total_chapters === 0)
+    )
+      totalChapters.value = obj.backendWork.total_chapters || null
+
     // 根据 createResult 与 backendWork 决定是否启用创作者功能
     try {
-      creatorFeatureEnabled.value = !!(obj.modifiable && !(obj.backendWork && obj.backendWork.ai_callable === false))
-    } catch (e) { creatorFeatureEnabled.value = !!obj.modifiable }
+      creatorFeatureEnabled.value = !!(
+        obj.modifiable && !(obj.backendWork && obj.backendWork.ai_callable === false)
+      )
+    } catch (e) {
+      creatorFeatureEnabled.value = !!obj.modifiable
+    }
     // 记录 createResult.modifiable，用于决定是否允许菜单触发的手动创作编辑（即使 ai_callable 为 false）
-    try { modifiableFromCreate.value = !!obj.modifiable } catch (e) { modifiableFromCreate.value = !!obj.modifiable }
+    try {
+      modifiableFromCreate.value = !!obj.modifiable
+    } catch (e) {
+      modifiableFromCreate.value = !!obj.modifiable
+    }
 
     // 尝试获取作品详情以初始化章节状态（chapters_status）
-    try { 
+    try {
       await getWorkDetails(work.value.id)
       console.log('[initFromCreateResult] 获取作品详情后的章节状态:', chaptersStatus.value)
-    } catch (e) { 
+    } catch (e) {
       console.warn('[initFromCreateResult] 获取作品详情失败:', e)
     }
 
@@ -1759,8 +2316,11 @@ const initFromCreateResult = async (opts = {}) => {
       if (creatorFeatureEnabled.value && !(opts && opts.suppressAutoEditor)) {
         // 检查第一章的状态
         const firstChapterStatus = getChapterStatus(1)
-        console.log(`[initFromCreateResult] 第一章状态: ${firstChapterStatus}，所有章节状态:`, chaptersStatus.value)
-        
+        console.log(
+          `[initFromCreateResult] 第一章状态: ${firstChapterStatus}，所有章节状态:`,
+          chaptersStatus.value
+        )
+
         // 只在状态为 not_generated 或 null (未知状态) 时才弹出编辑器
         if (!firstChapterStatus || firstChapterStatus === 'not_generated') {
           // 如果当前进入者是作品创建者身份（isCreatorIdentity），我们需要自动弹出编辑器用于生成大纲
@@ -1778,32 +2338,41 @@ const initFromCreateResult = async (opts = {}) => {
             console.log('[initFromCreateResult] 从后端获取最新大纲数据')
             const workDetailsData = await getWorkDetails(work.value.id)
             let rawOutlines = []
-            
+
             // 从后端返回的数据中提取大纲
             if (workDetailsData) {
               if (Array.isArray(workDetailsData.outlines) && workDetailsData.outlines.length > 0) {
                 rawOutlines = workDetailsData.outlines
-              } else if (workDetailsData.data && Array.isArray(workDetailsData.data.outlines) && workDetailsData.data.outlines.length > 0) {
+              } else if (
+                workDetailsData.data &&
+                Array.isArray(workDetailsData.data.outlines) &&
+                workDetailsData.data.outlines.length > 0
+              ) {
                 rawOutlines = workDetailsData.data.outlines
               }
             }
 
             if (rawOutlines.length > 0) {
               // 过滤掉结局章节（有 endingIndex 的项），只保留普通章节
-              const regularChapters = rawOutlines.filter(ch => {
+              const regularChapters = rawOutlines.filter((ch) => {
                 return ch && typeof ch.endingIndex === 'undefined'
               })
-              
+
               // 合并标题与大纲正文：title + 空行 + outline/summary
               const mapped = regularChapters.map((ch, i) => {
-                const ci = (ch && (ch.chapterIndex ?? ch.chapter_index)) || (i + 1)
+                const ci = (ch && (ch.chapterIndex ?? ch.chapter_index)) || i + 1
                 const title = (ch && (ch.title ?? ch.chapter_title)) || ''
                 const body = (ch && (ch.outline ?? ch.summary)) || ''
-                const combined = (title && body) ? `${title}\n\n${body}` : (title || body || JSON.stringify(ch))
+                const combined =
+                  title && body ? `${title}\n\n${body}` : title || body || JSON.stringify(ch)
                 return { chapterIndex: Number(ci), outline: combined }
               })
               outlineEdits.value = mapped
-              console.log('[initFromCreateResult] 已从后端加载大纲数据，共', mapped.length, '章（已过滤结局章节）')
+              console.log(
+                '[initFromCreateResult] 已从后端加载大纲数据，共',
+                mapped.length,
+                '章（已过滤结局章节）'
+              )
             } else {
               // 后端未返回大纲，使用空数组
               outlineEdits.value = []
@@ -1818,12 +2387,19 @@ const initFromCreateResult = async (opts = {}) => {
           }
 
           // 记录原始大纲快照（用于取消时按原始大纲生成）
-          try { originalOutlineSnapshot.value = JSON.parse(JSON.stringify(outlineEdits.value || [])) } catch(e) { originalOutlineSnapshot.value = (outlineEdits.value || []).slice() }
+          try {
+            originalOutlineSnapshot.value = JSON.parse(JSON.stringify(outlineEdits.value || []))
+          } catch (e) {
+            originalOutlineSnapshot.value = (outlineEdits.value || []).slice()
+          }
           // 标记 pending target 为首章（createResult 路径用于首章生成，target = 1）
           pendingOutlineTargetChapter.value = 1
-          console.log('[GamePage] 打开大纲编辑器: reason=first-chapter-not-generated (auto), targetChapter=', pendingOutlineTargetChapter.value)
+          console.log(
+            '[GamePage] 打开大纲编辑器: reason=first-chapter-not-generated (auto), targetChapter=',
+            pendingOutlineTargetChapter.value
+          )
           showOutlineEditor.value = true
-          
+
           // 使用 Promise + resolver 方式（与后续章节保持一致）
           // 等待用户确认或取消（监听 showOutlineEditor 的变化）
           await new Promise((resolve) => {
@@ -1837,7 +2413,9 @@ const initFromCreateResult = async (opts = {}) => {
           // 如果用户确认，confirmOutlineEdits 已调用 generateChapter，后端可能仍在生成，getScenes 会轮询等待
         } else {
           // 第一章已经生成或保存，跳过编辑器直接加载
-          console.log(`[initFromCreateResult] 第一章状态为 ${firstChapterStatus}，跳过编辑器直接加载`)
+          console.log(
+            `[initFromCreateResult] 第一章状态为 ${firstChapterStatus}，跳过编辑器直接加载`
+          )
         }
       }
       const result = await getScenes(workId, 1, {
@@ -1845,42 +2423,54 @@ const initFromCreateResult = async (opts = {}) => {
           console.log(`[Story] 首章生成进度:`, progress)
           // 使用集中式加载控制：生成中或 pending 启动集中进度，非生成中/非 pending 停止并完成进度
           if (progress && (progress.status === 'generating' || progress.status === 'pending')) {
-            try { if (typeof startLoading === 'function') startLoading() } catch (e) {}
-          } else if (progress && progress.status && progress.status !== 'generating' && progress.status !== 'pending') {
-            try { if (typeof stopLoading === 'function') stopLoading() } catch (e) {}
+            try {
+              if (typeof startLoading === 'function') startLoading()
+            } catch (e) {}
+          } else if (
+            progress &&
+            progress.status &&
+            progress.status !== 'generating' &&
+            progress.status !== 'pending'
+          ) {
+            try {
+              if (typeof stopLoading === 'function') stopLoading()
+            } catch (e) {}
           }
         }
       })
       if (result && result.scenes && result.scenes.length > 0) {
         storyScenes.value = []
         for (const sc of result.scenes) {
-          try { pushSceneFromServer(sc) } catch (e) { console.warn('pushSceneFromServer failed for one entry', e) }
+          try {
+            pushSceneFromServer(sc)
+          } catch (e) {
+            console.warn('pushSceneFromServer failed for one entry', e)
+          }
         }
         // 尝试使用最后一个场景的 seq
-        try { 
+        try {
           const last = result.scenes[result.scenes.length - 1]
-          if (last && last.seq) lastSeq.value = last.seq 
+          if (last && last.seq) lastSeq.value = last.seq
         } catch (e) {}
         // 重置播放索引，确保从首条对话开始
         currentSceneIndex.value = 0
         currentDialogueIndex.value = 0
         // 明确设置当前章节为首章（1-based）
         currentChapterIndex.value = 1
-        
+
         console.log(`[Story] 从 createResult 成功加载首章，共 ${result.scenes.length} 个场景`)
         return true
       } else {
         console.warn('[Story] createResult 返回空场景数据')
         return false
       }
-    } catch (e) { 
+    } catch (e) {
       console.warn('Failed to fetch first chapter from backend:', e)
       return false
     }
-    
-  } catch (e) { 
-    console.warn('initFromCreateResult failed', e); 
-    return false 
+  } catch (e) {
+    console.warn('initFromCreateResult failed', e)
+    return false
   }
 }
 
@@ -1888,7 +2478,6 @@ const initFromCreateResult = async (opts = {}) => {
 let isRequestingNext = false
 
 // fetchReport 已在前面定义（在 useGameState 之前）
-
 
 // 当用户开始进入页面或重新加载时，尝试从 createResult 初始化；否则请求第一章
 onMounted(async () => {
@@ -1899,18 +2488,20 @@ onMounted(async () => {
   } catch (e) {
     console.warn('[GamePage] 隐藏状态栏失败（可能在浏览器环境）:', e)
   }
-  
+
   if (USE_MOCK_STORY) {
     try {
       const mock = await import('../service/story.mock.js')
       getScenes = mock.getScenes
       setGetScenes(mock.getScenes)
-      try { window.__USE_MOCK_STORY__ = true } catch (e) {}
+      try {
+        window.__USE_MOCK_STORY__ = true
+      } catch (e) {}
     } catch (e) {
       console.warn('加载 story.mock.js 失败，将回退到真实 service：', e)
     }
   }
-  
+
   // 检查用户是否已登录
   const userStore = useUserStore()
   if (!userStore.isAuthenticated) {
@@ -1918,53 +2509,79 @@ onMounted(async () => {
     router.push('/login')
     return
   }
-  
+
   // 加载自动播放偏好（watch 会自动处理启动定时器）
   loadAutoPlayPrefs()
-  
+
   // 检查是否从结算页面跳回来并携带了加载数据
   if (history.state?.loadedData) {
     const loadedData = history.state.loadedData
-      try {
+    try {
       if (loadedData.sceneId != null && Array.isArray(storyScenes.value)) {
         // 使用字符串比较以兼容 number/string id 的差异
         const lsid = String(loadedData.sceneId)
-        let idx = storyScenes.value.findIndex(s => s && (String(s.id) === lsid || String(s.sceneId) === lsid))
+        let idx = storyScenes.value.findIndex(
+          (s) => s && (String(s.id) === lsid || String(s.sceneId) === lsid)
+        )
         // 如果没有找到，但提供了 chapterIndex，则尝试拉取该章节以恢复场景列表
         if (idx < 0 && typeof loadedData.chapterIndex === 'number') {
           try {
             const fetched = await fetchNextContent(work.value.id, loadedData.chapterIndex)
             if (fetched && Array.isArray(fetched.scenes) && fetched.scenes.length > 0) {
               for (const s of fetched.scenes) {
-                try { pushSceneFromServer(s) } catch (e) { console.warn('pushSceneFromServer failed when restoring chapter (mounted):', e) }
+                try {
+                  pushSceneFromServer(s)
+                } catch (e) {
+                  console.warn('pushSceneFromServer failed when restoring chapter (mounted):', e)
+                }
               }
-              idx = storyScenes.value.findIndex(s => s && (String(s.id) === lsid || String(s.sceneId) === lsid))
+              idx = storyScenes.value.findIndex(
+                (s) => s && (String(s.id) === lsid || String(s.sceneId) === lsid)
+              )
             }
-          } catch (e) { console.warn('fetchNextContent failed while restoring loadedData chapter:', e) }
+          } catch (e) {
+            console.warn('fetchNextContent failed while restoring loadedData chapter:', e)
+          }
         }
-        currentSceneIndex.value = (idx >= 0) ? idx : 0
+        currentSceneIndex.value = idx >= 0 ? idx : 0
       } else if (typeof loadedData.currentSceneIndex === 'number') {
         currentSceneIndex.value = loadedData.currentSceneIndex
       } else if (typeof loadedData.chapterIndex === 'number' && Array.isArray(storyScenes.value)) {
-        const idx = storyScenes.value.findIndex(s => s && (s.chapterIndex === loadedData.chapterIndex || s.chapter === loadedData.chapterIndex))
-        currentSceneIndex.value = (idx >= 0) ? idx : 0
+        const idx = storyScenes.value.findIndex(
+          (s) =>
+            s &&
+            (s.chapterIndex === loadedData.chapterIndex || s.chapter === loadedData.chapterIndex)
+        )
+        currentSceneIndex.value = idx >= 0 ? idx : 0
       } else {
         currentSceneIndex.value = 0
       }
-      if (typeof loadedData.currentDialogueIndex === 'number') currentDialogueIndex.value = loadedData.currentDialogueIndex
-      else if (loadedData.dialogueIndex != null) currentDialogueIndex.value = loadedData.dialogueIndex
-    } catch (e) { /* ignore */ }
-  attributes.value = loadedData.attributes || {}
-  statuses.value = loadedData.statuses || {}
-  choiceHistory.value = loadedData.choiceHistory || []
-  try { restoreChoiceFlagsFromHistory() } catch (e) { console.warn('restoreChoiceFlagsFromHistory error (loadedData):', e) }
-    
+      if (typeof loadedData.currentDialogueIndex === 'number')
+        currentDialogueIndex.value = loadedData.currentDialogueIndex
+      else if (loadedData.dialogueIndex != null)
+        currentDialogueIndex.value = loadedData.dialogueIndex
+    } catch (e) {
+      /* ignore */
+    }
+    attributes.value = loadedData.attributes || {}
+    statuses.value = loadedData.statuses || {}
+    choiceHistory.value = loadedData.choiceHistory || []
+    try {
+      restoreChoiceFlagsFromHistory()
+    } catch (e) {
+      console.warn('restoreChoiceFlagsFromHistory error (loadedData):', e)
+    }
+
     // 直接进入游戏：数据已恢复时无需再展示一次完整的加载动画，
     // 直接进入横屏并显示剧情，避免出现先到 100% 再回退的闪烁加载界面。
     isLandscapeReady.value = true
-    try { if (typeof stopLoading === 'function') await stopLoading() } catch (e) {}
+    try {
+      if (typeof stopLoading === 'function') await stopLoading()
+    } catch (e) {}
     isLoading.value = false
-    try { loadingProgress.value = 0 } catch (e) {}
+    try {
+      loadingProgress.value = 0
+    } catch (e) {}
     showText.value = true
     return
   }
@@ -2003,24 +2620,26 @@ onMounted(async () => {
   }
   window.addEventListener('beforeunload', onBeforeUnload)
   // 存储清理函数到实例上，便于卸载时移除
-  ;(onMounted._cleanup = () => {
+  onMounted._cleanup = () => {
     document.removeEventListener('visibilitychange', onVisibility)
     window.removeEventListener('beforeunload', onBeforeUnload)
-  })
+  }
 })
-
-
 
 onUnmounted(() => {
   // 关闭 SSE
-  try { if (eventSource) eventSource.close() } catch (e) {}
+  try {
+    if (eventSource) eventSource.close()
+  } catch (e) {}
   stopAutoPlayTimer()
   // 卸载时停止并清理音乐
-  try { stopMusic() } catch (e) {}
-  try { if (audioEl.value) audioEl.value.src = '' } catch (e) {}
+  try {
+    stopMusic()
+  } catch (e) {}
+  try {
+    if (audioEl.value) audioEl.value.src = ''
+  } catch (e) {}
 })
-
-
 
 // 存储 key：storycraft_overrides_{userId}_{workId}
 const overridesKey = (userId, workId) => `storycraft_overrides_${userId}_${workId}`
@@ -2034,22 +2653,25 @@ const persistCurrentChapterEdits = async (opts = {}) => {
     }
     const workId = work.value && (work.value.id || work.value.gameworkId || work.value.workId)
     if (!workId) return
-    
-    const auto = (typeof opts.auto === 'undefined') ? true : !!opts.auto
+
+    const auto = typeof opts.auto === 'undefined' ? true : !!opts.auto
     const allowSaveGenerated = !!opts.allowSaveGenerated
     // 控制是否对后端执行网络保存（PUT）
     // 在自动触发的持久化（退出创作模式、unmount、toggle creator 自动持久化）时传入 performNetworkSave:false
-    const performNetworkSave = (typeof opts.performNetworkSave === 'boolean') ? opts.performNetworkSave : true
+    const performNetworkSave =
+      typeof opts.performNetworkSave === 'boolean' ? opts.performNetworkSave : true
     const chapterIndex = Number(opts.chapterIndex || currentChapterIndex.value) || 1
 
     // 如果是自动保存且当前章节处于 generated（未确认）状态，则跳过自动保存
     try {
       const st = getChapterStatus(chapterIndex)
       if (auto && st === 'generated') {
-        console.log('persistCurrentChapterEdits: skipping auto-save for generated chapter', { chapterIndex })
+        console.log('persistCurrentChapterEdits: skipping auto-save for generated chapter', {
+          chapterIndex
+        })
         return
       }
-    } catch (e) {  }
+    } catch (e) {}
 
     // 简化逻辑：storyScenes 现在只包含当前章节，直接使用全部内容
     if (!storyScenes.value || storyScenes.value.length === 0) {
@@ -2057,19 +2679,19 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       return
     }
 
-    const scenesWithOverrides = storyScenes.value.map(scene => {
+    const scenesWithOverrides = storyScenes.value.map((scene) => {
       const sceneId = String(scene._uid ?? scene.sceneId ?? scene.id ?? '')
       const ov = overrides.value?.scenes?.[sceneId]
       if (!ov) return scene
-      
+
       // 克隆场景以避免修改原始数据
       const clonedScene = JSON.parse(JSON.stringify(scene))
-      
+
       // 应用背景图覆盖
       if (ov.backgroundImage) {
         clonedScene.backgroundImage = ov.backgroundImage
       }
-      
+
       // 应用对话覆盖
       if (ov.dialogues) {
         for (const k in ov.dialogues) {
@@ -2078,20 +2700,28 @@ const persistCurrentChapterEdits = async (opts = {}) => {
             const orig = clonedScene.dialogues[idx]
             const overrideText = ov.dialogues[k]
             // 立即对覆盖文本进行 sanitize，保证保存后前端立刻显示替换后的内容
-            const overrideTextSan = (typeof overrideText === 'string') ? sanitize(overrideText) : overrideText
-            
+            const overrideTextSan =
+              typeof overrideText === 'string' ? sanitize(overrideText) : overrideText
+
             // 检查是否为来自选项的 subsequentDialogue
-            if (typeof orig === 'object' && orig._fromChoiceId != null && orig._fromChoiceIndex != null) {
+            if (
+              typeof orig === 'object' &&
+              orig._fromChoiceId != null &&
+              orig._fromChoiceIndex != null
+            ) {
               // 找到对应的选项，更新其 subsequentDialogues
               const choiceId = orig._fromChoiceId
               const choiceIdx = orig._fromChoiceIndex
-              
+
               if (Array.isArray(clonedScene.choices)) {
-                const choice = clonedScene.choices.find(c => String(c.id) === String(choiceId))
+                const choice = clonedScene.choices.find((c) => String(c.id) === String(choiceId))
                 if (choice && Array.isArray(choice.subsequentDialogues)) {
                   // 直接更新 subsequentDialogues 中的对应项，并 sanitize
-                  choice.subsequentDialogues[choiceIdx] = (typeof overrideText === 'string') ? sanitize(overrideText) : overrideText
-                  console.log(`[persistCurrentChapterEdits] 更新选项 ${choiceId} 的 subsequentDialogues[${choiceIdx}]`)
+                  choice.subsequentDialogues[choiceIdx] =
+                    typeof overrideText === 'string' ? sanitize(overrideText) : overrideText
+                  console.log(
+                    `[persistCurrentChapterEdits] 更新选项 ${choiceId} 的 subsequentDialogues[${choiceIdx}]`
+                  )
                 }
               }
               // 更新对话本身的显示文本
@@ -2118,7 +2748,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           }
         }
       }
-      
+
       return clonedScene
     })
 
@@ -2129,46 +2759,94 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           // 返回 null 表示这个对话不应该作为独立的 narration 输出
           return null
         }
-        
+
         // 如果是字符串，包装为 narration
         if (typeof d === 'string') {
-          const playerChoicesFromScene = (scene && Array.isArray(scene.choices) && Number(scene.choiceTriggerIndex) === Number(dIdx)) ? scene.choices.map((c, idx) => {
-            const pc = { text: sanitize(c.text ?? c.label ?? ''), attributesDelta: c.attributesDelta || c.delta || {}, statusesDelta: c.statusesDelta || c.statuses || {}, subsequentDialogues: Array.isArray(c.subsequentDialogues || c.nextLines) ? (c.subsequentDialogues || c.nextLines).map(sd => (typeof sd === 'string' ? sanitize(sd) : sd)) : [] }
-            const maybeId = Number(c.choiceId ?? c.id)
-            pc.choiceId = Number.isInteger(maybeId) ? maybeId : (idx + 1)
-            return pc
-          }) : []
+          const playerChoicesFromScene =
+            scene &&
+            Array.isArray(scene.choices) &&
+            Number(scene.choiceTriggerIndex) === Number(dIdx)
+              ? scene.choices.map((c, idx) => {
+                  const pc = {
+                    text: sanitize(c.text ?? c.label ?? ''),
+                    attributesDelta: c.attributesDelta || c.delta || {},
+                    statusesDelta: c.statusesDelta || c.statuses || {},
+                    subsequentDialogues: Array.isArray(c.subsequentDialogues || c.nextLines)
+                      ? (c.subsequentDialogues || c.nextLines).map((sd) =>
+                          typeof sd === 'string' ? sanitize(sd) : sd
+                        )
+                      : []
+                  }
+                  const maybeId = Number(c.choiceId ?? c.id)
+                  pc.choiceId = Number.isInteger(maybeId) ? maybeId : idx + 1
+                  return pc
+                })
+              : []
           return { narration: sanitize(d), playerChoices: playerChoicesFromScene }
         }
         // 如果是对象，规范化 playerChoices
         if (d && typeof d === 'object') {
-          const narration = (typeof d.narration === 'string') ? d.narration : (d.text || d.content || '')
+          const narration =
+            typeof d.narration === 'string' ? d.narration : d.text || d.content || ''
           let playerChoices = []
           if (Array.isArray(d.playerChoices) && d.playerChoices.length > 0) {
             playerChoices = d.playerChoices.map((c, idx) => {
-              const pc = { text: sanitize(c.text ?? c.label ?? ''), attributesDelta: c.attributesDelta || c.delta || {}, statusesDelta: c.statusesDelta || c.statuses || {}, subsequentDialogues: Array.isArray(c.subsequentDialogues || c.nextLines) ? (c.subsequentDialogues || c.nextLines).map(sd => (typeof sd === 'string' ? sanitize(sd) : sd)) : [] }
+              const pc = {
+                text: sanitize(c.text ?? c.label ?? ''),
+                attributesDelta: c.attributesDelta || c.delta || {},
+                statusesDelta: c.statusesDelta || c.statuses || {},
+                subsequentDialogues: Array.isArray(c.subsequentDialogues || c.nextLines)
+                  ? (c.subsequentDialogues || c.nextLines).map((sd) =>
+                      typeof sd === 'string' ? sanitize(sd) : sd
+                    )
+                  : []
+              }
               const maybeId = Number(c.choiceId ?? c.id)
-              pc.choiceId = Number.isInteger(maybeId) ? maybeId : (idx + 1)
+              pc.choiceId = Number.isInteger(maybeId) ? maybeId : idx + 1
               return pc
             })
           } else if (Array.isArray(d.choices) && d.choices.length > 0) {
             playerChoices = d.choices.map((c, idx) => {
-              const pc = { text: sanitize(c.text ?? c.label ?? ''), attributesDelta: c.attributesDelta || c.delta || {}, statusesDelta: c.statusesDelta || c.statuses || {}, subsequentDialogues: Array.isArray(c.subsequentDialogues || c.nextLines) ? (c.subsequentDialogues || c.nextLines).map(sd => (typeof sd === 'string' ? sanitize(sd) : sd)) : [] }
+              const pc = {
+                text: sanitize(c.text ?? c.label ?? ''),
+                attributesDelta: c.attributesDelta || c.delta || {},
+                statusesDelta: c.statusesDelta || c.statuses || {},
+                subsequentDialogues: Array.isArray(c.subsequentDialogues || c.nextLines)
+                  ? (c.subsequentDialogues || c.nextLines).map((sd) =>
+                      typeof sd === 'string' ? sanitize(sd) : sd
+                    )
+                  : []
+              }
               const maybeId = Number(c.choiceId ?? c.id)
-              pc.choiceId = Number.isInteger(maybeId) ? maybeId : (idx + 1)
+              pc.choiceId = Number.isInteger(maybeId) ? maybeId : idx + 1
               return pc
             })
-          } else if (scene && Array.isArray(scene.choices) && Number(scene.choiceTriggerIndex) === Number(dIdx)) {
+          } else if (
+            scene &&
+            Array.isArray(scene.choices) &&
+            Number(scene.choiceTriggerIndex) === Number(dIdx)
+          ) {
             playerChoices = scene.choices.map((c, idx) => {
-              const pc = { text: sanitize(c.text ?? c.label ?? ''), attributesDelta: c.attributesDelta || c.delta || {}, statusesDelta: c.statusesDelta || c.statuses || {}, subsequentDialogues: Array.isArray(c.subsequentDialogues || c.nextLines) ? (c.subsequentDialogues || c.nextLines).map(sd => (typeof sd === 'string' ? sanitize(sd) : sd)) : [] }
+              const pc = {
+                text: sanitize(c.text ?? c.label ?? ''),
+                attributesDelta: c.attributesDelta || c.delta || {},
+                statusesDelta: c.statusesDelta || c.statuses || {},
+                subsequentDialogues: Array.isArray(c.subsequentDialogues || c.nextLines)
+                  ? (c.subsequentDialogues || c.nextLines).map((sd) =>
+                      typeof sd === 'string' ? sanitize(sd) : sd
+                    )
+                  : []
+              }
               const maybeId = Number(c.choiceId ?? c.id)
-              pc.choiceId = Number.isInteger(maybeId) ? maybeId : (idx + 1)
+              pc.choiceId = Number.isInteger(maybeId) ? maybeId : idx + 1
               return pc
             })
           }
           return { narration: sanitize(narration || ''), playerChoices }
         }
-      } catch (e) { console.warn('normalizeDialogue failed', e) }
+      } catch (e) {
+        console.warn('normalizeDialogue failed', e)
+      }
       return { narration: '', playerChoices: [] }
     }
 
@@ -2176,26 +2854,28 @@ const persistCurrentChapterEdits = async (opts = {}) => {
     const scenesPayload = scenesWithOverrides.map((s, idx) => {
       let sid = Number(s.sceneId ?? s.id)
       if (!Number.isInteger(sid) || sid <= 0) sid = idx + 1
-      const bg = (s.backgroundImage || s.background_image || s.background || '')
+      const bg = s.backgroundImage || s.background_image || s.background || ''
       const rawDialogues = Array.isArray(s.dialogues) ? s.dialogues : []
       let dialogues = rawDialogues
         .map((d, dIdx) => normalizeDialogue(d, s, dIdx))
-        .filter(d => d !== null)
+        .filter((d) => d !== null)
 
       // 额外过滤：保证每个 dialogue 的 narration 非空或至少包含 playerChoices
-      dialogues = dialogues.map(d => {
-        const narration = (d.narration || '')
-        const hasChoices = Array.isArray(d.playerChoices) && d.playerChoices.length > 0
-        if (!String(narration).trim() && !hasChoices) {
-          // 如果既没有叙述也没有选项，丢弃该 dialogue（后续 .filter 会移除）
-          return null
-        }
-        if (!String(narration).trim() && hasChoices) {
-          // 如果没有叙述但存在选项，设置为单个空格以满足后端非空校验
-          d.narration = ' '
-        }
-        return d
-      }).filter(d => d !== null)
+      dialogues = dialogues
+        .map((d) => {
+          const narration = d.narration || ''
+          const hasChoices = Array.isArray(d.playerChoices) && d.playerChoices.length > 0
+          if (!String(narration).trim() && !hasChoices) {
+            // 如果既没有叙述也没有选项，丢弃该 dialogue（后续 .filter 会移除）
+            return null
+          }
+          if (!String(narration).trim() && hasChoices) {
+            // 如果没有叙述但存在选项，设置为单个空格以满足后端非空校验
+            d.narration = ' '
+          }
+          return d
+        })
+        .filter((d) => d !== null)
       return { id: Number(sid), backgroundImage: bg || '', dialogues }
     })
 
@@ -2204,27 +2884,33 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       deduplicatedScenesMap.set(scene.id, scene)
     }
     const deduplicatedScenes = Array.from(deduplicatedScenesMap.values())
-    
+
     if (scenesPayload.length !== deduplicatedScenes.length) {
       const removedCount = scenesPayload.length - deduplicatedScenes.length
       console.warn(`[persistCurrentChapterEdits] 场景ID去重：移除了 ${removedCount} 个重复场景`)
-      console.warn('[persistCurrentChapterEdits] 原始场景ID列表:', scenesPayload.map(s => s.id))
-      console.warn('[persistCurrentChapterEdits] 去重后场景ID列表:', deduplicatedScenes.map(s => s.id))
-      
+      console.warn(
+        '[persistCurrentChapterEdits] 原始场景ID列表:',
+        scenesPayload.map((s) => s.id)
+      )
+      console.warn(
+        '[persistCurrentChapterEdits] 去重后场景ID列表:',
+        deduplicatedScenes.map((s) => s.id)
+      )
+
       // 找出哪些ID是重复的
-      const sceneIds = scenesPayload.map(s => s.id)
+      const sceneIds = scenesPayload.map((s) => s.id)
       const duplicateIds = sceneIds.filter((id, index) => sceneIds.indexOf(id) !== index)
       const uniqueDuplicateIds = [...new Set(duplicateIds)]
       console.warn('[persistCurrentChapterEdits] 重复的场景ID:', uniqueDuplicateIds)
     } else {
       console.log('[persistCurrentChapterEdits] 场景ID检查通过：无重复')
     }
-    
+
     // 对于结局场景，额外过滤掉"结局选项"场景
     const isEndingSelectionScene = (scene) => {
       try {
         if (!Array.isArray(scene.dialogues) || scene.dialogues.length === 0) return false
-        
+
         for (const dialogue of scene.dialogues) {
           const choices = dialogue.playerChoices
           if (Array.isArray(choices) && choices.length >= 2) {
@@ -2232,7 +2918,7 @@ const persistCurrentChapterEdits = async (opts = {}) => {
             if (narration.includes('结局') || narration.includes('选择')) {
               return true
             }
-            const endingChoiceCount = choices.filter(c => {
+            const endingChoiceCount = choices.filter((c) => {
               const text = String(c.text || '').toLowerCase()
               return text.includes('>=') || text.includes('结局') || /\(.+\)/.test(text)
             }).length
@@ -2246,17 +2932,24 @@ const persistCurrentChapterEdits = async (opts = {}) => {
     }
 
     // 检测是否为结局场景
-    const isEndingChapterCheck = (Array.isArray(scenesWithOverrides) && scenesWithOverrides.some(s => s.isChapterEnding || s.isGameEnding || s.isGameEnd || s.chapterEnd || s.end || s.isEnding))
-    
+    const isEndingChapterCheck =
+      Array.isArray(scenesWithOverrides) &&
+      scenesWithOverrides.some(
+        (s) =>
+          s.isChapterEnding || s.isGameEnding || s.isGameEnd || s.chapterEnd || s.end || s.isEnding
+      )
+
     // 如果是结局场景，过滤掉结局选项场景
-    const finalScenesPayload = isEndingChapterCheck 
-      ? deduplicatedScenes.filter(s => !isEndingSelectionScene(s))
+    const finalScenesPayload = isEndingChapterCheck
+      ? deduplicatedScenes.filter((s) => !isEndingSelectionScene(s))
       : deduplicatedScenes
-    
+
     // 记录过滤结果
     if (isEndingChapterCheck && deduplicatedScenes.length !== finalScenesPayload.length) {
       const removedCount = deduplicatedScenes.length - finalScenesPayload.length
-      console.log(`[persistCurrentChapterEdits] 结局场景过滤：移除了 ${removedCount} 个结局选项场景`)
+      console.log(
+        `[persistCurrentChapterEdits] 结局场景过滤：移除了 ${removedCount} 个结局选项场景`
+      )
     }
 
     // 使用过滤和去重后的场景列表
@@ -2266,7 +2959,9 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       try {
         // 优先：如果 outlineEdits 中有单独的 title 字段则使用之
         if (outlineEdits.value && outlineEdits.value.length) {
-          const entry = outlineEdits.value.find(x => Number(x.chapterIndex) === Number(chapterIndex))
+          const entry = outlineEdits.value.find(
+            (x) => Number(x.chapterIndex) === Number(chapterIndex)
+          )
           if (entry) {
             if (entry.title && String(entry.title).trim()) return String(entry.title).trim()
             // 若只有合并的 outline 字段，尝试从中拆出标题（按第一段划分）
@@ -2282,13 +2977,19 @@ const persistCurrentChapterEdits = async (opts = {}) => {
 
         try {
           const prev = JSON.parse(sessionStorage.getItem('createResult') || '{}')
-          const bwOut = prev && prev.backendWork && Array.isArray(prev.backendWork.outlines) ? prev.backendWork.outlines : []
-          const found = (bwOut || []).find(x => Number(x.chapterIndex) === Number(chapterIndex))
-          if (found && (found.title || found.outline || found.summary)) return String(found.title || found.outline || found.summary).trim()
+          const bwOut =
+            prev && prev.backendWork && Array.isArray(prev.backendWork.outlines)
+              ? prev.backendWork.outlines
+              : []
+          const found = (bwOut || []).find((x) => Number(x.chapterIndex) === Number(chapterIndex))
+          if (found && (found.title || found.outline || found.summary))
+            return String(found.title || found.outline || found.summary).trim()
         } catch (e) {}
 
         if (work && work.value && work.value.title) return String(work.value.title)
-      } catch (e) { console.warn('getFallbackTitle failed', e) }
+      } catch (e) {
+        console.warn('getFallbackTitle failed', e)
+      }
       return `第${Number(chapterIndex)}章`
     }
 
@@ -2296,39 +2997,64 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       try {
         if (!scene || !Array.isArray(scene.dialogues)) return false
         for (const d of scene.dialogues) {
-          const text = (typeof d === 'string') ? d : (d.narration || d.text || '')
+          const text = typeof d === 'string' ? d : d.narration || d.text || ''
           if (!text) continue
           const t = String(text).trim()
           // 精确或开始匹配“请选择一个结局”以及包含“请选择”和“结局”的组合
-          if (t === '请选择一个结局：' || t === '请选择一个结局' || t.startsWith('请选择一个结局') || (t.includes('请选择') && t.includes('结局'))) return true
+          if (
+            t === '请选择一个结局：' ||
+            t === '请选择一个结局' ||
+            t.startsWith('请选择一个结局') ||
+            (t.includes('请选择') && t.includes('结局'))
+          )
+            return true
         }
-      } catch (e) { /* ignore */ }
+      } catch (e) {
+        /* ignore */
+      }
       return false
     }
 
-    const postedScenes = (finalScenesPayload || []).filter(s => !isEndingChoicePrompt(s))
+    const postedScenes = (finalScenesPayload || []).filter((s) => !isEndingChoicePrompt(s))
 
     const chapterData = {
       chapterIndex: Number(chapterIndex),
       title: getFallbackTitle(),
-      scenes: postedScenes  
+      scenes: postedScenes
     }
 
     // 检测是否为结局场景：只有当场景数据本身被标记为结局时才认为是结局，
     // 避免单纯依赖 storyEndSignaled 导致普通章节被误判为结局而走错保存接口。
-    const isEndingChapter = (Array.isArray(scenesWithOverrides) && scenesWithOverrides.some(s => s.isChapterEnding || s.isGameEnding || s.isGameEnd || s.chapterEnd || s.end || s.isEnding))
+    const isEndingChapter =
+      Array.isArray(scenesWithOverrides) &&
+      scenesWithOverrides.some(
+        (s) =>
+          s.isChapterEnding || s.isGameEnding || s.isGameEnd || s.chapterEnd || s.end || s.isEnding
+      )
     if (isEndingChapter) {
-      console.log('persistCurrentChapterEdits: Detected ending chapter — will call storyending save endpoint', { workId, chapterIndex })
+      console.log(
+        'persistCurrentChapterEdits: Detected ending chapter — will call storyending save endpoint',
+        { workId, chapterIndex }
+      )
       if (!performNetworkSave) {
-        console.log('persistCurrentChapterEdits: performNetworkSave=false — skip network save for ending')
-        try { await stopLoading() } catch (e) {}
-        try { showToast && showToast('结局已在本地生效', 1000) } catch (e) {}
+        console.log(
+          'persistCurrentChapterEdits: performNetworkSave=false — skip network save for ending'
+        )
+        try {
+          await stopLoading()
+        } catch (e) {}
+        try {
+          showToast && showToast('结局已在本地生效', 1000)
+        } catch (e) {}
         return
       }
       try {
         // 尝试获取后端已存在的结局列表，以便定位 endingId 与 title（兼容没有 id 的实现）
         let endingId = null
-        let endingTitle = (sessionStorage.getItem(`selectedEndingTitle_${workId}`) || (currentScene.value && currentScene.value._endingTitle) || '')
+        let endingTitle =
+          sessionStorage.getItem(`selectedEndingTitle_${workId}`) ||
+          (currentScene.value && currentScene.value._endingTitle) ||
+          ''
         try {
           const resp = await storyService.getWorkInfo(workId)
           // 如果 getWorkInfo 包含 endings 字段（某些后端可能返回在作品详情里），尝试读取
@@ -2336,7 +3062,10 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           const payload = resp
           const endingsFromWork = Array.isArray(payload?.endings) ? payload.endings : []
           if (endingsFromWork.length > 0) {
-            const idx = (lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? (Number(lastSelectedEndingIndex.value) - 1) : 0
+            const idx =
+              lastSelectedEndingIndex && lastSelectedEndingIndex.value
+                ? Number(lastSelectedEndingIndex.value) - 1
+                : 0
             const chosen = endingsFromWork[idx] || endingsFromWork[0]
             if (chosen) {
               endingId = chosen.id ?? chosen.endingId ?? null
@@ -2351,14 +3080,21 @@ const persistCurrentChapterEdits = async (opts = {}) => {
               const payload2 = resp2
               const endings2 = Array.isArray(payload2?.endings) ? payload2.endings : []
               if (endings2.length > 0) {
-                const idx2 = (lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? (Number(lastSelectedEndingIndex.value) - 1) : 0
+                const idx2 =
+                  lastSelectedEndingIndex && lastSelectedEndingIndex.value
+                    ? Number(lastSelectedEndingIndex.value) - 1
+                    : 0
                 const chosen2 = endings2[idx2] || endings2[0]
                 endingId = chosen2.id ?? chosen2.endingId ?? null
                 endingTitle = endingTitle || chosen2.title || chosen2.name || endingTitle
               }
-            } catch (e) { /* ignore */ }
+            } catch (e) {
+              /* ignore */
+            }
           }
-        } catch (e) { /* ignore */ }
+        } catch (e) {
+          /* ignore */
+        }
 
         // 我们要把所有结局按后端 GET 返回的结构逐个 PUT 回去（包含不可进入的结局）
         // 1) 先尝试读取后端现有的 endings 列表
@@ -2389,12 +3125,16 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           return s.length > 255 ? s.slice(0, 255) : s
         }
 
-    
         let currentEndingIndex = 1
         try {
           if (lastSaveInfo && lastSaveInfo.value && lastSaveInfo.value.state) {
             const s = lastSaveInfo.value.state
-            const si = (typeof s.endingindex === 'number') ? s.endingindex : (s.endingIndex != null ? Number(s.endingIndex) : null)
+            const si =
+              typeof s.endingindex === 'number'
+                ? s.endingindex
+                : s.endingIndex != null
+                  ? Number(s.endingIndex)
+                  : null
             if (si != null && !isNaN(si)) {
               currentEndingIndex = Number(si)
             } else if (lastSelectedEndingIndex && lastSelectedEndingIndex.value) {
@@ -2405,22 +3145,31 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           }
         } catch (e) {
           // 发生异常时安全回退
-          try { if (lastSelectedEndingIndex && lastSelectedEndingIndex.value) currentEndingIndex = Number(lastSelectedEndingIndex.value) } catch (ee) { currentEndingIndex = 1 }
+          try {
+            if (lastSelectedEndingIndex && lastSelectedEndingIndex.value)
+              currentEndingIndex = Number(lastSelectedEndingIndex.value)
+          } catch (ee) {
+            currentEndingIndex = 1
+          }
         }
 
         // 如果没有任何 existingEndings，至少构建一个基于当前编辑的结局以保证保存
         if (!existingEndings || existingEndings.length === 0) {
           const single = {
             endingIndex: currentEndingIndex,
-         
+
             title: safeTitle(endingTitle || `结局 ${currentEndingIndex}`),
-            scenes: finalScenesPayload  
+            scenes: finalScenesPayload
           }
           try {
             await storyService.saveEnding(workId, single)
             showToast('已保存', 1000)
           } catch (saveErr) {
-            console.error('persistCurrentChapterEdits: saveEnding API failed', saveErr, saveErr?.data || (saveErr?.response && saveErr.response.data))
+            console.error(
+              'persistCurrentChapterEdits: saveEnding API failed',
+              saveErr,
+              saveErr?.data || (saveErr?.response && saveErr.response.data)
+            )
             showToast('保存失败: ' + (saveErr?.data || saveErr?.message || '未知错误'), 1000)
             throw saveErr
           }
@@ -2431,7 +3180,12 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           const fallbackList = []
           for (let i = 0; i < existingEndings.length; i++) {
             const e = existingEndings[i]
-            const logicalIdx = (e.endingIndex != null) ? Number(e.endingIndex) : (e.endingId != null ? Number(e.endingId) : null)
+            const logicalIdx =
+              e.endingIndex != null
+                ? Number(e.endingIndex)
+                : e.endingId != null
+                  ? Number(e.endingId)
+                  : null
             if (logicalIdx != null && !isNaN(logicalIdx)) {
               existingByIndex[logicalIdx] = e
             } else {
@@ -2439,43 +3193,67 @@ const persistCurrentChapterEdits = async (opts = {}) => {
             }
           }
 
-          const indices = Object.keys(existingByIndex).map(x => Number(x)).sort((a,b)=>a-b)
+          const indices = Object.keys(existingByIndex)
+            .map((x) => Number(x))
+            .sort((a, b) => a - b)
           const payloads = []
 
           const getBackendTitle = (idx) => {
             try {
               if (!existingEndings || existingEndings.length === 0) return null
-              
+
               const byIdx = existingByIndex[idx]
               if (byIdx && (byIdx.title || byIdx.name)) return byIdx.title || byIdx.name
-              
+
               for (const ee of existingEndings) {
-                const logical = (ee.endingIndex != null) ? Number(ee.endingIndex) : (ee.endingId != null ? Number(ee.endingId) : null)
+                const logical =
+                  ee.endingIndex != null
+                    ? Number(ee.endingIndex)
+                    : ee.endingId != null
+                      ? Number(ee.endingId)
+                      : null
                 if (logical === idx) return ee.title || ee.name || null
               }
-             
+
               const pos = idx - 1
-              if (pos >=0 && pos < existingEndings.length) {
+              if (pos >= 0 && pos < existingEndings.length) {
                 const cand = existingEndings[pos]
                 if (cand && (cand.title || cand.name)) return cand.title || cand.name
               }
-            } catch (e) { /* ignore */ }
+            } catch (e) {
+              /* ignore */
+            }
             return null
           }
-         
+
           for (const idx of indices) {
             const e = existingByIndex[idx]
             const backendTitle = getBackendTitle(idx)
             payloads.push({
               endingIndex: idx,
-              title: safeTitle( backendTitle || (idx === currentEndingIndex ? (endingTitle || `结局 ${idx}`) : (e.title || e.name || `结局 ${idx}`)) ),
-              scenes: (idx === currentEndingIndex) ? finalScenesPayload : (Array.isArray(e.scenes) ? e.scenes : [])  // 🔑 使用去重后的场景列表
+              title: safeTitle(
+                backendTitle ||
+                  (idx === currentEndingIndex
+                    ? endingTitle || `结局 ${idx}`
+                    : e.title || e.name || `结局 ${idx}`)
+              ),
+              scenes:
+                idx === currentEndingIndex
+                  ? finalScenesPayload
+                  : Array.isArray(e.scenes)
+                    ? e.scenes
+                    : [] // 🔑 使用去重后的场景列表
             })
           }
           for (let j = 0; j < fallbackList.length; j++) {
             const e = fallbackList[j]
             payloads.push({
-              endingIndex: e.endingIndex != null ? Number(e.endingIndex) : (e.endingId != null ? Number(e.endingId) : (j + 1)),
+              endingIndex:
+                e.endingIndex != null
+                  ? Number(e.endingIndex)
+                  : e.endingId != null
+                    ? Number(e.endingId)
+                    : j + 1,
               title: safeTitle(e.title || e.name || `结局 ${j + 1}`),
               scenes: Array.isArray(e.scenes) ? e.scenes : []
             })
@@ -2485,8 +3263,10 @@ const persistCurrentChapterEdits = async (opts = {}) => {
             const backendTitleForCurrent = getBackendTitle(currentEndingIndex)
             payloads.push({
               endingIndex: currentEndingIndex,
-              title: safeTitle( backendTitleForCurrent || endingTitle || `结局 ${currentEndingIndex}` ),
-              scenes: finalScenesPayload  
+              title: safeTitle(
+                backendTitleForCurrent || endingTitle || `结局 ${currentEndingIndex}`
+              ),
+              scenes: finalScenesPayload
             })
           }
 
@@ -2496,7 +3276,11 @@ const persistCurrentChapterEdits = async (opts = {}) => {
               await storyService.saveEnding(workId, p)
               console.log('persistCurrentChapterEdits: saved ending', p.endingIndex)
             } catch (saveErr) {
-              console.error('persistCurrentChapterEdits: failed saving an ending', saveErr, saveErr?.data || (saveErr?.response && saveErr.response.data))
+              console.error(
+                'persistCurrentChapterEdits: failed saving an ending',
+                saveErr,
+                saveErr?.data || (saveErr?.response && saveErr.response.data)
+              )
               errors.push({ endingIndex: p.endingIndex, error: saveErr })
             }
           }
@@ -2510,39 +3294,67 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         }
 
         // 刷新作品详情
-        try { await getWorkDetails(workId) } catch (e) { /* ignore */ }
-        try { await stopLoading() } catch (e) {}
+        try {
+          await getWorkDetails(workId)
+        } catch (e) {
+          /* ignore */
+        }
+        try {
+          await stopLoading()
+        } catch (e) {}
         return
       } catch (e) {
-        console.warn('persistCurrentChapterEdits: failed saving ending, falling back to abort', e, e?.data || (e?.response && e.response.data))
-        try { await stopLoading() } catch (err) {}
+        console.warn(
+          'persistCurrentChapterEdits: failed saving ending, falling back to abort',
+          e,
+          e?.data || (e?.response && e.response.data)
+        )
+        try {
+          await stopLoading()
+        } catch (err) {}
         throw e
       }
     }
 
-    console.log('persistCurrentChapterEdits: saving chapter', { workId, chapterIndex, scenesCount: scenesPayload.length })
-    
+    console.log('persistCurrentChapterEdits: saving chapter', {
+      workId,
+      chapterIndex,
+      scenesCount: scenesPayload.length
+    })
+
     try {
       // 特殊处理：创作者身份下，手动确认已生成章节（allowSaveGenerated）
       // 需要调用后端 API 将章节状态更新为 saved
-  if (allowSaveGenerated && (creatorFeatureEnabled.value || isCreatorIdentity.value || modifiableFromCreate.value)) {
+      if (
+        allowSaveGenerated &&
+        (creatorFeatureEnabled.value || isCreatorIdentity.value || modifiableFromCreate.value)
+      ) {
         // 1) 调用后端 API 保存章节并更新状态为 saved
         try {
           if (!performNetworkSave) {
-            console.log('persistCurrentChapterEdits: performNetworkSave=false — skip saveChapter network call')
+            console.log(
+              'persistCurrentChapterEdits: performNetworkSave=false — skip saveChapter network call'
+            )
             showToast('已在本地修改', 1000)
           } else {
-            console.log('persistCurrentChapterEdits: calling saveChapter API to mark as saved', { workId, chapterIndex })
+            console.log('persistCurrentChapterEdits: calling saveChapter API to mark as saved', {
+              workId,
+              chapterIndex
+            })
             await saveChapter(workId, chapterIndex, chapterData)
             console.log('persistCurrentChapterEdits: saveChapter API succeeded')
             showToast('已保存', 1000)
           }
-          } catch (saveErr) {
-          console.error('persistCurrentChapterEdits: saveChapter API failed', saveErr, saveErr?.data || (saveErr?.response && saveErr.response.data))
+        } catch (saveErr) {
+          console.error(
+            'persistCurrentChapterEdits: saveChapter API failed',
+            saveErr,
+            saveErr?.data || (saveErr?.response && saveErr.response.data)
+          )
           showToast('保存章节失败: ' + (saveErr?.data || saveErr?.message || '未知错误'), 1000)
           throw saveErr
         }
-        
+
         try {
           console.log('persistCurrentChapterEdits: 立即获取作品详情以刷新状态')
           await getWorkDetails(workId)
@@ -2553,35 +3365,57 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         }
 
         // 2) 清除已生成但未保存标记
-        try { lastLoadedGeneratedChapter.value = null } catch (e) {}
+        try {
+          lastLoadedGeneratedChapter.value = null
+        } catch (e) {}
 
         // 3) 检查是否已读到当前章的末尾
-        const isAtChapterEnd = (currentSceneIndex.value >= (storyScenes.value.length - 1)) &&
-                               (currentDialogueIndex.value >= ((storyScenes.value[currentSceneIndex.value]?.dialogues?.length || 1) - 1))
-        
-        console.log('保存后检查章节状态 - 已读到章末:', isAtChapterEnd, '当前场景:', currentSceneIndex.value, '总场景数:', storyScenes.value.length)
-        
-        // 4) 检查当前章是否为末章
-        const isLastChapter = totalChapters.value && Number(chapterIndex) === Number(totalChapters.value)
-        console.log('保存后检查是否为末章 - 当前章:', chapterIndex, '总章数:', totalChapters.value, '是否末章:', isLastChapter)
+        const isAtChapterEnd =
+          currentSceneIndex.value >= storyScenes.value.length - 1 &&
+          currentDialogueIndex.value >=
+            (storyScenes.value[currentSceneIndex.value]?.dialogues?.length || 1) - 1
 
-      
+        console.log(
+          '保存后检查章节状态 - 已读到章末:',
+          isAtChapterEnd,
+          '当前场景:',
+          currentSceneIndex.value,
+          '总场景数:',
+          storyScenes.value.length
+        )
+
+        // 4) 检查当前章是否为末章
+        const isLastChapter =
+          totalChapters.value && Number(chapterIndex) === Number(totalChapters.value)
+        console.log(
+          '保存后检查是否为末章 - 当前章:',
+          chapterIndex,
+          '总章数:',
+          totalChapters.value,
+          '是否末章:',
+          isLastChapter
+        )
+
         if (isLastChapter && performNetworkSave) {
           try {
             const beforeCount = storyScenes.value.length
             // 过滤掉结局选项场景
-            storyScenes.value = storyScenes.value.filter(scene => !isEndingSelectionScene(scene))
+            storyScenes.value = storyScenes.value.filter((scene) => !isEndingSelectionScene(scene))
             const afterCount = storyScenes.value.length
-            
+
             if (beforeCount !== afterCount) {
               const removedCount = beforeCount - afterCount
-              console.log(`[persistCurrentChapterEdits] 末章保存成功，已从前端缓存中删除 ${removedCount} 个结局选项场景`)
-              
+              console.log(
+                `[persistCurrentChapterEdits] 末章保存成功，已从前端缓存中删除 ${removedCount} 个结局选项场景`
+              )
+
               // 调整当前场景索引，防止越界
               if (currentSceneIndex.value >= storyScenes.value.length) {
                 currentSceneIndex.value = Math.max(0, storyScenes.value.length - 1)
                 currentDialogueIndex.value = 0
-                console.log(`[persistCurrentChapterEdits] 场景索引已调整为 ${currentSceneIndex.value}`)
+                console.log(
+                  `[persistCurrentChapterEdits] 场景索引已调整为 ${currentSceneIndex.value}`
+                )
               }
             }
           } catch (e) {
@@ -2594,9 +3428,13 @@ const persistCurrentChapterEdits = async (opts = {}) => {
           const nextChap = Number(chapterIndex) + 1
           try {
             pendingNextChapter.value = nextChap
-          } catch (e) { console.warn('set pendingNextChapter failed', e) }
+          } catch (e) {
+            console.warn('set pendingNextChapter failed', e)
+          }
           showToast('已保存本章，阅读至本章末尾后将弹出下一章大纲编辑器', 1000)
-          try { await stopLoading() } catch (e) {}
+          try {
+            await stopLoading()
+          } catch (e) {}
           return
         }
 
@@ -2611,17 +3449,29 @@ const persistCurrentChapterEdits = async (opts = {}) => {
               storyEndSignaled.value = true
               isEndingLoading.value = true
               // 启动常规加载界面（复用现有加载逻辑）
-              try { startLoading() } catch (e) { /* ignore */ }
+              try {
+                startLoading()
+              } catch (e) {
+                /* ignore */
+              }
               // 平滑显示进度
-              try { await simulateLoadTo100(800) } catch (e) { /* ignore */ }
+              try {
+                await simulateLoadTo100(800)
+              } catch (e) {
+                /* ignore */
+              }
               // 调用结局处理（可能会导航到结算页面）
               await handleGameEnd()
             } catch (e) {
               console.warn('进入结算处理失败', e)
             } finally {
               // 关闭结局专用加载标记（如果组件还在）
-              try { isEndingLoading.value = false } catch (e) {}
-              try { await stopLoading() } catch (e) {}
+              try {
+                isEndingLoading.value = false
+              } catch (e) {}
+              try {
+                await stopLoading()
+              } catch (e) {}
             }
           }, 3000)
           return
@@ -2630,65 +3480,99 @@ const persistCurrentChapterEdits = async (opts = {}) => {
         // 情况3: 非末章已保存且已读完 - 弹出下一章的大纲编辑器
         console.log('非末章已保存并读完，准备弹出下一章大纲编辑器')
         const nextChap = Number(chapterIndex) + 1
-        
+
         // 构建下一章的大纲占位（尽量复用已有 createResult 或 outlineEdits）
         let createRaw = null
-        try { createRaw = JSON.parse(sessionStorage.getItem('createResult') || 'null') } catch (e) { createRaw = null }
+        try {
+          createRaw = JSON.parse(sessionStorage.getItem('createResult') || 'null')
+        } catch (e) {
+          createRaw = null
+        }
         let rawOutlines = []
-        if (createRaw && Array.isArray(createRaw.chapterOutlines) && createRaw.chapterOutlines.length) rawOutlines = createRaw.chapterOutlines
-        else if (createRaw && createRaw.backendWork && Array.isArray(createRaw.backendWork.outlines) && createRaw.backendWork.outlines.length) rawOutlines = createRaw.backendWork.outlines
+        if (
+          createRaw &&
+          Array.isArray(createRaw.chapterOutlines) &&
+          createRaw.chapterOutlines.length
+        )
+          rawOutlines = createRaw.chapterOutlines
+        else if (
+          createRaw &&
+          createRaw.backendWork &&
+          Array.isArray(createRaw.backendWork.outlines) &&
+          createRaw.backendWork.outlines.length
+        )
+          rawOutlines = createRaw.backendWork.outlines
         else rawOutlines = []
 
         // 尝试找到 nextChap 对应的大纲，否则使用占位文本
         let nextOutlineText = `第${nextChap}章：请在此编辑/补充本章大纲以指导生成。`
         try {
           if (Array.isArray(rawOutlines) && rawOutlines.length) {
-            const found = rawOutlines.find(x => Number(x.chapterIndex) === Number(nextChap)) || rawOutlines[nextChap - 1]
+            const found =
+              rawOutlines.find((x) => Number(x.chapterIndex) === Number(nextChap)) ||
+              rawOutlines[nextChap - 1]
             if (found) {
               const title = (found && (found.title ?? found.chapter_title)) || ''
               const body = (found && (found.outline ?? found.summary)) || ''
-              const combined = (title && body) ? `${title}\n\n${body}` : (title || body)
+              const combined = title && body ? `${title}\n\n${body}` : title || body
               if (combined) nextOutlineText = combined
             }
           }
-        } catch (e) { console.warn('prepare next outline failed', e) }
+        } catch (e) {
+          console.warn('prepare next outline failed', e)
+        }
 
         // 构建 nextChap 以及其后的所有章节大纲（若 totalChapters 不可用则至少包含 nextChap）
         const outlinesToShow = []
-        const total = Math.max((Number(totalChapters.value) || 5), nextChap)
+        const total = Math.max(Number(totalChapters.value) || 5, nextChap)
         for (let c = nextChap; c <= total; c++) {
           let text = `第${c}章：请在此编辑/补充本章大纲以指导生成。`
           try {
             if (Array.isArray(rawOutlines) && rawOutlines.length) {
-              const foundC = rawOutlines.find(x => Number(x.chapterIndex) === Number(c)) || rawOutlines[c - 1]
+              const foundC =
+                rawOutlines.find((x) => Number(x.chapterIndex) === Number(c)) || rawOutlines[c - 1]
               if (foundC) {
                 const title = (foundC && (foundC.title ?? foundC.chapter_title)) || ''
                 const body = (foundC && (foundC.outline ?? foundC.summary)) || ''
-                const combined = (title && body) ? `${title}\n\n${body}` : (title || body)
+                const combined = title && body ? `${title}\n\n${body}` : title || body
                 if (combined) text = combined
               }
             }
-          } catch (e) { console.warn('prepare outline for chapter', c, 'failed', e) }
+          } catch (e) {
+            console.warn('prepare outline for chapter', c, 'failed', e)
+          }
           outlinesToShow.push({ chapterIndex: c, outline: text })
         }
 
         // 将多个章节的大纲写入编辑器，默认聚焦到 nextChap
         outlineEdits.value = outlinesToShow
-        outlineUserPrompt.value = (createRaw && createRaw.userPrompt) ? createRaw.userPrompt : ''
+        outlineUserPrompt.value = createRaw && createRaw.userPrompt ? createRaw.userPrompt : ''
         originalOutlineSnapshot.value = JSON.parse(JSON.stringify(outlineEdits.value || []))
         pendingOutlineTargetChapter.value = nextChap
         editorInvocation.value = 'auto'
         // showToast('即将进入下一章的大纲编辑', 2000)
-        
+
         // 延迟弹出编辑器，给用户一个视觉反馈
         setTimeout(() => {
-          console.log('persistCurrentChapterEdits: opening outline editor: reason=persist-save-next-chapter-range, target=', nextChap, '->', total)
+          console.log(
+            'persistCurrentChapterEdits: opening outline editor: reason=persist-save-next-chapter-range, target=',
+            nextChap,
+            '->',
+            total
+          )
           showOutlineEditor.value = true
-          console.log('persistCurrentChapterEdits: opened outline editor for next chapter range', nextChap, '->', total)
+          console.log(
+            'persistCurrentChapterEdits: opened outline editor for next chapter range',
+            nextChap,
+            '->',
+            total
+          )
         }, 2000)
 
         // 结束该分支：已经向后端保存并更新了章节状态
-        try { await stopLoading() } catch (e) {}
+        try {
+          await stopLoading()
+        } catch (e) {}
         return
       }
 
@@ -2696,9 +3580,9 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       console.log('persistCurrentChapterEdits: outbound chapterData:', chapterData)
       await saveChapter(workId, chapterIndex, chapterData)
       console.log('persistCurrentChapterEdits: saveChapter succeeded')
-      
+
       showToast('已保存', 1000)
-      
+
       try {
         console.log('persistCurrentChapterEdits: 立即获取作品详情以刷新状态')
         await getWorkDetails(workId)
@@ -2707,22 +3591,31 @@ const persistCurrentChapterEdits = async (opts = {}) => {
       } catch (e) {
         console.warn('persistCurrentChapterEdits: failed to refresh work details', e)
       }
-      
+
       // 如果这是手动确认保存，则清除已生成但未保存标记
       if (allowSaveGenerated) lastLoadedGeneratedChapter.value = null
-      
+
       // 更新 sessionStorage.createResult 中的大纲
       try {
         const prev = JSON.parse(sessionStorage.getItem('createResult') || '{}')
         prev.backendWork = prev.backendWork || {}
         prev.backendWork.outlines = prev.backendWork.outlines || []
-        const idx = (prev.backendWork.outlines || []).findIndex(x => Number(x.chapterIndex) === Number(chapterIndex))
+        const idx = (prev.backendWork.outlines || []).findIndex(
+          (x) => Number(x.chapterIndex) === Number(chapterIndex)
+        )
         if (idx >= 0 && outlineEdits.value && outlineEdits.value.length) {
-          prev.backendWork.outlines[idx].outline = outlineEdits.value.find(x => Number(x.chapterIndex) === Number(chapterIndex))?.outline || prev.backendWork.outlines[idx].outline
+          prev.backendWork.outlines[idx].outline =
+            outlineEdits.value.find((x) => Number(x.chapterIndex) === Number(chapterIndex))
+              ?.outline || prev.backendWork.outlines[idx].outline
         }
         sessionStorage.setItem('createResult', JSON.stringify(prev))
-      } catch (e) { console.warn('persistCurrentChapterEdits: update createResult failed', e, e?.data || (e?.response && e.response.data)) }
-      
+      } catch (e) {
+        console.warn(
+          'persistCurrentChapterEdits: update createResult failed',
+          e,
+          e?.data || (e?.response && e.response.data)
+        )
+      }
     } catch (e) {
       console.error('persistCurrentChapterEdits: saveChapter failed', e?.response?.data || e)
       showToast('保存失败', 1000)
@@ -2743,14 +3636,17 @@ onMounted(() => {
 // 在组件卸载时自动持久化当前章节（如果可手动编辑）
 onUnmounted(() => {
   try {
-    (async () => {
+    ;(async () => {
       try {
         await persistCurrentChapterEdits({ performNetworkSave: false })
-      } catch (e) { console.warn('persistCurrentChapterEdits onUnmount failed', e) }
+      } catch (e) {
+        console.warn('persistCurrentChapterEdits onUnmount failed', e)
+      }
     })()
-  } catch (e) { console.warn('onUnmounted persist failed', e) }
+  } catch (e) {
+    console.warn('onUnmounted persist failed', e)
+  }
 })
-
 
 // 观察 creatorMode：进入记录位置并禁用 advance；退出回到 entry 的那句话（修改版）并恢复播放权限
 watch(creatorMode, (val) => {
@@ -2765,7 +3661,7 @@ watch(creatorMode, (val) => {
       } catch (e) {
         creatorEntry.choiceHistorySnapshot = JSON.parse(JSON.stringify(choiceHistory.value || []))
       }
-      
+
       try {
         creatorEntry.scenesChoiceStateSnapshot = {}
         storyScenes.value.forEach((scene, idx) => {
@@ -2780,7 +3676,7 @@ watch(creatorMode, (val) => {
       } catch (e) {
         console.warn('保存场景选项状态快照失败:', e)
       }
-      
+
       try {
         creatorEntry.attributesSnapshot = deepClone(attributes.value || {})
         creatorEntry.statusesSnapshot = deepClone(statuses.value || {})
@@ -2794,49 +3690,80 @@ watch(creatorMode, (val) => {
           console.warn('保存属性和状态快照失败:', e2)
         }
       }
-      
+
       allowAdvance.value = false
       // 暂停自动播放
-      try { stopAutoPlayTimer() } catch (e) {}
-    } catch (e) { console.warn('enter creatorMode failed', e) }
+      try {
+        stopAutoPlayTimer()
+      } catch (e) {}
+    } catch (e) {
+      console.warn('enter creatorMode failed', e)
+    }
   } else {
     try {
       // 在退出创作者模式前尝试将当前章节的本地修改持久化到后端（仅当 createResult 标记为 modifiable 时）
       try {
-        (async () => {
+        ;(async () => {
           try {
-            const curScene = currentScene?.value || (Array.isArray(storyScenes.value) ? storyScenes.value[currentSceneIndex.value] : null)
+            const curScene =
+              currentScene?.value ||
+              (Array.isArray(storyScenes.value) ? storyScenes.value[currentSceneIndex.value] : null)
             let shouldPerformNetworkSave = false
             try {
-              if (curScene && (curScene._isBackendEnding === true || curScene.isChapterEnding || curScene.isGameEnding || curScene.isEnding || curScene.end || curScene.chapterEnd)) {
+              if (
+                curScene &&
+                (curScene._isBackendEnding === true ||
+                  curScene.isChapterEnding ||
+                  curScene.isGameEnding ||
+                  curScene.isEnding ||
+                  curScene.end ||
+                  curScene.chapterEnd)
+              ) {
                 shouldPerformNetworkSave = true
               }
-            } catch (e) { /* ignore and fall back to false */ }
+            } catch (e) {
+              /* ignore and fall back to false */
+            }
 
-            await persistCurrentChapterEdits({ auto: false, allowSaveGenerated: false, chapterIndex: currentChapterIndex.value, performNetworkSave: shouldPerformNetworkSave })
-          } catch (e) { console.warn('persistCurrentChapterEdits on exit creatorMode failed', e) }
+            await persistCurrentChapterEdits({
+              auto: false,
+              allowSaveGenerated: false,
+              chapterIndex: currentChapterIndex.value,
+              performNetworkSave: shouldPerformNetworkSave
+            })
+          } catch (e) {
+            console.warn('persistCurrentChapterEdits on exit creatorMode failed', e)
+          }
         })()
-      } catch (e) { console.warn('trigger persist on exit creatorMode failed', e) }
-      
+      } catch (e) {
+        console.warn('trigger persist on exit creatorMode failed', e)
+      }
+
       // 退出手动编辑模式：恢复进入时的位置和状态
       console.log('退出手动编辑模式 - 恢复状态快照')
-      
+
       if (creatorEntry.choiceHistorySnapshot) {
         try {
           choiceHistory.value = deepClone(creatorEntry.choiceHistorySnapshot)
           console.log('恢复选择历史快照，长度:', choiceHistory.value.length)
           // 恢复后需要重新应用选择标记
-          try { restoreChoiceFlagsFromHistory() } catch (e) { console.warn('restoreChoiceFlagsFromHistory failed:', e) }
+          try {
+            restoreChoiceFlagsFromHistory()
+          } catch (e) {
+            console.warn('restoreChoiceFlagsFromHistory failed:', e)
+          }
         } catch (e) {
           choiceHistory.value = JSON.parse(JSON.stringify(creatorEntry.choiceHistorySnapshot))
-          try { restoreChoiceFlagsFromHistory() } catch (e) {}
+          try {
+            restoreChoiceFlagsFromHistory()
+          } catch (e) {}
         }
         creatorEntry.choiceHistorySnapshot = null
       }
-   
+
       if (creatorEntry.scenesChoiceStateSnapshot) {
         try {
-          Object.keys(creatorEntry.scenesChoiceStateSnapshot).forEach(idx => {
+          Object.keys(creatorEntry.scenesChoiceStateSnapshot).forEach((idx) => {
             const sceneIdx = parseInt(idx)
             if (storyScenes.value[sceneIdx]) {
               const savedState = creatorEntry.scenesChoiceStateSnapshot[idx]
@@ -2850,7 +3777,7 @@ watch(creatorMode, (val) => {
         }
         creatorEntry.scenesChoiceStateSnapshot = null
       }
-      
+
       if (creatorEntry.attributesSnapshot) {
         try {
           attributes.value = deepClone(creatorEntry.attributesSnapshot)
@@ -2864,7 +3791,7 @@ watch(creatorMode, (val) => {
         }
         creatorEntry.attributesSnapshot = null
       }
-      
+
       if (creatorEntry.statusesSnapshot) {
         try {
           statuses.value = deepClone(creatorEntry.statusesSnapshot)
@@ -2878,67 +3805,114 @@ watch(creatorMode, (val) => {
         }
         creatorEntry.statusesSnapshot = null
       }
-      
+
       // 恢复位置
       if (creatorEntry.sceneIndex != null) {
         currentSceneIndex.value = creatorEntry.sceneIndex
-        currentDialogueIndex.value = creatorEntry.dialogueIndex != null ? creatorEntry.dialogueIndex : 0
+        currentDialogueIndex.value =
+          creatorEntry.dialogueIndex != null ? creatorEntry.dialogueIndex : 0
         showText.value = true
-        console.log('恢复位置 - 场景:', currentSceneIndex.value, '对话:', currentDialogueIndex.value)
+        console.log(
+          '恢复位置 - 场景:',
+          currentSceneIndex.value,
+          '对话:',
+          currentDialogueIndex.value
+        )
       }
-      
+
       allowAdvance.value = true
       // 自动播放会自动恢复,不需要手动启动
       // 如果之前在创作者模式中到达了本章末并保存了待加载章节，则在退出创作者模式后触发加载
       try {
         if (pendingNextChapter.value != null) {
           const chap = pendingNextChapter.value
-          pendingNextChapter.value = null
-          // 异步触发加载下一章（与原逻辑一致）
-          (async () => {
-            try {
-              startLoading()
-              await fetchNextChapter(workId, chap)
-            } catch (e) { console.warn('load pending next chapter failed', e) }
-            try { await stopLoading() } catch (e) {}
-          })()
+          pendingNextChapter.value = null(
+            // 异步触发加载下一章（与原逻辑一致）
+            async () => {
+              try {
+                startLoading()
+                await fetchNextChapter(workId, chap)
+              } catch (e) {
+                console.warn('load pending next chapter failed', e)
+              }
+              try {
+                await stopLoading()
+              } catch (e) {}
+            }
+          )()
         }
-      } catch (e) { console.warn('trigger pending next chapter failed', e) }
+      } catch (e) {
+        console.warn('trigger pending next chapter failed', e)
+      }
       // 如果存在预览快照，退出创作者模式时需要恢复到快照状态（移除预览）
       try {
         if (previewSnapshot.value) {
           console.log('Restoring previewSnapshot on exit creatorMode')
-          try { storyScenes.value = deepClone(previewSnapshot.value.storyScenes || []) } catch(e) { storyScenes.value = previewSnapshot.value.storyScenes || [] }
+          try {
+            storyScenes.value = deepClone(previewSnapshot.value.storyScenes || [])
+          } catch (e) {
+            storyScenes.value = previewSnapshot.value.storyScenes || []
+          }
           currentSceneIndex.value = previewSnapshot.value.currentSceneIndex || 0
           currentDialogueIndex.value = previewSnapshot.value.currentDialogueIndex || 0
-          try { attributes.value = deepClone(previewSnapshot.value.attributes || {}) } catch(e) { attributes.value = previewSnapshot.value.attributes || {} }
-          try { statuses.value = deepClone(previewSnapshot.value.statuses || {}) } catch(e) { statuses.value = previewSnapshot.value.statuses || {} }
-          try { choiceHistory.value = deepClone(previewSnapshot.value.choiceHistory || []) } catch(e) { choiceHistory.value = previewSnapshot.value.choiceHistory || [] }
+          try {
+            attributes.value = deepClone(previewSnapshot.value.attributes || {})
+          } catch (e) {
+            attributes.value = previewSnapshot.value.attributes || {}
+          }
+          try {
+            statuses.value = deepClone(previewSnapshot.value.statuses || {})
+          } catch (e) {
+            statuses.value = previewSnapshot.value.statuses || {}
+          }
+          try {
+            choiceHistory.value = deepClone(previewSnapshot.value.choiceHistory || [])
+          } catch (e) {
+            choiceHistory.value = previewSnapshot.value.choiceHistory || []
+          }
           previewSnapshot.value = null
-          try { restoreChoiceFlagsFromHistory() } catch(e) {}
+          try {
+            restoreChoiceFlagsFromHistory()
+          } catch (e) {}
         }
-      } catch(e) { console.warn('restore previewSnapshot failed', e) }
-    } catch (e) { console.warn('exit creatorMode failed', e) }
+      } catch (e) {
+        console.warn('restore previewSnapshot failed', e)
+      }
+    } catch (e) {
+      console.warn('exit creatorMode failed', e)
+    }
   }
 })
 
-
-watch([isLandscapeReady, isLoading, () => storyScenes.value.length], (values) => {
-  try {
-    const [land, loading, len] = values
-    if (land && !loading && Array.isArray(storyScenes.value) && storyScenes.value.length > 0) {
-      if (typeof currentSceneIndex.value !== 'number' || currentSceneIndex.value >= storyScenes.value.length) currentSceneIndex.value = 0
-      const s = storyScenes.value[currentSceneIndex.value]
-      if (!s || !Array.isArray(s.dialogues) || s.dialogues.length === 0) {
-        showText.value = false
-        return
+watch(
+  [isLandscapeReady, isLoading, () => storyScenes.value.length],
+  (values) => {
+    try {
+      const [land, loading, len] = values
+      if (land && !loading && Array.isArray(storyScenes.value) && storyScenes.value.length > 0) {
+        if (
+          typeof currentSceneIndex.value !== 'number' ||
+          currentSceneIndex.value >= storyScenes.value.length
+        )
+          currentSceneIndex.value = 0
+        const s = storyScenes.value[currentSceneIndex.value]
+        if (!s || !Array.isArray(s.dialogues) || s.dialogues.length === 0) {
+          showText.value = false
+          return
+        }
+        if (
+          typeof currentDialogueIndex.value !== 'number' ||
+          currentDialogueIndex.value >= s.dialogues.length
+        )
+          currentDialogueIndex.value = 0
+        showText.value = true
       }
-      if (typeof currentDialogueIndex.value !== 'number' || currentDialogueIndex.value >= s.dialogues.length) currentDialogueIndex.value = 0
-      showText.value = true
+    } catch (e) {
+      console.warn('auto-show first dialogue watch failed', e)
     }
-  } catch (e) { console.warn('auto-show first dialogue watch failed', e) }
-}, { immediate: true })
-
+  },
+  { immediate: true }
+)
 
 // 设置 useSaveLoad 的依赖
 setSaveLoadDependencies({
@@ -2960,13 +3934,11 @@ setSaveLoadDependencies({
   pushSceneFromServer,
   deepClone,
   currentBackground,
-  effectiveCoverUrl
-  ,
+  effectiveCoverUrl,
   lastSelectedEndingIndex,
   playingEndingScenes,
   endingsAppended
 })
-
 
 setCreatorModeDependencies({
   stopAutoPlayTimer,
@@ -2996,141 +3968,190 @@ storyAPI.setDependencies({
   statuses
 })
 
+watch(
+  [currentSceneIndex, currentDialogueIndex],
+  () => {
+    try {
+      const timeSinceLastChoice = Date.now() - (lastChoiceTimestamp.value || 0)
+      if (timeSinceLastChoice < 600) {
+        console.log('[watch] 选项刚被处理,抑制重复显示,距上次:', timeSinceLastChoice, 'ms')
+        return
+      }
+    } catch (e) {}
 
-watch([currentSceneIndex, currentDialogueIndex], () => {
-  try {
-    const timeSinceLastChoice = Date.now() - (lastChoiceTimestamp.value || 0)
-    if (timeSinceLastChoice < 600) {
-      console.log('[watch] 选项刚被处理,抑制重复显示,距上次:', timeSinceLastChoice, 'ms')
+    const scene = currentScene.value
+    if (!scene) {
+      console.log('[watch] 场景不存在，隐藏选项')
+      choicesVisible.value = false
       return
     }
-  } catch (e) {}
-  
-  const scene = currentScene.value
-  if (!scene) {
-    console.log('[watch] 场景不存在，隐藏选项')
-    choicesVisible.value = false
-    return
-  }
-  
 
-  if (scene.choiceConsumed) {
-    console.log('[watch] 场景选项已消费,不显示选项 - 场景:', currentSceneIndex.value, 
-      '对话:', currentDialogueIndex.value, 
-      '选项触发点:', scene.choiceTriggerIndex,
-      '已选ID:', scene.chosenChoiceId,
-      '场景有choices:', Array.isArray(scene.choices),
-      '场景有choiceTriggerIndex:', typeof scene.choiceTriggerIndex === 'number')
-    choicesVisible.value = false
-    return
-  }
-  
-  
-  // 只有当用户已经通过了选项触发点（选过或跳过）时，才拒绝显示选项
-  try {
-    const sceneId = String(scene.id || scene.sceneId)
-    const historyRecord = choiceHistory.value.find(h => String(h.sceneId) === sceneId)
-    if (historyRecord) {
-      // 确定触发索引
-      const triggerIndex = typeof scene.choiceTriggerIndex === 'number' 
-        ? scene.choiceTriggerIndex 
-        : (typeof historyRecord.choiceTriggerIndex === 'number' ? historyRecord.choiceTriggerIndex : null)
-      
-      if (triggerIndex !== null && currentDialogueIndex.value > triggerIndex) {
-        console.log('[watch] ⛔ 智能拒绝：用户已通过选项触发点，不再显示 - 场景ID:', sceneId, 
-          '当前位置:', currentDialogueIndex.value,
-          '触发点:', triggerIndex,
-          '历史记录:', historyRecord)
-        choicesVisible.value = false
-        // 同时标记场景为已消费，避免后续再次检查
-        if (!scene.choiceConsumed) {
-          scene.choiceConsumed = true
-          scene.chosenChoiceId = historyRecord.choiceId
-          if (typeof historyRecord.choiceTriggerIndex === 'number' && typeof scene.choiceTriggerIndex !== 'number') {
-            scene.choiceTriggerIndex = historyRecord.choiceTriggerIndex
+    if (scene.choiceConsumed) {
+      console.log(
+        '[watch] 场景选项已消费,不显示选项 - 场景:',
+        currentSceneIndex.value,
+        '对话:',
+        currentDialogueIndex.value,
+        '选项触发点:',
+        scene.choiceTriggerIndex,
+        '已选ID:',
+        scene.chosenChoiceId,
+        '场景有choices:',
+        Array.isArray(scene.choices),
+        '场景有choiceTriggerIndex:',
+        typeof scene.choiceTriggerIndex === 'number'
+      )
+      choicesVisible.value = false
+      return
+    }
+
+    // 只有当用户已经通过了选项触发点（选过或跳过）时，才拒绝显示选项
+    try {
+      const sceneId = String(scene.id || scene.sceneId)
+      const historyRecord = choiceHistory.value.find((h) => String(h.sceneId) === sceneId)
+      if (historyRecord) {
+        // 确定触发索引
+        const triggerIndex =
+          typeof scene.choiceTriggerIndex === 'number'
+            ? scene.choiceTriggerIndex
+            : typeof historyRecord.choiceTriggerIndex === 'number'
+              ? historyRecord.choiceTriggerIndex
+              : null
+
+        if (triggerIndex !== null && currentDialogueIndex.value > triggerIndex) {
+          console.log(
+            '[watch] ⛔ 智能拒绝：用户已通过选项触发点，不再显示 - 场景ID:',
+            sceneId,
+            '当前位置:',
+            currentDialogueIndex.value,
+            '触发点:',
+            triggerIndex,
+            '历史记录:',
+            historyRecord
+          )
+          choicesVisible.value = false
+          // 同时标记场景为已消费，避免后续再次检查
+          if (!scene.choiceConsumed) {
+            scene.choiceConsumed = true
+            scene.chosenChoiceId = historyRecord.choiceId
+            if (
+              typeof historyRecord.choiceTriggerIndex === 'number' &&
+              typeof scene.choiceTriggerIndex !== 'number'
+            ) {
+              scene.choiceTriggerIndex = historyRecord.choiceTriggerIndex
+            }
+            console.log('[watch] ⛔ 已自动标记场景为已消费')
           }
-          console.log('[watch] ⛔ 已自动标记场景为已消费')
-        }
-        return
-      } else if (triggerIndex !== null && currentDialogueIndex.value === triggerIndex) {
-        // 当前正好在触发点，如果历史中有记录，说明是从后面回退的，应该拒绝
-        // 但如果是从前面阅读过来的，应该允许显示
-        // 可以通过检查是否刚完成读档来判断
-        console.log('[watch] 🤔 在触发点检测到历史记录，但用户可能从前面阅读过来 - 场景ID:', sceneId, 
-          '当前位置:', currentDialogueIndex.value,
-          '触发点:', triggerIndex)
-        // 这里不做拦截，让后续逻辑决定是否显示
-      } else {
-        console.log('[watch] ✅ 允许：用户还未到达触发点，允许显示选项 - 场景ID:', sceneId, 
-          '当前位置:', currentDialogueIndex.value,
-          '触发点:', triggerIndex)
-        // 用户还未到达触发点，清除可能错误的标记
-        if (scene.choiceConsumed) {
-          scene.choiceConsumed = false
-          scene.chosenChoiceId = null
-          console.log('[watch] ✅ 清除错误的消费标记，允许用户正常阅读到选项')
+          return
+        } else if (triggerIndex !== null && currentDialogueIndex.value === triggerIndex) {
+          // 当前正好在触发点，如果历史中有记录，说明是从后面回退的，应该拒绝
+          // 但如果是从前面阅读过来的，应该允许显示
+          // 可以通过检查是否刚完成读档来判断
+          console.log(
+            '[watch] 🤔 在触发点检测到历史记录，但用户可能从前面阅读过来 - 场景ID:',
+            sceneId,
+            '当前位置:',
+            currentDialogueIndex.value,
+            '触发点:',
+            triggerIndex
+          )
+          // 这里不做拦截，让后续逻辑决定是否显示
+        } else {
+          console.log(
+            '[watch] ✅ 允许：用户还未到达触发点，允许显示选项 - 场景ID:',
+            sceneId,
+            '当前位置:',
+            currentDialogueIndex.value,
+            '触发点:',
+            triggerIndex
+          )
+          // 用户还未到达触发点，清除可能错误的标记
+          if (scene.choiceConsumed) {
+            scene.choiceConsumed = false
+            scene.chosenChoiceId = null
+            console.log('[watch] ✅ 清除错误的消费标记，允许用户正常阅读到选项')
+          }
         }
       }
+    } catch (e) {
+      console.warn('[watch] 检查选择历史时出错:', e)
     }
-  } catch (e) {
-    console.warn('[watch] 检查选择历史时出错:', e)
-  }
-  
-  const hasValidChoices = Array.isArray(scene.choices) && 
-                          scene.choices.length > 0 && 
-                          typeof scene.choiceTriggerIndex === 'number'
-  
-  if (!hasValidChoices) {
-    console.log('[watch] 场景无有效选项配置，隐藏选项 - choiceConsumed:', scene.choiceConsumed)
-    choicesVisible.value = false
-    return
-  }
-  
-  const shouldShowChoices = currentDialogueIndex.value === scene.choiceTriggerIndex && 
-                            showText.value && 
-                            !suppressAutoShowChoices.value
-  
-  if (shouldShowChoices) {
-    console.log('[watch] 到达选项触发点 - 场景:', currentSceneIndex.value, 
-      '对话:', currentDialogueIndex.value, 
-      '触发索引:', scene.choiceTriggerIndex,
-      '选项数:', scene.choices.length,
-      '触发句内容:', scene.dialogues[currentDialogueIndex.value])
-    console.log('[watch] 选项详细数据:', scene.choices.map(c => ({
-      id: c.id,
-      text: c.text,
-      attributesDelta: c.attributesDelta,
-      statusesDelta: c.statusesDelta
-    })))
-    console.log('[watch] 设置等待用户点击标记，不立即显示选项')
-    waitingForClickToShowChoices.value = true
-    choicesVisible.value = false
-    // 自动播放遇到选项时暂停
-    stopAutoPlayTimer()
-  } else {
-    // 只在不是触发点时隐藏选项
-    if (currentDialogueIndex.value !== scene.choiceTriggerIndex) {
+
+    const hasValidChoices =
+      Array.isArray(scene.choices) &&
+      scene.choices.length > 0 &&
+      typeof scene.choiceTriggerIndex === 'number'
+
+    if (!hasValidChoices) {
+      console.log('[watch] 场景无有效选项配置，隐藏选项 - choiceConsumed:', scene.choiceConsumed)
       choicesVisible.value = false
-      waitingForClickToShowChoices.value = false
+      return
     }
-    console.log('[watch] 选项未触发 - suppressAuto:', suppressAutoShowChoices.value, 
-      'dialogueIdx:', currentDialogueIndex.value, 
-      'triggerIdx:', scene.choiceTriggerIndex, 
-      'showText:', showText.value)
-  }
-}, { immediate: false })
+
+    const shouldShowChoices =
+      currentDialogueIndex.value === scene.choiceTriggerIndex &&
+      showText.value &&
+      !suppressAutoShowChoices.value
+
+    if (shouldShowChoices) {
+      console.log(
+        '[watch] 到达选项触发点 - 场景:',
+        currentSceneIndex.value,
+        '对话:',
+        currentDialogueIndex.value,
+        '触发索引:',
+        scene.choiceTriggerIndex,
+        '选项数:',
+        scene.choices.length,
+        '触发句内容:',
+        scene.dialogues[currentDialogueIndex.value]
+      )
+      console.log(
+        '[watch] 选项详细数据:',
+        scene.choices.map((c) => ({
+          id: c.id,
+          text: c.text,
+          attributesDelta: c.attributesDelta,
+          statusesDelta: c.statusesDelta
+        }))
+      )
+      console.log('[watch] 设置等待用户点击标记，不立即显示选项')
+      waitingForClickToShowChoices.value = true
+      choicesVisible.value = false
+      // 自动播放遇到选项时暂停
+      stopAutoPlayTimer()
+    } else {
+      // 只在不是触发点时隐藏选项
+      if (currentDialogueIndex.value !== scene.choiceTriggerIndex) {
+        choicesVisible.value = false
+        waitingForClickToShowChoices.value = false
+      }
+      console.log(
+        '[watch] 选项未触发 - suppressAuto:',
+        suppressAutoShowChoices.value,
+        'dialogueIdx:',
+        currentDialogueIndex.value,
+        'triggerIdx:',
+        scene.choiceTriggerIndex,
+        'showText:',
+        showText.value
+      )
+    }
+  },
+  { immediate: false }
+)
 // 选项的显示/隐藏已由 useAutoPlay 内部自动处理,不需要额外的 watch
 
 // 页面卸载时解锁屏幕方向
 onUnmounted(async () => {
   // 停止自动播放计时器
   stopAutoPlayTimer()
-  
+
   // 清理游戏状态的进度定时器
   if (cleanupGameState) {
     cleanupGameState()
   }
-  
+
   try {
     // 卸载前自动存档
     await autoSaveToSlot(AUTO_SAVE_SLOT)
@@ -3143,7 +4164,7 @@ onUnmounted(async () => {
   } catch (err) {
     console.log('解锁屏幕方向失败:', err)
   }
-  
+
   // 恢复状态栏显示
   try {
     await StatusBar.show()
@@ -3151,9 +4172,12 @@ onUnmounted(async () => {
   } catch (e) {
     console.warn('[GamePage] 恢复状态栏失败:', e)
   }
-  
+
   // 清理挂载时添加的侦听
-  if (onMounted._cleanup) try { onMounted._cleanup() } catch {}
+  if (onMounted._cleanup)
+    try {
+      onMounted._cleanup()
+    } catch {}
 })
 </script>
 
@@ -3175,40 +4199,35 @@ onUnmounted(async () => {
     <transition name="fade">
       <div v-if="isLandscapeReady && isLoading" class="loading-screen">
         <!-- 封面背景图 -->
-  <div class="loading-cover-bg" :style="{ backgroundImage: `url(${effectiveCoverUrl})` }"></div>
-        
+        <div
+          class="loading-cover-bg"
+          :style="{ backgroundImage: `url(${effectiveCoverUrl})` }"
+        ></div>
+
         <div class="loading-content">
           <!-- 游戏标题（作品名；结局判定时展示特殊标题） -->
           <h1 class="game-title">{{ isEndingLoading ? '结局判定中' : work.title }}</h1>
-          
+
           <!-- 进度条与毛笔（毛笔跟随进度条滑动） -->
           <div class="loading-progress-container">
             <!-- 毛笔：使用 left 绑定使其跟随进度条的 thumb（通过 translateX(-50%) 居中） -->
             <div class="brush-container" :style="{ left: loadingProgress + '%' }">
               <svg class="brush-icon" viewBox="0 0 64 64" fill="none">
                 <!-- 毛笔笔杆 -->
-                <path 
-                  d="M32 8 L32 40" 
-                  stroke="#8B4513" 
-                  stroke-width="3" 
-                  stroke-linecap="round"
-                />
+                <path d="M32 8 L32 40" stroke="#8B4513" stroke-width="3" stroke-linecap="round" />
                 <!-- 毛笔笔头 -->
-                <path 
-                  d="M32 40 L28 52 L32 56 L36 52 Z" 
+                <path
+                  d="M32 40 L28 52 L32 56 L36 52 Z"
                   fill="#2C2C2C"
                   stroke="#1C1C1C"
                   stroke-width="1"
                 />
                 <!-- 毛笔尖 -->
-                <path 
-                  d="M32 56 L30 60 L32 62 L34 60 Z" 
-                  fill="#1C1C1C"
-                />
+                <path d="M32 56 L30 60 L32 62 L34 60 Z" fill="#1C1C1C" />
                 <!-- 笔杆装饰 -->
-                <circle cx="32" cy="12" r="2" fill="#D4A574"/>
-                <circle cx="32" cy="20" r="2" fill="#D4A574"/>
-                <circle cx="32" cy="28" r="2" fill="#D4A574"/>
+                <circle cx="32" cy="12" r="2" fill="#D4A574" />
+                <circle cx="32" cy="20" r="2" fill="#D4A574" />
+                <circle cx="32" cy="28" r="2" fill="#D4A574" />
               </svg>
             </div>
 
@@ -3219,15 +4238,21 @@ onUnmounted(async () => {
             </div>
             <div class="loading-text">{{ Math.floor(loadingProgress) }}%</div>
           </div>
-          
+
           <!-- 加载提示 -->
           <div class="loading-tips">
             <p class="tip-text">
-              {{ isEndingLoading ? '结局判定中，请稍候...' : (isGeneratingSettlement ? '结算页面生成中...' : '正在准备故事...') }}
+              {{
+                isEndingLoading
+                  ? '结局判定中，请稍候...'
+                  : isGeneratingSettlement
+                    ? '结算页面生成中...'
+                    : '正在准备故事...'
+              }}
             </p>
           </div>
         </div>
-        
+
         <!-- 背景装饰 -->
         <div class="bg-decoration">
           <div class="decoration-circle"></div>
@@ -3238,75 +4263,105 @@ onUnmounted(async () => {
     </transition>
 
     <!-- 音频调试面板已移除 -->
-    
+
     <!-- 游戏内容 -->
     <div v-show="isLandscapeReady && !isLoading" class="game-content">
       <!-- 中心加载指示：获取后续剧情时显示 -->
-      <div v-if="isFetchingNext" class="center-loading" aria-live="polite" aria-label="后续剧情生成中">
+      <div
+        v-if="isFetchingNext"
+        class="center-loading"
+        aria-live="polite"
+        aria-label="后续剧情生成中"
+      >
         <div class="center-spinner"></div>
       </div>
 
       <!-- 背景图层 -->
       <div class="background-layer" :style="{ backgroundImage: `url(${currentBackground})` }"></div>
-      
+
       <!-- 遮罩层（让文字更清晰） -->
       <div class="overlay-layer"></div>
-      
+
       <!-- 点击区域（点击进入下一句） -->
-       <div class="click-area"
-         @pointerdown="onPointerDown"
-         @pointerup="onPointerUp"
-         @pointercancel="onPointerCancel"
-         @mousedown="onPointerDown"
-         @mouseup="onPointerUp"
-         @mouseleave="onPointerCancel"
-         @touchstart.prevent
-         @touchend.prevent
-         @click.stop
-       ></div>
+      <div
+        class="click-area"
+        @pointerdown="onPointerDown"
+        @pointerup="onPointerUp"
+        @pointercancel="onPointerCancel"
+        @mousedown="onPointerDown"
+        @mouseup="onPointerUp"
+        @mouseleave="onPointerCancel"
+        @touchstart.prevent
+        @touchend.prevent
+        @click.stop
+      ></div>
 
       <!-- 选项区域（如果当前场景包含 choices） - 放在 text-box 之外，避免被裁剪 -->
-      <div 
-        v-if="currentScene && currentScene.choices && choicesVisible" 
-        class="choices-container" 
+      <div
+        v-if="currentScene && currentScene.choices && choicesVisible"
+        class="choices-container"
         :class="{ disabled: showMenu, 'ending-choices': currentScene._isEndingChoiceScene }"
-        @click.stop>
+        @click.stop
+      >
         <div class="choice" v-for="choice in currentScene.choices" :key="choice.id">
-          <button 
-            class="choice-btn" 
-            :disabled="isFetchingChoice || showMenu" 
-            @click="chooseOption(choice)">
+          <button
+            class="choice-btn"
+            :disabled="isFetchingChoice || showMenu"
+            @click="chooseOption(choice)"
+          >
             {{ choice.text }}
           </button>
         </div>
       </div>
-      
+
       <!-- 文字栏  -->
-      <div class="text-box" :class="{ editing: editingDialogue, 'creator-mode': creatorMode }" @click.stop="editingDialogue ? null : nextDialogue()">
+      <div
+        class="text-box"
+        :class="{ editing: editingDialogue, 'creator-mode': creatorMode }"
+        @click.stop="editingDialogue ? null : nextDialogue()"
+      >
         <!-- 说话人标签（可选） -->
         <div v-if="currentSpeaker" class="speaker-badge">{{ currentSpeaker }}</div>
         <transition name="text-fade">
           <!-- 非编辑态显示当前对话 -->
           <p v-if="!editingDialogue && showText" class="dialogue-text">{{ currentDialogue }}</p>
           <!-- 编辑态：contenteditable，编辑内容保存在 editableText -->
-    <div v-else-if="editingDialogue" ref="editableDiv" class="dialogue-text" contenteditable="true"
-      @click.stop
-      @input="onEditableInput"
-      @compositionstart="onCompositionStart"
-      @compositionend="onCompositionEnd"
-      @keydown.enter.prevent="finishEdit"
-      @blur="finishEdit"></div>
+          <div
+            v-else-if="editingDialogue"
+            ref="editableDiv"
+            class="dialogue-text"
+            contenteditable="true"
+            @click.stop
+            @input="onEditableInput"
+            @compositionstart="onCompositionStart"
+            @compositionend="onCompositionEnd"
+            @keydown.enter.prevent="finishEdit"
+            @blur="finishEdit"
+          ></div>
         </transition>
 
         <!-- 编辑与替换图片按钮：仅在创作者模式可见 -->
         <div v-if="creatorMode" class="edit-controls" aria-hidden="false">
           <template v-if="!editingDialogue">
             <button class="edit-btn" title="编辑文本" @click.stop="startEdit()">编辑</button>
-            <button class="edit-btn" title="替换当前背景" @click.stop="triggerImagePicker">替换图片</button>
-            <button class="edit-btn" title="播放下一句" @click.stop="playNextAfterEdit">播放下一句</button>
+            <button class="edit-btn" title="替换当前背景" @click.stop="triggerImagePicker">
+              替换图片
+            </button>
+            <button class="edit-btn" title="播放下一句" @click.stop="playNextAfterEdit">
+              播放下一句
+            </button>
             <!-- 旁白功能按钮 -->
-            <button class="edit-btn" title="在当前后插入旁白" @click.stop="addNarration()">新增旁白</button>
-            <button class="edit-btn" :class="{ disabled: !currentIsNarration }" :title="currentIsNarration ? '删除当前旁白' : '当前不是旁白'" @click.stop="attemptDeleteNarration">删除旁白</button>
+            <button class="edit-btn" title="在当前后插入旁白" @click.stop="addNarration()">
+              新增旁白
+            </button>
+            <button
+              class="edit-btn"
+              :class="{ disabled: !currentIsNarration }"
+              :title="currentIsNarration ? '删除当前旁白' : '当前不是旁白'"
+              @click.stop="attemptDeleteNarration"
+            >
+              删除旁白
+            </button>
           </template>
           <template v-else>
             <button class="edit-btn" title="确认编辑" @click.stop="finishEdit()">确认</button>
@@ -3317,86 +4372,145 @@ onUnmounted(async () => {
         <!-- 继续提示箭头 -->
         <div v-if="showText && !isLastDialogue" class="continue-hint">
           <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
+            <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" />
           </svg>
         </div>
       </div>
-      
+
       <!-- 顶部进度条 -->
       <div class="progress-bar">
         <div class="progress-fill" :style="{ width: readingProgress + '%' }"></div>
       </div>
-      
+
       <!-- 菜单按钮 -->
       <button class="menu-button" @click.stop="toggleMenu">
         <svg viewBox="0 0  24 24" fill="none" stroke="currentColor">
-          <line x1="3" y1="12" x2="21" y2="12" stroke-width="2"/>
-          <line x1="3" y1="6" x2="21" y2="6" stroke-width="2"/>
-          <line x1="3" y1="18" x2="21" y2="18" stroke-width="2"/>
+          <line x1="3" y1="12" x2="21" y2="12" stroke-width="2" />
+          <line x1="3" y1="6" x2="21" y2="6" stroke-width="2" />
+          <line x1="3" y1="18" x2="21" y2="18" stroke-width="2" />
         </svg>
       </button>
-      
 
       <!-- 创作者模式指示器 -->
       <div v-if="creatorMode" class="creator-badge">创作者模式</div>
 
       <!-- 顶部不再显示快速操作，相关功能移动到菜单中 -->
-      
+
       <!-- 菜单面板 -->
       <transition name="slide-down">
         <div v-if="showMenu" class="menu-panel" @click.stop>
           <button class="menu-item" @click="goBack" :disabled="creatorMode">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path d="M19 12H5M12 19l-7-7 7-7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path
+                d="M19 12H5M12 19l-7-7 7-7"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
             </svg>
             <span>返回作品页</span>
           </button>
-          
+
           <button class="menu-item" @click="toggleMenu">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path d="M18 6L6 18M6 6l12 12" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <path
+                d="M18 6L6 18M6 6l12 12"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
             </svg>
             <span>继续阅读</span>
           </button>
 
           <!-- 整合功能入口：存档 / 读档 / 属性 / 设置（并列网格） -->
           <div class="menu-grid">
-            <button class="menu-item" @click="showMenu = false; openSaveModal()" :disabled="creatorMode">
+            <button
+              class="menu-item"
+              @click="
+                showMenu = false
+                openSaveModal()
+              "
+              :disabled="creatorMode"
+            >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path d="M5 20h14a1 1 0 0 0 1-1V7l-4-4H6a1 1 0 0 0-1 1v16zM8 8h8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path
+                  d="M5 20h14a1 1 0 0 0 1-1V7l-4-4H6a1 1 0 0 0-1 1v16zM8 8h8"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
               </svg>
               <span>存档</span>
             </button>
-            <button class="menu-item" @click="showMenu = false; openLoadModal()" :disabled="creatorMode">
+            <button
+              class="menu-item"
+              @click="
+                showMenu = false
+                openLoadModal()
+              "
+              :disabled="creatorMode"
+            >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M7 9l5 5 5-5M12 14V3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path
+                  d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2M7 9l5 5 5-5M12 14V3"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
               </svg>
               <span>读档</span>
             </button>
-            <button class="menu-item" @click="showMenu = false; openAttributes()">
+            <button
+              class="menu-item"
+              @click="
+                showMenu = false
+                openAttributes()
+              "
+            >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14" stroke-width="2"/>
-                <path d="M3 7h18M8 11l2.5 3L13 11l4 6H7l1-2z" stroke-width="2"/>
+                <path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14" stroke-width="2" />
+                <path d="M3 7h18M8 11l2.5 3L13 11l4 6H7l1-2z" stroke-width="2" />
               </svg>
               <span>属性</span>
             </button>
-            <button class="menu-item" @click="showMenu = false; showSettingsModal = true">
+            <button
+              class="menu-item"
+              @click="
+                showMenu = false
+                showSettingsModal = true
+              "
+            >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" stroke-width="2"/>
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.27.27a2 2 0 1 1-2.83 2.83l-.27-.27a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V22a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.27.27a2 2 0 1 1-2.83-2.83l.27-.27a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H2a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.27-.27a2 2 0 1 1 2.83-2.83l.27.27a1.65 1.65 0 0 0 1.82.33h0A1.65 1.65 0 0 0 9 2.09V2a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.27-.27a2 2 0 1 1 2.83 2.83l-.27.27a1.65 1.65 0 0 0-.33 1.82v0A1.65 1.65 0 0 0 21.91 11H22a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z" stroke-width="2" />
+                <path
+                  d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.27.27a2 2 0 1 1-2.83 2.83l-.27-.27a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V22a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.27.27a2 2 0 1 1-2.83-2.83l.27-.27a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H2a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.27-.27a2 2 0 1 1 2.83-2.83l.27.27a1.65 1.65 0 0 0 1.82.33h0A1.65 1.65 0 0 0 9 2.09V2a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.27-.27a2 2 0 1 1 2.83 2.83l-.27.27a1.65 1.65 0 0 0-.33 1.82v0A1.65 1.65 0 0 0 21.91 11H22a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
               </svg>
               <span>设置</span>
             </button>
             <!-- 创作者模式开关 -->
-            <button class="menu-item" @click="toggleCreatorMode(); showMenu = false">
+            <button
+              class="menu-item"
+              @click="
+                toggleCreatorMode()
+                showMenu = false
+              "
+            >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4" stroke-width="1.5"/>
-                <circle cx="12" cy="12" r="3" stroke-width="1.5"/>
+                <path
+                  d="M12 2v2M12 20v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2 12h2M20 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"
+                  stroke-width="1.5"
+                />
+                <circle cx="12" cy="12" r="3" stroke-width="1.5" />
               </svg>
               <span>{{ creatorMode ? '退出手动编辑模式' : '进入手动编辑模式' }}</span>
             </button>
           </div>
-          
+
           <div class="menu-progress">
             <span>阅读进度：{{ Math.floor(readingProgress) }}%</span>
             <span>场景 {{ currentSceneIndex + 1 }} / {{ storyScenes.length }}</span>
@@ -3416,20 +4530,46 @@ onUnmounted(async () => {
           <div v-for="slot in SLOTS" :key="slot" class="slot-card">
             <div class="slot-title">{{ slot.toUpperCase() }}</div>
             <div v-if="slotInfos[slot]">
-                <div class="slot-thumb" v-if="(slotInfos[slot].thumbnailData || slotInfos[slot].thumbnail || (slotInfos[slot].game_state && (slotInfos[slot].game_state.thumbnailData || slotInfos[slot].game_state.thumbnail)))">
-                  <img :src="slotInfos[slot].thumbnailData || slotInfos[slot].thumbnail || (slotInfos[slot].game_state && (slotInfos[slot].game_state.thumbnailData || slotInfos[slot].game_state.thumbnail))" alt="thumb" />
-                  <div class="thumb-meta">
-                    <div class="meta-time">{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}</div>
+              <div
+                class="slot-thumb"
+                v-if="
+                  slotInfos[slot].thumbnailData ||
+                  slotInfos[slot].thumbnail ||
+                  (slotInfos[slot].game_state &&
+                    (slotInfos[slot].game_state.thumbnailData ||
+                      slotInfos[slot].game_state.thumbnail))
+                "
+              >
+                <img
+                  :src="
+                    slotInfos[slot].thumbnailData ||
+                    slotInfos[slot].thumbnail ||
+                    (slotInfos[slot].game_state &&
+                      (slotInfos[slot].game_state.thumbnailData ||
+                        slotInfos[slot].game_state.thumbnail))
+                  "
+                  alt="thumb"
+                />
+                <div class="thumb-meta">
+                  <div class="meta-time">
+                    {{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}
                   </div>
                 </div>
-                <div class="slot-meta" v-else>
-                  <div>时间：{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}</div>
+              </div>
+              <div class="slot-meta" v-else>
+                <div>
+                  时间：{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}
                 </div>
+              </div>
             </div>
             <div class="slot-meta empty" v-else>空槽位</div>
             <div class="slot-actions">
-              <button @click="saveGame(slot).then(() => refreshSlotInfos())">保存到 {{ slot.toUpperCase() }}</button>
-              <button v-if="slotInfos[slot]" @click="deleteGame(slot)" class="delete-btn">删除</button>
+              <button @click="saveGame(slot).then(() => refreshSlotInfos())">
+                保存到 {{ slot.toUpperCase() }}
+              </button>
+              <button v-if="slotInfos[slot]" @click="deleteGame(slot)" class="delete-btn">
+                删除
+              </button>
             </div>
           </div>
         </div>
@@ -3451,45 +4591,65 @@ onUnmounted(async () => {
             <input type="checkbox" v-model="autoPlayEnabled" />
             <span>自动播放（遇到选项自动暂停）</span>
           </label>
-          <div class="row interval-selector-row" style="align-items:center">
+          <div class="row interval-selector-row" style="align-items: center">
             <span>自动播放间隔：</span>
-            <div class="interval-dots" style="margin-left:0.5rem">
+            <div class="interval-dots" style="margin-left: 0.5rem">
               <button
                 v-for="i in 10"
                 :key="i"
-                :class="['interval-dot', { selected: i <= (autoPlayIntervalMs / 1000) } ]"
-                @click="autoPlayIntervalMs = 1000 + (i-1)*1000"
-                :title="(1000 + (i-1)*1000) / 1000 + ' s'"
-                :aria-label="'设置自动播放间隔 ' + ((1000 + (i-1)*1000) / 1000) + ' 秒'">
-              </button>
+                :class="['interval-dot', { selected: i <= autoPlayIntervalMs / 1000 }]"
+                @click="autoPlayIntervalMs = 1000 + (i - 1) * 1000"
+                :title="(1000 + (i - 1) * 1000) / 1000 + ' s'"
+                :aria-label="'设置自动播放间隔 ' + (1000 + (i - 1) * 1000) / 1000 + ' 秒'"
+              ></button>
             </div>
-            <div class="interval-label meta-small" style="margin-left:0.6rem">{{ (autoPlayIntervalMs / 1000) }} s</div>
+            <div class="interval-label meta-small" style="margin-left: 0.6rem">
+              {{ autoPlayIntervalMs / 1000 }} s
+            </div>
           </div>
-          <p class="hint">点击任意点选择自动播放间隔（1s — 10s）；开启后系统将按间隔自动播放，遇到选项暂停，选择后继续。</p>
-          <div class="music-controls" style="margin-top:0.75rem">
+          <p class="hint">
+            点击任意点选择自动播放间隔（1s —
+            10s）；开启后系统将按间隔自动播放，遇到选项暂停，选择后继续。
+          </p>
+          <div class="music-controls" style="margin-top: 0.75rem">
             <div class="section-title">音乐控制</div>
-            <div class="row" style="gap:0.5rem; margin-top:0.5rem">
+            <div class="row" style="gap: 0.5rem; margin-top: 0.5rem">
               <button class="music-btn" @click="playPrevTrack">上一首</button>
-              <button class="music-btn" @click="toggleMusic">{{ isMusicPlaying ? '暂停' : '播放' }}</button>
+              <button class="music-btn" @click="toggleMusic">
+                {{ isMusicPlaying ? '暂停' : '播放' }}
+              </button>
               <button class="music-btn" @click="playNextTrack">下一首</button>
               <button class="music-btn" @click="triggerMusicFilePicker">添加本地音乐</button>
             </div>
-         
-            <div class="modal-row meta-small" style="margin-top:0.5rem">
-              当前：{{ playlist.length ? (currentTrackIndex + 1) : 0 }} / {{ playlist.length }}
+
+            <div class="modal-row meta-small" style="margin-top: 0.5rem">
+              当前：{{ playlist.length ? currentTrackIndex + 1 : 0 }} / {{ playlist.length }}
             </div>
-            <div v-if="localTracks.length" class="local-music-list" style="margin-top:0.5rem">
+            <div v-if="localTracks.length" class="local-music-list" style="margin-top: 0.5rem">
               <div class="section-subtitle">已添加的本地音乐</div>
               <ul>
-                <li v-for="(t, i) in localTracks" :key="i" style="display:flex;align-items:center;gap:0.5rem;margin-top:0.25rem">
+                <li
+                  v-for="(t, i) in localTracks"
+                  :key="i"
+                  style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem"
+                >
                   <button class="music-btn" @click="playLocal(i)" title="播放">▶</button>
                   <button class="music-btn" @click="removeLocalTrack(i)" title="删除">✕</button>
-                  <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.name }}</span>
+                  <span
+                    style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap"
+                    >{{ t.name }}</span
+                  >
                 </li>
               </ul>
             </div>
             <!-- 隐藏的文件输入（用于选择本地音频） -->
-            <input ref="musicInput" type="file" accept="audio/*" style="display:none" @change="onMusicFileSelected" />
+            <input
+              ref="musicInput"
+              type="file"
+              accept="audio/*"
+              style="display: none"
+              @change="onMusicFileSelected"
+            />
           </div>
         </div>
         <div class="modal-actions">
@@ -3509,20 +4669,46 @@ onUnmounted(async () => {
           <div v-for="slot in SLOTS" :key="slot" class="slot-card">
             <div class="slot-title">{{ slot.toUpperCase() }}</div>
             <div v-if="slotInfos[slot]">
-              <div class="slot-thumb" v-if="(slotInfos[slot].thumbnailData || slotInfos[slot].thumbnail || (slotInfos[slot].game_state && (slotInfos[slot].game_state.thumbnailData || slotInfos[slot].game_state.thumbnail)))">
-                <img :src="slotInfos[slot].thumbnailData || slotInfos[slot].thumbnail || (slotInfos[slot].game_state && (slotInfos[slot].game_state.thumbnailData || slotInfos[slot].game_state.thumbnail))" alt="thumb" />
+              <div
+                class="slot-thumb"
+                v-if="
+                  slotInfos[slot].thumbnailData ||
+                  slotInfos[slot].thumbnail ||
+                  (slotInfos[slot].game_state &&
+                    (slotInfos[slot].game_state.thumbnailData ||
+                      slotInfos[slot].game_state.thumbnail))
+                "
+              >
+                <img
+                  :src="
+                    slotInfos[slot].thumbnailData ||
+                    slotInfos[slot].thumbnail ||
+                    (slotInfos[slot].game_state &&
+                      (slotInfos[slot].game_state.thumbnailData ||
+                        slotInfos[slot].game_state.thumbnail))
+                  "
+                  alt="thumb"
+                />
                 <div class="thumb-meta">
-                  <div class="meta-time">{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}</div>
+                  <div class="meta-time">
+                    {{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}
+                  </div>
                 </div>
               </div>
               <div class="slot-meta" v-else>
-                <div>时间：{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}</div>
+                <div>
+                  时间：{{ new Date(slotInfos[slot].timestamp || Date.now()).toLocaleString() }}
+                </div>
               </div>
             </div>
             <div class="slot-meta empty" v-else>空槽位</div>
             <div class="slot-actions">
-              <button :disabled="!slotInfos[slot]" @click="loadGame(slot)">读取 {{ slot.toUpperCase() }}</button>
-              <button v-if="slotInfos[slot]" @click="deleteGame(slot)" class="delete-btn">删除</button>
+              <button :disabled="!slotInfos[slot]" @click="loadGame(slot)">
+                读取 {{ slot.toUpperCase() }}
+              </button>
+              <button v-if="slotInfos[slot]" @click="deleteGame(slot)" class="delete-btn">
+                删除
+              </button>
             </div>
           </div>
         </div>
@@ -3535,7 +4721,7 @@ onUnmounted(async () => {
     <!-- 属性模态：两栏属性，无状态栏 -->
     <div v-if="showAttributesModal" class="modal-backdrop" @click.self="closeAttributes">
       <div class="modal-panel attributes-panel">
-  <h3>角色信息</h3>
+        <h3>角色信息</h3>
 
         <div class="attr-status-grid">
           <div class="attr-col">
@@ -3561,50 +4747,75 @@ onUnmounted(async () => {
           </div>
           <div class="attributes-meta">
             <div class="modal-row meta-small"><strong>作品：</strong> {{ work.title }}</div>
-            <div class="modal-row meta-small" v-if="lastSaveInfo"><strong>最后存档：</strong> {{ new Date(lastSaveInfo.timestamp).toLocaleString() }}</div>
+            <div class="modal-row meta-small" v-if="lastSaveInfo">
+              <strong>最后存档：</strong> {{ new Date(lastSaveInfo.timestamp).toLocaleString() }}
+            </div>
           </div>
         </div>
       </div>
     </div>
 
- 
+    <button
+      v-if="
+        work.modifiable && work.ai_callable && getChapterStatus(currentChapterIndex) !== 'saved'
+      "
+      @click="openOutlineEditorManual()"
+      class="creator-outline-btn"
+      title="编辑/生成章节大纲"
+    >
+      📝 编辑大纲
+    </button>
 
-  <button 
-    v-if="work.modifiable && work.ai_callable && getChapterStatus(currentChapterIndex) !== 'saved'"
-    @click="openOutlineEditorManual()"
-    class="creator-outline-btn" 
-    title="编辑/生成章节大纲">
-    📝 编辑大纲
-  </button>
-  
-  <!-- 创作者在播放后端已生成结局时显示的编辑按钮 -->
-  <button
-    v-if="work.modifiable && work.ai_callable && isPlayingBackendGeneratedEnding"
-    @click="() => openEndingEditor({ _endingIndex: (currentScene && typeof currentScene._endingIndex !== 'undefined' && currentScene._endingIndex !== null) ? Number(currentScene._endingIndex) : ((lastSelectedEndingIndex && lastSelectedEndingIndex.value) ? Number(lastSelectedEndingIndex.value) : null), _endingTitle: (currentScene && currentScene._endingTitle) ? currentScene._endingTitle : undefined })"
-    class="creator-outline-btn"
-    title="编辑当前结局的大纲">
-    📝 编辑结局大纲
-  </button>
-  <!-- 创作者专用：当当前章节已由 AI 生成（generated）时，可确认并保存本章，标记为 saved -->
-  <button 
-    v-if="work.modifiable && work.ai_callable && getChapterStatus(currentChapterIndex) !== 'saved' && !isPlayingBackendGeneratedEnding" 
-    @click="persistCurrentChapterEdits({ auto: false, allowSaveGenerated: true })" 
-    class="creator-confirm-btn" 
-    title="确认并保存本章">
-    ✓ 确认保存
-  </button>
+    <!-- 创作者在播放后端已生成结局时显示的编辑按钮 -->
+    <button
+      v-if="work.modifiable && work.ai_callable && isPlayingBackendGeneratedEnding"
+      @click="
+        () =>
+          openEndingEditor({
+            _endingIndex:
+              currentScene &&
+              typeof currentScene._endingIndex !== 'undefined' &&
+              currentScene._endingIndex !== null
+                ? Number(currentScene._endingIndex)
+                : lastSelectedEndingIndex && lastSelectedEndingIndex.value
+                  ? Number(lastSelectedEndingIndex.value)
+                  : null,
+            _endingTitle:
+              currentScene && currentScene._endingTitle ? currentScene._endingTitle : undefined
+          })
+      "
+      class="creator-outline-btn"
+      title="编辑当前结局的大纲"
+    >
+      📝 编辑结局大纲
+    </button>
+    <!-- 创作者专用：当当前章节已由 AI 生成（generated）时，可确认并保存本章，标记为 saved -->
+    <button
+      v-if="
+        work.modifiable &&
+        work.ai_callable &&
+        getChapterStatus(currentChapterIndex) !== 'saved' &&
+        !isPlayingBackendGeneratedEnding
+      "
+      @click="persistCurrentChapterEdits({ auto: false, allowSaveGenerated: true })"
+      class="creator-confirm-btn"
+      title="确认并保存本章"
+    >
+      ✓ 确认保存
+    </button>
 
-  <!-- 创作者在播放后端已生成结局时显示的保存按钮 -->
-  <button
-    v-if="work.modifiable && work.ai_callable && isPlayingBackendGeneratedEnding"
-    @click="saveCurrentEnding"
-    class="creator-confirm-btn"
-    title="保存当前结局">
-    ✓ 保存结局
-  </button>
+    <!-- 创作者在播放后端已生成结局时显示的保存按钮 -->
+    <button
+      v-if="work.modifiable && work.ai_callable && isPlayingBackendGeneratedEnding"
+      @click="saveCurrentEnding"
+      class="creator-confirm-btn"
+      title="保存当前结局"
+    >
+      ✓ 保存结局
+    </button>
 
-  <!-- 创作者大纲编辑器模态（当 createResult.modifiable 且有 chapterOutlines 时显示） -->
-  <div v-if="showOutlineEditor" class="modal-backdrop">
+    <!-- 创作者大纲编辑器模态（当 createResult.modifiable 且有 chapterOutlines 时显示） -->
+    <div v-if="showOutlineEditor" class="modal-backdrop">
       <div class="modal-panel outline-editor-panel">
         <div class="outline-editor-header">
           <h3 class="outline-editor-title">✨ 编辑章节大纲</h3>
@@ -3616,12 +4827,15 @@ onUnmounted(async () => {
           <div class="outline-left">
             <div class="outline-chapters-container">
               <div v-if="filteredOutlineEdits[outlineCurrentPage]" class="outline-chapter-item">
-                <div class="chapter-label">📖 第 {{ filteredOutlineEdits[outlineCurrentPage].chapterIndex }} 章 大纲</div>
-                <textarea 
-                  v-model="filteredOutlineEdits[outlineCurrentPage].outline" 
-                  rows="10" 
-                  class="outline-textarea outline-textarea-large" 
-                  placeholder="请输入该章节的大纲内容...">
+                <div class="chapter-label">
+                  📖 第 {{ filteredOutlineEdits[outlineCurrentPage].chapterIndex }} 章 大纲
+                </div>
+                <textarea
+                  v-model="filteredOutlineEdits[outlineCurrentPage].outline"
+                  rows="10"
+                  class="outline-textarea outline-textarea-large"
+                  placeholder="请输入该章节的大纲内容..."
+                >
                 </textarea>
               </div>
             </div>
@@ -3633,36 +4847,55 @@ onUnmounted(async () => {
           <div class="outline-right">
             <div class="outline-prompt-section">
               <div class="chapter-label">💡 指令 (可选)</div>
-              <textarea 
-                v-model="outlineUserPrompt" 
-                rows="8" 
-                class="outline-textarea outline-textarea-prompt" 
-                placeholder="为本章生成提出您的指令吧...">
+              <textarea
+                v-model="outlineUserPrompt"
+                rows="8"
+                class="outline-textarea outline-textarea-prompt"
+                placeholder="为本章生成提出您的指令吧..."
+              >
               </textarea>
             </div>
             <!-- 分页控制（位于指令输入框下方，取消/确认按钮上方） -->
             <div class="right-pagination">
-              <button 
-                class="pagination-btn" 
+              <button
+                class="pagination-btn"
                 @click="outlineCurrentPage = Math.max(0, outlineCurrentPage - 1)"
-                :disabled="outlineCurrentPage === 0">
+                :disabled="outlineCurrentPage === 0"
+              >
                 ← 上一章
               </button>
-              <span class="pagination-info">{{ outlineCurrentPage + 1 }} / {{ filteredOutlineEdits.length }}</span>
-              <button 
-                class="pagination-btn" 
-                @click="outlineCurrentPage = Math.min(filteredOutlineEdits.length - 1, outlineCurrentPage + 1)"
-                :disabled="outlineCurrentPage === filteredOutlineEdits.length - 1">
+              <span class="pagination-info"
+                >{{ outlineCurrentPage + 1 }} / {{ filteredOutlineEdits.length }}</span
+              >
+              <button
+                class="pagination-btn"
+                @click="
+                  outlineCurrentPage = Math.min(
+                    filteredOutlineEdits.length - 1,
+                    outlineCurrentPage + 1
+                  )
+                "
+                :disabled="outlineCurrentPage === filteredOutlineEdits.length - 1"
+              >
                 下一章 →
               </button>
             </div>
 
             <div class="outline-editor-actions right-actions">
-              <button v-if="editorInvocation !== 'auto'" class="edit-btn btn-cancel" @click="cancelOutlineEdits">取消</button>
-              <button 
-                class="edit-btn btn-confirm" 
-                :disabled="!(editorInvocation === 'auto' || editorInvocation === 'manual' || creatorMode)" 
-                @click="confirmOutlineEdits({ startLoading, stopLoading })">
+              <button
+                v-if="editorInvocation !== 'auto'"
+                class="edit-btn btn-cancel"
+                @click="cancelOutlineEdits"
+              >
+                取消
+              </button>
+              <button
+                class="edit-btn btn-confirm"
+                :disabled="
+                  !(editorInvocation === 'auto' || editorInvocation === 'manual' || creatorMode)
+                "
+                @click="confirmOutlineEdits({ startLoading, stopLoading })"
+              >
                 确认生成
               </button>
             </div>
@@ -3671,11 +4904,16 @@ onUnmounted(async () => {
       </div>
     </div>
     <!-- 隐藏的文件输入：用于用户替换当前背景图 -->
-    <input ref="imgInput" type="file" accept="image/*" style="display:none" @change="onImageSelected" />
+    <input
+      ref="imgInput"
+      type="file"
+      accept="image/*"
+      style="display: none"
+      @change="onImageSelected"
+    />
   </div>
   <!-- 全屏可见的音频错误面板 -->
-  
-  
+
   <!-- 创作者：结局编辑器模态 -->
   <div v-if="endingEditorVisible" class="modal-backdrop">
     <div class="modal-panel outline-editor-panel">
@@ -3689,16 +4927,20 @@ onUnmounted(async () => {
         <div class="outline-left">
           <div class="outline-chapters-container">
             <div class="outline-chapter-item">
-              <div class="chapter-label">🎬 结局 {{ endingEditorForm.endingIndex || '-' }} 大纲</div>
-              <input 
-                v-model="endingEditorForm.title" 
-                class="outline-textarea outline-title-input" 
-                placeholder="结局标题" />
-              <textarea 
-                v-model="endingEditorForm.outline" 
-                rows="10" 
-                class="outline-textarea outline-textarea-large" 
-                placeholder="结局大纲，例如：你战胜了魔王，成为了王国的英雄...">
+              <div class="chapter-label">
+                🎬 结局 {{ endingEditorForm.endingIndex || '-' }} 大纲
+              </div>
+              <input
+                v-model="endingEditorForm.title"
+                class="outline-textarea outline-title-input"
+                placeholder="结局标题"
+              />
+              <textarea
+                v-model="endingEditorForm.outline"
+                rows="10"
+                class="outline-textarea outline-textarea-large"
+                placeholder="结局大纲，例如：你战胜了魔王，成为了王国的英雄..."
+              >
               </textarea>
             </div>
           </div>
@@ -3708,17 +4950,24 @@ onUnmounted(async () => {
         <div class="outline-right">
           <div class="outline-prompt-section">
             <div class="chapter-label">💡 指令 (可选)</div>
-            <textarea 
-              v-model="endingEditorForm.userPrompt" 
-              rows="8" 
-              class="outline-textarea outline-textarea-prompt" 
-              placeholder="例如：请让结局更悲壮一些">
+            <textarea
+              v-model="endingEditorForm.userPrompt"
+              rows="8"
+              class="outline-textarea outline-textarea-prompt"
+              placeholder="例如：请让结局更悲壮一些"
+            >
             </textarea>
           </div>
 
           <div class="outline-editor-actions right-actions">
             <button class="edit-btn btn-cancel" @click="cancelEndingEditor">取消</button>
-            <button class="edit-btn btn-confirm" :disabled="endingEditorBusy" @click="submitEndingEditor">提交并生成</button>
+            <button
+              class="edit-btn btn-confirm"
+              :disabled="endingEditorBusy"
+              @click="submitEndingEditor"
+            >
+              提交并生成
+            </button>
           </div>
         </div>
       </div>

@@ -3,12 +3,14 @@
     <van-nav-bar title="举报管理" left-arrow @click-left="handleBack" />
 
     <div class="report-list">
-      <div
-        class="report-item"
-        v-for="r in reports"
-        :key="r.id"
-      >
-        <button class="delete-x" :disabled="r._deleting || r.status !== '已处理'" @click.stop="deleteReport(r)">×</button>
+      <div class="report-item" v-for="r in reports" :key="r.id">
+        <button
+          class="delete-x"
+          :disabled="r._deleting || r.status !== '已处理'"
+          @click.stop="deleteReport(r)"
+        >
+          ×
+        </button>
         <div class="report-main">
           <div class="report-title">{{ r.title }}</div>
         </div>
@@ -17,7 +19,11 @@
             <span class="label">原因：</span>
             <span class="report-tag">{{ r.reason }}</span>
           </div>
-          <div class="report-status">状态：<span :class="['status', r.status === '已处理' ? 'done' : 'pending']">{{ r.status }}</span></div>
+          <div class="report-status">
+            状态：<span :class="['status', r.status === '已处理' ? 'done' : 'pending']">{{
+              r.status
+            }}</span>
+          </div>
         </div>
         <div v-if="r.remark" class="report-remark">备注：{{ r.remark }}</div>
         <div class="report-actions">
@@ -26,8 +32,9 @@
               class="btn btn-handle"
               :disabled="r._handling || r.status === '已处理'"
               :aria-disabled="r._handling || r.status === '已处理'"
-              @click="markHandled(r)">
-              {{ r.status === '已处理' ? '已处理' : (r._handling ? '处理中...' : '标为已处理') }}
+              @click="markHandled(r)"
+            >
+              {{ r.status === '已处理' ? '已处理' : r._handling ? '处理中...' : '标为已处理' }}
             </button>
             <button class="btn btn-view" @click="viewDetail(r)">查看详情</button>
           </div>
@@ -91,7 +98,11 @@ const markHandled = async (r) => {
       }
     }
 
-    const ok = res && (res.status === 200 || (res.data && (res.data.code === 200 || res.data.success === true || res.data.is_resolved === true)))
+    const ok =
+      res &&
+      (res.status === 200 ||
+        (res.data &&
+          (res.data.code === 200 || res.data.success === true || res.data.is_resolved === true)))
     if (ok) {
       r.status = '已处理'
       showToast({ message: '已标记为已处理', duration: 1000 })
@@ -122,7 +133,7 @@ const viewDetail = (r) => {
 
   if (gwId) {
     // 尝试从 raw 中解析评论 id（后端会返回 comment: <id>）
-    const rawCommentId = (raw.comment || raw.comment_id || raw.commentId || (r.comment || null))
+    const rawCommentId = raw.comment || raw.comment_id || raw.commentId || r.comment || null
     if (rawCommentId) {
       // 带上查询参数，作品页面可根据 query.comment 定位并高亮该评论
       router.push({ path: `/works/${gwId}`, query: { comment: String(rawCommentId) } })
@@ -154,14 +165,22 @@ const deleteReport = async (r) => {
       try {
         res = await http.delete(`/api/users/reports/gameworks/${r.id}/`)
       } catch (e) {
-        try { res = await http.delete(`/api/users/reports/${r.id}/`) } catch (e2) { res = null }
+        try {
+          res = await http.delete(`/api/users/reports/${r.id}/`)
+        } catch (e2) {
+          res = null
+        }
       }
     }
 
-    const ok = res && (res.status === 204 || res.status === 200 || (res.data && (res.data.code === 200 || res.data.success === true)))
+    const ok =
+      res &&
+      (res.status === 204 ||
+        res.status === 200 ||
+        (res.data && (res.data.code === 200 || res.data.success === true)))
     if (ok) {
       // 从列表中移除
-      const idx = reports.value.findIndex(x => x.id === r.id)
+      const idx = reports.value.findIndex((x) => x.id === r.id)
       if (idx !== -1) reports.value.splice(idx, 1)
       showToast({ message: '删除成功', duration: 1000 })
     } else {
@@ -186,10 +205,7 @@ const fetchAllReports = async () => {
       return
     }
 
-    const urls = [
-      `/api/users/reports/comments/`,
-      `/api/users/report/gamework/`
-    ]
+    const urls = [`/api/users/reports/comments/`, `/api/users/report/gamework/`]
 
     const all = []
     for (const u of urls) {
@@ -206,15 +222,34 @@ const fetchAllReports = async () => {
         else if (data && typeof data === 'object' && data.id) list = [data]
 
         for (const item of list) {
-          const fallbackTitle = item.target_title || item.work_title || item.title || (item.gamework && item.gamework.title)
-          const gwTitleField = item.gamework_title || item.game_title || (item.gamework && (item.gamework.title || item.gamework.work_title))
-          const commentContent = item.comment_content || item.comment_text || item.content || (item.raw && (item.raw.comment_content || item.raw.content))
-          const isComment = !!(item.comment || commentContent || (item.raw && (item.raw.comment || item.raw.comment_id || item.raw.comment_content)))
+          const fallbackTitle =
+            item.target_title ||
+            item.work_title ||
+            item.title ||
+            (item.gamework && item.gamework.title)
+          const gwTitleField =
+            item.gamework_title ||
+            item.game_title ||
+            (item.gamework && (item.gamework.title || item.gamework.work_title))
+          const commentContent =
+            item.comment_content ||
+            item.comment_text ||
+            item.content ||
+            (item.raw && (item.raw.comment_content || item.raw.content))
+          const isComment = !!(
+            item.comment ||
+            commentContent ||
+            (item.raw && (item.raw.comment || item.raw.comment_id || item.raw.comment_content))
+          )
 
           let resolvedTitle = fallbackTitle || null
           if (!resolvedTitle) {
             if (isComment) {
-              const content = commentContent ? `${commentContent}` : (item.comment ? `#${item.comment}` : '')
+              const content = commentContent
+                ? `${commentContent}`
+                : item.comment
+                  ? `#${item.comment}`
+                  : ''
               resolvedTitle = `评论：${content}`
             } else if (item.gamework) {
               resolvedTitle = `作品${gwTitleField ? ' ' + gwTitleField : ''}`
@@ -229,7 +264,7 @@ const fetchAllReports = async () => {
             reason: item.tag || item.reason || item.type || item.detail || '—',
             remark: item.remark || '',
             status: item.is_resolved ? '已处理' : '待处理',
-            created_at: item.created_at || item.created || item.timestamp ||  null,
+            created_at: item.created_at || item.created || item.timestamp || null,
             raw: item
           })
         }
@@ -264,29 +299,124 @@ onMounted(() => {
 }
 ::v-deep .van-nav-bar__title,
 ::v-deep .van-nav-bar__left .van-icon {
-  color: #54494B; 
+  color: #54494b;
 }
-.staff-page { min-height:100vh; background:#faf8f3;  padding-top: 0; }
-.report-list { padding:16px }
-.report-item { background:#fff; border-radius:12px; padding:16px; margin-bottom:14px; box-shadow:0 6px 20px rgba(0,0,0,0.06); position:relative; }
-.report-main { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px }
-.report-title { font-weight:600; font-size:16px; color:#333 }
-.report-meta { font-size:12px; color:#999 }
-.report-meta-inline { font-size:12px; color:#666 }
-.report-actions { margin-top:10px; margin-bottom:14px; display:flex; gap:8px; justify-content:space-between; align-items:center }
-.actions-left { display:flex; gap:8px; align-items:center }
-.report-body { display:flex; gap:12px; align-items:center; flex-wrap:wrap }
-.report-reason { color:#666; font-size:13px; display:flex; align-items:center; gap:8px }
-.report-tag { background: linear-gradient(90deg,#ffe9e9,#fff4e6); color:#b33; padding:4px 8px; border-radius:12px; font-weight:700; font-size:13px }
-.report-remark { margin-top:8px; color:#444; font-size:13px; background:#fff; padding:8px; border-radius:8px; box-shadow:0 1px 4px rgba(0,0,0,0.03) }
-.report-status { color:#666; font-size:13px }
-.status { padding:2px 8px; border-radius:12px; font-size:12px }
-.status.pending { background:#fff3cd; color:#856404 }
-.status.done { background:#d4edda; color:#155724 }
-.report-actions { margin-top:10px; margin-bottom:34px; display:flex; gap:8px }
-.btn { padding:6px 10px; border-radius:8px; border:none; cursor:pointer }
-.btn-handle { background:linear-gradient(135deg,#d4a5a5 0%,#b88484 100%); color:#fff }
-.btn-view { background:#fff; border:1px solid #e6e6e6; color:#333 }
+.staff-page {
+  min-height: 100vh;
+  background: #faf8f3;
+  padding-top: 0;
+}
+.report-list {
+  padding: 16px;
+}
+.report-item {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 14px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.06);
+  position: relative;
+}
+.report-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.report-title {
+  font-weight: 600;
+  font-size: 16px;
+  color: #333;
+}
+.report-meta {
+  font-size: 12px;
+  color: #999;
+}
+.report-meta-inline {
+  font-size: 12px;
+  color: #666;
+}
+.report-actions {
+  margin-top: 10px;
+  margin-bottom: 14px;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  align-items: center;
+}
+.actions-left {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.report-body {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.report-reason {
+  color: #666;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.report-tag {
+  background: linear-gradient(90deg, #ffe9e9, #fff4e6);
+  color: #b33;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 13px;
+}
+.report-remark {
+  margin-top: 8px;
+  color: #444;
+  font-size: 13px;
+  background: #fff;
+  padding: 8px;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+}
+.report-status {
+  color: #666;
+  font-size: 13px;
+}
+.status {
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+}
+.status.pending {
+  background: #fff3cd;
+  color: #856404;
+}
+.status.done {
+  background: #d4edda;
+  color: #155724;
+}
+.report-actions {
+  margin-top: 10px;
+  margin-bottom: 34px;
+  display: flex;
+  gap: 8px;
+}
+.btn {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+}
+.btn-handle {
+  background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
+  color: #fff;
+}
+.btn-view {
+  background: #fff;
+  border: 1px solid #e6e6e6;
+  color: #333;
+}
 .delete-x {
   position: absolute;
   right: 12px;
@@ -295,19 +425,34 @@ onMounted(() => {
   height: 36px;
   border-radius: 50%;
   border: none;
-  background: linear-gradient(180deg,#ff6b6b,#e63946);
+  background: linear-gradient(180deg, #ff6b6b, #e63946);
   color: #fff;
   font-size: 18px;
   line-height: 36px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  box-shadow: 0 6px 18px rgba(230,50,70,0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 18px rgba(230, 50, 70, 0.18);
   cursor: pointer;
-  transition: transform .12s ease, box-shadow .12s ease, opacity .12s ease;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    opacity 0.12s ease;
 }
-.delete-x:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(230,50,70,0.22); }
-.delete-x:active { transform: translateY(0); }
-.delete-x:disabled { opacity: 0.5; cursor: not-allowed }
-.empty { padding:20px; color:#999; text-align:center }
+.delete-x:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(230, 50, 70, 0.22);
+}
+.delete-x:active {
+  transform: translateY(0);
+}
+.delete-x:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.empty {
+  padding: 20px;
+  color: #999;
+  text-align: center;
+}
 </style>

@@ -2,7 +2,7 @@
   <div class="register-container">
     <div class="register-card">
       <h2 class="title">账号注册</h2>
-      
+
       <form @submit.prevent="handleRegister" class="register-form">
         <!-- 用户名输入 -->
         <div class="form-group">
@@ -14,7 +14,7 @@
             @blur="validateUsername"
             placeholder="请输入用户名"
             required
-          >
+          />
           <p class="error-message" v-if="errors.username">{{ errors.username }}</p>
         </div>
 
@@ -28,7 +28,7 @@
             @blur="validatePassword"
             placeholder="请输入密码"
             required
-          >
+          />
           <p class="error-message" v-if="errors.password">{{ errors.password }}</p>
         </div>
 
@@ -42,7 +42,7 @@
             @blur="validateConfirmPassword"
             placeholder="请再次输入密码"
             required
-          >
+          />
           <p class="error-message" v-if="errors.confirmPassword">{{ errors.confirmPassword }}</p>
         </div>
 
@@ -56,10 +56,9 @@
             @blur="validateEmail"
             placeholder="请输入邮箱"
             required
-          >
+          />
           <p class="error-message" v-if="errors.confirmEmail">{{ errors.confirmEmail }}</p>
         </div>
-
 
         <!-- 验证码输入 -->
         <div class="form-group">
@@ -70,48 +69,44 @@
             v-model="formData.email_code"
             placeholder="请输入验证码"
             required
-          >
-          <p class="error-message" v-if="errors.confirmVerifyCode">{{ errors.confirmVerifyCode }}</p>
+          />
+          <p class="error-message" v-if="errors.confirmVerifyCode">
+            {{ errors.confirmVerifyCode }}
+          </p>
         </div>
 
         <!-- 发送验证码按钮 -->
-        <button 
-          type="button" 
+        <button
+          type="button"
           class="verify-btn"
-          :disabled="isVerifying || countDown > 0"  
+          :disabled="isVerifying || countDown > 0"
           @click="handleVerify"
         >
           <span v-if="!isVerifying && countDown === 0">发送验证码</span>
           <span v-if="isVerifying">验证中...</span>
-          <span v-if="countDown > 0">{{ countDown }}秒后重新发送</span>  
+          <span v-if="countDown > 0">{{ countDown }}秒后重新发送</span>
         </button>
 
         <!-- 注册按钮 -->
-        <button 
-          type="submit" 
-          class="register-btn"
-          :disabled="isSubmitting"
-        >
+        <button type="submit" class="register-btn" :disabled="isSubmitting">
           <span v-if="!isSubmitting">注册</span>
           <span v-if="isSubmitting">注册中...</span>
         </button>
 
         <!-- 跳转登录 -->
-        <div class="link-to-login">
-          已有账号？<router-link to="/login">立即登录</router-link>
-        </div>
+        <div class="link-to-login">已有账号？<router-link to="/login">立即登录</router-link></div>
       </form>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onUnmounted } from 'vue';
-import { useRouter } from 'vue-router';
-import http from '../utils/http'; 
+import { ref, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
+import http from '../utils/http'
 
-const countDown = ref(0);
-const timer = ref(null);
+const countDown = ref(0)
+const timer = ref(null)
 
 // 表单数据
 const formData = ref({
@@ -120,7 +115,7 @@ const formData = ref({
   confirm_password: '',
   email: '',
   email_code: ''
-});
+})
 
 // 错误信息
 const errors = ref({
@@ -129,126 +124,126 @@ const errors = ref({
   confirm_password: '',
   confirmEmail: '',
   confirmVerifyCode: ''
-});
+})
 
 // 状态控制
-const isSubmitting = ref(false);
-const router = useRouter();
-const isVerifying = ref(false); 
+const isSubmitting = ref(false)
+const router = useRouter()
+const isVerifying = ref(false)
 
 // 表单验证
 const validateUsername = () => {
   if (!formData.value.username.trim()) {
-    errors.value.username = '用户名不能为空';
-    return false;
+    errors.value.username = '用户名不能为空'
+    return false
   }
   if (formData.value.username.length < 3 || formData.value.username.length > 20) {
-    errors.value.username = '用户名长度需在3-20个字符之间';
-    return false;
+    errors.value.username = '用户名长度需在3-20个字符之间'
+    return false
   }
-  errors.value.username = '';
-  return true;
-};
+  errors.value.username = ''
+  return true
+}
 
 const validatePassword = () => {
   if (!formData.value.password) {
-    errors.value.password = '密码不能为空';
-    return false;
+    errors.value.password = '密码不能为空'
+    return false
   }
   if (formData.value.password.length < 6) {
-    errors.value.password = '密码长度不能少于6位';
-    return false;
+    errors.value.password = '密码长度不能少于6位'
+    return false
   }
-  errors.value.password = '';
-  return true;
-};
+  errors.value.password = ''
+  return true
+}
 
 const validateConfirmPassword = () => {
   if (formData.value.confirm_password !== formData.value.password) {
-    errors.value.confirm_password = '两次输入的密码不一致';
-    return false;
+    errors.value.confirm_password = '两次输入的密码不一致'
+    return false
   }
-  errors.value.confirm_password = '';
-  return true;
-};
+  errors.value.confirm_password = ''
+  return true
+}
 
 const validateEmail = () => {
-  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
   if (!emailPattern.test(formData.value.email)) {
-    errors.value.confirmEmail = '请输入有效的邮箱地址';
-    return false;
+    errors.value.confirmEmail = '请输入有效的邮箱地址'
+    return false
   }
-  errors.value.confirmEmail = '';
-  return true;
-};
+  errors.value.confirmEmail = ''
+  return true
+}
 
 const validateConfirmVerifyingCode = () => {
   if (!formData.value.email_code) {
-    errors.value.confirmVerifyCode = '验证码不能为空';
-    return false;
+    errors.value.confirmVerifyCode = '验证码不能为空'
+    return false
   }
-  errors.value.confirmVerifyCode = '';
-  return true;
-};
+  errors.value.confirmVerifyCode = ''
+  return true
+}
 
 // 整体验证
 const validateForm = () => {
-  const isUsernameValid = validateUsername();
-  const isPasswordValid = validatePassword();
-  const isConfirmValid = validateConfirmPassword();
-  const isEmailValid = validateEmail();
-  const isVerifyCodeValid = validateConfirmVerifyingCode();
-  return isUsernameValid && isPasswordValid && isConfirmValid && isEmailValid && isVerifyCodeValid;
-};
+  const isUsernameValid = validateUsername()
+  const isPasswordValid = validatePassword()
+  const isConfirmValid = validateConfirmPassword()
+  const isEmailValid = validateEmail()
+  const isVerifyCodeValid = validateConfirmVerifyingCode()
+  return isUsernameValid && isPasswordValid && isConfirmValid && isEmailValid && isVerifyCodeValid
+}
 
 // 处理发送验证码
 const handleVerify = async () => {
   // 先验证邮箱格式
   if (!validateEmail()) {
-    return;
+    return
   }
 
   try {
-    isVerifying.value = true;
-    
+    isVerifying.value = true
+
     // 调用发送验证码接口
     const response = await http.post('/api/auth/send-email-code/', {
       email: formData.value.email
-    });
+    })
     if (response.data.code === 200) {
-      alert('验证码已发送，请查收');
+      alert('验证码已发送，请查收')
       // 开始倒计时
-      countDown.value = 60;
+      countDown.value = 60
       timer.value = setInterval(() => {
-        countDown.value--;
+        countDown.value--
         if (countDown.value <= 0) {
-          clearInterval(timer.value);
+          clearInterval(timer.value)
         }
-      }, 1000);
+      }, 1000)
     } else {
-      alert(response.message || '发送验证码失败');
+      alert(response.message || '发送验证码失败')
     }
   } catch (error) {
-    console.error('发送验证码失败:', error);
-    alert('发送验证码失败，请稍后重试');
+    console.error('发送验证码失败:', error)
+    alert('发送验证码失败，请稍后重试')
   } finally {
-    isVerifying.value = false;
+    isVerifying.value = false
   }
-};
+}
 
 // 组件卸载时清除定时器
 onUnmounted(() => {
   if (timer.value) {
-    clearInterval(timer.value);
+    clearInterval(timer.value)
   }
-});
+})
 
 // 处理注册
 const handleRegister = async () => {
-  if (!validateForm()) return;
+  if (!validateForm()) return
 
   try {
-    isSubmitting.value = true;
+    isSubmitting.value = true
 
     // 调用注册接口
     const response = await http.post('/api/auth/register/', {
@@ -257,81 +252,83 @@ const handleRegister = async () => {
       confirm_password: formData.value.confirm_password,
       email: formData.value.email,
       email_code: formData.value.email_code
-    });
+    })
 
-    const resData = response?.data || {};
-    const code = resData.code || response.status;
+    const resData = response?.data || {}
+    const code = resData.code || response.status
 
     if (code === 200 || code === 201) {
-      const tokens = (resData.data && (resData.data.tokens || resData.data.tokens)) || resData.tokens || {};
-      const user = (resData.data && resData.data.user) || resData.user || null;
+      const tokens =
+        (resData.data && (resData.data.tokens || resData.data.tokens)) || resData.tokens || {}
+      const user = (resData.data && resData.data.user) || resData.user || null
 
       if (tokens && tokens.access) {
-        localStorage.setItem('token', tokens.access);
+        localStorage.setItem('token', tokens.access)
       }
       if (tokens && tokens.refresh) {
-        localStorage.setItem('refreshToken', tokens.refresh);
+        localStorage.setItem('refreshToken', tokens.refresh)
       }
       if (user) {
-        localStorage.setItem('userInfo', JSON.stringify(user));
+        localStorage.setItem('userInfo', JSON.stringify(user))
       }
 
-      alert('注册成功，正在跳转到登录页');
-      router.push('/login');
+      alert('注册成功，正在跳转到登录页')
+      router.push('/login')
     } else {
       // 处理正常响应中的错误信息
-      const msg = resData.message || (resData.data && resData.data.message) || '注册失败，请稍后重试';
-      const errorMsg = Array.isArray(msg) ? msg.join('; ') : msg;
-      alert(errorMsg);
+      const msg =
+        resData.message || (resData.data && resData.data.message) || '注册失败，请稍后重试'
+      const errorMsg = Array.isArray(msg) ? msg.join('; ') : msg
+      alert(errorMsg)
     }
-  }// 处理注册
-  catch (error) {
+  } catch (error) {
+    // 处理注册
     console.error('注册错误详情:', {
       status: error.response?.status,
       data: error.response?.data, // 打印后端返回的错误信息
       config: error.config // 打印请求配置
-    });
-    
-    console.error('注册请求失败:', error);
+    })
+
+    console.error('注册请求失败:', error)
     if (error.response) {
       // 1. 提取嵌套的错误信息
-      const errorData = error.response.data;
-      const rawMessages = errorData.message?.message || [];
+      const errorData = error.response.data
+      const rawMessages = errorData.message?.message || []
 
       // 2. 将数组转换为字符串
-      let errorMsg = '';
+      let errorMsg = ''
       if (Array.isArray(rawMessages)) {
-        errorMsg = rawMessages.join('; '); // 用分号拼接数组元素
+        errorMsg = rawMessages.join('; ') // 用分号拼接数组元素
       } else if (typeof rawMessages === 'string') {
-        errorMsg = rawMessages;
+        errorMsg = rawMessages
       } else {
-        errorMsg = '参数错误，请检查输入'; // 默认提示
+        errorMsg = '参数错误，请检查输入' // 默认提示
       }
 
       // 3. 根据状态码提示
       switch (error.response.status) {
         case 400:
-          alert(errorMsg); 
-          break;
+          alert(errorMsg)
+          break
         case 409:
-          alert('用户名已存在，请更换用户名');
-          break;
+          alert('用户名已存在，请更换用户名')
+          break
         case 500:
           if (error.response.data.includes('UNIQUE constraint failed: users_user.email')) {
-            alert('该邮箱已被注册，请更换邮箱');
+            alert('该邮箱已被注册，请更换邮箱')
           }
-          break;
+          break
 
         default:
-          alert('服务器错误，请稍后重试');
+          alert('服务器错误，请稍后重试')
       }
     } else {
-      alert('网络错误，请检查网络连接');
+      alert('网络错误，请检查网络连接')
     }
-  }finally{
-    isSubmitting.value = false;
+  } finally {
+    isSubmitting.value = false
   }
-};
+}
 </script>
 
 <style scoped>
@@ -403,20 +400,18 @@ input:focus {
   border: none;
 }
 
-
 .register-btn {
   width: 100%;
   padding: 12px;
   border-radius: 4px;
   cursor: pointer;
   transition: background-color 0.3s;
-   color: white;
+  color: white;
   font-size: 16px;
   width: 100%;
   background: linear-gradient(135deg, #d4a5a5 0%, #b88484 100%);
   border: none;
 }
-
 
 .link-to-login {
   text-align: center;
