@@ -1,10 +1,13 @@
-from rest_framework import serializers
-from .models import Gamework
-from tags.models import Tag
-from users.models import CreditLog
 from django.db.models import Avg, Sum
+from rest_framework import serializers
+
 from interactions.models import Comment
 from interactions.serializers import CommentSerializer
+from tags.models import Tag
+from users.models import CreditLog
+
+from .models import Gamework
+
 
 class GameworkDetailSerializer(serializers.ModelSerializer):
     author = serializers.StringRelatedField(read_only=True)
@@ -39,22 +42,47 @@ class GameworkDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Gamework
         fields = (
-            'id', 'author', 'title', 'description', 'tags', 'image_url', 'background_music_urls',
-            'is_published', 'created_at', 'updated_at', 'published_at',
-            'favorite_count', 'average_score', 'rating_count', 'read_count', 'is_favorited', 'price',
-            'user_reward_amount', 'is_complete', 'generated_chapters', 'total_chapters', 'modifiable', 'ai_callable',
-            'initial_attributes', 'initial_statuses', 'outlines', 'chapters_status',
-            'comments_by_time', 'comments_by_hot', 'rating_details'
+            "id",
+            "author",
+            "title",
+            "description",
+            "tags",
+            "image_url",
+            "background_music_urls",
+            "is_published",
+            "created_at",
+            "updated_at",
+            "published_at",
+            "favorite_count",
+            "average_score",
+            "rating_count",
+            "read_count",
+            "is_favorited",
+            "price",
+            "user_reward_amount",
+            "is_complete",
+            "generated_chapters",
+            "total_chapters",
+            "modifiable",
+            "ai_callable",
+            "initial_attributes",
+            "initial_statuses",
+            "outlines",
+            "chapters_status",
+            "comments_by_time",
+            "comments_by_hot",
+            "rating_details",
         )
 
     def get_image_url(self, obj):
-        request = self.context.get('request')
+        request = self.context.get("request")
         if obj.image_url:
             if request:
                 return request.build_absolute_uri(obj.image_url)
             # Fallback for contexts without request (e.g., management commands)
-            if not obj.image_url.startswith(('http://', 'https://')):
+            if not obj.image_url.startswith(("http://", "https://")):
                 from django.conf import settings
+
                 return f"{settings.SITE_DOMAIN}{obj.image_url}"
         return obj.image_url
 
@@ -70,7 +98,7 @@ class GameworkDetailSerializer(serializers.ModelSerializer):
     def get_average_score(self, obj):
         if hasattr(obj, "average_score"):
             return round(obj.average_score or 0, 1)
-        avg = obj.ratings.aggregate(avg=Avg('score'))['avg']
+        avg = obj.ratings.aggregate(avg=Avg("score"))["avg"]
         return round(avg or 0, 1)
 
     def get_rating_count(self, obj):
@@ -82,114 +110,119 @@ class GameworkDetailSerializer(serializers.ModelSerializer):
         if hasattr(obj, "read_count"):
             return obj.read_count
         # 按 user 去重统计
-        return obj.read_records.values('user').distinct().count()
+        return obj.read_records.values("user").distinct().count()
 
     def get_is_favorited(self, obj):
-        request = self.context.get('request')
-        user = getattr(request, 'user', None)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
         if not (user and user.is_authenticated):
             return False
 
         # 如果在 queryset 中预取过 user 的收藏，直接用缓存
-        if hasattr(obj, 'user_favorites'):
+        if hasattr(obj, "user_favorites"):
             return len(obj.user_favorites) > 0
 
         return obj.favorited_by.filter(user=user).exists()
-    
+
     def get_user_reward_amount(self, obj):
-        request = self.context.get('request')
+        request = self.context.get("request")
         user = getattr(request, "user", None)
 
         if not (user and user.is_authenticated):
             return 0
 
-        total = CreditLog.objects.filter(
-            user=user,
-            gamework=obj,
-            type="reward_out"
-        ).aggregate(total=Sum("change_amount"))["total"] or 0
+        total = (
+            CreditLog.objects.filter(user=user, gamework=obj, type="reward_out").aggregate(total=Sum("change_amount"))[
+                "total"
+            ]
+            or 0
+        )
 
         # reward_out 是负数 → 转正
         return abs(total)
 
     def get_is_complete(self, obj):
-        return getattr(obj.story, 'is_complete', False)
+        return getattr(obj.story, "is_complete", False)
 
     def get_generated_chapters(self, obj):
-        return obj.story.chapters.count() if hasattr(obj, 'story') else 0
+        return obj.story.chapters.count() if hasattr(obj, "story") else 0
 
     def get_total_chapters(self, obj):
-        return getattr(obj.story, 'total_chapters', 0)
+        return getattr(obj.story, "total_chapters", 0)
 
     def get_modifiable(self, obj):
-        request = self.context.get('request')
-        user = getattr(request, 'user', None)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
         if not (user and user.is_authenticated):
             return False
         return obj.author == user
 
     def get_ai_callable(self, obj):
-        return getattr(obj.story, 'ai_callable', False)
+        return getattr(obj.story, "ai_callable", False)
 
     def get_initial_attributes(self, obj):
-        return getattr(obj.story, 'initial_attributes', {})
+        return getattr(obj.story, "initial_attributes", {})
 
     def get_initial_statuses(self, obj):
-        return getattr(obj.story, 'initial_statuses', {})
+        return getattr(obj.story, "initial_statuses", {})
 
     def get_outlines(self, obj):
         # 获取章节大纲
-        outlines = getattr(obj.story, 'outlines', []) or []
+        outlines = getattr(obj.story, "outlines", []) or []
         if not isinstance(outlines, list):
             outlines = []
-        
+
         # 获取结局大纲并追加
-        endings_summary = getattr(obj.story, 'endings_summary', []) or []
+        endings_summary = getattr(obj.story, "endings_summary", []) or []
         if endings_summary and isinstance(endings_summary, list):
             for i, ending in enumerate(endings_summary):
-                outlines.append({
-                    "endingIndex": i + 1,
-                    "title": ending.get("title", f"结局{i+1}"),
-                    "outline": ending.get("summary", "")
-                })
-                                     
+                outlines.append(
+                    {
+                        "endingIndex": i + 1,
+                        "title": ending.get("title", f"结局{i + 1}"),
+                        "outline": ending.get("summary", ""),
+                    }
+                )
+
         return outlines
 
     def get_chapters_status(self, obj):
-        story = getattr(obj, 'story', None)
+        story = getattr(obj, "story", None)
         if not story:
             return []
-        
+
         statuses = {ch.chapter_index: ch.status for ch in story.chapters.all()}
-        
+
         result = []
         for i in range(1, story.total_chapters + 1):
             status = statuses.get(i)
-            
+
             if not status:
                 # 检查全局锁，看是否正好是当前正在生成的章节
                 if story.is_generating and story.current_generating_chapter == i:
-                    status = 'generating'
+                    status = "generating"
                 else:
-                    status = 'not_generated'
-            
-            result.append({'chapterIndex': i, 'status': status})
-            
+                    status = "not_generated"
+
+            result.append({"chapterIndex": i, "status": status})
+
         return result
-    
+
     def get_comments_by_time(self, obj):
         """返回该作品的所有顶级评论 + 嵌套回复"""
-        qs = Comment.objects.filter(
-            gamework=obj,
-            parent__isnull=True
-        ).select_related("user").prefetch_related("replies__user")
+        qs = (
+            Comment.objects.filter(gamework=obj, parent__isnull=True)
+            .select_related("user")
+            .prefetch_related("replies__user")
+        )
         return CommentSerializer(qs, many=True, context=self.context).data
-    
+
     def get_comments_by_hot(self, obj):
-        qs = Comment.objects.filter(
-            gamework=obj,
-            parent__isnull=True
-        ).select_related("user").prefetch_related("replies__user", "likes")
+        qs = (
+            Comment.objects.filter(gamework=obj, parent__isnull=True)
+            .select_related("user")
+            .prefetch_related("replies__user", "likes")
+        )
 
         # 手动计算热度：回复数 + 点赞数
         comment_list = list(qs)
@@ -209,16 +242,18 @@ class GameworkDetailSerializer(serializers.ModelSerializer):
 
         result = []
         for r in ratings:
-            result.append({
-                "username": r.user.username,
-                "profile_picture": getattr(r.user, "profile_picture", None),
-                "score": r.score,
-                "created_at": r.created_at,
-            })
+            result.append(
+                {
+                    "username": r.user.username,
+                    "profile_picture": getattr(r.user, "profile_picture", None),
+                    "score": r.score,
+                    "created_at": r.created_at,
+                }
+            )
 
         return result
 
-    
+
 class GameworkSimpleSerializer(serializers.ModelSerializer):
     author = serializers.StringRelatedField(read_only=True)
     tags = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
@@ -232,17 +267,30 @@ class GameworkSimpleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Gamework
         fields = [
-            'id', 'author', 'title', 'description', 'tags', 'image_url',
-            'is_published', 'published_at',
-            'favorite_count', 'average_score', 'read_count', 'is_favorited', 'price', 'hot_score'
+            "id",
+            "author",
+            "title",
+            "description",
+            "tags",
+            "image_url",
+            "is_published",
+            "published_at",
+            "favorite_count",
+            "average_score",
+            "read_count",
+            "is_favorited",
+            "price",
+            "hot_score",
         ]
+
     def get_image_url(self, obj):
-        request = self.context.get('request')
+        request = self.context.get("request")
         if obj.image_url:
             if request:
                 return request.build_absolute_uri(obj.image_url)
-            if not obj.image_url.startswith(('http://', 'https://')):
+            if not obj.image_url.startswith(("http://", "https://")):
                 from django.conf import settings
+
                 return f"{settings.SITE_DOMAIN}{obj.image_url}"
         return obj.image_url
 
@@ -254,21 +302,21 @@ class GameworkSimpleSerializer(serializers.ModelSerializer):
     def get_average_score(self, obj):
         if hasattr(obj, "average_score"):
             return round(obj.average_score or 0, 1)
-        avg = obj.ratings.aggregate(avg=Avg('score'))['avg']
+        avg = obj.ratings.aggregate(avg=Avg("score"))["avg"]
         return round(avg or 0, 1)
 
     def get_read_count(self, obj):
         if hasattr(obj, "read_count"):
             return obj.read_count
-        return obj.read_records.values('user').distinct().count()
+        return obj.read_records.values("user").distinct().count()
 
     def get_is_favorited(self, obj):
-        request = self.context.get('request')
-        user = getattr(request, 'user', None)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
         if not (user and user.is_authenticated):
             return False
 
-        if hasattr(obj, 'user_favorites'):
+        if hasattr(obj, "user_favorites"):
             return len(obj.user_favorites) > 0
 
         return obj.favorited_by.filter(user=user).exists()
@@ -279,8 +327,8 @@ class GameworkSimpleSerializer(serializers.ModelSerializer):
         """
         if hasattr(obj, "hot_score"):
             return obj.hot_score
-        
+
         # 动态计算
-        reply_count = getattr(obj, 'reply_count', obj.comments.count())
+        reply_count = getattr(obj, "reply_count", obj.comments.count())
         favorite_count = self.get_favorite_count(obj)
         return reply_count * 2 + favorite_count

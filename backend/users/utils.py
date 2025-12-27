@@ -1,5 +1,6 @@
 from .models import CreditLog
 
+
 def change_user_credits(user, amount, log_type, remark=None, gamework=None):
     """
     修改用户积分并记录流水
@@ -21,10 +22,11 @@ def change_user_credits(user, amount, log_type, remark=None, gamework=None):
         after_balance=after,
         type=log_type,
         remark=remark,
-        gamework=gamework
+        gamework=gamework,
     )
 
     return after
+
 
 def get_signin_reward(day: int):
     """根据连续签到天数返回奖励积分。第8天循环回第1天。"""

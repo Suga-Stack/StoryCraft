@@ -1,5 +1,6 @@
 from rest_framework import permissions
 
+
 class IsOwnerOrReadOnly(permissions.BasePermission):
     """
     只有对象所有者可以修改/删除；其它用户只能读。
@@ -14,7 +15,7 @@ class IsOwnerOrReadOnly(permissions.BasePermission):
             return True
 
         # 检查属性
-        owner = getattr(obj, 'author', None)
+        owner = getattr(obj, "author", None)
         if owner is None:
             # 若对象没有 user，拒绝写权限
             return False

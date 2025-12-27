@@ -1,5 +1,6 @@
 from django.contrib import admin
-from .models import Story, StoryChapter, StoryScene, StoryEnding
+
+from .models import Story, StoryChapter, StoryEnding, StoryScene
 
 
 @admin.register(Story)
@@ -37,4 +38,3 @@ class StorySceneAdmin(admin.ModelAdmin):
         elif obj.ending:
             return f"结局: {obj.ending}"
         return "-"
-

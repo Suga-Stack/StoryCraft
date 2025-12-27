@@ -13,3 +13,4 @@ gunicorn==23.0.0
 coverage
 django-cors-headers
 drf-spectacular
+ruff==0.14.10

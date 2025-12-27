@@ -1,5 +1,7 @@
 from django.test import TestCase
+
 from game import utils
+
 
 class TestUtils(TestCase):
     def test_parse_attr_deltas(self):
@@ -7,7 +9,7 @@ class TestUtils(TestCase):
         text1 = "观察力+5， 信任值-3, 智力+1"
         result = utils._parse_attr_deltas(text1)
         self.assertEqual(result, {"观察力": 5, "信任值": -3, "智力": 1})
-        
+
         text2 = "策略值+5，记忆完整度-10"
         result2 = utils._parse_attr_deltas(text2)
         self.assertEqual(result2, {"策略值": 5, "记忆完整度": -10})
@@ -38,13 +40,13 @@ class TestUtils(TestCase):
         """
         groups = utils._iter_choice_groups(text)
         self.assertEqual(len(groups), 1)
-        choices = groups[0]['choices']
+        choices = groups[0]["choices"]
         self.assertEqual(len(choices), 2)
-        self.assertEqual(choices[0]['text'], "选项一")
-        self.assertEqual(choices[0]['effects'], {"勇猛": 1})
-        self.assertEqual(choices[0]['reaction_text'], "反应一。")
-        self.assertEqual(choices[1]['text'], "选项二")
-        self.assertEqual(choices[1]['reaction_text'], "反应二。")
+        self.assertEqual(choices[0]["text"], "选项一")
+        self.assertEqual(choices[0]["effects"], {"勇猛": 1})
+        self.assertEqual(choices[0]["reaction_text"], "反应一。")
+        self.assertEqual(choices[1]["text"], "选项二")
+        self.assertEqual(choices[1]["reaction_text"], "反应二。")
 
     def test_parse_raw_chapter(self):
         """测试完整章节解析"""
@@ -61,24 +63,25 @@ class TestUtils(TestCase):
         """
         # 假设 ranges=[100]
         result = utils.parse_raw_chapter(raw, [100])
-        scenes = result['scenes']
+        scenes = result["scenes"]
         self.assertEqual(len(scenes), 1)
-        dialogues = scenes[0]['dialogues']
-        
+        dialogues = scenes[0]["dialogues"]
+
         # 验证结构
         has_choices = False
         for d in dialogues:
-            if 'playerChoices' in d:
+            if "playerChoices" in d:
                 has_choices = True
-                choices = d['playerChoices']
+                choices = d["playerChoices"]
                 self.assertEqual(len(choices), 2)
-                self.assertEqual(choices[0]['text'], "进攻")
-                self.assertIn("你冲了上去", choices[0]['subsequentDialogues'][0])
-        
+                self.assertEqual(choices[0]["text"], "进攻")
+                self.assertIn("你冲了上去", choices[0]["subsequentDialogues"][0])
+
         self.assertTrue(has_choices)
 
     def test_update_story_directory(self):
         """测试大纲更新"""
+
         class MockStory:
             chapter_directory = """
 ## 第1章 - 旧标题
@@ -87,19 +90,16 @@ class TestUtils(TestCase):
 
 ## 第2章 - 其他
 """
-            def save(self): pass
-        
+
+            def save(self):
+                pass
+
         story = MockStory()
-        new_outlines = [{
-            "chapterIndex": 1,
-            "title": "新标题",
-            "outline": "新剧情内容。"
-        }]
-        
+        new_outlines = [{"chapterIndex": 1, "title": "新标题", "outline": "新剧情内容。"}]
+
         utils.update_story_directory(story, new_outlines)
-        
+
         self.assertIn("第1章 - 新标题", story.chapter_directory)
         self.assertIn("新剧情内容。", story.chapter_directory)
         self.assertNotIn("旧剧情内容", story.chapter_directory)
         self.assertIn("- 选择点设计：保留", story.chapter_directory)
-

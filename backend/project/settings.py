@@ -9,9 +9,12 @@ https://docs.djangoproject.com/en/4.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
+
 import logging
-from pathlib import Path
 import os
+from datetime import timedelta
+from pathlib import Path
+
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -23,96 +26,95 @@ load_dotenv(BASE_DIR / ".env")
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv('SECRET_KEY', 'django-secure-default-key--k$yb$ixo21c3ci)k)l)mp*#79)7u0_5%xbfr-r_hrv1@p5$$ud')
+SECRET_KEY = os.getenv("SECRET_KEY", "django-secure-default-key--k$yb$ixo21c3ci)k)l)mp*#79)7u0_5%xbfr-r_hrv1@p5$$ud")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'False') == 'True'
+DEBUG = os.getenv("DEBUG", "False") == "True"
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', 'localhost,127.0.0.1,web').split(',')
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1,web").split(",")
 
 
 # Application definition
 
 INSTALLED_APPS = [
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-    'corsheaders',  # CORS支持
-    'rest_framework',
-    'rest_framework_simplejwt',
-    'rest_framework_simplejwt.token_blacklist', 
-    'drf_spectacular',
-    'drf_yasg',
-    'users',  # 用户
-    'gameworks',  # 游戏作品
-    'tags',  # 标签
-    'interactions',  # 收藏/评分/评论
-    'game',
-    'stories',
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "corsheaders",  # CORS支持
+    "rest_framework",
+    "rest_framework_simplejwt",
+    "rest_framework_simplejwt.token_blacklist",
+    "drf_spectacular",
+    "drf_yasg",
+    "users",  # 用户
+    "gameworks",  # 游戏作品
+    "tags",  # 标签
+    "interactions",  # 收藏/评分/评论
+    "game",
+    "stories",
 ]
 
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware', 
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    "corsheaders.middleware.CorsMiddleware",
+    "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = 'project.urls'
+ROOT_URLCONF = "project.urls"
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.debug',
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
     },
 ]
 
-WSGI_APPLICATION = 'project.wsgi.application'
+WSGI_APPLICATION = "project.wsgi.application"
 
 
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
-if os.getenv('DB_ENGINE') == 'django.db.backends.mysql':
+if os.getenv("DB_ENGINE") == "django.db.backends.mysql":
     DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.mysql',
-            'NAME': os.getenv('DB_NAME', 'storycraft'),
-            'USER': os.getenv('DB_USER', 'root'),
-            'PASSWORD': os.getenv('DB_PASSWORD', 'password'),
-            'HOST': os.getenv('DB_HOST', 'db'),
-            'PORT': os.getenv('DB_PORT', '3306'),
-            'OPTIONS': {
-                'charset': 'utf8mb4',
-                'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+        "default": {
+            "ENGINE": "django.db.backends.mysql",
+            "NAME": os.getenv("DB_NAME", "storycraft"),
+            "USER": os.getenv("DB_USER", "root"),
+            "PASSWORD": os.getenv("DB_PASSWORD", "password"),
+            "HOST": os.getenv("DB_HOST", "db"),
+            "PORT": os.getenv("DB_PORT", "3306"),
+            "OPTIONS": {
+                "charset": "utf8mb4",
+                "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
             },
         }
     }
 else:
     DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
-            'OPTIONS': {
-                'timeout': 30,  # 数据库锁等待超时时间(秒),增加到30秒
-                'init_command': (
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+            "OPTIONS": {
+                "timeout": 30,  # 数据库锁等待超时时间(秒),增加到30秒
+                "init_command": (
                     "PRAGMA journal_mode=WAL;"  # 使用 WAL 模式提高并发性能
                     "PRAGMA synchronous=NORMAL;"  # 平衡性能和安全性
                     "PRAGMA busy_timeout=30000;"  # 30秒超时
@@ -133,9 +135,9 @@ AUTH_PASSWORD_VALIDATORS = []
 # Internationalization
 # https://docs.djangoproject.com/en/4.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = "en-us"
 
-TIME_ZONE = 'Asia/Shanghai'
+TIME_ZONE = "Asia/Shanghai"
 
 USE_I18N = True
 
@@ -145,140 +147,137 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
-STATIC_URL = '/static/'
-STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
 
 # 用于拼接绝对 URL
-SITE_DOMAIN = os.getenv('SITE_DOMAIN', 'https://storycraft.work.gd')
+SITE_DOMAIN = os.getenv("SITE_DOMAIN", "https://storycraft.work.gd")
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # 指定用户模型
-AUTH_USER_MODEL = 'users.User'
+AUTH_USER_MODEL = "users.User"
 
 # 新增：信任 Nginx 转发的 HTTPS 协议头，确保 request.is_secure() 返回 True
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # 完全关闭权限验证
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',  # 使用JWT认证
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "rest_framework_simplejwt.authentication.JWTAuthentication",  # 使用JWT认证
     ),
-    'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticated',  # 只有认证用户才能执行操作
+    "DEFAULT_PERMISSION_CLASSES": (
+        "rest_framework.permissions.IsAuthenticated",  # 只有认证用户才能执行操作
     ),
-    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-    'PAGE_SIZE': 10,
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 10,
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
-from datetime import timedelta
-
 SWAGGER_SETTINGS = {
-    'SECURITY_DEFINITIONS': {
-        'Bearer': {
-            'type': 'apiKey',
-            'name': 'Authorization',
-            'in': 'header',
-            'description': 'JWT Authorization header using the Bearer scheme. Example: "Bearer {your token}"',
+    "SECURITY_DEFINITIONS": {
+        "Bearer": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header",
+            "description": 'JWT Authorization header using the Bearer scheme. Example: "Bearer {your token}"',
         }
     },
-    'USE_SESSION_AUTH': True,
-    'LOGIN_URL': 'rest_framework:login',
-    'LOGOUT_URL': 'rest_framework:logout',
+    "USE_SESSION_AUTH": True,
+    "LOGIN_URL": "rest_framework:login",
+    "LOGOUT_URL": "rest_framework:logout",
 }
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=800),   # 短期访问 token
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),      # 长期刷新 token
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=800),  # 短期访问 token
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),  # 长期刷新 token
 }
 
 
 # 邮箱发送验证码服务
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.163.com')
-EMAIL_PORT = int(os.getenv('EMAIL_PORT', 465))
-EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', 'True').lower() == 'true'
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
-EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER)
-
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.163.com")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", 465))
+EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "True").lower() == "true"
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)
 
 
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": os.getenv('REDIS_URL', "redis://127.0.0.1:6379/1"),  # 支持环境变量
+        "LOCATION": os.getenv("REDIS_URL", "redis://127.0.0.1:6379/1"),  # 支持环境变量
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
-        }
+        },
     }
 }
 
-LOGS_DIR = BASE_DIR / 'logs'
+LOGS_DIR = BASE_DIR / "logs"
 if not LOGS_DIR.exists():
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'formatters': {
-        'verbose': {
-            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
-            'style': '{',
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "{levelname} {asctime} {module} {process:d} {thread:d} {message}",
+            "style": "{",
         },
-        'simple': {
-            'format': '{levelname} {message}',
-            'style': '{',
+        "simple": {
+            "format": "{levelname} {message}",
+            "style": "{",
         },
     },
-    'filters': {
+    "filters": {
         #'require_debug_false': {
         #    '()': 'django.utils.log.RequireDebugFalse',
-        #},
-        'error_only': {
-            '()': 'django.utils.log.CallbackFilter',
-            'callback': lambda record: record.levelno == logging.ERROR,
+        # },
+        "error_only": {
+            "()": "django.utils.log.CallbackFilter",
+            "callback": lambda record: record.levelno == logging.ERROR,
         },
-        'info_and_warning_only': {
-            '()': 'django.utils.log.CallbackFilter',
-            'callback': lambda record: record.levelno in (logging.INFO, logging.WARNING),
-        },
-    },
-    'handlers': {
-        'error_file': {
-            'level': 'ERROR',
-            'class': 'logging.FileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs/django_errors.log'),
-            'formatter': 'verbose',
-            'filters': ['error_only'],
-            'encoding': 'utf-8',
-        },
-        'info_file': {
-            'level': 'INFO',
-            'class': 'logging.FileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs/django_infos.log'),
-            'formatter': 'simple',
-            'filters': ['info_and_warning_only'],
-            'encoding': 'utf-8',
-        },
-        'console': {
-            'level': 'WARNING',
-            'class': 'logging.StreamHandler',
-            'formatter': 'simple',
+        "info_and_warning_only": {
+            "()": "django.utils.log.CallbackFilter",
+            "callback": lambda record: record.levelno in (logging.INFO, logging.WARNING),
         },
     },
-    'loggers': {
-        'django': {
-            'handlers': ['error_file', 'info_file', 'console'],
-            'level': 'INFO',
-            'propagate': False,
+    "handlers": {
+        "error_file": {
+            "level": "ERROR",
+            "class": "logging.FileHandler",
+            "filename": os.path.join(BASE_DIR, "logs/django_errors.log"),
+            "formatter": "verbose",
+            "filters": ["error_only"],
+            "encoding": "utf-8",
+        },
+        "info_file": {
+            "level": "INFO",
+            "class": "logging.FileHandler",
+            "filename": os.path.join(BASE_DIR, "logs/django_infos.log"),
+            "formatter": "simple",
+            "filters": ["info_and_warning_only"],
+            "encoding": "utf-8",
+        },
+        "console": {
+            "level": "WARNING",
+            "class": "logging.StreamHandler",
+            "formatter": "simple",
+        },
+    },
+    "loggers": {
+        "django": {
+            "handlers": ["error_file", "info_file", "console"],
+            "level": "INFO",
+            "propagate": False,
         },
     },
 }
@@ -291,15 +290,15 @@ LOGGING = {
 CORS_ALLOW_ALL_ORIGINS = True
 
 # 读取 CSRF_TRUSTED_ORIGINS，解决 Django Admin 登录时的 Origin checking failed 错误
-CSRF_TRUSTED_ORIGINS = os.getenv('CSRF_TRUSTED_ORIGINS', 'http://localhost').split(',')
+CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost").split(",")
 
 CORS_ALLOW_METHODS = [
-    'DELETE',
-    'GET',
-    'OPTIONS',
-    'PATCH',
-    'POST',
-    'PUT',
+    "DELETE",
+    "GET",
+    "OPTIONS",
+    "PATCH",
+    "POST",
+    "PUT",
 ]
 
 CORS_ALLOW_HEADERS = ["*"]

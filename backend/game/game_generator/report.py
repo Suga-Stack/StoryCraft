@@ -1,6 +1,8 @@
 import re
-from .openai_client import invoke,prompt
+
+from .openai_client import invoke, prompt
 from .prompts import report_system_prompt
+
 
 def _parse_report(text: str) -> dict:
     title_match = re.search(r"\[称号\][：:]\s*(.+)", text)
@@ -10,15 +12,12 @@ def _parse_report(text: str) -> dict:
     title = title_match.group(1).strip() if title_match else "未知称号"
     content = content_match.group(1).strip() if content_match else "暂无评价"
     traits_str = traits_match.group(1).strip() if traits_match else ""
-    
-    # 处理特质分隔符
-    traits = [t.strip() for t in re.split(r'[，,、]', traits_str) if t.strip()]
 
-    return {
-        "title": title,
-        "content": content,
-        "traits": traits
-    }
+    # 处理特质分隔符
+    traits = [t.strip() for t in re.split(r"[，,、]", traits_str) if t.strip()]
+
+    return {"title": title, "content": content, "traits": traits}
+
 
 def generate_report_content(global_summary: str, ending_summary: str, ending_title: str) -> dict:
     user_prompt = f"""
@@ -29,5 +28,5 @@ def generate_report_content(global_summary: str, ending_summary: str, ending_tit
 标题：{ending_title}
 概述：{ending_summary}
 """
-    response = invoke(prompt(report_system_prompt,user_prompt))
+    response = invoke(prompt(report_system_prompt, user_prompt))
     return _parse_report(response)

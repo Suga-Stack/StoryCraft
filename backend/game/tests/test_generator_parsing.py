@@ -1,5 +1,7 @@
 from django.test import TestCase
-from game.game_generator import architecture, chapter, report, images
+
+from game.game_generator import architecture, chapter, images, report
+
 
 class TestGeneratorParsing(TestCase):
     def test_parse_creative_directions(self):
@@ -27,7 +29,7 @@ class TestGeneratorParsing(TestCase):
         """
         content = architecture._extract_section(text, "创意信息")
         self.assertEqual(content, "这是创意信息内容。")
-        
+
         content_missing = architecture._extract_section(text, "不存在的标题")
         self.assertEqual(content_missing, "")
 
@@ -79,7 +81,7 @@ class TestGeneratorParsing(TestCase):
         block1 = chapter._extract_chapter_block(text, 1)
         self.assertIn("标题1", block1)
         self.assertIn("内容1", block1)
-        
+
         block_missing = chapter._extract_chapter_block(text, 3)
         self.assertEqual(block_missing, "未找到该章节设定")
 
