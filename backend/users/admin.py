@@ -1,30 +1,27 @@
 from django.contrib import admin
-from .models import User, CreditLog, SignInLog
+
+from .models import CreditLog, SignInLog, User
+
 
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
     """用户模型后台管理"""
-    list_display = ('id', 'username', 'email', 'gender', 'user_credits', 'created_at', 'updated_at') # 'user_id'
-    search_fields = ('username', 'email')
-    list_filter = ('gender', 'created_at')
-    ordering = ('-created_at',)
-    readonly_fields = ('created_at', 'updated_at')
+
+    list_display = ("id", "username", "email", "gender", "user_credits", "created_at", "updated_at")  # 'user_id'
+    search_fields = ("username", "email")
+    list_filter = ("gender", "created_at")
+    ordering = ("-created_at",)
+    readonly_fields = ("created_at", "updated_at")
 
     fieldsets = (
-        ("Basic Info", {
-            "fields": ('username', 'email', 'gender', 'profile_picture')
-        }),
-        ("Account", {
-            "fields": ('password', 'user_credits', 'liked_tags', 'is_staff')
-        }),
-        ("Timestamps", {
-            "fields": ('created_at', 'updated_at')
-        }),
+        ("Basic Info", {"fields": ("username", "email", "gender", "profile_picture")}),
+        ("Account", {"fields": ("password", "user_credits", "liked_tags", "is_staff")}),
+        ("Timestamps", {"fields": ("created_at", "updated_at")}),
     )
+
 
 @admin.register(CreditLog)
 class CreditLogAdmin(admin.ModelAdmin):
-
     # 列表显示字段
     list_display = (
         "id",
@@ -41,7 +38,7 @@ class CreditLogAdmin(admin.ModelAdmin):
     search_fields = ("user__username", "type")
 
     # 右侧过滤器
-    list_filter = ("type","created_at")
+    list_filter = ("type", "created_at")
 
     # 排序
     ordering = ("-created_at",)
@@ -65,7 +62,7 @@ class CreditLogAdmin(admin.ModelAdmin):
 
 @admin.register(SignInLog)
 class SignInLogAdmin(admin.ModelAdmin):
-    list_display = ('user', 'date')
-    search_fields = ('user__username',)
-    list_filter = ('date',)
-    ordering = ('-date',)
+    list_display = ("user", "date")
+    search_fields = ("user__username",)
+    list_filter = ("date",)
+    ordering = ("-date",)

@@ -2,7 +2,7 @@ docs/
 db.sqlite3
 logs/
 media/
-
+nginx/cert
 
 
 # Byte-compiled / optimized / DLL files

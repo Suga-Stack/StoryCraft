@@ -1,135 +1,221 @@
-from .openai_client import invoke
-from .prompts import (
-    build_core_seed_prompt,
-    build_attribute_prompt,
-    build_character_dynamics_prompt,
-    build_game_architecture_prompt, 
-    build_chapter_directory_prompt
-)
+import random
 import re
 
-def _parse_core_seed(core_seed: str) -> tuple[str, str]:
-    """从 core_seed 文本中提取标题与简介"""
-    # 匹配标题：支持 [标题]、**标题**、标题: 等格式
-    title_pattern = re.compile(r"(?:\[|【|\*\*|)?\s*标题\s*(?:\]|】|\*\*|)?\s*[:：]\s*(.+)", re.IGNORECASE)
-    # 匹配简介：支持 [简介]、**简介**、简介:、剧情简介: 等格式
-    desc_pattern = re.compile(r"(?:\[|【|\*\*|)?\s*(?:剧情)?简介\s*(?:\]|】|\*\*|)?\s*[:：]\s*(.+)", re.IGNORECASE)
+from .openai_client import invoke, prompt
+from .prompts import (
+    chapter_directory_system_prompt,
+    long_architecture_system_prompt,
+    short_architecture_system_prompt,
+    story_seed_system_prompt,
+)
 
-    title_match = title_pattern.search(core_seed)
-    desc_match = desc_pattern.search(core_seed)
+
+def _parse_creative_directions(text: str) -> list[str]:
+    """解析创意方向列表，返回每个创意的完整文本"""
+    directions = []
+    # 匹配 【创意方向X】... 下一个【创意方向】或结尾
+    pattern = re.compile(r"(【创意方向\d+】.*?)(?=【创意方向\d+】|$)", re.DOTALL)
+    matches = pattern.findall(text)
+
+    for content in matches:
+        directions.append(content.strip())
+
+    if not directions:
+        directions.append(text)
+
+    return directions
+
+
+def _extract_section(text: str, header_keyword: str) -> str:
+    """提取指定标题下的文本块"""
+    # 匹配 (##)? X、[header_keyword] ... 下一个 (##)? X、
+    # 兼容 ## 一、创意信息 和 一、创意信息
+
+    header_pattern = r"(?:^|\n)\s*(?:##\s*)?[一二三四五六七八九十]、\s*" + re.escape(header_keyword)
+    next_header_pattern = r"(?:^|\n)\s*(?:##\s*)?[一二三四五六七八九十]、"
+
+    pattern = re.compile(header_pattern + r"(.*?)(?=" + next_header_pattern + r"|$)", re.DOTALL)
+    match = pattern.search(text)
+    return match.group(1).strip() if match else ""
+
+
+def _parse_title_description(text: str) -> tuple[str, str]:
+    """从架构中提取最终标题和简介"""
+    content = _extract_section(text, "创意信息")
+    if not content:
+        # 如果提取失败，尝试全文匹配
+        content = text
+
+    title_match = re.search(r"\**创意标题\**[:：]\s*(.+)", content)
+    desc_match = re.search(r"\**创意简介\**[:：]\s*(.+)", content, re.DOTALL)
 
     title = title_match.group(1).strip() if title_match else "未命名作品"
     description = desc_match.group(1).strip() if desc_match else "暂无简介"
-    
-    # 去除可能存在的 Markdown 格式干扰 (如 **标题内容**)
-    title = title.replace("**", "").strip()
-    
+
+    # 去除标题可能存在的引号或书名号
+    title = re.sub(r"['\"《》]", "", title).strip()
+
     return title, description
 
-def _parse_chapter_directory(chapter_directory: str) -> list[dict]:
-    """
-    从章节目录文本中提取每章的标题与章节大纲
-    """
-    outlines: list[dict] = []
-    
-    # 匹配章节行：支持 ### 第1章、第 1 章、第1章 - 标题 等
-    # group(1): 章节号
-    # group(2): 标题 (可选)
-    chapter_pattern = re.compile(r"^(?:#+\s*)?第\s*(\d+)\s*章\s*(?:[-–—:：]\s*)?(.+)?$", re.MULTILINE)
-    
-    matches = list(chapter_pattern.finditer(chapter_directory))
-    
-    for i, m in enumerate(matches):
-        try:
-            chap_index = int(m.group(1))
-        except ValueError:
-            continue
-            
-        chap_title = m.group(2).strip() if m.group(2) else f"第{chap_index}章"
-        # 去除标题中可能残留的 Markdown 加粗
-        chap_title = chap_title.replace("**", "").strip()
 
-        start = m.end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(chapter_directory)
-        block = chapter_directory[start:end]
-        
-        # 匹配大纲：支持 **章节大纲**、[章节大纲]、章节大纲: 等
-        outline_pattern = re.compile(r"(?:\*\*|\[|【)?\s*章节大纲\s*(?:\*\*|\]|】)?\s*[:：]\s*(.+)", re.DOTALL)
-        outline_match = outline_pattern.search(block)
-        
-        outline = ""
-        if outline_match:
-            # 获取大纲起始后的所有文本
-            content = outline_match.group(1).strip()
-            # 如果后面还有其他加粗的字段，需要截断
-            # 查找下一个 "**" 或 "###" 开头的行
-            next_field = re.search(r"\n\s*(?:\*\*|\[|【|###)", content)
-            if next_field:
-                content = content[:next_field.start()].strip()
-            outline = content
-        
-        if not outline:
-            outline = "暂无大纲"
+def _parse_attributes(text: str) -> dict[str, int]:
+    """解析属性系统"""
+    attrs = {}
+    # 提取属性系统区块
+    attr_text = _extract_section(text, "完整属性系统")
+    if not attr_text:
+        # 尝试全文搜索
+        attr_text = text
 
-        outlines.append({
-            "chapterIndex": chap_index,
-            "title": chap_title,
-            "outline": outline
-        })
-    
-    return outlines
+    # 匹配 属性名称：xxx ... 初始值：xx，兼容 **属性名称** 以及列表符号 - 或 #
+    block_pattern = re.compile(
+        r"(?:^|\n)\s*(?:[-*#]\s*)?\**属性名称\**[:：]\s*([^\n]+)(.*?)(?=(?:^|\n)\s*(?:[-*#]\s*)?\**属性名称\**[:：]|$)",
+        re.DOTALL,
+    )
+    blocks = block_pattern.findall(attr_text)
 
-def _parse_initial_attributes(attribute_system: str) -> dict[str, int]:
-    """从标准 Markdown 表格中提取初始属性值
-    """
-    attrs: dict[str, int] = {}
-    row_pattern = re.compile(r"^\|\s*([^|]+?)\s*\|\s*([0-9]+)\s*\|", re.MULTILINE)
-    for name, val in row_pattern.findall(attribute_system):
-        name = name.strip()
-        if name == "属性":  # 表头跳过
-            continue
-        try:
-            attrs[name] = int(val)
-        except ValueError:
-            continue
+    for name, block in blocks:
+        name = re.sub(r"[\*\[\]]", "", name).strip()
+        # 兼容 **初始值** 以及列表符号
+        val_match = re.search(r"(?:[-*#]\s*)?\**初始值\**[:：]\s*(\d+)", block)
+        if val_match:
+            try:
+                attrs[name] = int(val_match.group(1))
+            except ValueError:
+                pass
     return attrs
 
 
-def generate_core_seed(tags: list[str], idea: str, total_chapters: int) -> dict:
-    """根据用户输入生成核心种子,并解析出标题、简介
-    """
-    core_seed = invoke(build_core_seed_prompt(tags, idea, total_chapters))
-    title, description = _parse_core_seed(core_seed)
+def _parse_outlines(text: str) -> list[dict]:
+    """解析章节大纲"""
+    outlines = []
+    # 匹配 第X章 - [标题]，兼容 **第X章**
+    # 对下一章节或大标题( (##)? [一二三四五六]、)预查
+    # 兼容 ## 第X章 和 第X章
+
+    chapter_start = r"(?:^|\n)\s*(?:##\s*)?(?:[\*]*\s*)?第(\d+)章\s*-\s*(.+?)\n"
+    lookahead = r"(?=(?:^|\n)\s*(?:##\s*)?(?:[\*]*\s*)?第\d+章|(?:^|\n)\s*(?:##\s*)?[一二三四五六七八九十]、|$)"
+
+    chapter_pattern = re.compile(chapter_start + r"(.*?)" + lookahead, re.DOTALL)
+    matches = chapter_pattern.findall(text)
+
+    for idx_str, title, content in matches:
+        idx = int(idx_str)
+        title = re.sub(r"[\*\[\]]", "", title).strip()
+
+        outline = "暂无大纲"
+
+        # 优先匹配长篇格式的 "章节大纲"，兼容 **章节大纲**
+        long_match = re.search(r"\**章节大纲\**[:：]\s*(.+)", content, re.DOTALL)
+        if long_match:
+            outline = long_match.group(1).strip()
+            # 长篇格式通常章节大纲在最后，为了安全，截断到下一个大标题或列表项
+            cutoff = re.search(r"\n\s*(?:##|[一二三四五六]、)", outline)
+            if cutoff:
+                outline = outline[: cutoff.start()].strip()
+        else:
+            # 匹配短篇格式的 "核心剧情"，兼容 **核心剧情** 以及列表项 - 核心剧情
+            short_match = re.search(r"(?:-\s*)?\**核心剧情\**[:：]\s*(.+)", content, re.DOTALL)
+            if short_match:
+                outline = short_match.group(1).strip()
+                # 查找下一个以 "- " 开头的行，或者大标题
+                cutoff = re.search(r"\n\s*(?:-\s*|##|[一二三四五六]、)", outline)
+                if cutoff:
+                    outline = outline[: cutoff.start()].strip()
+
+        outlines.append({"chapterIndex": idx, "title": title, "outline": outline})
+    return outlines
+
+
+def _parse_endings(text: str) -> list[dict]:
+    """解析结局设计"""
+    endings = []
+    # 提取结局设计区块
+    ending_text = _extract_section(text, "多结局设计")
+    if not ending_text:
+        ending_text = text
+
+    # 兼容 **结局1**
+    ending_pattern = re.compile(r"\**结局(\d+)\**[:：]\s*(.+?)\n(.*?)(?=\**结局\d+\**[:：]|$)", re.DOTALL)
+    matches = ending_pattern.findall(ending_text)
+
+    for idx_str, title, content in matches:
+        title = re.sub(r"[\*\[\]]", "", title).strip()
+
+        # 兼容 **触发条件**
+        cond_match = re.search(r"\**触发条件\**[:：]\s*(.+)", content)
+        # 兼容 **核心剧情**
+        summary_match = re.search(r"\**核心剧情\**[:：]\s*(.+)", content, re.DOTALL)
+
+        condition = cond_match.group(1).strip() if cond_match else "无"
+        summary = summary_match.group(1).strip() if summary_match else ""
+
+        endings.append({"endingIndex": int(idx_str), "title": title, "condition": condition, "summary": summary})
+    return endings
+
+
+def generate_core_seeds(tags: list[str], idea: str) -> list[str]:
+    """生成创意种子列表"""
+    user_prompt = f"剧情标签：{'，'.join(tags)}\n故事初步构思：{idea if idea else '无'}"
+    response = invoke(prompt(story_seed_system_prompt, user_prompt))
+    return _parse_creative_directions(response)
+
+
+def generate_architecture(core_seed: str, total_chapters: int) -> dict:
+    """根据选定的创意生成完整架构"""
+
+    ending_count = random.randint(3, 4)
+
+    user_prompt = f"""
+1. 创意方向：
+{core_seed}
+
+2. 期望章节数：{total_chapters}章
+
+3. 期望结局数：{ending_count}个
+"""
+
+    if total_chapters <= 6:
+        # 短篇
+        arch_response = invoke(prompt(short_architecture_system_prompt, user_prompt))
+
+        # 提取章节目录部分
+        # 短篇架构中，目录在 "## 五、每章节目录与核心大纲" 下
+        chapter_directory_text = _extract_section(arch_response, "每章节目录与核心大纲")
+
+        # 如果提取为空（可能AI格式有误），则保留全文，依赖后续解析的鲁棒性
+        if not chapter_directory_text.strip():
+            chapter_directory_text = arch_response
+
+        outlines = _parse_outlines(chapter_directory_text)
+    else:
+        # 长篇
+        arch_response = invoke(prompt(long_architecture_system_prompt, user_prompt))
+
+        # 生成目录 (使用完整架构作为输入)
+        dir_user_prompt = f"""
+1. 基础创意：
+{core_seed}
+
+2. 完整架构：
+{arch_response}
+
+3. 明确参数：总章节数{total_chapters}章、期望结局数{ending_count}个。
+"""
+        chapter_directory_text = invoke(prompt(chapter_directory_system_prompt, dir_user_prompt))
+        outlines = _parse_outlines(chapter_directory_text)
+
+    # 提取信息
+    title, description = _parse_title_description(arch_response)
+    initial_attributes = _parse_attributes(arch_response)
+    endings = _parse_endings(arch_response)
 
     return {
         "title": title,
         "description": description,
-        "core_seed": core_seed
-    }
-
-def generate_architecture(core_seed: str, total_chapters: int) -> dict:
-    """根据剧情种子生成属性系统、剧情架构等
-    """
-    # 1. 调用各阶段生成
-    attribute_system = invoke(build_attribute_prompt(core_seed))
-    characters = invoke(build_character_dynamics_prompt(core_seed, attribute_system))
-    architecture = invoke(build_game_architecture_prompt(core_seed, attribute_system, characters, total_chapters))
-    chapter_directory = invoke(build_chapter_directory_prompt(core_seed, attribute_system, characters, architecture, total_chapters))
-
-    # 2. 解析章节大纲列表
-    outlines = _parse_chapter_directory(chapter_directory)
-
-    # 3. 解析初始属性
-    initial_attributes = _parse_initial_attributes(attribute_system)
-
-    # 4. 返回核心结构
-    return {
-        "outlines": outlines,
         "initial_attributes": initial_attributes,
-        "raw": {
-            "attribute_system": attribute_system,
-            "characters": characters,
-            "architecture": architecture,
-            "chapter_directory": chapter_directory
-        }
+        "outlines": outlines,
+        "endings_summary": endings,
+        "architecture_text": arch_response,
+        "chapter_directory_text": chapter_directory_text,
     }
