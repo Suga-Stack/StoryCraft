@@ -17,7 +17,6 @@ class Music(models.Model):
 class Gamework(models.Model):
     """游戏作品模型"""
 
-    # gamework_id = models.AutoField(primary_key=True, verbose_name="Gamework ID")  # 游戏作品 ID
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="gameworks", verbose_name="Author"
     )  # 作者

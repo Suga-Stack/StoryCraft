@@ -45,7 +45,6 @@ urlpatterns = [
         CommentReportViewSet.as_view({"get": "retrieve", "delete": "destroy", "patch": "resolve"}),
         name="comment-report-detail",
     ),
-    # 存档接口
     path("<int:userId>/saves/<int:workId>/<str:slot>/", SaveDetailView.as_view(), name="user-save-detail"),
     path("<int:userId>/saves/<int:workId>/", SaveListView.as_view(), name="user-save-list"),
 ]

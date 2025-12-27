@@ -10,6 +10,8 @@ from .models import Gamework
 
 
 class GameworkDetailSerializer(serializers.ModelSerializer):
+    """游戏作品详细序列化器"""
+
     author = serializers.StringRelatedField(read_only=True)
     tags = serializers.PrimaryKeyRelatedField(many=True, read_only=False, queryset=Tag.objects.all())
     image_url = serializers.SerializerMethodField()
@@ -255,6 +257,8 @@ class GameworkDetailSerializer(serializers.ModelSerializer):
 
 
 class GameworkSimpleSerializer(serializers.ModelSerializer):
+    """游戏作品简要序列化器"""
+
     author = serializers.StringRelatedField(read_only=True)
     tags = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
     image_url = serializers.SerializerMethodField()

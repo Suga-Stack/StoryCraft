@@ -90,7 +90,7 @@ def _parse_outlines(text: str) -> list[dict]:
     """解析章节大纲"""
     outlines = []
     # 匹配 第X章 - [标题]，兼容 **第X章**
-    # 增加对下一章节或大标题( (##)? [一二三四五六]、)的预查
+    # 对下一章节或大标题( (##)? [一二三四五六]、)预查
     # 兼容 ## 第X章 和 第X章
 
     chapter_start = r"(?:^|\n)\s*(?:##\s*)?(?:[\*]*\s*)?第(\d+)章\s*-\s*(.+?)\n"
@@ -109,7 +109,7 @@ def _parse_outlines(text: str) -> list[dict]:
         long_match = re.search(r"\**章节大纲\**[:：]\s*(.+)", content, re.DOTALL)
         if long_match:
             outline = long_match.group(1).strip()
-            # 长篇格式通常章节大纲在最后，但为了安全，截断到下一个大标题或列表项
+            # 长篇格式通常章节大纲在最后，为了安全，截断到下一个大标题或列表项
             cutoff = re.search(r"\n\s*(?:##|[一二三四五六]、)", outline)
             if cutoff:
                 outline = outline[: cutoff.start()].strip()

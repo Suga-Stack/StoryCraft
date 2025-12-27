@@ -9,6 +9,8 @@ User = get_user_model()
 
 
 class FavoriteFolderSerializer(serializers.ModelSerializer):
+    """收藏夹序列化器"""
+
     name = serializers.CharField(required=False, allow_blank=True)
     favorites_count = serializers.IntegerField(source="favorites.count", read_only=True)
 
@@ -22,6 +24,8 @@ class FavoriteFolderSerializer(serializers.ModelSerializer):
 
 
 class FavoriteSerializer(serializers.ModelSerializer):
+    """收藏序列化器"""
+
     user = serializers.StringRelatedField(read_only=True)
     gamework_id = serializers.PrimaryKeyRelatedField(
         source="gamework",  # 输入字段“id”映射到模型的 gamework 外键
@@ -70,6 +74,8 @@ class RecursiveField(serializers.Serializer):
 
 
 class CommentSerializer(serializers.ModelSerializer):
+    """评论序列化器"""
+
     user = serializers.StringRelatedField(read_only=True)
     profile_picture = serializers.CharField(source="user.profile_picture", read_only=True)
     replies = RecursiveField(many=True, read_only=True)
@@ -115,6 +121,8 @@ class CommentSerializer(serializers.ModelSerializer):
 
 
 class RatingSerializer(serializers.ModelSerializer):
+    """评分序列化器"""
+
     user = serializers.StringRelatedField(read_only=True)
     id = serializers.PrimaryKeyRelatedField(
         source="gamework", queryset=Gamework.objects.filter(is_published=True), write_only=True

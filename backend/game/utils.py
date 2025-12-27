@@ -112,9 +112,7 @@ def _chunk_narrations(text: str, min_len: int = 25, max_len: int = 60) -> list[s
 
 
 def _chunk_reaction(text: str, min_len: int = 25, max_len: int = 60) -> list[str]:
-    """
-    将即时反应文本按句切分并聚合为 25-60 字的块。
-    """
+    """将即时反应文本按句切分并聚合为 25-60 字的块。"""
     if not text:
         return []
     sentences = _split_sentences(text)
@@ -277,9 +275,7 @@ def _strip_headers(raw: str) -> str:
 
 
 def parse_raw_chapter(raw_content: str, ranges: list[int]) -> dict:
-    """
-    解析章节内容，根据 ranges 切分场景。
-    """
+    """解析章节内容，根据 ranges 切分场景。返回章节结构化数据。"""
     body = _strip_headers(raw_content)
     segments = _split_by_ranges_safely(body, ranges)
 
@@ -351,7 +347,7 @@ def update_story_directory(story, new_outlines: list[dict]):
         if idx is None or new_outline is None:
             continue
 
-        # 1. 更新标题 (如果有)
+        # 更新标题 (如果有)
         if new_title:
             # 匹配行： "### 第1章 - 旧标题" 或 "第1章"
             pattern_title_line = re.compile(r"^((?:#+\s*)?第\s*" + str(idx) + r"\s*章).*$", re.MULTILINE)
@@ -361,7 +357,7 @@ def update_story_directory(story, new_outlines: list[dict]):
                 new_header = f"{m_title.group(1)} - {new_title}"
                 directory = directory[: m_title.start()] + new_header + directory[m_title.end() :]
 
-        # 2. 更新大纲
+        # 更新大纲
         pattern_chapter_start = re.compile(r"^(?:#+\s*)?第\s*" + str(idx) + r"\s*章.*$", re.MULTILINE)
         m_start = pattern_chapter_start.search(directory)
         if not m_start:

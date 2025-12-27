@@ -68,6 +68,7 @@ def _select_background_music(tags: List[str]) -> List[Music]:
 
 
 def _build_chapter_response(chapter: StoryChapter) -> Dict[str, Any]:
+    """构建章节响应载荷"""
     payload = {"chapterIndex": chapter.chapter_index, "title": chapter.title, "scenes": []}
     for scene in chapter.scenes.order_by("scene_index"):
         # 确保返回的backgroundImage是完整的URL
@@ -86,6 +87,7 @@ def _build_chapter_response(chapter: StoryChapter) -> Dict[str, Any]:
 
 
 def _generate_chapter(gamework_id: int, chapter_index: int, user_prompt: str = ""):
+    """生成并保存单个章节的内容"""
     story = Story.objects.select_related("gamework").get(gamework_id=gamework_id)
     if not story.initial_generation_complete:
         raise ValueError("故事初始信息未完成，无法生成章节。")
@@ -549,7 +551,7 @@ def create_gamework(user, tags: List[str], idea: str, length: str, modifiable: b
     """
     total_chapters = _resolve_total_chapters(length)
 
-    # 1. 创建占位实例
+    # 创建占位实例
     gamework = Gamework.objects.create(author=user)
     Story.objects.create(
         gamework=gamework,
@@ -557,21 +559,21 @@ def create_gamework(user, tags: List[str], idea: str, length: str, modifiable: b
         ai_callable=modifiable,
     )
 
-    # 2. 关联标签
+    # 关联标签
     from tags.models import Tag
 
     tag_objects = [Tag.objects.get_or_create(name=tag_name)[0] for tag_name in tags]
     gamework.tags.set(tag_objects)
 
-    # 3. 匹配并设置背景音乐
+    # 匹配并设置背景音乐
     music_list = _select_background_music(tags)
     if music_list:
         gamework.background_musics.set(music_list)
 
-    # 4. 启动后台生成任务
+    # 启动后台生成任务
     _start_gamework_details_generation(gamework.id, tags, idea, total_chapters)
 
-    # 5. 立即返回
+    # 立即返回
     return {"gameworkId": gamework.id}
 
 
@@ -640,25 +642,25 @@ def get_chapter_status(gamework: Gamework, chapter_index: int) -> dict:
     if chapter_index < 1 or chapter_index > story.total_chapters:
         return {"status": "error", "message": f"章节索引 {chapter_index} 超出范围"}
 
-    # 1. 检查章节是否已物理存在于数据库
+    # 检查章节是否已物理存在于数据库
     try:
         chapter = StoryChapter.objects.prefetch_related("scenes").get(story=story, chapter_index=chapter_index)
         return {"status": "ready", "chapter": _build_chapter_response(chapter)}
     except StoryChapter.DoesNotExist:
         pass
 
-    # 2. 如果章节不存在，再检查全局生成锁
+    # 如果章节不存在，再检查全局生成锁
     if story.is_generating and story.current_generating_chapter == chapter_index:
         return {
             "status": "generating",
             "progress": {"currentChapter": story.current_generating_chapter, "totalChapters": story.total_chapters},
         }
 
-    # 3. 如果已完成所有章节的生成流程，但仍找不到，说明出错了
+    # 如果已完成所有章节的生成流程，但仍找不到，说明出错了
     if story.is_complete:
         return {"status": "error", "message": "章节应已生成但未找到"}
 
-    # 4. 否则，就是尚未开始生成
+    # 否则，就是尚未开始生成
     return {"status": "pending", "message": "章节尚未开始生成"}
 
 

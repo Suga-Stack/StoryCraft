@@ -311,16 +311,6 @@ class LogoutView(APIView):
         return Response({"code": 400, "message": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
 
-"""
-class CurrentUserView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get(self, request):
-        data = UserSerializer(request.user).data
-        return Response({'code': 200, 'data': {'user': data}})
-"""
-
-
 class UserPreferenceView(generics.RetrieveUpdateAPIView):
     serializer_class = UserPreferenceSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -536,6 +526,10 @@ class RecentMyGameworksView(APIView):
 
 
 class UserSignInView(APIView):
+    """
+    用户签到接口
+    """
+
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
@@ -655,6 +649,10 @@ class UserSignInView(APIView):
 
 
 class RechargeViewSet(viewsets.ViewSet):
+    """
+    积分充值接口
+    """
+
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
@@ -696,6 +694,10 @@ class RechargeViewSet(viewsets.ViewSet):
 
 
 class RewardViewSet(viewsets.ViewSet):
+    """
+    作品打赏接口
+    """
+
     permission_classes = [permissions.IsAuthenticated]
 
     @swagger_auto_schema(
@@ -761,6 +763,10 @@ class RewardViewSet(viewsets.ViewSet):
 
 
 class CreditLogViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    用户积分流水接口
+    """
+
     serializer_class = CreditLogSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = None
@@ -834,6 +840,10 @@ class GameworkReportViewSet(viewsets.ModelViewSet):
 
 
 class CommentReportViewSet(viewsets.ModelViewSet):
+    """
+    评论举报接口
+    """
+
     queryset = CommentReport.objects.all()
     serializer_class = CommentReportSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -892,10 +902,6 @@ class CommentReportViewSet(viewsets.ModelViewSet):
 class SaveDetailView(APIView):
     """
     存档详情：PUT 保存/更新；GET 读取；DELETE 删除
-    路径：
-      - PUT    /api/users/:userId/saves/:workId/:slot
-      - GET    /api/users/:userId/saves/:workId/:slot
-      - DELETE /api/users/:userId/saves/:workId/:slot
     """
 
     permission_classes = [permissions.IsAuthenticated]
@@ -933,7 +939,7 @@ class SaveDetailView(APIView):
 
         target_user, gamework = self._get_target(userId, workId)
 
-        # 兼容从 data.work.coverUrl 中抽取缩略图
+        # 从 data.work.coverUrl 中抽取缩略图
         thumbnail = None
         work_info = data.get("work")
         if isinstance(work_info, dict):
@@ -974,7 +980,6 @@ class SaveDetailView(APIView):
 class SaveListView(APIView):
     """
     列出某作品所有槽位摘要
-    路径：GET /api/users/:userId/saves/:workId
     """
 
     permission_classes = [permissions.IsAuthenticated]

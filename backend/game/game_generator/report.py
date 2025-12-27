@@ -5,6 +5,7 @@ from .prompts import report_system_prompt
 
 
 def _parse_report(text: str) -> dict:
+    """从报告文本中提取称号、评价和特质"""
     title_match = re.search(r"\[称号\][：:]\s*(.+)", text)
     content_match = re.search(r"\[评价\][：:]\s*(.+)", text)
     traits_match = re.search(r"\[特质\][：:]\s*(.+)", text)
@@ -20,6 +21,7 @@ def _parse_report(text: str) -> dict:
 
 
 def generate_report_content(global_summary: str, ending_summary: str, ending_title: str) -> dict:
+    """生成游戏结局报告内容"""
     user_prompt = f"""
 # 全局剧情摘要
 {global_summary}

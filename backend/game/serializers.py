@@ -21,6 +21,8 @@ class GameCreateSerializer(serializers.Serializer):
 
 
 class GameChapterChoiceSerializer(serializers.Serializer):
+    """玩家选项序列化器"""
+
     choiceId = serializers.IntegerField()
     text = serializers.CharField()
     attributesDelta = serializers.DictField(
@@ -31,17 +33,23 @@ class GameChapterChoiceSerializer(serializers.Serializer):
 
 
 class GameChapterDialogueSerializer(serializers.Serializer):
+    """对话序列化器"""
+
     narration = serializers.CharField()
     playerChoices = GameChapterChoiceSerializer(many=True, required=False, allow_null=True)
 
 
 class GameChapterSceneSerializer(serializers.Serializer):
+    """场景序列化器"""
+
     id = serializers.IntegerField()
     backgroundImage = serializers.CharField()
     dialogues = GameChapterDialogueSerializer(many=True)
 
 
 class GameChapterResponseSerializer(serializers.Serializer):
+    """章节响应序列化器"""
+
     chapterIndex = serializers.IntegerField()
     title = serializers.CharField()
     scenes = GameChapterSceneSerializer(many=True)
@@ -56,18 +64,24 @@ class GameChapterManualUpdateSerializer(serializers.Serializer):
 
 
 class GameEndingManualUpdateSerializer(serializers.Serializer):
+    """用于手动更新结局内容的序列化器"""
+
     endingIndex = serializers.IntegerField(help_text="结局Index")
     title = serializers.CharField(max_length=255, help_text="结局标题")
     scenes = GameChapterSceneSerializer(many=True)
 
 
 class ChapterOutlineSerializer(serializers.Serializer):
+    """章节大纲序列化器"""
+
     chapterIndex = serializers.IntegerField()
     title = serializers.CharField(required=False, allow_blank=True)
     outline = serializers.CharField()
 
 
 class ChapterGenerateSerializer(serializers.Serializer):
+    """章节生成请求序列化器"""
+
     chapterOutlines = ChapterOutlineSerializer(many=True)
     userPrompt = serializers.CharField(required=False, allow_blank=True)
 
@@ -81,6 +95,8 @@ class EndingGenerateSerializer(serializers.Serializer):
 
 
 class GameChapterProgressSerializer(serializers.Serializer):
+    """章节生成进度序列化器"""
+
     currentChapter = serializers.IntegerField()
     totalChapters = serializers.IntegerField()
 
@@ -98,6 +114,8 @@ class GameChapterStatusResponseSerializer(serializers.Serializer):
 
 
 class GameSaveStateSerializer(serializers.Serializer):
+    """游戏存档状态序列化器"""
+
     chapterIndex = serializers.IntegerField(required=False, allow_null=True)
     endingIndex = serializers.IntegerField(required=False, allow_null=True)
     sceneId = serializers.IntegerField(required=True, allow_null=True)
@@ -108,6 +126,8 @@ class GameSaveStateSerializer(serializers.Serializer):
 
 
 class GameSavePayloadSerializer(serializers.Serializer):
+    """游戏存档载荷序列化器"""
+
     title = serializers.CharField(required=False, allow_blank=True)
     timestamp = serializers.IntegerField(required=False, allow_null=True)
     state = GameSaveStateSerializer()

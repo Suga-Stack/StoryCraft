@@ -7,9 +7,9 @@ from gameworks.models import Gamework
 from tags.models import Tag
 
 
-# 用户模型
 class User(AbstractUser):
-    # user_id = models.AutoField(primary_key=True)  # 用户id，自动递增的主键
+    """自定义用户模型，扩展自 AbstractUser"""
+
     username = models.CharField(max_length=255, unique=True)  # 用户名，唯一
     email = models.EmailField(unique=True)  # 邮箱唯一
     password = models.CharField(max_length=255)  # 密码哈希值
@@ -32,6 +32,8 @@ class User(AbstractUser):
 
 
 class UserSignIn(models.Model):
+    """用户签到信息模型"""
+
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="signin_info")
     last_signin_date = models.DateField(null=True, blank=True)
     continuous_days = models.IntegerField(default=0)
@@ -41,6 +43,8 @@ class UserSignIn(models.Model):
 
 
 class SignInLog(models.Model):
+    """用户每日签到记录"""
+
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="signin_logs")
     date = models.DateField()
 

@@ -17,18 +17,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
-
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
-
-# SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv("SECRET_KEY", "django-secure-default-key--k$yb$ixo21c3ci)k)l)mp*#79)7u0_5%xbfr-r_hrv1@p5$$ud")
 
-# SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG", "False") == "True"
 
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1,web").split(",")
@@ -43,16 +36,16 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "corsheaders",  # CORS支持
+    "corsheaders",
     "rest_framework",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
     "drf_spectacular",
     "drf_yasg",
-    "users",  # 用户
-    "gameworks",  # 游戏作品
-    "tags",  # 标签
-    "interactions",  # 收藏/评分/评论
+    "users",
+    "gameworks",
+    "tags",
+    "interactions",
     "game",
     "stories",
 ]
@@ -90,7 +83,6 @@ WSGI_APPLICATION = "project.wsgi.application"
 
 
 # Database
-# https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
 if os.getenv("DB_ENGINE") == "django.db.backends.mysql":
     DATABASES = {
@@ -113,13 +105,13 @@ else:
             "ENGINE": "django.db.backends.sqlite3",
             "NAME": BASE_DIR / "db.sqlite3",
             "OPTIONS": {
-                "timeout": 30,  # 数据库锁等待超时时间(秒),增加到30秒
+                "timeout": 30,
                 "init_command": (
-                    "PRAGMA journal_mode=WAL;"  # 使用 WAL 模式提高并发性能
-                    "PRAGMA synchronous=NORMAL;"  # 平衡性能和安全性
-                    "PRAGMA busy_timeout=30000;"  # 30秒超时
-                    "PRAGMA temp_store=MEMORY;"  # 使用内存存储临时数据
-                    "PRAGMA cache_size=-64000;"  # 64MB 缓存
+                    "PRAGMA journal_mode=WAL;"
+                    "PRAGMA synchronous=NORMAL;"
+                    "PRAGMA busy_timeout=30000;"
+                    "PRAGMA temp_store=MEMORY;"
+                    "PRAGMA cache_size=-64000;"
                 ),
             },
         }
@@ -143,10 +135,6 @@ USE_I18N = True
 
 USE_TZ = True
 
-
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/4.2/howto/static-files/
-
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
@@ -164,10 +152,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # 指定用户模型
 AUTH_USER_MODEL = "users.User"
 
-# 新增：信任 Nginx 转发的 HTTPS 协议头，确保 request.is_secure() 返回 True
+# 信任 Nginx 转发的 HTTPS 协议头
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
-# 完全关闭权限验证
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",  # 使用JWT认证
@@ -213,7 +201,7 @@ DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)
 CACHES = {
     "default": {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": os.getenv("REDIS_URL", "redis://127.0.0.1:6379/1"),  # 支持环境变量
+        "LOCATION": os.getenv("REDIS_URL", "redis://127.0.0.1:6379/1"),
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
         },
@@ -238,9 +226,6 @@ LOGGING = {
         },
     },
     "filters": {
-        #'require_debug_false': {
-        #    '()': 'django.utils.log.RequireDebugFalse',
-        # },
         "error_only": {
             "()": "django.utils.log.CallbackFilter",
             "callback": lambda record: record.levelno == logging.ERROR,
@@ -282,14 +267,10 @@ LOGGING = {
     },
 }
 
-# ============================================
 # CORS配置
-# ============================================
 
-# 生产环境通常设为 False，通过 CORS_ALLOWED_ORIGINS 控制
 CORS_ALLOW_ALL_ORIGINS = True
 
-# 读取 CSRF_TRUSTED_ORIGINS，解决 Django Admin 登录时的 Origin checking failed 错误
 CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost").split(",")
 
 CORS_ALLOW_METHODS = [

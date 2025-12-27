@@ -224,7 +224,6 @@ class RecommendView(generics.ListAPIView):
 
     serializer_class = GameworkSimpleSerializer
     permission_classes = [permissions.IsAuthenticated]
-    # pagination_class = None  # 禁用分页，返回完整结果
 
     @swagger_auto_schema(
         operation_summary="推荐作品",

@@ -12,10 +12,12 @@ def generate_cover_image(core_seed: str, size: str = "1920x1080"):
 
 
 def _extract_scenes_prompt(raw_scenes_prompt: str):
-    # 使用正则分割每个画面块，兼容多种格式
-    # 格式1: ## 画面1：
-    # 格式2: **画面1：**
-    # 格式3: 画面1：
+    """
+    使用正则分割每个画面块，兼容多种格式
+    格式1: ## 画面1：
+    格式2: **画面1：**
+    格式3: 画面1：
+    """
     parts = re.split(r"(?:^|\n)\s*(?:##|\*\*|)\s*画面\d+[:：](?:\*\*)?", raw_scenes_prompt)
 
     ranges = []

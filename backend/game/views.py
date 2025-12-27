@@ -465,9 +465,8 @@ class GameSaveDetailView(views.APIView):
             or ""
         )
 
-        # 添加重试机制处理 SQLite 数据库锁定问题
         max_retries = 3
-        retry_delay = 0.5  # 500ms
+        retry_delay = 0.5
 
         for attempt in range(max_retries):
             try:
@@ -486,7 +485,6 @@ class GameSaveDetailView(views.APIView):
                 return Response({"ok": True}, status=status.HTTP_200_OK)
             except OperationalError as e:
                 if "database is locked" in str(e) and attempt < max_retries - 1:
-                    # 如果是数据库锁定错误且还有重试机会，等待后重试
                     time.sleep(retry_delay * (attempt + 1))  # 递增延迟
                     continue
                 else:
