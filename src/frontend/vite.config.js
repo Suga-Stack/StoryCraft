@@ -5,7 +5,7 @@ import path from 'path'
 export default defineConfig(({ mode }) => {
   // 根据模式加载环境变量
   const env = loadEnv(mode, process.cwd(), '')
-  
+
   return {
     plugins: [vue()], // 注册插件
     resolve: {
@@ -59,4 +59,3 @@ export default defineConfig(({ mode }) => {
     }
   }
 })
-   
